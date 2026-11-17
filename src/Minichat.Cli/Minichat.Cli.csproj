@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>minichat</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Terminal.Gui" Version="2.5.0" />
+    <PackageReference Include="Terminal.Gui.Editor" Version="2.5.7" />
+    <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
+    <ProjectReference Include="../Minichat.Protocol/Minichat.Protocol.csproj" />
+    <Content Include="../../apps/android/app/src/main/assets/turndown.js" Link="browser/turndown.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../apps/android/app/src/main/assets/turndown-LICENSE.txt" Link="browser/turndown-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../apps/android/app/src/main/assets/browser.js" Link="browser/browser.js" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

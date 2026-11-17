@@ -1,0 +1,27 @@
+<Project>
+  <PropertyGroup>
+    <DisableUnsupportedError>true</DisableUnsupportedError>
+    <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
+    <NdkHost Condition="$([MSBuild]::IsOSPlatform('Windows'))">windows-x86_64</NdkHost>
+    <NdkHost Condition="$([MSBuild]::IsOSPlatform('Linux'))">linux-x86_64</NdkHost>
+    <NdkHost Condition="$([MSBuild]::IsOSPlatform('OSX'))">darwin-x86_64</NdkHost>
+    <NdkBin>$(ANDROID_NDK_ROOT)/toolchains/llvm/prebuilt/$(NdkHost)/bin</NdkBin>
+    <SysRoot Condition="!$([MSBuild]::IsOSPlatform('Windows'))">$(ANDROID_NDK_ROOT)/toolchains/llvm/prebuilt/$(NdkHost)/sysroot</SysRoot>
+    <CppCompilerAndLinker>$(NdkBin)/clang</CppCompilerAndLinker>
+    <ObjCopyName>$(NdkBin)/llvm-objcopy</ObjCopyName>
+    <CppCompilerAndLinker Condition="$([MSBuild]::IsOSPlatform('Windows'))">android-clang.cmd</CppCompilerAndLinker>
+    <ObjCopyName Condition="$([MSBuild]::IsOSPlatform('Windows'))">android-objcopy.cmd</ObjCopyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <LinkerArg Include="--target=aarch64-linux-android26" />
+    <LinkerArg Include="-Wl,-z,max-page-size=16384" />
+    <LinkerArg Include="-Wl,-z,noexecstack" />
+  </ItemGroup>
+  <Target Name="PrepareAndroidNativeTools" BeforeTargets="SetupOSSpecificProps" AfterTargets="Build">
+    <WriteLinesToFile Condition="$([MSBuild]::IsOSPlatform('Windows'))" File="$(MSBuildProjectDirectory)/$(CppCompilerAndLinker)" Lines="&quot;$(NdkBin)/clang.exe&quot; %*" Overwrite="true" />
+    <WriteLinesToFile Condition="$([MSBuild]::IsOSPlatform('Windows'))" File="$(MSBuildProjectDirectory)/$(ObjCopyName)" Lines="&quot;$(NdkBin)/llvm-objcopy.exe&quot; %*" Overwrite="true" />
+  </Target>
+  <Target Name="FixAndroidExportSections" AfterTargets="IlcCompile" BeforeTargets="LinkNative" Condition="Exists('$(ExportsFile)')">
+    <WriteLinesToFile File="$(ExportsFile)" Lines="$([System.IO.File]::ReadAllText('$(ExportsFile)').Replace('global: _init; _fini;', 'global: '))" Overwrite="true" />
+  </Target>
+</Project>

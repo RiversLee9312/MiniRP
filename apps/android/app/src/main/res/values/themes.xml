@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.Minichat" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">#F9F8FF</item>
+    </style>
+    <color name="icon_background">#F3F0FA</color>
+</resources>

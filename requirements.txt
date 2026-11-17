@@ -1,3 +1,0 @@
-prompt_toolkit>=3.0.50,<4
-mcp>=2.3,<3
-markdownify>=1.2,<2

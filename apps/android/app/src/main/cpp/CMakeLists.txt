@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(minichatbridge C)
+add_library(minichatbridge SHARED native_bridge.c)
+target_link_libraries(minichatbridge dl)
+target_link_options(minichatbridge PRIVATE "-Wl,-z,max-page-size=16384")

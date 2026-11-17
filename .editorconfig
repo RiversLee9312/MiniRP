@@ -1,0 +1,22 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cs,csproj,props,targets}]
+indent_style = space
+indent_size = 4
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_prefer_braces = true:warning
+csharp_new_line_before_open_brace = all
+csharp_preserve_single_line_statements = true
+csharp_preserve_single_line_blocks = false
+dotnet_diagnostic.IL2026.severity = error
+dotnet_diagnostic.IL3050.severity = error
+
+[*.{kt,kts}]
+indent_style = space
+indent_size = 4
