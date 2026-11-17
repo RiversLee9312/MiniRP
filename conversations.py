@@ -26,6 +26,12 @@ class ConversationStore:
     def new(preset_id, name=""):
         return {"id": uuid.uuid4().hex[:12], "preset_id": preset_id, "name": name or "新对话", "version": 1}
 
+    def db_path(self, preset_id, ident, role):
+        if role not in ("chat", "search", "env", "preset"):
+            raise ConversationError("未知 Agent session")
+        base = self._path(preset_id, ident)
+        return base.parent / ident / "agents" / (role + ".sqlite")
+
     def save(self, conversation):
         path = self._path(conversation["preset_id"], conversation["id"])
         path.parent.mkdir(parents=True, exist_ok=True)

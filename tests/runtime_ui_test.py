@@ -43,6 +43,7 @@ class RuntimeTest(unittest.TestCase):
             kwargs["on_reasoning"]("逐字")
             kwargs["on_reasoning"]("思考")
             tools = [t["function"]["name"] for t in kwargs.get("tools", [])]
+            self.assertTrue({"db_list", "db_read", "db_write", "db_patch", "db_search", "db_delete"}.issubset(tools))
             if "real_search" in tools:
                 return {"content": "", "reasoning_content": "逐字思考", "tool_calls": [
                     {"id": "c", "type": "function", "function": {"name": "submit_search_results", "arguments": '{"refs": []}'}}]}
@@ -186,7 +187,7 @@ class RuntimeTest(unittest.TestCase):
                 ui = TerminalUI(AgentTrace(), input=inp, output=WideOutput())
                 values = {"DEEPSEEK_MODEL": "configured-model", "DEEPSEEK_API_KEY": "test-password-value",
                           "DEEPSEEK_BASE_URL": "https://api.example.com", "DEEPSEEK_THINKING": "disabled",
-                          "DEEPSEEK_REASONING_EFFORT": "high"}
+                          "DEEPSEEK_REASONING_EFFORT": "high", "MINICHAT_FETCH_BACKEND": "api_then_local"}
                 selected = []
                 def main(*, ui):
                     selected.append(ui.configure_settings(values))
@@ -197,12 +198,55 @@ class RuntimeTest(unittest.TestCase):
                             break
                         await asyncio.sleep(0.01)
                     await asyncio.sleep(0.08)
-                    inp.send_text("\t\t\t\t\t\r")
+                    inp.send_text("\t\t\t\t\t\t\r")
                 actor_task = asyncio.create_task(actor())
                 self.assertEqual(await asyncio.wait_for(ui.run_async(main), 6), 0)
                 await actor_task
                 self.assertEqual(selected, [values])
                 self.assertNotIn(values["DEEPSEEK_API_KEY"], json.dumps(ui.trace.export()))
+        asyncio.run(scenario())
+
+    def test_input_grows_caps_and_scrolls_with_cursor_in_all_panes(self):
+        async def scenario():
+            with create_pipe_input() as inp:
+                ui = TerminalUI(AgentTrace(), input=inp, output=WideOutput())
+                measurements = []
+                def main(*, ui):
+                    self.assertEqual(ui.read(), "/exit")
+                    return 0
+                async def actor():
+                    await asyncio.sleep(0.1)
+                    for lane in ("main", "env", "preset"):
+                        if lane != "main":
+                            ui.open_sidebar(lane)
+                            await asyncio.sleep(0.05)
+                        ui.focus(lane)
+                        area = ui.inputs[lane]
+                        area.text = ""
+                        await asyncio.sleep(0.06)
+                        initial = area.window.render_info.window_height
+                        area.text = "中文输入自动增长" * 40
+                        area.buffer.cursor_position = len(area.text)
+                        await asyncio.sleep(0.08)
+                        grown = area.window.render_info.window_height
+                        self.assertGreater(grown, initial)
+                        area.text = "很长的中文输入内容" * 900 + "光标尾部"
+                        area.buffer.cursor_position = len(area.text)
+                        await asyncio.sleep(0.08)
+                        info = area.window.render_info
+                        self.assertEqual(info.window_height, 8)
+                        self.assertGreater(area.window.vertical_scroll + area.window.vertical_scroll_2, 0)
+                        self.assertLess(info.cursor_position.y, info.window_height)
+                        area.buffer.cursor_position = 0
+                        await asyncio.sleep(0.06)
+                        self.assertEqual(area.window.vertical_scroll, 0)
+                        self.assertEqual(area.window.vertical_scroll_2, 0)
+                        measurements.append((lane, initial, grown, info.window_height))
+                    ui.enqueue("main", "/exit")
+                actor_task = asyncio.create_task(actor())
+                self.assertEqual(await asyncio.wait_for(ui.run_async(main), 8), 0)
+                await actor_task
+                self.assertEqual(len(measurements), 3)
         asyncio.run(scenario())
 
 

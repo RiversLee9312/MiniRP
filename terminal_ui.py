@@ -118,7 +118,8 @@ class TerminalUI:
             self.controls[lane] = control
             window = Window(control, wrap_lines=True, right_margins=[ScrollbarMargin()], always_hide_cursor=True)
             self.windows[lane] = window
-            area = TextArea(height=3, multiline=False, prompt="❯ ", focus_on_click=True,
+            area = TextArea(height=Dimension(min=2, max=8), multiline=True, prompt="❯ ", focus_on_click=True,
+                            dont_extend_height=True, scrollbar=True, wrap_lines=True,
                             accept_handler=lambda buffer, lane=lane: self.accept(lane, buffer),
                             history=InMemoryHistory(), completer=SlashCompleter(), complete_while_typing=True)
             self.inputs[lane] = area
@@ -146,6 +147,16 @@ class TerminalUI:
             return wide if width >= 130 else medium
 
         keys = KeyBindings()
+        editing = Condition(lambda: self._dialog_cancel is None and any(self.app.layout.has_focus(area) for area in self.inputs.values()))
+
+        @keys.add("enter", filter=editing)
+        def _(event):
+            event.current_buffer.validate_and_handle()
+
+        @keys.add("c-j", filter=editing)
+        @keys.add("escape", "enter", filter=editing)
+        def _(event):
+            event.current_buffer.insert_text("\n")
         for index, lane in enumerate(_LANES, 1):
             keys.add(f"f{index}", filter=Condition(lambda: self._dialog_cancel is None))(lambda event, lane=lane: self.focus(lane))
 
@@ -325,13 +336,15 @@ class TerminalUI:
                                        "DEEPSEEK_MODEL", "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL")}
             thinking = RadioList([("enabled", "开启思考"), ("disabled", "关闭思考")], default=values.get("DEEPSEEK_THINKING", "enabled"))
             effort = RadioList([("low", "low"), ("high", "high"), ("max", "max")], default=values.get("DEEPSEEK_REASONING_EFFORT", "max"))
+            fetch_backend = RadioList([("api_then_local", "API 失败后用本地浏览器"), ("api", "仅 Fetch API"), ("local", "仅本地浏览器")], default=values.get("MINICHAT_FETCH_BACKEND", "api_then_local"))
             dialog_float = None
 
             def finish(save):
                 self._dialog_cancel = None
                 selected = {key: area.text for key, area in fields.items()} if save else None
                 if selected is not None:
-                    selected.update(DEEPSEEK_THINKING=thinking.current_value, DEEPSEEK_REASONING_EFFORT=effort.current_value)
+                    selected.update(DEEPSEEK_THINKING=thinking.current_value, DEEPSEEK_REASONING_EFFORT=effort.current_value,
+                                    MINICHAT_FETCH_BACKEND=fetch_backend.current_value)
                 # 密钥控件不进入轨迹、日志或对话存档。
                 for area in fields.values():
                     area.text = ""
@@ -342,7 +355,7 @@ class TerminalUI:
             rows = [Label(error, style="class:error")] if error else []
             for key, title in (("DEEPSEEK_MODEL", "模型"), ("DEEPSEEK_API_KEY", "API Key"), ("DEEPSEEK_BASE_URL", "API 地址")):
                 rows.extend([Label(title), fields[key]])
-            rows.extend([Label("思考模式"), thinking, Label("思考强度"), effort])
+            rows.extend([Label("思考模式"), thinking, Label("思考强度"), effort, Label("网页抓取后端"), fetch_backend])
             dialog = Dialog(title="模型与 API 配置 · .env", body=HSplit(rows),
                             buttons=[Button("保存", handler=lambda: finish(True)), Button("取消", handler=lambda: finish(False))],
                             modal=True, width=76)
@@ -426,7 +439,7 @@ class TerminalUI:
             matches.insert(0, "/close 关闭侧栏")
         commands = "/ 命令  ·  " + ("  ·  ".join(matches[:6]) or "/help 全部命令")
         status = f"执行 {self.busy_lane}" if self.busy_lane else "就绪"
-        return [("class:footer", f" {commands}\n F1 主聊天 · F2 世界 · F3 预设 · Shift+Tab 切换 · Alt+M 模式 · 点击展开/折叠 · Ctrl+C 取消  │ {status} · 排队 {self.pending.qsize()}")]
+        return [("class:footer", f" {commands}\n Enter 发送 · Alt+Enter 换行 · F1/F2/F3 面板 · Shift+Tab 切换 · Alt+M 模式 · Ctrl+C 取消  │ {status} · 排队 {self.pending.qsize()}")]
 
     def accept(self, lane, buffer):
         text = buffer.text.strip()

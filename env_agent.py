@@ -71,6 +71,7 @@ class EnvAgent:
         self.agent_context._compact_if_needed()
         if self.agent_context.summary:
             system += "\n【先前管理工作摘要】\n" + self.agent_context.summary
+        system += "\n" + self.agent_context.memory_prompt
         messages = [{"role": "system", "content": system}] + copy.deepcopy(self.agent_context.history) + [
             {"role": "user", "content": "【当前对话参考】\n" + (conversation or "（暂无对话）")
              + "\n\n【用户要求】\n" + (prompt or "请自行推进一小步。")},
@@ -78,7 +79,7 @@ class EnvAgent:
         state = copy.deepcopy(self.world.state)
         emit({"kind": "world_agent_start", "mode": mode})
         for _ in range(16):
-            msg = stream_chat(messages, agent="EnvAgent", tools=_WORLD_AGENT_TOOLS, on_reasoning=on_reasoning)
+            msg = stream_chat(messages, agent="EnvAgent", tools=self.agent_context.tools(_WORLD_AGENT_TOOLS), on_reasoning=on_reasoning)
             calls = msg.get("tool_calls") or []
             assistant = {"role": "assistant", "content": msg.get("content") or ""}
             if calls:
@@ -107,11 +108,11 @@ class EnvAgent:
                     args = json.loads(fn.get("arguments") or "{}")
                     if not isinstance(args, dict):
                         raise ValueError("参数必须是对象")
-                    result = execute_tool("EnvAgent", name, args, lambda: self._apply_world_tool(state, mode, name, args, self.world.sim_date))
+                    result = execute_tool("EnvAgent", name, args, lambda: self.agent_context.call_db(name, args) if self.agent_context.is_db_tool(name) else self._apply_world_tool(state, mode, name, args, self.world.sim_date))
                 except (ValueError, TypeError) as e:
                     result = f"错误：{e}"
                 emit({"kind": "world_agent_tool", "name": name, "result": result})
-                messages.append({"role": "tool", "tool_call_id": call.get("id") or "", "content": result})
+                messages.append({"role": "tool", "tool_call_id": call.get("id") or "", "content": self.agent_context.tool_result(result)})
         raise EnvAgentError("剧情 Agent 达到工具调用轮数上限，修改未保存")
 
     @staticmethod

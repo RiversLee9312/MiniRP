@@ -199,6 +199,7 @@ class PresetAgent:
 
     @staticmethod
     def edit_config(config: dict, instruction: str, on_event=None, *, context: AgentContext | None = None) -> dict:
+        context = context or AgentContext()
         emit = on_event or (lambda _e: None)
         work = copy.deepcopy(config)
         system = _PRESET_EDITOR_SYSTEM.replace(
@@ -207,12 +208,13 @@ class PresetAgent:
         if context is not None:
             context._compact_if_needed()
             system += "\n当前配置优先于旧工作历史。\n【先前工作摘要】\n" + context.summary
+        system += "\n" + context.memory_prompt
         messages = [{"role": "system", "content": system}] + (copy.deepcopy(context.history) if context is not None else []) + [
             {"role": "user", "content": instruction},
         ]
 
         for _ in range(24):
-            msg = stream_chat(messages, agent="PresetAgent", tools=_PRESET_TOOLS)
+            msg = stream_chat(messages, agent="PresetAgent", tools=context.tools(_PRESET_TOOLS))
             assistant: dict = {"role": "assistant", "content": msg.get("content") or ""}
             if msg.get("tool_calls"):
                 assistant["tool_calls"] = msg["tool_calls"]
@@ -228,9 +230,9 @@ class PresetAgent:
                 fn = call.get("function") or {}
                 args = _load_json(fn.get("arguments"))
                 result = execute_tool("PresetAgent", fn.get("name") or "", args,
-                                      lambda: _apply_preset_call(work, fn.get("name") or "", args, emit))
+                                      lambda: context.call_db(fn.get("name") or "", args) if context.is_db_tool(fn.get("name")) else _apply_preset_call(work, fn.get("name") or "", args, emit))
                 messages.append(
-                    {"role": "tool", "tool_call_id": call.get("id") or "", "content": result}
+                    {"role": "tool", "tool_call_id": call.get("id") or "", "content": context.tool_result(result)}
                 )
         else:
             raise PresetError("设定 Agent 达到工具调用轮数上限，配置未保存。")

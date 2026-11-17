@@ -197,7 +197,7 @@ def _is_safe_url(url: str) -> bool:
     return parts.scheme in ("http", "https") and bool(parts.hostname)
 
 
-def fetch_page_details(url: str, max_chars: int = 4000) -> tuple[str, str]:
+def fetch_page_details(url: str, max_chars: int | None = None) -> tuple[str, str]:
     """调用 DeepSeek Fetch API，返回 (Markdown 正文, 标题)；失败时正文为错误说明。"""
     if _OFFLINE:
         return "抓取失败：离线测试模式", ""
@@ -206,7 +206,7 @@ def fetch_page_details(url: str, max_chars: int = 4000) -> tuple[str, str]:
         return "抓取失败：不支持的 URL。", ""
 
     try:
-        data = _api_post(client.BASE_URL + "/v1/tools/fetch", {"url": url}, timeout=40)
+        data = _api_post(client.BASE_URL + "/v1/tools/fetch", {"url": url}, timeout=30, retries=1)
     except WebAPIError as e:
         return f"抓取失败：{e}", ""
 
@@ -214,7 +214,7 @@ def fetch_page_details(url: str, max_chars: int = 4000) -> tuple[str, str]:
     title = str(data.get("title") or "").strip()
     if not content:
         return "抓取失败：页面没有可提取的正文。", title
-    return content[:max_chars], title
+    return content[:max_chars] if max_chars is not None else content, title
 
 
 def fetch_page(url: str, max_chars: int = 4000) -> str:

@@ -9,7 +9,7 @@ import deepseek_client as client
 
 DEFAULTS = {"DEEPSEEK_MODEL": "deepseek-flash", "DEEPSEEK_API_KEY": "",
             "DEEPSEEK_BASE_URL": "https://api.deepseek.com", "DEEPSEEK_THINKING": "enabled",
-            "DEEPSEEK_REASONING_EFFORT": "max"}
+            "DEEPSEEK_REASONING_EFFORT": "max", "MINICHAT_FETCH_BACKEND": "api_then_local"}
 
 
 class SettingsStore:
@@ -32,6 +32,8 @@ class SettingsStore:
             raise ValueError("思考模式必须是 enabled 或 disabled。")
         if values["DEEPSEEK_REASONING_EFFORT"] not in ("low", "high", "max"):
             raise ValueError("思考强度必须是 low/high/max。")
+        if values["MINICHAT_FETCH_BACKEND"] not in ("api", "local", "api_then_local"):
+            raise ValueError("抓取模式必须是 api/local/api_then_local。")
         original = self.path.read_text(encoding="utf-8") if self.path.exists() else ""
         lines, written = [], set()
         for line in original.splitlines():

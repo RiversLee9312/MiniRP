@@ -57,6 +57,14 @@ class SearchAgentTest(unittest.TestCase):
         self.assertTrue(saved["search_cache"])
         self.assertEqual(saved["pages"][URL]["title"], ITEM["title"])
 
+    def test_agent_decides_result_count_without_legacy_visible_cap(self):
+        self.cfg["search_editor"]["max_visible"] = 1
+        calls = [call("add_result", {**ITEM, "url": f"https://example.com/{i}", "title": f"结果 {i}"}, str(i)) for i in range(18)]
+        with patch("search_agent.stream_chat", side_effect=[response(*calls), response(call("submit_search_results"))]):
+            out = self.agent.search("需要完整的结果集合")
+        self.assertIn("共 18 条", out)
+        self.assertIn("结果 17", out)
+
     def test_multiple_searches_fetches_and_editing(self):
         captured = []
         def fake(messages, **kwargs):

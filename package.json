@@ -1,0 +1,9 @@
+{
+  "name": "minichat-browser-runtime",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Playwright MCP browser tools for the local FetchAgent",
+  "dependencies": {
+    "@playwright/mcp": "0.0.85"
+  }
+}

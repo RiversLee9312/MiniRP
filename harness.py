@@ -56,7 +56,7 @@ TOOLS = [
         "function": {
             "name": "search",
             "description": (
-                "检索公开互联网。输入自然语言查询（中文或英文），返回 4–6 条网页结果，"
+                "检索公开互联网。输入自然语言查询（中文或英文），由搜索 Agent 自主决定结果数量，"
                 "包含标题、来源、日期、链接和摘要。适用于查询新闻、事实核查、官方声明、"
                 "科学分析、时间线、市场反应等。"
             ),
@@ -100,7 +100,7 @@ class ChatAgent(AgentContext):
     # ---------- 上下文管理 ----------
     def _system_prompt(self) -> str:
         configured = self.search_agent.world.config.get("chat_agent", {}).get("system_prompt")
-        base = (configured or BASE_SYSTEM).replace("{date}", self.search_agent.world.sim_date)
+        base = (configured or BASE_SYSTEM).replace("{date}", self.search_agent.world.sim_date) + "\n\n" + self.memory_prompt
         if not self.summary:
             return base
         return base + "\n\nConversation summary so far:\n" + self.summary
@@ -141,7 +141,7 @@ class ChatAgent(AgentContext):
         trace = trace or term.Trace()
 
         for _ in range(self.max_rounds):
-            msg = stream_chat(self._api_messages(), agent="ChatAgent", tools=TOOLS, temperature=0.7)
+            msg = stream_chat(self._api_messages(), agent="ChatAgent", tools=self.tools(TOOLS), temperature=0.7)
 
             assistant: dict = {"role": "assistant", "content": msg.get("content") or ""}
             if msg.get("tool_calls"):
@@ -161,7 +161,7 @@ class ChatAgent(AgentContext):
                 result = execute_tool("ChatAgent", call.get("function", {}).get("name", ""),
                                       call.get("function", {}).get("arguments", "{}"), lambda: self._run_tool(call, trace))
                 self.history.append(
-                    {"role": "tool", "tool_call_id": call.get("id") or "", "content": result}
+                    {"role": "tool", "tool_call_id": call.get("id") or "", "content": self.tool_result(result)}
                 )
 
         self._compact_if_needed()
@@ -177,6 +177,9 @@ class ChatAgent(AgentContext):
                 args = {}
         except json.JSONDecodeError:
             args = {}
+
+        if self.is_db_tool(name):
+            return json.dumps(self.call_db(name, args), ensure_ascii=False)
 
         if name == "search":
             query = str(args.get("query") or "").strip()
@@ -264,6 +267,11 @@ def main(*, ui=None) -> int:
     conversations = ConversationStore(store.state_path.parent / "conversations")
     conversation = conversations.new(active_id)
 
+    def bind_context_dbs():
+        for role, context in (("chat", agent), ("search", search_agent.agent_context),
+                              ("env", env_agent.agent_context), ("preset", preset_agent.agent_context)):
+            context.bind_db(conversations.db_path(active_id, conversation["id"], role))
+
     def save_conversation(name=""):
         if name:
             conversation["name"] = name
@@ -282,6 +290,7 @@ def main(*, ui=None) -> int:
         nonlocal conversation, agent, search_agent
         conversation = saved
         agent = ChatAgent(search_agent)
+        bind_context_dbs()
         for context, key in ((agent, "chat"), (search_agent.agent_context, "search"),
                              (env_agent.agent_context, "env"), (preset_agent.agent_context, "preset")):
             context.history = copy.deepcopy(saved.get(key, {}).get("history", []))
@@ -378,6 +387,7 @@ def main(*, ui=None) -> int:
         if saved is None:
             return 0
         restore_conversation(saved)
+    bind_context_dbs()
     show_banner(config)
     if ui is None:
         term.info(
@@ -592,7 +602,7 @@ def main(*, ui=None) -> int:
             if line == "/reset":
                 agent.reset()
                 search_agent.reset_agent_context()
-                term.info("聊天和 SearchAgent 的会话上下文已清空；世界状态与检索记忆保留。")
+                term.info("聊天和 SearchAgent 的消息历史已清空；session DB、世界状态与检索记忆保留。")
                 continue
             if line == "/canon":
                 term.info(

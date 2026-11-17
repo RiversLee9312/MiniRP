@@ -7,7 +7,7 @@ import json
 from typing import Callable
 
 from deepseek_client import COMPACT_AT, DeepSeekError, estimate_tokens
-from agent_runtime import stream_chat
+from agent_context import AgentContext
 from presets import default_state
 
 _MERGE_SYSTEM = """将已确立事实合并压缩成不超过 40 条。保留具体时间、机构、人名、数字、地点与因果关系。
@@ -99,15 +99,14 @@ class WorldState:
             ):
                 state["canon"].append(fact)
 
-    def compact(self, state: dict) -> None:
+    def compact(self, state: dict, *, context=None) -> None:
         if len(state["canon"]) <= 120 and estimate_tokens(json.dumps(state["canon"], ensure_ascii=False)) < COMPACT_AT:
             return
         try:
-            msg = stream_chat([
-                {"role": "system", "content": _MERGE_SYSTEM},
-                {"role": "user", "content": json.dumps(state["canon"], ensure_ascii=False)},
-            ], agent="CanonSummary", content_visible=False, temperature=0.2, response_format={"type": "json_object"})
-            facts = json.loads(msg.get("content") or "{}").get("facts")
+            context = context or AgentContext()
+            text = context.run_task(_MERGE_SYSTEM, json.dumps(state["canon"], ensure_ascii=False),
+                                    agent="CanonSummary", temperature=0.2, response_format={"type": "json_object"})
+            facts = json.loads(text or "{}").get("facts")
             if isinstance(facts, list) and facts and all(isinstance(f, str) and f.strip() for f in facts):
                 state["canon"] = facts[:50]
         except (DeepSeekError, ValueError, AttributeError):
