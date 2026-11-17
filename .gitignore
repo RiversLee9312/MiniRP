@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+world_state.json
+conversations/
+__pycache__/
+*.py[cod]
+*.json.tmp
+.pytest_cache/
+tests/_live*.json
