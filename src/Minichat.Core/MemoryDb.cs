@@ -33,7 +33,7 @@ public sealed partial class MemoryDb : IDisposable
         try
         {
             Execute("CREATE VIRTUAL TABLE IF NOT EXISTS entry_search USING fts5(key,content,tokenize='trigram')");
-            Execute("INSERT INTO entry_search(key,content) SELECT e.key,e.content FROM entries e WHERE NOT EXISTS (SELECT 1 FROM entry_search s WHERE s.key=e.key)");
+            Execute("INSERT INTO entry_search(key,content) SELECT key,content FROM entries WHERE key NOT IN (SELECT key FROM entry_search)");
             _fts = true;
         }
         catch (InvalidOperationException) { _fts = false; }
@@ -88,6 +88,8 @@ public sealed partial class MemoryDb : IDisposable
 
     public string? Get(string key) => Query("SELECT content FROM entries WHERE key=?", key).FirstOrDefault()?.GetValueOrDefault("content");
 
+    public void Snapshot(string path) => Execute("VACUUM INTO ?", path);
+
     public JsonObject Write(string key, string content, int? revision = null, bool internalWrite = false)
     {
         ValidateKey(key, internalWrite);
@@ -106,7 +108,10 @@ public sealed partial class MemoryDb : IDisposable
                 Execute("INSERT INTO entries VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET content=excluded.content,revision=excluded.revision,updated_at=excluded.updated_at", key, content, current + 1, DateTimeOffset.UtcNow.ToString("O"));
                 if (_fts)
                 {
-                    Execute("DELETE FROM entry_search WHERE key=?", key);
+                    if (current != 0)
+                    {
+                        Execute("DELETE FROM entry_search WHERE key=?", key);
+                    }
                     Execute("INSERT INTO entry_search(key,content) VALUES(?,?)", key, content);
                 }
                 Execute("COMMIT");
@@ -131,10 +136,10 @@ public sealed partial class MemoryDb : IDisposable
             if (name == "db_list")
             {
                 var prefix = args.GetString("prefix");
-                var result = Query("SELECT key,revision,length(content) AS chars FROM entries WHERE substr(key,1,?)=? AND key>? ORDER BY key LIMIT ?", prefix.EnumerateRunes().Count(), prefix, args.GetString("after"), limit + 1);
+                var result = Query("SELECT key,revision,length(content) AS chars,substr(content,1,220) AS snippet FROM entries WHERE substr(key,1,?)=? AND key>? AND (?=0 OR substr(key,1,1)<>'_') ORDER BY key LIMIT ?", prefix.EnumerateRunes().Count(), prefix, args.GetString("after"), args.GetBoolean("notes_only") ? 1 : 0, limit + 1);
                 foreach (var row in result.Take(limit))
                 {
-                    rows.AddNode(new JsonObject { ["key"] = row["key"], ["revision"] = int.Parse(row["revision"]), ["chars"] = int.Parse(row["chars"]) });
+                    rows.AddNode(new JsonObject { ["key"] = row["key"], ["revision"] = int.Parse(row["revision"]), ["chars"] = int.Parse(row["chars"]), ["snippet"] = row["snippet"] });
                 }
 
                 return new()
@@ -246,7 +251,8 @@ public sealed partial class MemoryDb : IDisposable
                     _ => "instr(lower(key||char(10)||content),lower(?))>0"
                 };
                 var offset = Math.Max(0, args.GetInt32("offset"));
-                var result = Query("SELECT key,revision,substr(content,max(1,instr(lower(content),lower(?))-60),220) AS snippet FROM entries WHERE " + condition + " AND substr(key,1,?)=? ORDER BY key LIMIT ? OFFSET ?", query, useFts ? expression : query, prefix.EnumerateRunes().Count(), prefix, limit + 1, offset);
+                var order = args.GetBoolean("newest_first") ? "updated_at DESC, key DESC" : "key";
+                var result = Query("SELECT key,revision,substr(content,max(1,instr(lower(content),lower(?))-60),220) AS snippet FROM entries WHERE " + condition + " AND substr(key,1,?)=? AND (?=0 OR substr(key,1,1)<>'_') ORDER BY " + order + " LIMIT ? OFFSET ?", query, useFts ? expression : query, prefix.EnumerateRunes().Count(), prefix, args.GetBoolean("notes_only") ? 1 : 0, limit + 1, offset);
                 foreach (var row in result.Take(limit))
                 {
                     rows.AddNode(new JsonObject { ["key"] = row["key"], ["revision"] = int.Parse(row["revision"]), ["snippet"] = row["snippet"] });
@@ -270,7 +276,7 @@ public sealed partial class MemoryDb : IDisposable
             throw new InvalidOperationException("invalid key");
         }
 
-        if (!internalWrite && (key.StartsWith("_context/", StringComparison.Ordinal) || key.StartsWith("_archive/", StringComparison.Ordinal)))
+        if (!internalWrite && (key.StartsWith("_context/", StringComparison.Ordinal) || key.StartsWith("_archive/", StringComparison.Ordinal) || key.StartsWith("_history/", StringComparison.Ordinal)))
         {
             throw new InvalidOperationException("framework archive is read-only");
         }

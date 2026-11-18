@@ -3,7 +3,7 @@ namespace Minichat.Core;
 
 public sealed class EnvAgent(Workspace world, AgentSession session)
 {
-    public async Task<string> Run(string input, bool stage, CancellationToken ct)
+    public async Task<string> Run(string input, bool stage, CancellationToken ct, JsonArray? attachments = null)
     {
         var state = (JsonObject)world.State.DeepClone();
         var initial = DateOnly.Parse(state.GetString("sim_date"));
@@ -30,6 +30,13 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
             {
                 ["days"] = Tools.Integer()
             }, "days"));
+        if (!world.AgenticSearch)
+        {
+            tools.AddNode(Tools.Define("set_chat_search_guidance", "Replace session-local ChatAgent search guidance for this world. Use an empty string to clear it.", new()
+            {
+                ["guidance"] = Tools.String()
+            }, "guidance"));
+        }
         Task<JsonNode?> Apply(string name, JsonObject a, CancellationToken _)
         {
             var canon = state.GetArray("canon");
@@ -42,6 +49,12 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
             if (name == "inspect_world")
             {
                 return Task.FromResult<JsonNode?>(state.DeepClone());
+            }
+
+            if (name == "set_chat_search_guidance" && !world.AgenticSearch)
+            {
+                state["chat_search_guidance"] = a.GetString("guidance");
+                return Task.FromResult<JsonNode?>(new JsonObject { ["staged"] = true });
             }
 
             if (name == "add_fact")
@@ -95,7 +108,11 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
             return Task.FromResult<JsonNode?>(new JsonObject { ["staged"] = true });
         }
         var system = "You are EnvAgent, managing story and established facts. Inspect and make minimal precise edits with tools. World rules constrain you. Speculation in chat is not established fact. Changes are staged and committed only on successful completion. Explain actual changes concisely in the user's language. " + (stage ? "Advance the story a small step; default at most one day, at most three if explicitly requested." : "Edit facts; do not advance story or date.") + "\n" + world.WorldText + "\nStage policy:\n" + JsonValues.Serialize(world.Config["stage"]);
-        var answer = await session.Run(system, "Conversation reference:\n" + session.ToolText(JsonValue.Create(world.Conversation)) + "\nRequest:\n" + input, tools, Apply, ct);
+        if (!world.AgenticSearch)
+        {
+            system += "\nChatAgent handles search directly. When changes affect search, use set_chat_search_guidance to explain how ChatAgent should apply current canon, interpret real sources, use simulated pages, and keep caches consistent. Preserve unrelated guidance and the preset's base prompt.";
+        }
+        var answer = await session.Run(system, "Conversation reference:\n" + session.ToolText(JsonValue.Create(world.Conversation)) + "\nRequest:\n" + input, tools, Apply, ct, attachments: attachments, historyInput: input);
         ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(answer.GetString("content")))
         {

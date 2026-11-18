@@ -47,7 +47,9 @@ pwsh -File eng/build-android.ps1 -Install -Device '<ADB device serial>'
 
 输出 `artifacts/Minichat.apk`。也可用 Android Studio 打开 `apps/android`；先运行 `eng/build-native.ps1 -Runtime linux-bionic-arm64` 生成本地库。
 
-手机使用原生聊天页、模型选择、对话列表和底部 Agent 面板。提供商配置存入 DataStore，密钥用 Android Keystore AES-GCM 加密。保存配置后自动获取模型列表；保留手动模型 ID，并在服务返回时读取上下文/输出能力。高级选项可调整预算。
+Android 的世界、预设和记忆面板打开即全屏。对话页支持流式 Markdown、可折叠的工具轨迹和附件；搜索轨迹缩进展示。长按支持分支的用户消息可从发送前的世界与 Agent 状态创建新对话。旧消息没有历史快照，不能分支。标题只根据主聊天生成，点击标题可编辑或重新生成。
+
+在「提供商」设置名称、协议、地址和 API 密钥；在「模型」自动获取可用模型、保存常用模型、为 Agent 和标题指定模型。对话输入框下也可切换该页相关的 Agent 模型。提供商配置存入 DataStore，密钥用 Android Keystore AES-GCM 加密。附件可选图片、音频、PDF 和视频，能否发送取决于当前协议及模型。对话抽屉使用 Paging 3 按预设分页，默认打开聊天列表，收起预设列表。
 
 UI 文案使用 Android 字符串资源，支持英文及另外 29 种语言；语言列表由 AGP 自动生成，使用系统按应用语言设置，低版本通过 AppCompat 适配。支持 RTL，方向图标会镜像。图标使用 Google Fonts Material Symbols 官方子集；应用图标由 GPT-image 生成，前景安全区和来源记录保存在 `assets/branding`。
 
@@ -63,7 +65,9 @@ UI 文案使用 Android 字符串资源，支持英文及另外 29 种语言；�
 
 ## 网页工作流
 
-`real_fetch(url, backend)` 对 SearchAgent 保持同一工具接口：
+预设的 `agentic_search` 默认开启。关闭后由 ChatAgent 直接调用相同的真实与虚拟搜索工具，不调用 SearchAgent；EnvAgent 可以为当前世界补充 ChatAgent 的搜索指引。
+
+`real_fetch(url, backend)` 保持同一工具接口：
 
 - `api`：调用 DeepSeek Fetch API。
 - `local`：显式使用临时 FetchAgent；可用于重抓疑似截断的页面。
@@ -78,11 +82,11 @@ API 没有可靠的完整性字段时记录为 `unknown`。本地采集不加正
 
 ## 上下文与存储
 
-每个 Agent session 使用独立 SQLite DB，保存在 `conversations/<preset>/<chat>/agents`。临时 FetchAgent 的 DB 保存在该对话的 `fetch` 目录。
+ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conversations/<preset>/<chat>/agents`，彼此独立。PresetAgent 的会话和 DB 保存在 `preset_sessions/<preset>`，供该预设的所有聊天共享。临时 FetchAgent 的 DB 保存在该对话的 `fetch` 目录。Android 记忆面板按 Agent 显示、搜索和编辑普通笔记。
 
 工具包括 `db_list`、`db_read`、`db_write`、`db_patch`、`db_delete`、`db_search`。索引是字符串；写入/删除校验 revision，修改使用精确文本替换。搜索采用 FTS5 trigram；短查询使用文本扫描，不使用向量和 RAG。分页以 UTF-16 偏移计数，并保留完整 Unicode 字符。
 
-压缩先完整归档，再生成保留任务、事实、引用和 DB key 的摘要。原文继续可搜索、分页读取。搜索缓存不直接灌入 system prompt；各 Agent 只接收其职责所需的设置。对话、世界进度和工具轨迹按预设和对话隔离保存。
+所有 Agent 都会被提示主动记录值得保留的信息，并及时更新过期笔记。`history_search` 和 `history_recall` 用于在自己的会话中搜索和分页读取原始消息，无需依赖模型的上下文。压缩先完整归档，再生成保留任务、事实、引用和 DB key 的摘要。世界进度和搜索缓存按聊天隔离，分支时恢复到选中消息发送前的版本。
 
 旧 Python 格式的对话会自动导入，并把原档备份到对话目录的 `migration/python-v1.json`。旧 `world_state.json` 保留；导入时迁移该预设的世界进度和缓存。Python 运行时已从主线移除，最后可运行的 Python 检查点为 Git 提交 `24a52c2`。
 

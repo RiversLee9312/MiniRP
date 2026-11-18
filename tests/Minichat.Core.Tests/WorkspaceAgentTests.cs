@@ -75,6 +75,42 @@ public sealed class WorkspaceAgentTests
         Assert.IsTrue(session.Summary.Contains("note/task", StringComparison.Ordinal));
     }
 
+    [TestMethod]
+    public async Task HistoryToolsRecallOriginalTextAfterCompactionAndStayInSession()
+    {
+        var world = NewWorld();
+        var path = Path.Combine(world.ChatRoot, "history-test.sqlite");
+        var original = "Keep the lantern green 🟢. " + new string('x', 170000);
+        var events = new List<JsonObject>();
+        using (var initial = new AgentSession("ChatAgent", path,
+            Fixture(round => new JsonObject { ["content"] = round == 0 ? "Compressed summary." : "Done." }), events.Add))
+        {
+            await initial.Run("Test", original, new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+            Assert.IsFalse(initial.History.Any(item => item.GetString("content") == original));
+        }
+
+        string MessageId() => JsonValues.ParseObject(events.Last(e => e.GetString("name") == "history_search" && e.GetString("kind") == "tool_end").GetString("text"))
+            .GetArray("matches")[0].GetString("id");
+
+        using var resumed = new AgentSession("ChatAgent", path, Fixture(round => round switch
+        {
+            0 => Assistant(Call("history_search", new() { ["query"] = "lantern green" })),
+            1 => Assistant(Call("history_recall", new() { ["id"] = MessageId(), ["length"] = 25 })),
+            _ => new JsonObject { ["content"] = "Recovered." }
+        }), events.Add);
+        await resumed.Run("Test", "Recall the color", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+        var recalled = JsonValues.ParseObject(events.Single(e => e.GetString("name") == "history_recall" && e.GetString("kind") == "tool_end").GetString("text"));
+        Assert.AreEqual(original[..25], recalled.GetString("content"));
+        Assert.AreEqual(original.Length, recalled.GetInt32("total_chars"));
+        Assert.AreEqual(25, recalled.GetInt32("next_offset"));
+
+        using var other = new AgentSession("EnvAgent", Path.Combine(world.ChatRoot, "separate-history-test.sqlite"), Fixture(round => round == 0
+            ? Assistant(Call("history_search", new() { ["query"] = "lantern green" })) : new JsonObject { ["content"] = "No match." }), events.Add);
+        await other.Run("Test", "Find a lantern", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+        var otherSearch = events.Last(e => e.GetString("name") == "history_search" && e.GetString("kind") == "tool_end");
+        Assert.AreEqual(0, JsonValues.ParseObject(otherSearch.GetString("text")).GetArray("matches").Count);
+    }
+
     private static Workspace NewWorld()
     {
         var world = new Workspace(Path.Combine(Path.GetTempPath(), "minichat-workspace-" + Guid.NewGuid().ToString("N")));

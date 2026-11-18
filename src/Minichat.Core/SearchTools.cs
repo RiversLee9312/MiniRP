@@ -3,7 +3,7 @@ namespace Minichat.Core;
 
 internal static class SearchTools
 {
-    public static JsonArray Create()
+    public static JsonArray Create(bool direct = false)
     {
         var fields = new JsonObject { ["ref"] = Tools.String(), ["title"] = Tools.String(), ["url"] = Tools.String(), ["snippet"] = Tools.String(), ["source"] = Tools.String(), ["date"] = Tools.String(), ["credibility"] = Tools.String() };
         JsonObject F(params (string, JsonObject)[] extras)
@@ -61,11 +61,12 @@ internal static class SearchTools
             {
                 ["ref"] = Tools.String()
             }, "ref"),
-            Tools.Define("submit_search_results", "Submit selected or supplied refs. Ends request; must be last tool in batch. Empty list allowed.", new()
+            Tools.Define("submit_search_results", direct ? "Read and cache selected or supplied refs for query. Continue answering after this tool." : "Submit selected or supplied refs. Ends request; must be last tool in batch. Empty list allowed.", new()
             {
-                ["refs"] = Tools.StringArray()
-            }),
-            Tools.Define("submit_page", "Submit corresponding requested URL page. Ends request; must be last tool.", new()
+                ["refs"] = Tools.StringArray(),
+                ["query"] = Tools.String()
+            }, direct ? ["query"] : []),
+            Tools.Define("submit_page", direct ? "Read and cache the selected or supplied page. Continue answering after this tool." : "Submit corresponding requested URL page. Ends request; must be last tool.", new()
             {
                 ["ref"] = Tools.String()
             }),

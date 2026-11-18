@@ -93,6 +93,31 @@
     <string name="reset_world">Atur ulang dunia</string>
     <string name="reset_world_question">Atur ulang dunia ini ke kondisi awal?</string>
     <string name="reset">Atur ulang</string>
+    <string name="search_agent">Cari</string>
+    <string name="fetch_agent">Browser</string>
+    <string name="title_model">Judul</string>
+    <string name="branch_chat">Buat cabang dari sini</string>
+    <string name="generate_title">Buat judul</string>
+    <string name="protocol">Protokol</string>
+    <string name="agent_models">Model agen</string>
+    <string name="available_models">Model yang tersedia</string>
+    <string name="use_chat_model">Gunakan model obrolan</string>
+    <string name="manage_models">Kelola model</string>
+    <string name="new_note">Catatan baru</string>
+    <string name="notes">Catatan</string>
+    <string name="load_more">Muat lainnya</string>
+    <string name="delete_note_question">Hapus catatan ini?</string>
+    <string name="internal_memory">Riwayat dan arsip agen</string>
+    <string name="add_attachment">Tambah lampiran</string>
+    <string name="remove_attachment">Hapus %1$s</string>
+    <string name="attachment_too_large">Total ukuran lampiran tidak boleh lebih dari 16 MB.</string>
+    <string name="attachment_type_unsupported">Protokol model ini tidak dapat mengirim jenis lampiran ini.</string>
+    <string name="attachment_read_failed">Lampiran tidak dapat dibaca.</string>
+    <string name="agentic_search">Pencarian agen</string>
+    <string name="agentic_search_hint">Saat nonaktif, model obrolan menangani pencarian secara langsung.</string>
+    <plurals name="trace_actions">
+        <item quantity="other">%1$d tindakan</item>
+    </plurals>
     <plurals name="model_count">
         <item quantity="other">%1$d model</item>
     </plurals>

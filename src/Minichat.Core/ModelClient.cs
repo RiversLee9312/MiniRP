@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 namespace Minichat.Core;
 
 /// <summary>Provider-neutral messages and explicit wire adapters. No runtime type discovery.</summary>
-public sealed class ModelClient(HostPort port, Func<Provider> selected)
+public sealed class ModelClient(HostPort port, Func<Provider> selected, string? attachmentRoot = null)
 {
     public int CompactionCharacterLimit
     {
@@ -72,11 +72,12 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected)
             throw new InvalidOperationException("Configure a provider and model first.");
         }
 
+        Dictionary<JsonNode, List<MessageAttachments.Media>> media = attachmentRoot is null ? new() : new MessageAttachments(attachmentRoot).Resolve(messages, p.Protocol);
         if (p.Protocol == "responses")
         {
-            return await ResponsesProtocol.Complete(port, p, messages, tools, delta, ct);
+            return await ResponsesProtocol.Complete(port, p, messages, tools, delta, ct, media);
         }
-        var (path, body) = Build(p, messages, tools);
+        var (path, body) = Build(p, messages, tools, media);
         var request = new JsonObject { ["url"] = p.Url + path, ["method"] = "POST", ["headers"] = Headers(p), ["body"] = JsonValues.Serialize(body), ["stream"] = true };
         var content = new StringBuilder();
         var reasoning = new StringBuilder();
@@ -233,7 +234,7 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected)
         return result;
     }
     static JsonObject Call(string id, string name, string args = "") => new() { ["id"] = id, ["type"] = "function", ["function"] = new JsonObject { ["name"] = name, ["arguments"] = args } };
-    static (string, JsonObject) Build(Provider p, JsonArray messages, JsonArray tools)
+    static (string, JsonObject) Build(Provider p, JsonArray messages, JsonArray tools, Dictionary<JsonNode, List<MessageAttachments.Media>> media)
     {
         if (p.Protocol == "anthropic")
         {
@@ -259,7 +260,11 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected)
                         parts.AddNode(JsonValues.Clone(thinking));
                     }
 
-                    if (message.GetString("content").Length > 0)
+                    if (message is not null && media.TryGetValue(message, out var attachments))
+                    {
+                        parts = MessageAttachments.Parts(p.Protocol, MessageAttachments.Text(message), attachments);
+                    }
+                    else if (message.GetString("content").Length > 0)
                     {
                         parts.AddNode(new JsonObject { ["type"] = "text", ["text"] = message.GetString("content") });
                     }
@@ -337,7 +342,11 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected)
                 }
                 else
                 {
-                    if (m.GetString("content").Length > 0)
+                    if (m is not null && media.TryGetValue(m, out var attachments))
+                    {
+                        parts = MessageAttachments.Parts(p.Protocol, MessageAttachments.Text(m), attachments);
+                    }
+                    else if (m.GetString("content").Length > 0)
                     {
                         parts.AddNode(new JsonObject { ["text"] = m.GetString("content") });
                     }
@@ -384,6 +393,18 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected)
         foreach (var message in messages)
         {
             var clean = new JsonObject { ["role"] = message.GetString("role"), ["content"] = message.GetString("content") };
+            if (message is not null && media.TryGetValue(message, out var attachments))
+            {
+                clean["content"] = MessageAttachments.Text(message);
+                if (p.Protocol == "ollama")
+                {
+                    clean["images"] = new JsonArray(attachments.Select(file => (JsonNode?)JsonValue.Create(file.Data)).ToArray());
+                }
+                else if (attachments.Count > 0)
+                {
+                    clean["content"] = MessageAttachments.Parts(p.Protocol, MessageAttachments.Text(message), attachments);
+                }
+            }
             foreach (var key in new[] { "tool_call_id", "name" })
             {
                 if (message?[key] is not null)

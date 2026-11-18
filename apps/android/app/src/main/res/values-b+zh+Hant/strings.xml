@@ -93,6 +93,31 @@
     <string name="reset_world">重設世界</string>
     <string name="reset_world_question">是否要將此世界重設為初始狀態？</string>
     <string name="reset">重設</string>
+    <string name="search_agent">搜尋</string>
+    <string name="fetch_agent">瀏覽器</string>
+    <string name="title_model">標題</string>
+    <string name="branch_chat">從此處分支</string>
+    <string name="generate_title">產生標題</string>
+    <string name="protocol">通訊協定</string>
+    <string name="agent_models">代理程式模型</string>
+    <string name="available_models">可用模型</string>
+    <string name="use_chat_model">使用聊天模型</string>
+    <string name="manage_models">管理模型</string>
+    <string name="new_note">新增筆記</string>
+    <string name="notes">筆記</string>
+    <string name="load_more">載入更多</string>
+    <string name="delete_note_question">刪除此筆記？</string>
+    <string name="internal_memory">代理程式記錄與封存</string>
+    <string name="add_attachment">新增附件</string>
+    <string name="remove_attachment">移除 %1$s</string>
+    <string name="attachment_too_large">附件總大小不得超過 16 MB。</string>
+    <string name="attachment_type_unsupported">此模型通訊協定無法傳送此類型的附件。</string>
+    <string name="attachment_read_failed">無法讀取附件。</string>
+    <string name="agentic_search">代理程式搜尋</string>
+    <string name="agentic_search_hint">關閉後，由聊天模型直接處理搜尋。</string>
+    <plurals name="trace_actions">
+        <item quantity="other">%1$d 項操作</item>
+    </plurals>
     <plurals name="model_count">
         <item quantity="other">%1$d 個模型</item>
     </plurals>

@@ -6,7 +6,7 @@ namespace Minichat.Core;
 /// <summary>OpenAI Responses wire format, including stateless replay of encrypted reasoning items.</summary>
 internal static class ResponsesProtocol
 {
-    public static async Task<JsonObject> Complete(HostPort port, Provider provider, JsonArray messages, JsonArray tools, Action<string, string> delta, CancellationToken cancellationToken)
+    public static async Task<JsonObject> Complete(HostPort port, Provider provider, JsonArray messages, JsonArray tools, Action<string, string> delta, CancellationToken cancellationToken, Dictionary<JsonNode, List<MessageAttachments.Media>> media)
     {
         var request = new JsonObject
         {
@@ -14,7 +14,7 @@ internal static class ResponsesProtocol
             ["method"] = "POST",
             ["stream"] = true,
             ["headers"] = new JsonObject { ["Authorization"] = "Bearer " + provider.Key, ["Content-Type"] = "application/json" },
-            ["body"] = JsonValues.Serialize(Build(provider, messages, tools))
+            ["body"] = JsonValues.Serialize(Build(provider, messages, tools, media))
         };
         var content = new StringBuilder();
         var reasoning = new StringBuilder();
@@ -132,7 +132,7 @@ internal static class ResponsesProtocol
         ["function"] = new JsonObject { ["name"] = item.GetString("name"), ["arguments"] = item.GetString("arguments") }
     };
 
-    private static JsonObject Build(Provider provider, JsonArray messages, JsonArray tools)
+    private static JsonObject Build(Provider provider, JsonArray messages, JsonArray tools, Dictionary<JsonNode, List<MessageAttachments.Media>> media)
     {
         var input = new JsonArray();
         var instructions = new StringBuilder();
@@ -166,7 +166,9 @@ internal static class ResponsesProtocol
 
                     break;
                 default:
-                    input.AddNode(new JsonObject { ["role"] = "user", ["content"] = message.GetString("content") });
+                    input.AddNode(new JsonObject { ["role"] = "user", ["content"] = message is not null && media.TryGetValue(message, out var attachments)
+                        ? MessageAttachments.Parts(provider.Protocol, MessageAttachments.Text(message), attachments)
+                        : JsonValue.Create(message.GetString("content")) });
                     break;
             }
         }

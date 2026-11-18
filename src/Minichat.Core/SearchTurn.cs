@@ -30,6 +30,7 @@ internal sealed class SearchTurn
     {
         get; private set;
     }
+    public bool Changed { get; private set; }
 
     public SearchTurn(string mode, string target, JsonObject state, AgentSession session)
     {
@@ -198,6 +199,7 @@ internal sealed class SearchTurn
             throw new ArgumentException("A cached page needs content.");
         }
         State.GetObject("pages")[document.GetString("url")] = document.DeepClone();
+        Changed = true;
         return new() { ["cached"] = true };
     }
 
@@ -214,35 +216,58 @@ internal sealed class SearchTurn
 
     private JsonObject CacheResults(JsonObject arguments)
     {
-        State.GetObject("search_cache")[arguments.GetString("query", Target)] = Results(arguments);
+        var query = arguments.GetString("query", Target);
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            throw new ArgumentException("A cache query is required.");
+        }
+        State.GetObject("search_cache")[query] = Results(arguments);
+        Changed = true;
         return new() { ["cached"] = true };
     }
 
     private JsonObject SubmitResults(JsonObject arguments)
     {
-        if (Mode != "search")
+        if (Mode is not ("search" or "direct"))
         {
             throw new ArgumentException("A page request needs submit_page.");
         }
         var results = Results(arguments);
-        State.GetObject("search_cache")[Target] = results.DeepClone();
-        Answer = new JsonObject { ["query"] = Target, ["results"] = results };
+        var query = Mode == "direct" ? arguments.GetString("query") : Target;
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            throw new ArgumentException("A search query is required.");
+        }
+        State.GetObject("search_cache")[query] = results.DeepClone();
+        Changed = true;
+        Answer = new JsonObject { ["query"] = query, ["results"] = results };
+        if (Mode == "direct")
+        {
+            return (JsonObject)Answer.DeepClone();
+        }
         return new() { ["submitted"] = true };
     }
 
     private JsonObject SubmitPage(JsonObject arguments)
     {
-        if (Mode != "page")
+        if (Mode is not ("page" or "direct"))
         {
             throw new ArgumentException("A search request needs submit_search_results.");
         }
         var document = Get(arguments.GetString("ref", selectedPage ?? ""));
-        if (document.GetString("url").TrimEnd('/') != Target.TrimEnd('/') || document.GetString("content").Length == 0)
+        var url = Mode == "direct" ? document.GetString("url") : Target;
+        SearchAgent.ValidateUrl(url);
+        if (document.GetString("url").TrimEnd('/') != url.TrimEnd('/') || document.GetString("content").Length == 0)
         {
             throw new ArgumentException("The submitted page must match the requested URL and contain text.");
         }
-        State.GetObject("pages")[Target] = document.DeepClone();
+        State.GetObject("pages")[url] = document.DeepClone();
+        Changed = true;
         Answer = document.DeepClone();
+        if (Mode == "direct")
+        {
+            return Preview(arguments.GetString("ref", selectedPage ?? ""));
+        }
         return new() { ["submitted"] = true };
     }
 }

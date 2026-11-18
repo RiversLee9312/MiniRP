@@ -11,10 +11,23 @@ public sealed class SearchAgent(Workspace world, AgentSession session, PageSourc
         Freely mix candidates, precisely edit them, and cache completed work.
         Submit through submit_search_results/submit_page/fail_request; prose is not a submission.
         Refs last one request only. Result count is entirely your decision; legacy limits are advisory.
-        Follow current world rules/canon. Preserve unrelated real-world content. Cached material may be stale.
-        API completeness unknown is not complete; explicitly request backend=local for truncated pages.
-        Full Markdown is retained in DB; use db_read with content_key to read beyond a preview.
         """;
+    private readonly SearchWorkflow workflow = new(world, web);
+
+    internal async Task<string> RunDirect(AgentSession chat, string system, string input, JsonArray? attachments, CancellationToken token)
+    {
+        var turn = new SearchTurn("direct", "", world.State, chat);
+        var response = await chat.Run(system + "\n" + SearchWorkflow.WorldInstructions + "\n" + workflow.Policies,
+            input, SearchTools.Create(direct: true), (tool, arguments, ct) => workflow.Execute(turn, tool, arguments, ct),
+            token, attachments: attachments);
+        token.ThrowIfCancellationRequested();
+        var answer = response.GetString("content");
+        if (!turn.Failed && turn.Changed && !string.IsNullOrWhiteSpace(answer))
+        {
+            world.Commit(turn.State);
+        }
+        return answer;
+    }
 
     public static void ValidateUrl(string value)
     {
@@ -32,44 +45,17 @@ public sealed class SearchAgent(Workspace world, AgentSession session, PageSourc
         }
         var turn = new SearchTurn(mode, target, world.State, session);
 
-        async Task<JsonNode?> Execute(string tool, JsonObject arguments, CancellationToken token)
-        {
-            switch (tool)
-            {
-                case "inspect_world":
-                    return JsonValues.ParseObject(world.WorldText);
-                case "real_search":
-                    var response = await web.Search(arguments.GetString("query"), arguments.GetInt32("limit", 8), token);
-                    var candidates = new JsonArray();
-                    foreach (var document in response.GetArray("results").OfType<JsonObject>())
-                    {
-                        if (document.GetString("url").Length > 0)
-                        {
-                            candidates.AddNode(turn.Register(document));
-                        }
-                    }
-                    return new JsonObject { ["results"] = candidates };
-                case "real_fetch":
-                    var page = await web.Fetch(arguments.GetString("url"), arguments.GetString("backend", "auto"), token);
-                    return turn.Register(page);
-                default:
-                    return turn.Execute(tool, arguments);
-            }
-        }
-
+        var request = "Request " + mode + ": " + target;
         await session.Run(
-            SystemPrompt + "\n" + world.WorldText + "\nEditing policies:\n" + JsonValues.Serialize(new JsonObject
-            {
-                ["search_editor"] = JsonValues.Clone(world.Config["search_editor"]),
-                ["page_editor"] = JsonValues.Clone(world.Config["page_editor"]),
-                ["page_generator"] = JsonValues.Clone(world.Config["page_generator"])
-            }),
-            "Main conversation reference:\n" + session.ToolText(JsonValue.Create(world.Conversation)) + "\nRequest " + mode + ": " + target,
+            SystemPrompt + "\n" + SearchWorkflow.WorldInstructions + "\n" + world.WorldText + "\n" + workflow.Policies,
+            "Main conversation reference:\n" + session.ToolText(JsonValue.Create(world.Conversation)) + "\n" + request,
             SearchTools.Create(),
-            Execute,
+            (tool, arguments, token) => workflow.Execute(turn, tool, arguments, token),
             cancellationToken,
             () => turn.Answer is not null,
-            terminalTools: TerminalTools);
+            terminalTools: TerminalTools,
+            historyInput: request,
+            historySubmission: () => session.ToolText(turn.Answer));
         cancellationToken.ThrowIfCancellationRequested();
         if (!turn.Failed)
         {

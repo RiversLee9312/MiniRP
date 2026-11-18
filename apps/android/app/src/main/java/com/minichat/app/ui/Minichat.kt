@@ -4,14 +4,13 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.minichat.app.R
@@ -21,23 +20,22 @@ import kotlinx.coroutines.launch
 @Composable
 fun Minichat(model: ChatViewModel) {
     val state by model.state.collectAsStateWithLifecycle()
-    val dark = isSystemInDarkTheme()
     MaterialExpressiveTheme(
-        colorScheme = if (dark) darkColorScheme() else expressiveLightColorScheme()
+        colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else expressiveLightColorScheme()
     ) {
         var page by rememberSaveable { mutableStateOf("chat") }
-        val savedScreens = rememberSaveableStateHolder()
-        BackHandler(enabled = page != "chat") { page = "chat" }
         var panel by rememberSaveable { mutableStateOf("") }
-        var modelPicker by remember { mutableStateOf(false) }
+        var editTitle by rememberSaveable { mutableStateOf(false) }
+        var modelPicker by rememberSaveable { mutableStateOf<AgentRole?>(null) }
+        val screens = rememberSaveableStateHolder()
         val drawer = rememberDrawerState(DrawerValue.Closed)
         val scope = rememberCoroutineScope()
-        LaunchedEffect(state.ready) {
-            if (state.ready && state.chatId.isBlank())
-                state.presets.firstOrNull()?.let { model.choosePreset(it.id) }
-        }
         val snackbars = remember { SnackbarHostState() }
-        LaunchedEffect(state.error) {
+        fun back() {
+            page = if (page == "settings") "chat" else "settings"
+        }
+        BackHandler(enabled = page != "chat") { back() }
+        LaunchedEffect(state.error, panel) {
             state.error?.let {
                 snackbars.showSnackbar(it)
                 model.clearError()
@@ -45,74 +43,53 @@ fun Minichat(model: ChatViewModel) {
         }
         ModalNavigationDrawer(
             drawerState = drawer,
+            gesturesEnabled = page == "chat",
             drawerContent = {
-                ModalDrawerSheet {
-                    Spacer(Modifier.height(20.dp))
-                    Text(
-                        stringResource(R.string.presets),
-                        Modifier.padding(20.dp),
-                        style = MaterialTheme.typography.titleLarge,
-                    )
-                    state.presets.forEach { preset ->
-                        NavigationDrawerItem(
-                            label = { Text(preset.name) },
-                            selected = state.preset == preset.id,
-                            onClick = {
-                                model.choosePreset(preset.id)
-                                scope.launch { drawer.close() }
-                            },
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                        )
-                    }
-                    TextButton(
-                        onClick = {
-                            model.choosePreset(state.preset)
-                            scope.launch { drawer.close() }
-                        },
-                        modifier = Modifier.padding(12.dp),
-                    ) {
-                        Text(stringResource(R.string.conversations))
-                    }
-                }
+                ConversationDrawer(
+                    state,
+                    model,
+                    drawer.currentValue == DrawerValue.Open,
+                    onSettings = {
+                        page = "settings"
+                        scope.launch { drawer.close() }
+                    },
+                    onSelect = { preset, id ->
+                        model.chooseChat(preset, id)
+                        scope.launch { drawer.close() }
+                    },
+                )
             },
         ) {
             Scaffold(
                 topBar = {
                     TopAppBar(
                         title = {
-                            Column {
-                                Text(
-                                    if (page == "settings") stringResource(R.string.settings)
-                                    else state.chatName.ifBlank { stringResource(R.string.chat) },
-                                    maxLines = 1,
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                                if (page == "chat")
-                                    TextButton(
-                                        onClick = {
-                                            if (state.provider == null) page = "settings"
-                                            else {
-                                                model.refreshModels()
-                                                modelPicker = true
-                                            }
-                                        },
-                                        contentPadding = PaddingValues(0.dp),
-                                    ) {
-                                        Text(
-                                            state.provider?.model?.ifBlank {
-                                                stringResource(R.string.select_model)
-                                            } ?: stringResource(R.string.select_model),
-                                            maxLines = 1,
-                                        )
-                                        Symbol("expand_more")
-                                    }
-                            }
+                            Text(
+                                when (page) {
+                                    "settings" -> stringResource(R.string.settings)
+                                    "providers" -> stringResource(R.string.providers)
+                                    "models" -> stringResource(R.string.models)
+                                    else ->
+                                        state.chatName.ifBlank { stringResource(R.string.new_chat) }
+                                },
+                                modifier =
+                                    Modifier.clickable(
+                                        enabled =
+                                            page == "chat" &&
+                                                state.chatId.isNotEmpty() &&
+                                                !state.busy,
+                                        onClickLabel = stringResource(R.string.rename),
+                                        onClick = { editTitle = true },
+                                    ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleLarge,
+                            )
                         },
                         navigationIcon = {
                             IconButton(
                                 onClick = {
-                                    if (page == "chat") scope.launch { drawer.open() }
-                                    else page = "chat"
+                                    if (page == "chat") scope.launch { drawer.open() } else back()
                                 }
                             ) {
                                 Symbol(
@@ -124,162 +101,211 @@ fun Minichat(model: ChatViewModel) {
                             }
                         },
                         actions = {
-                            if (page == "chat") {
-                                var menu by remember { mutableStateOf(false) }
-                                IconButton(onClick = { menu = true }) {
-                                    Symbol("more_horiz", stringResource(R.string.more_options))
-                                }
-                                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.edit_facts)) },
-                                        onClick = {
-                                            panel = "env"
-                                            menu = false
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.edit_preset)) },
-                                        onClick = {
-                                            panel = "preset"
-                                            menu = false
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.memory)) },
-                                        onClick = {
-                                            panel = "memory"
-                                            model.memory("", "chat")
-                                            menu = false
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.settings)) },
-                                        onClick = {
-                                            page = "settings"
-                                            menu = false
-                                        },
-                                    )
-                                }
-                            }
+                            if (page == "chat") ConversationActions(state, open = { panel = it })
                         },
                     )
                 },
-                snackbarHost = { SnackbarHost(snackbars) },
-                bottomBar = {
-                    if (page == "chat")
-                        Column(Modifier.navigationBarsPadding().imePadding()) {
-                            savedScreens.SaveableStateProvider("composer:${state.chatId}") {
-                                Composer(state.busy, model::cancel) { model.send(it) }
-                            }
-                        }
-                },
+                snackbarHost = { if (panel.isBlank()) SnackbarHost(snackbars) },
             ) { padding ->
-                savedScreens.SaveableStateProvider("body:${state.chatId}:$page") {
-                    if (page == "settings") SettingsScreen(state, model, Modifier.padding(padding))
-                    else
-                        TraceLog(
-                            state.blocks.filter {
-                                it.agent !in setOf("env", "preset", "EnvAgent", "PresetAgent")
-                            },
-                            state.expandThoughts,
-                            Modifier.fillMaxSize().padding(padding),
-                            streaming = state.busy,
+                val body =
+                    Modifier.fillMaxSize()
+                        .padding(padding)
+                        .consumeWindowInsets(padding)
+                        .imePadding()
+                when (page) {
+                    "settings" -> SettingsScreen(state, model, body, onPage = { page = it })
+                    "providers" -> ProvidersScreen(state, model, body)
+                    "models" ->
+                        ModelsScreen(
+                            state,
+                            model,
+                            body,
+                            onAssign = { modelPicker = it },
+                            onProviders = { page = "providers" },
                         )
+                    else ->
+                        screens.SaveableStateProvider("chat:${state.chatId}") {
+                            AgentConversation(
+                                state,
+                                AgentRole.Chat,
+                                body,
+                                model::cancel,
+                                { text, files -> model.send(text, files, AgentRole.Chat) },
+                                { modelPicker = it },
+                                model::branch,
+                            )
+                        }
                 }
             }
         }
-        if (state.chatPicker)
-            ModalBottomSheet(onDismissRequest = model::dismissChatPicker) {
-                Text(
-                    stringResource(R.string.conversations),
-                    Modifier.padding(24.dp),
-                    style = MaterialTheme.typography.headlineSmall,
+        if (editTitle) {
+            TitleDialog(
+                state,
+                onDismiss = { editTitle = false },
+                onSave = {
+                    model.rename(it)
+                    editTitle = false
+                },
+                onGenerate = {
+                    model.generateTitle()
+                    editTitle = false
+                },
+            )
+        }
+        if (panel == "memory") {
+            FullSheet(stringResource(R.string.memory), { panel = "" }) {
+                MemoryScreen(state.chatId, model, Modifier.weight(1f).fillMaxWidth())
+            }
+        } else if (panel.isNotEmpty()) {
+            val role = if (panel == "env") AgentRole.World else AgentRole.Preset
+            FullSheet(stringResource(role.label), { panel = "" }) {
+                var stage by rememberSaveable { mutableStateOf(false) }
+                if (role == AgentRole.World)
+                    FilterChip(
+                        stage,
+                        { stage = !stage },
+                        label = { Text(stringResource(R.string.advance_story)) },
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                if (role == AgentRole.Preset)
+                    ListItem(
+                        content = { Text(stringResource(R.string.agentic_search)) },
+                        supportingContent = { Text(stringResource(R.string.agentic_search_hint)) },
+                        trailingContent = {
+                            Switch(
+                                state.agenticSearch,
+                                model::searchMode,
+                                enabled = !state.busy && !state.preparing,
+                            )
+                        },
+                    )
+                val session = if (role == AgentRole.Preset) state.preset else state.chatId
+                screens.SaveableStateProvider("${role.id}:$session") {
+                    AgentConversation(
+                        state,
+                        role,
+                        Modifier.weight(1f).fillMaxWidth(),
+                        model::cancel,
+                        { text, files ->
+                            if (text.trim() == "/close" && files.isEmpty()) {
+                                panel = ""
+                                true
+                            } else model.send(text, files, role, stage)
+                        },
+                        { modelPicker = it },
+                    )
+                }
+                SnackbarHost(snackbars)
+            }
+        }
+        modelPicker?.let { role ->
+            AssignmentSheet(
+                role,
+                state,
+                onDismiss = { modelPicker = null },
+                onChoose = {
+                    model.assign(role, it)
+                    modelPicker = null
+                },
+                onManage = {
+                    modelPicker = null
+                    panel = ""
+                    page = if (state.providers.isEmpty()) "providers" else "models"
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConversationActions(state: ChatState, open: (String) -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    IconButton(onClick = { menu = true }) {
+        Symbol("more_horiz", stringResource(R.string.more_options))
+    }
+    DropdownMenu(menu, { menu = false }) {
+        listOf("env" to R.string.world, "preset" to R.string.preset, "memory" to R.string.memory)
+            .forEach { (panel, label) ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(label)) },
+                    enabled = state.chatId.isNotEmpty(),
+                    onClick = {
+                        menu = false
+                        open(panel)
+                    },
+                )
+            }
+    }
+}
+
+@Composable
+private fun TitleDialog(
+    state: ChatState,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    onGenerate: () -> Unit,
+) {
+    var title by rememberSaveable(state.chatId) { mutableStateOf(state.chatName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.chat_name)) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    title,
+                    { title = it.take(140) },
+                    Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.chat_name)) },
                 )
                 TextButton(
-                    onClick = { model.chooseChat() },
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    onClick = onGenerate,
+                    enabled =
+                        state.assigned(AgentRole.Title) != null &&
+                            state.blocks.any { it.user && it.role == AgentRole.Chat },
                 ) {
-                    Symbol("add")
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.new_chat))
+                    Text(stringResource(R.string.generate_title))
                 }
-                LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                    items(state.chats, key = { it.id }) { chat ->
-                        ListItem(
-                            content = {
-                                Text(chat.name.ifBlank { stringResource(R.string.new_chat) })
-                            },
-                            modifier =
-                                Modifier.fillMaxWidth().clickable { model.chooseChat(chat.id) },
-                            trailingContent = {
-                                TextButton(onClick = { model.chooseChat(chat.id) }) {
-                                    Symbol("chevron_right", stringResource(R.string.selected))
-                                }
-                            },
-                        )
-                    }
-                }
-                Spacer(Modifier.navigationBarsPadding())
             }
-        if (panel.isNotEmpty())
-            ModalBottomSheet(onDismissRequest = { panel = "" }, modifier = Modifier.imePadding()) {
-                val memory = panel == "memory"
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        stringResource(
-                            if (memory) R.string.memory
-                            else if (panel == "env") R.string.world else R.string.preset
-                        ),
-                        style = MaterialTheme.typography.headlineSmall,
-                    )
-                    IconButton(onClick = { panel = "" }) {
-                        Symbol("close", stringResource(R.string.close))
-                    }
-                }
-                if (memory) {
-                    var query by remember { mutableStateOf("") }
-                    OutlinedTextField(
-                        query,
-                        {
-                            query = it
-                            model.memory(it, "chat")
-                        },
-                        label = { Text(stringResource(R.string.search_entries)) },
-                        modifier = Modifier.fillMaxWidth().padding(20.dp),
-                    )
-                    Text(state.memory, Modifier.padding(20.dp))
-                } else {
-                    var stage by remember { mutableStateOf(false) }
-                    if (panel == "env")
-                        Row(Modifier.padding(horizontal = 20.dp)) {
-                            FilterChip(
-                                selected = stage,
-                                onClick = { stage = !stage },
-                                label = { Text(stringResource(R.string.advance_story)) },
-                            )
-                        }
-                    savedScreens.SaveableStateProvider("panel:${state.chatId}:$panel") {
-                        TraceLog(
-                            state.blocks.filter {
-                                it.agent == panel ||
-                                    it.agent == if (panel == "env") "EnvAgent" else "PresetAgent"
-                            },
-                            state.expandThoughts,
-                            Modifier.fillMaxWidth()
-                                .heightIn(min = 120.dp, max = 420.dp)
-                                .weight(1f, fill = false),
-                            streaming = state.busy,
-                        )
-                        Composer(state.busy, model::cancel) {
-                            if (it.trim() == "/close") panel = "" else model.send(it, panel, stage)
-                        }
-                    }
-                }
-                Spacer(Modifier.navigationBarsPadding())
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(title) },
+                enabled = title.isNotBlank() && title.trim() != state.chatName,
+            ) {
+                Text(stringResource(R.string.save))
             }
-        if (modelPicker) ModelPicker(state, model) { modelPicker = false }
+        },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun FullSheet(
+    title: String,
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState =
+            rememberBottomSheetState(
+                initialValue = SheetValue.Hidden,
+                enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+            ),
+    ) {
+        Column(Modifier.fillMaxSize().imePadding()) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                IconButton(onClick = onDismiss) { Symbol("close", stringResource(R.string.close)) }
+            }
+            content()
+        }
     }
 }

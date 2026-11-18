@@ -93,6 +93,31 @@
     <string name="reset_world">ワールドをリセットする</string>
     <string name="reset_world_question">このワールドを初期状態にリセットしますか？</string>
     <string name="reset">リセット</string>
+    <string name="search_agent">検索</string>
+    <string name="fetch_agent">ブラウザー</string>
+    <string name="title_model">タイトル</string>
+    <string name="branch_chat">ここから分岐</string>
+    <string name="generate_title">タイトルを生成</string>
+    <string name="protocol">プロトコル</string>
+    <string name="agent_models">エージェントモデル</string>
+    <string name="available_models">利用可能なモデル</string>
+    <string name="use_chat_model">チャットモデルを使用</string>
+    <string name="manage_models">モデルを管理</string>
+    <string name="new_note">新しいメモ</string>
+    <string name="notes">メモ</string>
+    <string name="load_more">さらに読み込む</string>
+    <string name="delete_note_question">このメモを削除しますか？</string>
+    <string name="internal_memory">エージェントの履歴とアーカイブ</string>
+    <string name="add_attachment">添付ファイルを追加</string>
+    <string name="remove_attachment">%1$sを削除</string>
+    <string name="attachment_too_large">添付ファイルの合計サイズは16 MB以下にしてください。</string>
+    <string name="attachment_type_unsupported">このモデルプロトコルでは、この種類の添付ファイルを送信できません。</string>
+    <string name="attachment_read_failed">添付ファイルを読み込めませんでした。</string>
+    <string name="agentic_search">エージェント検索</string>
+    <string name="agentic_search_hint">オフにすると、チャットモデルが検索を直接処理します。</string>
+    <plurals name="trace_actions">
+        <item quantity="other">%1$d 件の操作</item>
+    </plurals>
     <plurals name="model_count">
         <item quantity="other">%1$d 個のモデル</item>
     </plurals>

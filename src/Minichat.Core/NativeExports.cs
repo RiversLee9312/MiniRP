@@ -54,7 +54,8 @@ public static class NativeExports
         if (Engines.TryRemove(id, out var engine))
         {
             // Hosts invoke teardown off their UI thread and retain the library until the final save completes.
-            engine.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            try { engine.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+            catch (Exception) { }
         }
     }
 }

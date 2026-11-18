@@ -3,6 +3,10 @@
 !.env.example
 world_state.json
 conversations/
+/versions/
+/attachments/
+/preset_sessions/
+/catalog.sqlite*
 __pycache__/
 *.py[cod]
 *.json.tmp

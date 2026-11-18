@@ -75,8 +75,7 @@ internal sealed class MainWindow : Runnable
         switch (item.GetString("kind"))
         {
             case "ready":
-                presetItems = item.GetArray("presets");
-                ShowPresets();
+                core.Send(new() { ["op"] = "list_presets" });
                 break;
             case "presets":
                 presetItems = item.GetArray("items");

@@ -93,6 +93,31 @@
     <string name="reset_world">월드 초기화</string>
     <string name="reset_world_question">이 월드를 초기 상태로 초기화하시겠습니까?</string>
     <string name="reset">초기화</string>
+    <string name="search_agent">검색</string>
+    <string name="fetch_agent">브라우저</string>
+    <string name="title_model">제목</string>
+    <string name="branch_chat">여기서 분기</string>
+    <string name="generate_title">제목 생성</string>
+    <string name="protocol">프로토콜</string>
+    <string name="agent_models">에이전트 모델</string>
+    <string name="available_models">사용 가능한 모델</string>
+    <string name="use_chat_model">채팅 모델 사용</string>
+    <string name="manage_models">모델 관리</string>
+    <string name="new_note">새 메모</string>
+    <string name="notes">메모</string>
+    <string name="load_more">더 불러오기</string>
+    <string name="delete_note_question">이 메모를 삭제할까요?</string>
+    <string name="internal_memory">에이전트 기록 및 보관함</string>
+    <string name="add_attachment">첨부 파일 추가</string>
+    <string name="remove_attachment">%1$s 제거</string>
+    <string name="attachment_too_large">첨부 파일의 총 크기는 16MB 이하여야 합니다.</string>
+    <string name="attachment_type_unsupported">이 모델 프로토콜은 이 유형의 첨부 파일을 보낼 수 없습니다.</string>
+    <string name="attachment_read_failed">첨부 파일을 읽을 수 없습니다.</string>
+    <string name="agentic_search">에이전트 검색</string>
+    <string name="agentic_search_hint">끄면 채팅 모델이 검색을 직접 처리합니다.</string>
+    <plurals name="trace_actions">
+        <item quantity="other">%1$d개 작업</item>
+    </plurals>
     <plurals name="model_count">
         <item quantity="other">모델 %1$d개</item>
     </plurals>

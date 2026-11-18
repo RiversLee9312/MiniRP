@@ -93,6 +93,31 @@
     <string name="reset_world">Đặt lại thế giới</string>
     <string name="reset_world_question">Đặt lại thế giới này về trạng thái ban đầu?</string>
     <string name="reset">Đặt lại</string>
+    <string name="search_agent">Tìm kiếm</string>
+    <string name="fetch_agent">Trình duyệt</string>
+    <string name="title_model">Tiêu đề</string>
+    <string name="branch_chat">Tạo nhánh từ đây</string>
+    <string name="generate_title">Tạo tiêu đề</string>
+    <string name="protocol">Giao thức</string>
+    <string name="agent_models">Mô hình tác nhân</string>
+    <string name="available_models">Mô hình hiện có</string>
+    <string name="use_chat_model">Dùng mô hình trò chuyện</string>
+    <string name="manage_models">Quản lý mô hình</string>
+    <string name="new_note">Ghi chú mới</string>
+    <string name="notes">Ghi chú</string>
+    <string name="load_more">Tải thêm</string>
+    <string name="delete_note_question">Xóa ghi chú này?</string>
+    <string name="internal_memory">Lịch sử và lưu trữ của tác nhân</string>
+    <string name="add_attachment">Thêm tệp đính kèm</string>
+    <string name="remove_attachment">Xóa %1$s</string>
+    <string name="attachment_too_large">Tổng dung lượng tệp đính kèm không được vượt quá 16 MB.</string>
+    <string name="attachment_type_unsupported">Giao thức mô hình này không thể gửi loại tệp đính kèm này.</string>
+    <string name="attachment_read_failed">Không thể đọc tệp đính kèm.</string>
+    <string name="agentic_search">Tìm kiếm bằng tác nhân</string>
+    <string name="agentic_search_hint">Khi tắt, mô hình trò chuyện sẽ trực tiếp xử lý việc tìm kiếm.</string>
+    <plurals name="trace_actions">
+        <item quantity="other">%1$d thao tác</item>
+    </plurals>
     <plurals name="model_count">
         <item quantity="other">%1$d mô hình</item>
     </plurals>

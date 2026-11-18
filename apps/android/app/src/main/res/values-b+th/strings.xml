@@ -93,6 +93,31 @@
     <string name="reset_world">รีเซ็ตโลก</string>
     <string name="reset_world_question">รีเซ็ตโลกนี้เป็นสถานะเริ่มต้นหรือไม่</string>
     <string name="reset">รีเซ็ต</string>
+    <string name="search_agent">ค้นหา</string>
+    <string name="fetch_agent">เบราว์เซอร์</string>
+    <string name="title_model">ชื่อเรื่อง</string>
+    <string name="branch_chat">แยกสาขาจากที่นี่</string>
+    <string name="generate_title">สร้างชื่อเรื่อง</string>
+    <string name="protocol">โปรโตคอล</string>
+    <string name="agent_models">โมเดลเอเจนต์</string>
+    <string name="available_models">โมเดลที่พร้อมใช้งาน</string>
+    <string name="use_chat_model">ใช้โมเดลแชต</string>
+    <string name="manage_models">จัดการโมเดล</string>
+    <string name="new_note">โน้ตใหม่</string>
+    <string name="notes">โน้ต</string>
+    <string name="load_more">โหลดเพิ่มเติม</string>
+    <string name="delete_note_question">ลบโน้ตนี้หรือไม่</string>
+    <string name="internal_memory">ประวัติและคลังเก็บของเอเจนต์</string>
+    <string name="add_attachment">เพิ่มไฟล์แนบ</string>
+    <string name="remove_attachment">นำ %1$s ออก</string>
+    <string name="attachment_too_large">ไฟล์แนบมีขนาดรวมได้ไม่เกิน 16 MB</string>
+    <string name="attachment_type_unsupported">โปรโตคอลโมเดลนี้ไม่สามารถส่งไฟล์แนบประเภทนี้ได้</string>
+    <string name="attachment_read_failed">อ่านไฟล์แนบไม่สำเร็จ</string>
+    <string name="agentic_search">ค้นหาด้วยเอเจนต์</string>
+    <string name="agentic_search_hint">เมื่อปิด โมเดลแชตจะจัดการการค้นหาโดยตรง</string>
+    <plurals name="trace_actions">
+        <item quantity="other">%1$d การดำเนินการ</item>
+    </plurals>
     <plurals name="model_count">
         <item quantity="other">%1$d โมเดล</item>
     </plurals>

@@ -30,6 +30,7 @@ class CoreClient(context: Context, private val scope: CoroutineScope) : AutoClos
             .readTimeout(180, TimeUnit.SECONDS)
             .build()
     private val calls = ConcurrentHashMap<String, Call>()
+    private val replies = ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
     private val mutableEvents = Channel<JSONObject>(Channel.UNLIMITED)
     val events = mutableEvents.receiveAsFlow()
     var browser: (suspend (JSONObject) -> JSONObject)? = null
@@ -74,7 +75,10 @@ class CoreClient(context: Context, private val scope: CoroutineScope) : AutoClos
                                 send(reply)
                             }
                         "cancel_io" -> calls.remove(event.optString("id"))?.cancel()
-                        else -> mutableEvents.send(event)
+                        else -> {
+                            val reply = replies.remove(event.optString("request"))
+                            if (reply != null) reply.complete(event) else mutableEvents.send(event)
+                        }
                     }
                 }
                 delay(16)
@@ -84,6 +88,21 @@ class CoreClient(context: Context, private val scope: CoroutineScope) : AutoClos
 
     fun send(command: JSONObject) {
         if (!closed) commands.trySend(command).getOrThrow()
+    }
+
+    suspend fun query(command: JSONObject): JSONObject {
+        val id = java.util.UUID.randomUUID().toString()
+        val reply = CompletableDeferred<JSONObject>()
+        replies[id] = reply
+        try {
+            send(command.put("request", id))
+            val result = withTimeoutOrNull(20_000) { reply.await() } ?: error("Request timed out")
+            check(result.optString("kind") != "error") { result.optString("message") }
+            check(!result.has("error")) { result.optString("error") }
+            return result
+        } finally {
+            replies.remove(id)
+        }
     }
 
     private fun request(event: JSONObject) {

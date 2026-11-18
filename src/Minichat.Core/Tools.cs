@@ -61,5 +61,17 @@ public static class Tools
             ["scope"] = String(),
             ["offset"] = Integer(),
             ["limit"] = Integer()
-        }, "query"));
+        }, "query"),
+        Define("history_search", "Search your own earlier conversation, even after compaction. Use a short exact phrase or keyword. Returns message ids, roles and snippets; follow next_offset for more.", new()
+        {
+            ["query"] = String(),
+            ["offset"] = Integer(),
+            ["limit"] = Integer()
+        }, "query"),
+        Define("history_recall", "Read an original message by id from history_search. Follow next_offset for more text (UTF-16 offsets).", new()
+        {
+            ["id"] = String(),
+            ["start"] = Integer(),
+            ["length"] = Integer()
+        }, "id"));
 }

@@ -93,6 +93,31 @@
     <string name="reset_world">重置世界</string>
     <string name="reset_world_question">将此世界重置为其初始状态？</string>
     <string name="reset">重置</string>
+    <string name="search_agent">搜索</string>
+    <string name="fetch_agent">浏览器</string>
+    <string name="title_model">标题</string>
+    <string name="branch_chat">从此处分支</string>
+    <string name="generate_title">生成标题</string>
+    <string name="protocol">协议</string>
+    <string name="agent_models">智能体模型</string>
+    <string name="available_models">可用模型</string>
+    <string name="use_chat_model">使用聊天模型</string>
+    <string name="manage_models">管理模型</string>
+    <string name="new_note">新建笔记</string>
+    <string name="notes">笔记</string>
+    <string name="load_more">加载更多</string>
+    <string name="delete_note_question">删除此笔记？</string>
+    <string name="internal_memory">智能体历史记录和归档</string>
+    <string name="add_attachment">添加附件</string>
+    <string name="remove_attachment">移除 %1$s</string>
+    <string name="attachment_too_large">附件总大小不得超过 16 MB。</string>
+    <string name="attachment_type_unsupported">此模型协议无法发送此类型的附件。</string>
+    <string name="attachment_read_failed">无法读取附件。</string>
+    <string name="agentic_search">智能体搜索</string>
+    <string name="agentic_search_hint">关闭后，由聊天模型直接处理搜索。</string>
+    <plurals name="trace_actions">
+        <item quantity="other">%1$d 项操作</item>
+    </plurals>
     <plurals name="model_count">
         <item quantity="other">%1$d 个模型</item>
     </plurals>

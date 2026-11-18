@@ -93,6 +93,31 @@
     <string name="reset_world">Dünyayı sıfırla</string>
     <string name="reset_world_question">Bu dünya ilk durumuna sıfırlansın mı?</string>
     <string name="reset">Sıfırla</string>
+    <string name="search_agent">Ara</string>
+    <string name="fetch_agent">Tarayıcı</string>
+    <string name="title_model">Başlık</string>
+    <string name="branch_chat">Buradan dallandır</string>
+    <string name="generate_title">Başlık oluştur</string>
+    <string name="protocol">Protokol</string>
+    <string name="agent_models">Ajan modelleri</string>
+    <string name="available_models">Kullanılabilir modeller</string>
+    <string name="use_chat_model">Sohbet modelini kullan</string>
+    <string name="manage_models">Modelleri yönet</string>
+    <string name="new_note">Yeni not</string>
+    <string name="notes">Notlar</string>
+    <string name="load_more">Daha fazla yükle</string>
+    <string name="delete_note_question">Bu not silinsin mi?</string>
+    <string name="internal_memory">Ajan geçmişi ve arşivler</string>
+    <string name="add_attachment">Ek ekle</string>
+    <string name="remove_attachment">%1$s öğesini kaldır</string>
+    <string name="attachment_too_large">Eklerin toplam boyutu en fazla 16 MB olmalıdır.</string>
+    <string name="attachment_type_unsupported">Bu model protokolü bu tür bir eki gönderemez.</string>
+    <string name="attachment_read_failed">Ek okunamadı.</string>
+    <string name="agentic_search">Ajan araması</string>
+    <string name="agentic_search_hint">Kapalıyken sohbet modeli aramayı doğrudan yapar.</string>
+    <plurals name="trace_actions">
+        <item quantity="other">%1$d işlem</item>
+    </plurals>
     <plurals name="model_count">
         <item quantity="other">%1$d model</item>
     </plurals>
