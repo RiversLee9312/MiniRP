@@ -152,4 +152,16 @@
     <string name="plugin_scope_global">Alle forhåndsinnstillinger</string>
     <string name="plugin_scope_include">Bare valgte forhåndsinnstillinger</string>
     <string name="plugin_scope_exclude">Alle unntatt de valgte</string>
+    <string name="compaction_threshold">Kontekstkomprimering</string>
+    <string name="compaction_context_percentage">Komprimeringsgrense (% av kontekstvinduet)</string>
+    <string name="compaction_percentage_range">Skriv inn en verdi fra 1 til 100</string>
+    <string name="compaction_model_context">Modellens kontekstvindu (%1$d tokener)</string>
+    <string name="compaction_fallback_context">Reserveverdi for kontekstvinduet (%1$d tokener)</string>
+    <string name="background_compaction">Komprimering i bakgrunnen</string>
+    <string name="background_compaction_threshold">Start i bakgrunnen</string>
+    <string name="background_compaction_range">Skriv inn en prosent under komprimeringsgrensen</string>
+    <string name="export_archive">Eksporter</string>
+    <string name="export_preset">Eksporter forhåndsinnstilling</string>
+    <string name="export_save">Eksporter lagring</string>
+    <string name="import_save">Importer lagring</string>
 </resources>

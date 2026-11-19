@@ -34,7 +34,9 @@ internal fun decodeChoice(value: JSONObject) =
     Choice(
         value.getString("id"),
         value.optString("name", value.getString("id")),
-        value.optInt("context_length", value.optInt("inputTokenLimit")),
+        sequenceOf("context_length", "context_window", "inputTokenLimit", "max_input_tokens")
+            .map { value.optInt(it) }
+            .firstOrNull { it > 0 } ?: 0,
         value.optInt(
             "outputTokenLimit",
             value.optInt(
@@ -46,7 +48,15 @@ internal fun decodeChoice(value: JSONObject) =
     )
 
 internal fun decodeModel(value: JSONObject) =
-    SavedModel(value.getString("provider"), decodeChoice(value))
+    SavedModel(
+        value.getString("provider"),
+        decodeChoice(value),
+        CompactionSettings(
+            threshold = value.optInt("compact_at_percent", DEFAULT_COMPACTION_PERCENT).coerceIn(1, 100),
+            background = value.optBoolean("background_compaction", true),
+            backgroundThreshold = value.optInt("background_compact_at_percent", DEFAULT_BACKGROUND_COMPACTION_PERCENT).coerceIn(1, 99),
+        ),
+    )
 
 internal fun encodeModel(value: SavedModel) =
     JSONObject()
@@ -55,6 +65,12 @@ internal fun encodeModel(value: SavedModel) =
         .put("name", value.choice.name)
         .put("context_length", value.choice.contextWindow)
         .put("max_output_tokens", value.choice.maxOutput)
+        .putCompaction(value.compaction)
+
+internal fun JSONObject.putCompaction(value: CompactionSettings): JSONObject =
+    put("compact_at_percent", value.threshold)
+        .put("background_compaction", value.background)
+        .put("background_compact_at_percent", value.backgroundThreshold)
 
 internal fun SavedModel.sameModel(other: SavedModel?) =
     provider == other?.provider && choice.id == other.choice.id

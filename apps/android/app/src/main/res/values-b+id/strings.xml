@@ -150,4 +150,16 @@
     <string name="plugin_scope_global">Semua preset</string>
     <string name="plugin_scope_include">Hanya preset terpilih</string>
     <string name="plugin_scope_exclude">Semua kecuali yang dipilih</string>
+    <string name="compaction_threshold">Kompresi konteks</string>
+    <string name="compaction_context_percentage">Ambang kompresi (% dari jendela konteks)</string>
+    <string name="compaction_percentage_range">Masukkan nilai dari 1 hingga 100</string>
+    <string name="compaction_model_context">Jendela konteks model (%1$d token)</string>
+    <string name="compaction_fallback_context">Jendela konteks cadangan (%1$d token)</string>
+    <string name="background_compaction">Kompresi di latar belakang</string>
+    <string name="background_compaction_threshold">Mulai di latar belakang</string>
+    <string name="background_compaction_range">Masukkan persentase di bawah ambang kompresi</string>
+    <string name="export_archive">Ekspor</string>
+    <string name="export_preset">Ekspor preset</string>
+    <string name="export_save">Ekspor simpanan</string>
+    <string name="import_save">Impor simpanan</string>
 </resources>

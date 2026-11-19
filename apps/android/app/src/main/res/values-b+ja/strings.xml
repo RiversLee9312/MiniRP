@@ -150,4 +150,16 @@
     <string name="plugin_scope_global">すべてのプリセット</string>
     <string name="plugin_scope_include">選択したプリセットのみ</string>
     <string name="plugin_scope_exclude">選択したプリセット以外</string>
+    <string name="compaction_threshold">コンテキスト圧縮</string>
+    <string name="compaction_context_percentage">圧縮のしきい値（ウィンドウに対する割合）</string>
+    <string name="compaction_percentage_range">1〜100 の値を入力</string>
+    <string name="compaction_model_context">モデルのコンテキストウィンドウ（%1$d トークン）</string>
+    <string name="compaction_fallback_context">代替のコンテキストウィンドウ（%1$d トークン）</string>
+    <string name="background_compaction">バックグラウンド圧縮</string>
+    <string name="background_compaction_threshold">バックグラウンドで開始</string>
+    <string name="background_compaction_range">圧縮のしきい値より小さい割合を入力</string>
+    <string name="export_archive">エクスポート</string>
+    <string name="export_preset">プリセットをエクスポート</string>
+    <string name="export_save">セーブをエクスポート</string>
+    <string name="import_save">セーブをインポート</string>
 </resources>

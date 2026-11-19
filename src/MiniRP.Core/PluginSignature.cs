@@ -35,7 +35,11 @@ internal static class PluginSignature
         }
         var (payload, hashes) = Payload(archive);
         if (platformVerifier is not null) return (platformVerifier(payload, bytes.ToArray()), hashes);
+#if MINIRP_ANDROID_BIONIC
+        throw new PlatformNotSupportedException("Use the Android host to verify plugin signatures.");
+#else
         return (VerifyCms(payload, bytes.ToArray()), hashes);
+#endif
     }
 
     private static string VerifyCms(byte[] payload, byte[] signature)
@@ -72,7 +76,7 @@ internal static class PluginSignature
         return (Encoding.UTF8.GetBytes(content.ToString()), hashes);
     }
 
-    internal static byte[] Sign(ZipArchive archive, X509Certificate2 certificate)
+    internal static byte[] Sign(byte[] payload, X509Certificate2 certificate)
     {
         using var key = (AsymmetricAlgorithm?)certificate.GetRSAPrivateKey() ?? certificate.GetECDsaPrivateKey() ??
             throw new ArgumentException("The certificate must have an RSA or ECDSA private key.");
@@ -80,16 +84,15 @@ internal static class PluginSignature
         try
         {
             var signingCertificate = new X509CertificateParser().ReadCertificate(certificate.RawData);
-            return Sign(archive, PrivateKeyFactory.CreateKey(encodedKey), signingCertificate,
+            return Sign(payload, PrivateKeyFactory.CreateKey(encodedKey), signingCertificate,
                 key is RSA ? "SHA256WITHRSA" : "SHA256WITHECDSA");
         }
         finally { CryptographicOperations.ZeroMemory(encodedKey); }
     }
 
-    internal static byte[] Sign(ZipArchive archive, AsymmetricKeyParameter key,
+    internal static byte[] Sign(byte[] payload, AsymmetricKeyParameter key,
         Org.BouncyCastle.X509.X509Certificate certificate, string algorithm)
     {
-        var (payload, _) = Payload(archive);
         var signer = new Asn1SignatureFactory(algorithm, key);
         var generator = new CmsSignedDataGenerator();
         generator.AddSignerInfoGenerator(new SignerInfoGeneratorBuilder().Build(signer, certificate));

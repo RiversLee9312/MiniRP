@@ -24,7 +24,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -38,9 +40,12 @@ import com.minirp.app.ui.AgentConversation
 import com.minirp.app.ui.AgentRole
 import com.minirp.app.ui.ChatState
 import com.minirp.app.ui.ChatViewModel
+import com.minirp.app.ui.Choice
 import com.minirp.app.ui.FullSheet
 import com.minirp.app.ui.MemoryScreen
 import com.minirp.app.ui.MiniRP
+import com.minirp.app.ui.ProviderConfig
+import com.minirp.app.ui.SavedModel
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
@@ -49,8 +54,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -69,6 +76,7 @@ class NavigationTest {
     private val preset = UUID.randomUUID().toString()
     private val otherPreset = UUID.randomUUID().toString()
     private lateinit var presetFile: File
+    private lateinit var preferences: Preferences
     private lateinit var model: ChatViewModel
 
     @Before
@@ -85,7 +93,7 @@ class NavigationTest {
         presetFile.parentFile!!
             .resolve("$otherPreset.json")
             .writeText("""{"name":"Switch target"}""")
-        val preferences =
+        preferences =
             Preferences(
                 PreferenceDataStoreFactory.create(scope = preferencesScope) {
                     directory.resolve("preferences.preferences_pb")
@@ -182,6 +190,53 @@ class NavigationTest {
         waitFor(R.string.title_model)
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         compose.onNodeWithText(label(R.string.providers)).assertIsDisplayed()
+    }
+
+    @Test
+    fun savedModelUsesDiscoveredWindowAndEditableCompactionDefaults() {
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse.Builder()
+                    .setHeader("Content-Type", "application/json")
+                    .body("""{"data":[{"id":"fixture","name":"Fixture model","context_length":65536}]}""")
+                    .build()
+            )
+            server.start()
+            val provider = ProviderConfig(id = "fixture", name = "Fixture", url = server.url("/v1").toString())
+            compose.runOnIdle {
+                model.saveProvider(provider)
+                model.enableModel(SavedModel(provider.id, Choice("fixture", "Fixture model")), true)
+            }
+            compose.waitUntil(10_000) { model.state.value.assigned(AgentRole.Chat)?.choice?.contextWindow == 65536 }
+            fun label(resource: Int) = compose.activity.getString(resource)
+            compose.onNodeWithContentDescription(label(R.string.settings)).performClick()
+            compose.onNodeWithText(label(R.string.models)).performClick()
+            fun openCompactionSettings() {
+                compose.onNodeWithTag("models-list").performScrollToKey("model:fixture:fixture")
+                compose.onNodeWithContentDescription(label(R.string.compaction_threshold)).performClick()
+            }
+            openCompactionSettings()
+            compose.onNodeWithText(compose.activity.getString(R.string.compaction_model_context, 65536)).assertIsDisplayed()
+            compose.onNodeWithText("80").assertIsDisplayed()
+            compose.onNodeWithText("70").assertIsDisplayed()
+            compose.onNodeWithText(label(R.string.compaction_context_percentage)).performTextReplacement("85")
+            compose.onNodeWithText(label(R.string.background_compaction_threshold)).performTextReplacement("75")
+            compose.onNodeWithText(label(R.string.save)).performClick()
+            val updated = model.state.value.assigned(AgentRole.Chat)!!.compaction
+            assertEquals(85, updated.threshold)
+            assertEquals(true, updated.background)
+            assertEquals(75, updated.backgroundThreshold)
+            runBlocking {
+                withTimeout(5_000) {
+                    while (preferences.load().second.optJSONArray("models")?.optJSONObject(0)
+                            ?.optInt("compact_at_percent") != 85
+                    ) delay(10)
+                }
+            }
+            openCompactionSettings()
+            compose.onNodeWithText("85").assertIsDisplayed()
+            compose.onNodeWithText("75").assertIsDisplayed()
+        }
     }
 
     @Test

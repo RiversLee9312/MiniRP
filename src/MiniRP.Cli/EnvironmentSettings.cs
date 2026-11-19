@@ -97,6 +97,9 @@ internal sealed class EnvironmentSettings(string root)
             ["context_window"] = int.TryParse(this["DEEPSEEK_CONTEXT_WINDOW"], out var context) ? context : 128000,
             ["max_output"] = int.TryParse(this["DEEPSEEK_MAX_OUTPUT_TOKENS"], out var output) ? output : 8192,
             ["compact_at"] = int.TryParse(this["DEEPSEEK_COMPACT_AT"], out var threshold) ? threshold : 0,
+            ["compact_at_percent"] = int.TryParse(this["DEEPSEEK_COMPACT_AT_PERCENT"], out var percent) ? percent : null,
+            ["background_compaction"] = !this["DEEPSEEK_BACKGROUND_COMPACTION"].Equals("disabled", StringComparison.OrdinalIgnoreCase),
+            ["background_compact_at_percent"] = int.TryParse(this["DEEPSEEK_BACKGROUND_COMPACT_AT_PERCENT"], out var start) ? start : 70,
             ["reasoning_effort"] = this["DEEPSEEK_REASONING_EFFORT"]
         },
         ["settings"] = new JsonObject

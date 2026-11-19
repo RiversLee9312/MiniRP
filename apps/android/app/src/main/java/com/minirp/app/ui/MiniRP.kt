@@ -73,6 +73,7 @@ fun MiniRP(model: ChatViewModel) {
             navigation.navigate(route) { launchSingleTop = true }
         }
         val context = LocalContext.current
+        val archives = rememberArchivePicker(model)
         val actions =
             remember(context, navigation) { ActionsRouter(context, ::open) { language = true } }
         fun openLink(setting: PluginSetting) {
@@ -101,6 +102,12 @@ fun MiniRP(model: ChatViewModel) {
                 model.clearError()
             }
         }
+        LaunchedEffect(state.archiveSaved) {
+            if (state.archiveSaved) {
+                snackbars.showSnackbar(context.getString(R.string.saved))
+                model.clearArchiveSaved()
+            }
+        }
         ModalNavigationDrawer(
             drawerState = drawer,
             gesturesEnabled = isChat,
@@ -126,6 +133,18 @@ fun MiniRP(model: ChatViewModel) {
                         scope.launch {
                             drawer.close()
                             model.openPresetEditor(create = true)
+                        }
+                    },
+                    onArchiveExport = { type, name, preset, id ->
+                        scope.launch {
+                            drawer.close()
+                            archives.export(type, name, preset, id)
+                        }
+                    },
+                    onArchiveImport = { type ->
+                        scope.launch {
+                            drawer.close()
+                            archives.importArchive(type)
                         }
                     },
                 )
@@ -160,7 +179,9 @@ fun MiniRP(model: ChatViewModel) {
                     }
                     composable<AppRoute.Plugins> {
                         SettingsPage(stringResource(R.string.plugins), back, snackbars) {
-                            PluginsScreen(state, model, Modifier.fillMaxSize())
+                            PluginsScreen(state, model, Modifier.fillMaxSize()) { plugin ->
+                                archives.export(ArchiveType.Plugin, plugin.name, "", plugin.id)
+                            }
                         }
                     }
                     composable<AppRoute.PluginPage> { entry ->

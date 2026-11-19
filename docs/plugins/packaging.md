@@ -20,9 +20,14 @@
 ## 安装和验证
 
 - Android 在「设置 → 插件」选择已签名的 `.plugin`。检查安装确认中的包名、证书指纹、权限和网络 origin。安装后可运行示例，并可从设置打开示例声明的 Markdown 页。
+- Android 可从已安装插件的操作菜单导出原始签名包。桌面可用 `/plugin-export stream-example stream-example.plugin`。
 - 桌面输入 `/plugin-install path/to/stream-example.plugin`，用 `/plugins` 查看，用 `/plugin-run stream-example` 运行，用 `/plugin-remove stream-example` 卸载。交互文件选择需要图形终端会话。
 - 测试示例时先打开一场聊天。它会生成 1,000,003 字节并按块消费，将大小写到插件 chat DB 的 `stream-example/last-size`。可在另一个调试 Hook 里用 `api.db.get({scope:"chat",key:"stream-example/last-size"})` 核对。
 - 从旧版包迁移时，加入 `packageName`，设 `apiVersion:2`，把回调集中登记到 `actions.handlers`，把所有事件和回调声明改成 Hook URL，重新签名。安装 API 接受已签名的 v2 包。已在旧版安装的包有兼容读取路径，旧的未签名 DB 与新签名身份分开存储。
+
+## 归属预设
+
+预设自己的插件在签名前把 `presetId` 写入 `manifest.json`，值为预设的小写 UUID。通过预设委派创建的插件由宿主填写该字段。预设包和存档包均携带归属该预设的原始签名包，导入时重新验签，新装插件的作用域默认为该预设。归属决定插件随哪个预设导出，运行作用域继续由宿主管理。旧版已发布草稿可由本地部署记录核对归属和签名。
 
 ## 调试与发布
 

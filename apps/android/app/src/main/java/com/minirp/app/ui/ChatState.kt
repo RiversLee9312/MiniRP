@@ -73,7 +73,20 @@ enum class AgentRole(val id: String, val agentName: String, val label: Int) {
     Title("title", "TitleAgent", com.minirp.app.R.string.title_model),
 }
 
-data class SavedModel(val provider: String, val choice: Choice)
+internal const val DEFAULT_COMPACTION_PERCENT = 80
+internal const val DEFAULT_BACKGROUND_COMPACTION_PERCENT = 70
+
+data class CompactionSettings(
+    val threshold: Int = DEFAULT_COMPACTION_PERCENT,
+    val background: Boolean = true,
+    val backgroundThreshold: Int = DEFAULT_BACKGROUND_COMPACTION_PERCENT,
+)
+
+data class SavedModel(
+    val provider: String,
+    val choice: Choice,
+    val compaction: CompactionSettings = CompactionSettings(),
+)
 
 data class ModelCatalog(
     val choices: List<Choice> = emptyList(),
@@ -123,6 +136,8 @@ data class ChatState(
     val replyError: ReplyError? = null,
     val pluginSettings: List<PluginSetting> = emptyList(),
     val installedPlugins: List<PluginInfo> = emptyList(),
+    val archiveBusy: Boolean = false,
+    val archiveSaved: Boolean = false,
 ) {
     val preparing
         get() = submitting || presetEditor == PresetEditorPhase.Opening

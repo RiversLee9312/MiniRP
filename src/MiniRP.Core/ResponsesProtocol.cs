@@ -6,7 +6,8 @@ namespace MiniRP.Core;
 /// <summary>OpenAI Responses wire format, including stateless replay of encrypted reasoning items.</summary>
 internal static class ResponsesProtocol
 {
-    public static async Task<JsonObject> Complete(HostPort port, Provider provider, JsonArray messages, JsonArray tools, Action<string, string> delta, CancellationToken cancellationToken, Dictionary<JsonNode, List<MessageAttachments.Media>> media)
+    public static async Task<JsonObject> Complete(HostPort port, Provider provider, JsonArray messages, JsonArray tools, Action<string, string> delta, CancellationToken cancellationToken, Dictionary<JsonNode, List<MessageAttachments.Media>> media,
+        bool requireComplete)
     {
         var request = new JsonObject
         {
@@ -110,6 +111,7 @@ internal static class ResponsesProtocol
                     break;
                 case "response.completed":
                 case "response.incomplete":
+                    if (requireComplete && type == "response.incomplete") throw ModelClient.IncompleteCheckpoint();
                     var response = item.GetObject("response");
                     var position = 0;
                     foreach (var completed in response.GetArray("output").OfType<JsonObject>())
@@ -119,6 +121,7 @@ internal static class ResponsesProtocol
             // Some compatible providers ignore stream=true and return a complete response.
             if ((type == "response" || item.GetString("object") == "response") && item["output"] is JsonArray complete)
             {
+                if (requireComplete && item.GetString("status") == "incomplete") throw ModelClient.IncompleteCheckpoint();
                 var position = 0;
                 foreach (var completed in complete.OfType<JsonObject>())
                     CompleteItem(completed, position++);

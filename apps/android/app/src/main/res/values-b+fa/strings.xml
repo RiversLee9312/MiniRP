@@ -152,4 +152,16 @@
     <string name="plugin_scope_global">همهٔ قالب‌ها</string>
     <string name="plugin_scope_include">فقط قالب‌های انتخاب‌شده</string>
     <string name="plugin_scope_exclude">همه به‌جز انتخاب‌شده‌ها</string>
+    <string name="compaction_threshold">فشرده‌سازی زمینه</string>
+    <string name="compaction_context_percentage">آستانهٔ فشرده‌سازی (درصد پنجرهٔ زمینه)</string>
+    <string name="compaction_percentage_range">عددی از ۱ تا ۱۰۰ وارد کنید</string>
+    <string name="compaction_model_context">پنجرهٔ زمینهٔ مدل (%1$d توکن)</string>
+    <string name="compaction_fallback_context">پنجرهٔ زمینهٔ جایگزین (%1$d توکن)</string>
+    <string name="background_compaction">فشرده‌سازی در پس‌زمینه</string>
+    <string name="background_compaction_threshold">شروع در پس‌زمینه</string>
+    <string name="background_compaction_range">درصدی کمتر از آستانهٔ فشرده‌سازی وارد کنید</string>
+    <string name="export_archive">صادر کردن</string>
+    <string name="export_preset">صادر کردن پیش‌تنظیم</string>
+    <string name="export_save">صادر کردن ذخیره</string>
+    <string name="import_save">وارد کردن ذخیره</string>
 </resources>

@@ -152,4 +152,16 @@
     <string name="plugin_scope_global">Alle presets</string>
     <string name="plugin_scope_include">Alleen geselecteerde presets</string>
     <string name="plugin_scope_exclude">Alle behalve geselecteerde</string>
+    <string name="compaction_threshold">Contextcompressie</string>
+    <string name="compaction_context_percentage">Compressiedrempel (% van het contextvenster)</string>
+    <string name="compaction_percentage_range">Voer een waarde van 1 tot 100 in</string>
+    <string name="compaction_model_context">Contextvenster van het model (%1$d tokens)</string>
+    <string name="compaction_fallback_context">Reservewaarde voor het contextvenster (%1$d tokens)</string>
+    <string name="background_compaction">Compressie op de achtergrond</string>
+    <string name="background_compaction_threshold">Start op de achtergrond</string>
+    <string name="background_compaction_range">Voer een percentage onder de compressiedrempel in</string>
+    <string name="export_archive">Exporteren</string>
+    <string name="export_preset">Voorinstelling exporteren</string>
+    <string name="export_save">Opgeslagen gegevens exporteren</string>
+    <string name="import_save">Opgeslagen gegevens importeren</string>
 </resources>

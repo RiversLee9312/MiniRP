@@ -7,6 +7,8 @@ namespace MiniRP.Core;
 internal sealed record PluginScope(string Mode, FrozenSet<string> Presets)
 {
     public static PluginScope Global { get; } = new("global", FrozenSet<string>.Empty);
+    internal static PluginScope Include(string preset) =>
+        new("include", new[] { WorkspaceIds.Require(preset) }.ToFrozenSet(StringComparer.Ordinal));
 
     public bool Allows(string preset) => Mode switch
     {

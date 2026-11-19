@@ -2,6 +2,7 @@ package com.minirp.app.ui
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.InvalidatingPagingSourceFactory
@@ -18,6 +19,9 @@ import com.minirp.app.data.AttachmentStore
 import com.minirp.app.data.LibraryPagingSource
 import com.minirp.app.data.Preferences
 import java.util.UUID
+import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.json.JSONArray
@@ -489,6 +493,7 @@ internal constructor(
 
     private fun receiveModels(event: JSONObject) {
         val id = event.optString("provider")
+        val before = state.value.savedModels
         mutableState.update { current ->
             val catalog = current.modelCatalogs[id] ?: return@update current
             if (catalog.request != event.optString("request")) return@update current
@@ -507,8 +512,24 @@ internal constructor(
                     "models_error" -> catalog.copy(error = event.optString("message"))
                     else -> catalog.copy(loading = event.optBoolean("value"))
                 }
-            current.copy(modelCatalogs = current.modelCatalogs + (id to changed))
+            val discovered = changed.choices.associateBy { it.id }
+            fun refresh(model: SavedModel): SavedModel {
+                if (model.provider != id) return model
+                val choice = discovered[model.choice.id] ?: return model
+                return model.copy(
+                    choice = choice.copy(
+                        contextWindow = choice.contextWindow.takeIf { it > 0 } ?: model.choice.contextWindow,
+                        maxOutput = choice.maxOutput.takeIf { it > 0 } ?: model.choice.maxOutput,
+                    )
+                )
+            }
+            current.copy(
+                modelCatalogs = current.modelCatalogs + (id to changed),
+                savedModels = current.savedModels.map(::refresh),
+                assignments = current.assignments.mapValues { refresh(it.value) },
+            )
         }
+        if (state.value.savedModels != before) persist()
     }
 
     suspend fun send(
@@ -883,6 +904,60 @@ internal constructor(
         command("plugin_settings")
     }
 
+    internal fun exportArchive(uri: Uri, request: JSONObject) = transferArchive { file ->
+        engine.await().query(request.put("op", "archive_export").put("path", file.path), timeoutMillis = null)
+        withContext(Dispatchers.IO) {
+            val resolver = getApplication<Application>().contentResolver
+            checkNotNull(resolver.openOutputStream(uri, "wt")) { "Could not open the export destination." }.use { output ->
+                file.inputStream().use { input -> copyArchive(input, output, Long.MAX_VALUE) }
+            }
+        }
+        mutableState.update { it.copy(archiveSaved = true) }
+    }
+
+    internal fun importArchive(uri: Uri, type: String) = transferArchive { file ->
+        withContext(Dispatchers.IO) {
+            val resolver = getApplication<Application>().contentResolver
+            checkNotNull(resolver.openInputStream(uri)) { "Could not open the archive." }.use { input ->
+                file.outputStream().use { output -> copyArchive(input, output, 9L * 1024 * 1024 * 1024) }
+            }
+        }
+        engine.await().query(JSONObject().put("op", "archive_import").put("type", type).put("path", file.path), timeoutMillis = null)
+    }
+
+    private fun transferArchive(operation: suspend (File) -> Unit) {
+        if (state.value.archiveBusy) return
+        mutableState.update { it.copy(archiveBusy = true) }
+        viewModelScope.launch {
+            val file = getApplication<Application>().cacheDir.resolve("transfer-${UUID.randomUUID()}")
+            try {
+                operation(file)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                report(failure)
+            } finally {
+                file.delete()
+                mutableState.update { it.copy(archiveBusy = false) }
+            }
+        }
+    }
+
+    private suspend fun copyArchive(input: InputStream, output: OutputStream, limit: Long) {
+        val buffer = ByteArray(65536)
+        var size = 0L
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val count = input.read(buffer)
+            if (count < 0) return
+            size += count
+            check(size <= limit) { "The workspace archive exceeds its size limit." }
+            output.write(buffer, 0, count)
+        }
+    }
+
+    internal fun clearArchiveSaved() = mutableState.update { it.copy(archiveSaved = false) }
+
     internal fun removePlugin(id: String) {
         command("plugin_uninstall") { put("id", id) }
         command("plugin_settings")
@@ -1002,6 +1077,18 @@ internal constructor(
         persist()
     }
 
+    fun setCompaction(model: SavedModel, settings: CompactionSettings) {
+        fun update(entry: SavedModel) =
+            if (entry.sameModel(model)) entry.copy(compaction = settings) else entry
+        mutableState.update {
+            it.copy(
+                savedModels = it.savedModels.map(::update),
+                assignments = it.assignments.mapValues { update(it.value) },
+            )
+        }
+        persist()
+    }
+
     fun assign(role: AgentRole, model: SavedModel?) {
         mutableState.update {
             it.copy(
@@ -1048,10 +1135,10 @@ internal constructor(
             return encodeProvider(
                 provider.copy(
                     model = choice.id,
-                    contextWindow = choice.contextWindow.takeIf { it > 0 } ?: 128000,
-                    maxOutput = choice.maxOutput.takeIf { it > 0 } ?: 8192,
+                    contextWindow = choice.contextWindow.takeIf { it > 0 } ?: provider.contextWindow,
+                    maxOutput = choice.maxOutput.takeIf { it > 0 } ?: provider.maxOutput,
                 )
-            )
+            ).putCompaction(model.compaction)
         }
         val assignments = JSONObject()
         current.assignments.forEach { (role, model) ->

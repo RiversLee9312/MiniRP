@@ -150,4 +150,16 @@
     <string name="plugin_scope_global">พรีเซ็ตทั้งหมด</string>
     <string name="plugin_scope_include">เฉพาะพรีเซ็ตที่เลือก</string>
     <string name="plugin_scope_exclude">ทั้งหมดยกเว้นที่เลือก</string>
+    <string name="compaction_threshold">การบีบอัดบริบท</string>
+    <string name="compaction_context_percentage">เกณฑ์การบีบอัด (% ของหน้าต่างบริบท)</string>
+    <string name="compaction_percentage_range">ป้อนค่าตั้งแต่ 1 ถึง 100</string>
+    <string name="compaction_model_context">หน้าต่างบริบทของโมเดล (%1$d โทเค็น)</string>
+    <string name="compaction_fallback_context">หน้าต่างบริบทสำรอง (%1$d โทเค็น)</string>
+    <string name="background_compaction">บีบอัดในเบื้องหลัง</string>
+    <string name="background_compaction_threshold">เริ่มในเบื้องหลัง</string>
+    <string name="background_compaction_range">ป้อนเปอร์เซ็นต์ที่ต่ำกว่าเกณฑ์การบีบอัด</string>
+    <string name="export_archive">ส่งออก</string>
+    <string name="export_preset">ส่งออกค่าที่ตั้งไว้</string>
+    <string name="export_save">ส่งออกข้อมูลบันทึก</string>
+    <string name="import_save">นำเข้าข้อมูลบันทึก</string>
 </resources>

@@ -13,6 +13,7 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
     private const int MaxScriptBytes = 2 * 1024 * 1024;
     public static readonly string[] Agents = ["chat", "env", "preset", "search", "fetch", "temporary"];
     public string PackageName => Manifest.GetString("packageName", Id);
+    public string PresetId => Manifest.GetString("presetId");
     public bool Signed => Signer.Length > 0;
     internal string Generation { get; } = JsonValues.NewId();
     internal string StorageKey => Signed ? PackageName + "." + Signer : Id;
@@ -38,6 +39,7 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
             throw new InvalidDataException("A plugin name and supported apiVersion are required.");
         var signed = version == 2;
         if (signed) PackageIdentifier(manifest.GetString("packageName"));
+        if (manifest.ContainsKey("presetId")) WorkspaceIds.Require(manifest.GetString("presetId"));
         var (certificate, hashes) = signed ? PluginSignature.Verify(archive, platformVerifier) : ("", null);
         var entry = manifest.GetString("entry");
         if (!SafePath(entry) || !entry.EndsWith(".js", StringComparison.Ordinal))

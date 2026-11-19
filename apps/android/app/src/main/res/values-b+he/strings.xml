@@ -154,4 +154,16 @@
     <string name="plugin_scope_global">כל התבניות</string>
     <string name="plugin_scope_include">רק התבניות שנבחרו</string>
     <string name="plugin_scope_exclude">הכול מלבד התבניות שנבחרו</string>
+    <string name="compaction_threshold">דחיסת הקשר</string>
+    <string name="compaction_context_percentage">סף דחיסה (% מחלון ההקשר)</string>
+    <string name="compaction_percentage_range">יש להזין ערך בין 1 ל־100</string>
+    <string name="compaction_model_context">חלון ההקשר של המודל (%1$d טוקנים)</string>
+    <string name="compaction_fallback_context">חלון הקשר חלופי (%1$d טוקנים)</string>
+    <string name="background_compaction">דחיסה ברקע</string>
+    <string name="background_compaction_threshold">התחלה ברקע</string>
+    <string name="background_compaction_range">יש להזין אחוז נמוך מסף הדחיסה</string>
+    <string name="export_archive">ייצוא</string>
+    <string name="export_preset">ייצוא תבנית</string>
+    <string name="export_save">ייצוא שמירה</string>
+    <string name="import_save">ייבוא שמירה</string>
 </resources>

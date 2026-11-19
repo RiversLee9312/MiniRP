@@ -7,6 +7,7 @@
     "$schema": { "type": "string" },
     "id": { "$ref": "#/$defs/id" },
     "packageName": { "type": "string", "maxLength": 150, "pattern": "^(?!(?:minirp|minichat)\\.)[a-z][a-z0-9_]{0,47}(?:\\.[a-z][a-z0-9_]{0,47})+$" },
+    "presetId": { "type": "string", "pattern": "^(?!00000000-0000-0000-0000-000000000000$)[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$" },
     "name": { "type": "string", "minLength": 1, "maxLength": 120 },
     "apiVersion": { "const": 2 },
     "entry": { "type": "string", "pattern": "\\.js$" },

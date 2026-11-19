@@ -152,4 +152,16 @@
     <string name="plugin_scope_global">Kaikki esiasetukset</string>
     <string name="plugin_scope_include">Vain valitut esiasetukset</string>
     <string name="plugin_scope_exclude">Kaikki paitsi valitut</string>
+    <string name="compaction_threshold">Kontekstin tiivistys</string>
+    <string name="compaction_context_percentage">Tiivistysraja (% konteksti-ikkunasta)</string>
+    <string name="compaction_percentage_range">Anna arvo väliltä 1–100</string>
+    <string name="compaction_model_context">Mallin konteksti-ikkuna (%1$d tokenia)</string>
+    <string name="compaction_fallback_context">Konteksti-ikkunan vara-arvo (%1$d tokenia)</string>
+    <string name="background_compaction">Tiivistys taustalla</string>
+    <string name="background_compaction_threshold">Aloita taustalla</string>
+    <string name="background_compaction_range">Anna tiivistysrajaa pienempi prosentti</string>
+    <string name="export_archive">Vie</string>
+    <string name="export_preset">Vie esiasetus</string>
+    <string name="export_save">Vie tallennus</string>
+    <string name="import_save">Tuo tallennus</string>
 </resources>

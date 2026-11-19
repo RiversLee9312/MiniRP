@@ -152,4 +152,16 @@
     <string name="plugin_scope_global">Minden előbeállítás</string>
     <string name="plugin_scope_include">Csak a kijelöltek</string>
     <string name="plugin_scope_exclude">Minden, kivéve a kijelölteket</string>
+    <string name="compaction_threshold">Kontextustömörítés</string>
+    <string name="compaction_context_percentage">Tömörítési küszöb (a kontextusablak %-a)</string>
+    <string name="compaction_percentage_range">Adjon meg 1 és 100 közötti értéket</string>
+    <string name="compaction_model_context">A modell kontextusablaka (%1$d token)</string>
+    <string name="compaction_fallback_context">Tartalék kontextusablak (%1$d token)</string>
+    <string name="background_compaction">Tömörítés a háttérben</string>
+    <string name="background_compaction_threshold">Indítás a háttérben</string>
+    <string name="background_compaction_range">Adjon meg a tömörítési küszöbnél kisebb százalékot</string>
+    <string name="export_archive">Exportálás</string>
+    <string name="export_preset">Előbeállítás exportálása</string>
+    <string name="export_save">Mentés exportálása</string>
+    <string name="import_save">Mentés importálása</string>
 </resources>

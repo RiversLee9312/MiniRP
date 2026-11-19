@@ -4,11 +4,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.minirp.app.R
@@ -23,6 +28,7 @@ internal fun ModelsScreen(
 ) {
     var providerId by rememberSaveable { mutableStateOf("") }
     var query by rememberSaveable { mutableStateOf("") }
+    var editingModel by rememberSaveable { mutableStateOf<String?>(null) }
     val provider = state.providers.find { it.id == providerId } ?: state.providers.firstOrNull()
     LaunchedEffect(provider?.id) {
         if (provider != null && provider.id !in state.modelCatalogs) model.refreshModels(provider)
@@ -35,7 +41,7 @@ internal fun ModelsScreen(
                 .distinctBy { it.id }
                 .filter { it.name.contains(query, true) || it.id.contains(query, true) }
         }
-    LazyColumn(modifier, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+    LazyColumn(modifier.testTag("models-list"), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
         item { SectionLabel(R.string.agent_models) }
         items(AgentRole.entries, key = { "assignment:${it.id}" }) { role ->
             val selection = state.assigned(role)
@@ -109,17 +115,115 @@ internal fun ModelsScreen(
                 item { SectionLabel(R.string.no_models) }
             items(models, key = { "model:${provider.id}:${it.id}" }) { choice ->
                 val saved = SavedModel(provider.id, choice)
-                val checked = state.savedModels.any { it.sameModel(saved) }
+                val configured = state.savedModels.find { it.sameModel(saved) }
+                val checked = configured != null
                 ListItem(
                     content = { Text(choice.name) },
                     supportingContent =
                         if (choice.name == choice.id) null else ({ Text(choice.id) }),
-                    trailingContent = { Switch(checked, { model.enableModel(saved, it) }) },
+                    trailingContent = {
+                        Row {
+                            if (checked) {
+                                IconButton(onClick = { editingModel = choice.id }) {
+                                    Symbol("settings", description = stringResource(R.string.compaction_threshold))
+                                }
+                            }
+                            Switch(checked, { model.enableModel(saved, it) })
+                        }
+                    },
                     modifier = Modifier.clickable { model.enableModel(saved, !checked) },
                 )
             }
         }
     }
+    val selected = state.savedModels.find { it.provider == provider?.id && it.choice.id == editingModel }
+    if (selected != null && provider != null) {
+        CompactionThresholdDialog(
+            selected,
+            provider,
+            onDismiss = { editingModel = null },
+            onSave = {
+                model.setCompaction(selected, it)
+                editingModel = null
+            },
+        )
+    }
+}
+
+@Composable
+private fun CompactionThresholdDialog(
+    model: SavedModel,
+    provider: ProviderConfig,
+    onDismiss: () -> Unit,
+    onSave: (CompactionSettings) -> Unit,
+) {
+    var value by rememberSaveable(model.provider, model.choice.id) {
+        mutableStateOf(model.compaction.threshold.toString())
+    }
+    var background by rememberSaveable(model.provider, model.choice.id) {
+        mutableStateOf(model.compaction.background)
+    }
+    var startValue by rememberSaveable(model.provider, model.choice.id) {
+        mutableStateOf(model.compaction.backgroundThreshold.toString())
+    }
+    val percent = value.toIntOrNull()?.takeIf { it in 1..100 }
+    val start = startValue.toIntOrNull()?.takeIf { it in 1..99 && percent != null && it < percent }
+    val context = model.choice.contextWindow
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.compaction_threshold)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(model.choice.name, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    if (context > 0) stringResource(R.string.compaction_model_context, context)
+                    else stringResource(R.string.compaction_fallback_context, provider.contextWindow)
+                )
+                OutlinedTextField(
+                    value,
+                    { if (it.length <= 3 && it.all(Char::isDigit)) value = it },
+                    Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.compaction_context_percentage)) },
+                    suffix = { Text("%") },
+                    supportingText = { Text(stringResource(R.string.compaction_percentage_range)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    isError = value.isNotEmpty() && percent == null,
+                )
+                ListItem(
+                    content = { Text(stringResource(R.string.background_compaction)) },
+                    trailingContent = { Switch(background, { background = it }) },
+                    modifier = Modifier.clickable { background = !background },
+                )
+                if (background) {
+                    OutlinedTextField(
+                        startValue,
+                        { if (it.length <= 2 && it.all(Char::isDigit)) startValue = it },
+                        Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.background_compaction_threshold)) },
+                        suffix = { Text("%") },
+                        supportingText = { Text(stringResource(R.string.background_compaction_range)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        isError = startValue.isNotEmpty() && start == null,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (percent != null) {
+                        onSave(CompactionSettings(percent, background, start ?: model.compaction.backgroundThreshold))
+                    }
+                },
+                enabled = percent != null && (!background || start != null),
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
 }
 
 @Composable

@@ -171,18 +171,18 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         SetPackages(installed.ToArray());
     }
 
-    private PluginPackage ReadPackage(Stream source, string path = "", bool allowLegacy = false)
+    private PluginPackage ReadPackage(Stream source, string path = "", bool allowLegacy = false, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
 #if MINIRP_ANDROID_BIONIC
         return PluginPackage.Read(source, path, allowLegacy, (payload, signature) =>
         {
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
-            deadline.CancelAfter(TimeSpan.FromSeconds(15));
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop.Token, ct);
             var reply = port.CallHost("plugin_verify", new()
             {
                 ["payload"] = Convert.ToBase64String(payload),
                 ["signature"] = Convert.ToBase64String(signature)
-            }, deadline.Token).GetAwaiter().GetResult();
+            }, deadline.Token, TimeSpan.FromSeconds(15)).GetAwaiter().GetResult();
             var signer = reply.GetString("signer");
             if (signer.Length != 64 || signer.Any(value => !char.IsAsciiHexDigit(value)))
                 throw new InvalidDataException("Invalid plugin signer fingerprint.");
@@ -243,7 +243,8 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
             try
             {
                 using (var output = File.Create(temp)) input.CopyTo(output);
-                if (initialScope is not null && isNew) SaveScope(package, initialScope);
+                if (isNew && (initialScope is not null || package.PresetId.Length > 0))
+                    SaveScope(package, initialScope ?? PluginScope.Include(package.PresetId));
                 if (isNew) File.Move(temp, target);
                 else File.Replace(temp, target, destinationBackupFileName: null);
             }
@@ -271,7 +272,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
     public JsonObject Descriptor(PluginPackage package) => new()
     {
         ["id"] = package.Id, ["name"] = package.Name,
-        ["packageName"] = package.PackageName, ["signer"] = package.Signer,
+        ["packageName"] = package.PackageName, ["signer"] = package.Signer, ["presetId"] = package.PresetId,
         ["builtIn"] = package.BuiltIn,
         ["scope"] = Scope(package).Describe(),
         ["permissions"] = package.Manifest.GetArray("permissions").DeepClone(),

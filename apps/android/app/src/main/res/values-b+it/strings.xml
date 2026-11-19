@@ -152,4 +152,16 @@
     <string name="plugin_scope_global">Tutti i preset</string>
     <string name="plugin_scope_include">Solo i preset selezionati</string>
     <string name="plugin_scope_exclude">Tutti tranne quelli selezionati</string>
+    <string name="compaction_threshold">Compressione del contesto</string>
+    <string name="compaction_context_percentage">Soglia di compressione (% della finestra di contesto)</string>
+    <string name="compaction_percentage_range">Inserisci un valore da 1 a 100</string>
+    <string name="compaction_model_context">Finestra di contesto del modello (%1$d token)</string>
+    <string name="compaction_fallback_context">Finestra di contesto di riserva (%1$d token)</string>
+    <string name="background_compaction">Compressione in background</string>
+    <string name="background_compaction_threshold">Avvia in background</string>
+    <string name="background_compaction_range">Inserisci una percentuale inferiore alla soglia di compressione</string>
+    <string name="export_archive">Esporta</string>
+    <string name="export_preset">Esporta preimpostazione</string>
+    <string name="export_save">Esporta salvataggio</string>
+    <string name="import_save">Importa salvataggio</string>
 </resources>

@@ -150,4 +150,16 @@
     <string name="plugin_scope_global">Tüm hazır ayarlar</string>
     <string name="plugin_scope_include">Yalnızca seçilenler</string>
     <string name="plugin_scope_exclude">Seçilenler hariç tümü</string>
+    <string name="compaction_threshold">Bağlam sıkıştırma</string>
+    <string name="compaction_context_percentage">Sıkıştırma eşiği (bağlam penceresinin yüzdesi)</string>
+    <string name="compaction_percentage_range">1 ile 100 arasında bir değer girin</string>
+    <string name="compaction_model_context">Modelin bağlam penceresi (%1$d belirteç)</string>
+    <string name="compaction_fallback_context">Yedek bağlam penceresi (%1$d belirteç)</string>
+    <string name="background_compaction">Arka planda sıkıştırma</string>
+    <string name="background_compaction_threshold">Arka planda başlat</string>
+    <string name="background_compaction_range">Sıkıştırma eşiğinin altında bir yüzde girin</string>
+    <string name="export_archive">Dışa aktar</string>
+    <string name="export_preset">Ön ayarı dışa aktar</string>
+    <string name="export_save">Kaydı dışa aktar</string>
+    <string name="import_save">Kaydı içe aktar</string>
 </resources>

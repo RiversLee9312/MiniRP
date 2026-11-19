@@ -156,4 +156,16 @@
     <string name="plugin_scope_global">Все пресеты</string>
     <string name="plugin_scope_include">Только выбранные пресеты</string>
     <string name="plugin_scope_exclude">Все, кроме выбранных</string>
+    <string name="compaction_threshold">Сжатие контекста</string>
+    <string name="compaction_context_percentage">Порог сжатия (% от окна контекста)</string>
+    <string name="compaction_percentage_range">Введите значение от 1 до 100</string>
+    <string name="compaction_model_context">Окно контекста модели (%1$d токенов)</string>
+    <string name="compaction_fallback_context">Резервное окно контекста (%1$d токенов)</string>
+    <string name="background_compaction">Фоновое сжатие</string>
+    <string name="background_compaction_threshold">Запуск в фоне</string>
+    <string name="background_compaction_range">Введите процент ниже порога сжатия</string>
+    <string name="export_archive">Экспорт</string>
+    <string name="export_preset">Экспортировать пресет</string>
+    <string name="export_save">Экспортировать сохранение</string>
+    <string name="import_save">Импортировать сохранение</string>
 </resources>

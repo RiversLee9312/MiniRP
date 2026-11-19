@@ -152,4 +152,16 @@
     <string name="plugin_scope_global">Tous les préréglages</string>
     <string name="plugin_scope_include">Préréglages sélectionnés uniquement</string>
     <string name="plugin_scope_exclude">Tous sauf les préréglages sélectionnés</string>
+    <string name="compaction_threshold">Compression du contexte</string>
+    <string name="compaction_context_percentage">Seuil de compression (% de la fenêtre de contexte)</string>
+    <string name="compaction_percentage_range">Saisissez une valeur de 1 à 100</string>
+    <string name="compaction_model_context">Fenêtre de contexte du modèle (%1$d jetons)</string>
+    <string name="compaction_fallback_context">Fenêtre de contexte de secours (%1$d jetons)</string>
+    <string name="background_compaction">Compression en arrière-plan</string>
+    <string name="background_compaction_threshold">Démarrer en arrière-plan</string>
+    <string name="background_compaction_range">Saisissez un pourcentage inférieur au seuil de compression</string>
+    <string name="export_archive">Exporter</string>
+    <string name="export_preset">Exporter le préréglage</string>
+    <string name="export_save">Exporter la sauvegarde</string>
+    <string name="import_save">Importer la sauvegarde</string>
 </resources>

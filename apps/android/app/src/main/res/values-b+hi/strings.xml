@@ -152,4 +152,16 @@
     <string name="plugin_scope_global">सभी प्रीसेट</string>
     <string name="plugin_scope_include">सिर्फ़ चुने गए प्रीसेट</string>
     <string name="plugin_scope_exclude">चुने गए प्रीसेट छोड़कर सभी</string>
+    <string name="compaction_threshold">कॉन्टेक्स्ट कंप्रेशन</string>
+    <string name="compaction_context_percentage">कंप्रेशन सीमा (कॉन्टेक्स्ट विंडो का %)</string>
+    <string name="compaction_percentage_range">1 से 100 तक का मान डालें</string>
+    <string name="compaction_model_context">मॉडल की कॉन्टेक्स्ट विंडो (%1$d टोकन)</string>
+    <string name="compaction_fallback_context">वैकल्पिक कॉन्टेक्स्ट विंडो (%1$d टोकन)</string>
+    <string name="background_compaction">बैकग्राउंड में कंप्रेशन</string>
+    <string name="background_compaction_threshold">बैकग्राउंड में शुरू करें</string>
+    <string name="background_compaction_range">कंप्रेशन सीमा से कम प्रतिशत डालें</string>
+    <string name="export_archive">एक्सपोर्ट करें</string>
+    <string name="export_preset">प्रीसेट एक्सपोर्ट करें</string>
+    <string name="export_save">सेव एक्सपोर्ट करें</string>
+    <string name="import_save">सेव इंपोर्ट करें</string>
 </resources>

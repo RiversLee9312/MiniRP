@@ -28,18 +28,24 @@ internal sealed class SessionHistory(MemoryDb db, string agent)
             return;
         }
 
+        ImportArchives(ArchivePrefix);
+        ImportArchives("_archive/public/history/");
+        Import(current);
+        db.Write(ImportMarker, "1", internalWrite: true);
+    }
+
+    private void ImportArchives(string prefix)
+    {
         var after = "";
         do
         {
-            var page = db.Call("db_list", new() { ["prefix"] = ArchivePrefix, ["after"] = after });
+            var page = db.Call("db_list", new() { ["prefix"] = prefix, ["after"] = after });
             foreach (var entry in page.GetArray("entries"))
             {
                 try
                 {
-                    if (JsonNode.Parse(db.Get(entry.GetString("key")) ?? "[]") is JsonArray transcript)
-                    {
-                        Import(transcript);
-                    }
+                    var archive = JsonNode.Parse(db.Get(entry.GetString("key")) ?? "[]");
+                    Import(archive as JsonArray ?? archive.GetArray("history"));
                 }
                 catch (JsonException)
                 {
@@ -48,9 +54,6 @@ internal sealed class SessionHistory(MemoryDb db, string agent)
             }
             after = page.GetString("next_after");
         } while (after.Length != 0);
-
-        Import(current);
-        db.Write(ImportMarker, "1", internalWrite: true);
     }
 
     public void Import(JsonArray messages)

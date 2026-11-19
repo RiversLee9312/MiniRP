@@ -10,11 +10,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import com.minirp.app.ui.DrawerLibrary
+import com.minirp.app.ui.Choice
+import com.minirp.app.ui.LibraryChoiceRow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -22,6 +26,24 @@ import org.junit.Test
 
 class DrawerLibraryTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test
+    fun longPressOpensTheExportActionWithoutOpeningTheRoom() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val invocations = mutableListOf<String>()
+        compose.setContent {
+            MaterialExpressiveTheme {
+                LibraryChoiceRow(
+                    Choice("room", "Room fixture"), selected = false, enabled = true,
+                    onOpen = { invocations += "open" }, onDelete = { invocations += "delete" },
+                    actions = listOf(R.string.export_archive to { invocations += "export" }),
+                )
+            }
+        }
+        compose.onNodeWithText("Room fixture").performTouchInput { longClick() }
+        compose.onNodeWithText(context.getString(R.string.export_archive)).assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(listOf("export"), invocations) }
+    }
 
     @Test
     fun bottomActionTracksTheVisibleListInBothDirections() {

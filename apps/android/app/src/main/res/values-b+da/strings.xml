@@ -152,4 +152,16 @@
     <string name="plugin_scope_global">Alle presets</string>
     <string name="plugin_scope_include">Kun valgte presets</string>
     <string name="plugin_scope_exclude">Alle undtagen valgte</string>
+    <string name="compaction_threshold">Kontekstkomprimering</string>
+    <string name="compaction_context_percentage">Komprimeringsgrænse (% af kontekstvinduet)</string>
+    <string name="compaction_percentage_range">Indtast en værdi fra 1 til 100</string>
+    <string name="compaction_model_context">Modellens kontekstvindue (%1$d tokens)</string>
+    <string name="compaction_fallback_context">Reservekontekstvindue (%1$d tokens)</string>
+    <string name="background_compaction">Komprimering i baggrunden</string>
+    <string name="background_compaction_threshold">Start i baggrunden</string>
+    <string name="background_compaction_range">Indtast en procent under komprimeringsgrænsen</string>
+    <string name="export_archive">Eksportér</string>
+    <string name="export_preset">Eksportér preset</string>
+    <string name="export_save">Eksportér gemte data</string>
+    <string name="import_save">Importér gemte data</string>
 </resources>

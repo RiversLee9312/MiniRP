@@ -154,4 +154,16 @@
     <string name="plugin_scope_global">Toate presetările</string>
     <string name="plugin_scope_include">Doar presetările selectate</string>
     <string name="plugin_scope_exclude">Toate, mai puțin cele selectate</string>
+    <string name="compaction_threshold">Comprimarea contextului</string>
+    <string name="compaction_context_percentage">Prag de comprimare (% din fereastra de context)</string>
+    <string name="compaction_percentage_range">Introdu o valoare de la 1 la 100</string>
+    <string name="compaction_model_context">Fereastra de context a modelului (%1$d tokenuri)</string>
+    <string name="compaction_fallback_context">Fereastră de context de rezervă (%1$d tokenuri)</string>
+    <string name="background_compaction">Comprimare în fundal</string>
+    <string name="background_compaction_threshold">Pornește în fundal</string>
+    <string name="background_compaction_range">Introdu un procent sub pragul de comprimare</string>
+    <string name="export_archive">Exportă</string>
+    <string name="export_preset">Exportă presetarea</string>
+    <string name="export_save">Exportă salvarea</string>
+    <string name="import_save">Importă salvarea</string>
 </resources>

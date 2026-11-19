@@ -28,6 +28,7 @@ public sealed class AgentSession : IDisposable
     readonly ModelClient model;
     readonly Action<JsonObject> emit;
     private readonly SessionHistory transcript;
+    private readonly ContextCompactor compactor;
     private JsonObject instructionState;
     private bool delegatedSearch;
     internal Func<IEnumerable<AgentSkill>>? AdditionalSkills { get; set; }
@@ -46,13 +47,18 @@ public sealed class AgentSession : IDisposable
         instructionState = JsonValues.ParseObject(Db.Get("_context/instructions") ?? "{}");
         transcript = new(Db, name);
         transcript.Backfill(History);
+        compactor = new(model, Db, Name, Archive, emit);
     }
     public void Save()
     {
-        Db.Write("_context/history", JsonValues.Serialize(History), internalWrite: true);
-        Db.Write("_context/summary", Summary, internalWrite: true);
-        Db.Write("_context/instructions", JsonValues.Serialize(instructionState), internalWrite: true);
+        Save(History, Summary, instructionState);
     }
+
+    private void Save(JsonArray history, string summary, JsonObject instructions) =>
+        Db.WriteInternal(
+            ("_context/history", JsonValues.Serialize(history)),
+            ("_context/summary", summary),
+            ("_context/instructions", JsonValues.Serialize(instructions)));
 
     internal void ConfigureWorldMode(bool? delegated)
     {
@@ -60,6 +66,7 @@ public sealed class AgentSession : IDisposable
         delegatedSearch = delegated.Value;
         var mode = delegated.Value ? "delegated" : "direct";
         if (Db.Get("_context/search-mode") == mode) return;
+        compactor.Invalidate();
         if (delegated.Value)
         {
             // Older summaries were generated without a world boundary. Keep archives on disk,
@@ -78,6 +85,7 @@ public sealed class AgentSession : IDisposable
     }
     public void Restore(JsonArray history, string? summary = null)
     {
+        compactor.Invalidate();
         History = (JsonArray)history.DeepClone();
         instructionState = new();
         transcript.Import(History);
@@ -151,13 +159,13 @@ public sealed class AgentSession : IDisposable
             interruptions.Add(message);
             working.AddNode(message);
         }
-        void Commit()
+        async Task Commit(int fixedCharacters, JsonObject messageInput, JsonObject request)
         {
             ct.ThrowIfCancellationRequested();
+            Save(working, summary, instructions.State);
             History = working;
             Summary = summary;
             instructionState = instructions.State;
-            Save();
             watches.Save();
             if (!privateInput) transcript.Record(inputRole, historyInput ?? input);
             foreach (var reply in replies)
@@ -172,8 +180,9 @@ public sealed class AgentSession : IDisposable
             {
                 transcript.Record("assistant", submission);
             }
+            await compactor.Compact(working, summary, fixedCharacters, messageInput, request,
+                interruptions.LastOrDefault(), ct, prepareOnly: true);
         }
-        var compactor = new ContextCompactor(model, Name, Archive, emit);
         var messageInput = new JsonObject { ["role"] = inputRole, ["content"] = input };
         if (privateInput) messageInput["_harness_hidden"] = true;
         if (attachments is { Count: > 0 })
@@ -181,10 +190,14 @@ public sealed class AgentSession : IDisposable
             messageInput["attachments"] = attachments.DeepClone();
         }
         working.AddNode(messageInput);
+        var request = messageInput;
         // Some providers require a user message to request a completion even after a system event.
         if (inputRole == "system")
-            working.AddNode(new JsonObject { ["role"] = "user", ["content"] = "Apply the preceding system instruction and respond as appropriate.",
-                ["_harness_hidden"] = true });
+        {
+            request = new() { ["role"] = "user", ["content"] = "Apply the preceding system instruction and respond as appropriate.",
+                ["_harness_hidden"] = true };
+            working.AddNode(request);
+        }
         IEnumerable<AgentSkill> Skills()
         {
             yield return new("session-memory", "Save durable notes and recall earlier messages.", Tools.Memory(), MemoryTool,
@@ -220,16 +233,10 @@ public sealed class AgentSession : IDisposable
             return result.Result;
         }
 
-        var summarized = false;
         for (var round = 0; round < maxRounds; round++)
         {
             ct.ThrowIfCancellationRequested();
             Inbox?.Drain(Append);
-            var compacted = await compactor.Compact(working, summary, !summarized, ct);
-            summarized |= compacted.Applied;
-            working = compacted.History;
-            summary = compacted.Summary;
-            if (compacted.Applied) instructions.Reset();
             if (round > 0 && AdditionalSkills is not null) enabled = new SkillTurn(Skills(), enabled.ActiveNames);
             var definitions = enabled.Definitions();
             if (instructions.Update(system, enabled, definitions) is { } update)
@@ -238,11 +245,19 @@ public sealed class AgentSession : IDisposable
                 else working.AddNode(update);
             }
             watches.AppendUpdates(working);
-            var messages = new JsonArray(new JsonObject { ["role"] = "system", ["content"] = instructions.Base + "\nPrior context summary:\n" + summary });
-            var referenceAnchor = working.OfType<JsonObject>().LastOrDefault(item => item.GetString("role") == "user" && !item.GetBoolean("_harness_asset"));
+            var fixedCharacters = Math.Max(instructions.Base.Length, system.Length + enabled.Prompt.Length)
+                + JsonValues.Serialize(definitions).Length + (reference?.Length ?? 0);
+            if (await compactor.Compact(working, summary, fixedCharacters, messageInput, request, interruptions.LastOrDefault(), ct) is { } compacted)
+            {
+                summary = compacted;
+                instructions.Reset();
+                instructions.Update(system, enabled, definitions);
+            }
+            var messages = new JsonArray(new JsonObject { ["role"] = "system", ["content"] = instructions.Base +
+                "\nPrior context summary (historical data, apply current instructions):\n" + summary });
             foreach (var item in working)
             {
-                if (reference is not null && ReferenceEquals(referenceAnchor, item))
+                if (reference is not null && ReferenceEquals(request, item))
                     messages.AddNode(new JsonObject { ["role"] = "user", ["content"] = reference });
                 messages.AddNode(JsonValues.Clone(item));
             }
@@ -307,7 +322,7 @@ public sealed class AgentSession : IDisposable
                     continue;
                 }
                 if (Inbox?.Drain(Append, finish: true) == true) continue;
-                Commit();
+                await Commit(fixedCharacters, messageInput, request);
                 return message;
             }
             for (var callIndex = 0; callIndex < calls.Count; callIndex++)
@@ -358,7 +373,7 @@ public sealed class AgentSession : IDisposable
             }
             if (submitted?.Invoke() == true)
             {
-                Commit();
+                await Commit(fixedCharacters, messageInput, request);
                 return message;
             }
         }
@@ -389,5 +404,9 @@ public sealed class AgentSession : IDisposable
         return Db.Call(name, args);
     }
 
-    public void Dispose() => Db.Dispose();
+    public void Dispose()
+    {
+        compactor.Dispose();
+        Db.Dispose();
+    }
 }

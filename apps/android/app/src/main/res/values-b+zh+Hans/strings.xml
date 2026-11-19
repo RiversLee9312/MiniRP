@@ -70,6 +70,14 @@
     <string name="thinking_off">关闭</string>
     <string name="thinking_on">打开</string>
     <string name="context_size">上下文大小</string>
+    <string name="compaction_threshold">上下文压缩</string>
+    <string name="compaction_context_percentage">压缩阈值（占上下文窗口）</string>
+    <string name="compaction_percentage_range">输入 1 至 100</string>
+    <string name="compaction_model_context">模型上下文窗口（%1$d token）</string>
+    <string name="compaction_fallback_context">备用上下文窗口（%1$d token）</string>
+    <string name="background_compaction">异步压缩</string>
+    <string name="background_compaction_threshold">异步压缩触发点</string>
+    <string name="background_compaction_range">输入低于压缩阈值的百分比</string>
     <string name="max_output">最大输出</string>
     <string name="no_provider_configured">添加提供商以选择模型。</string>
     <string name="provider_saved">提供商已保存</string>
@@ -150,4 +158,8 @@
     <string name="plugin_scope_global">所有预设</string>
     <string name="plugin_scope_include">仅限选中的预设</string>
     <string name="plugin_scope_exclude">排除选中的预设</string>
+    <string name="export_archive">导出</string>
+    <string name="export_preset">导出预设</string>
+    <string name="export_save">导出存档</string>
+    <string name="import_save">导入存档</string>
 </resources>

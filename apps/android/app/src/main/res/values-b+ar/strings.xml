@@ -160,4 +160,16 @@
     <string name="plugin_scope_global">كل القوالب</string>
     <string name="plugin_scope_include">القوالب المحددة فقط</string>
     <string name="plugin_scope_exclude">الكل باستثناء المحددة</string>
+    <string name="compaction_threshold">ضغط السياق</string>
+    <string name="compaction_context_percentage">حد الضغط (% من نافذة السياق)</string>
+    <string name="compaction_percentage_range">أدخل قيمة من 1 إلى 100</string>
+    <string name="compaction_model_context">نافذة سياق النموذج (%1$d رمزًا)</string>
+    <string name="compaction_fallback_context">نافذة السياق الاحتياطية (%1$d رمزًا)</string>
+    <string name="background_compaction">الضغط في الخلفية</string>
+    <string name="background_compaction_threshold">البدء في الخلفية</string>
+    <string name="background_compaction_range">أدخل نسبة أقل من حد الضغط</string>
+    <string name="export_archive">تصدير</string>
+    <string name="export_preset">تصدير القالب</string>
+    <string name="export_save">تصدير الحفظ</string>
+    <string name="import_save">استيراد الحفظ</string>
 </resources>

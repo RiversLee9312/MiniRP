@@ -152,4 +152,16 @@
     <string name="plugin_scope_global">Alle Voreinstellungen</string>
     <string name="plugin_scope_include">Nur ausgewählte Voreinstellungen</string>
     <string name="plugin_scope_exclude">Alle außer ausgewählten</string>
+    <string name="compaction_threshold">Kontextkomprimierung</string>
+    <string name="compaction_context_percentage">Komprimierungsschwelle (% des Kontextfensters)</string>
+    <string name="compaction_percentage_range">Wert zwischen 1 und 100 eingeben</string>
+    <string name="compaction_model_context">Kontextfenster des Modells (%1$d Token)</string>
+    <string name="compaction_fallback_context">Ersatzwert für das Kontextfenster (%1$d Token)</string>
+    <string name="background_compaction">Komprimierung im Hintergrund</string>
+    <string name="background_compaction_threshold">Im Hintergrund starten</string>
+    <string name="background_compaction_range">Prozentwert unter der Komprimierungsschwelle eingeben</string>
+    <string name="export_archive">Exportieren</string>
+    <string name="export_preset">Voreinstellung exportieren</string>
+    <string name="export_save">Spielstand exportieren</string>
+    <string name="import_save">Spielstand importieren</string>
 </resources>

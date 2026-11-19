@@ -152,4 +152,16 @@
     <string name="plugin_scope_global">Όλες οι προεπιλογές</string>
     <string name="plugin_scope_include">Μόνο οι επιλεγμένες</string>
     <string name="plugin_scope_exclude">Όλες εκτός από τις επιλεγμένες</string>
+    <string name="compaction_threshold">Συμπίεση συμφραζομένων</string>
+    <string name="compaction_context_percentage">Όριο συμπίεσης (% του παραθύρου συμφραζομένων)</string>
+    <string name="compaction_percentage_range">Εισαγάγετε τιμή από 1 έως 100</string>
+    <string name="compaction_model_context">Παράθυρο συμφραζομένων μοντέλου (%1$d token)</string>
+    <string name="compaction_fallback_context">Εφεδρικό παράθυρο συμφραζομένων (%1$d token)</string>
+    <string name="background_compaction">Συμπίεση στο παρασκήνιο</string>
+    <string name="background_compaction_threshold">Έναρξη στο παρασκήνιο</string>
+    <string name="background_compaction_range">Εισαγάγετε ποσοστό κάτω από το όριο συμπίεσης</string>
+    <string name="export_archive">Εξαγωγή</string>
+    <string name="export_preset">Εξαγωγή προεπιλογής</string>
+    <string name="export_save">Εξαγωγή αποθήκευσης</string>
+    <string name="import_save">Εισαγωγή αποθήκευσης</string>
 </resources>

@@ -152,4 +152,16 @@
     <string name="plugin_scope_global">Todos los preajustes</string>
     <string name="plugin_scope_include">Solo los seleccionados</string>
     <string name="plugin_scope_exclude">Todos menos los seleccionados</string>
+    <string name="compaction_threshold">Compresión del contexto</string>
+    <string name="compaction_context_percentage">Umbral de compresión (% de la ventana de contexto)</string>
+    <string name="compaction_percentage_range">Introduce un valor del 1 al 100</string>
+    <string name="compaction_model_context">Ventana de contexto del modelo (%1$d tokens)</string>
+    <string name="compaction_fallback_context">Ventana de contexto alternativa (%1$d tokens)</string>
+    <string name="background_compaction">Compresión en segundo plano</string>
+    <string name="background_compaction_threshold">Iniciar en segundo plano</string>
+    <string name="background_compaction_range">Introduce un porcentaje inferior al umbral de compresión</string>
+    <string name="export_archive">Exportar</string>
+    <string name="export_preset">Exportar preajuste</string>
+    <string name="export_save">Exportar partida</string>
+    <string name="import_save">Importar partida</string>
 </resources>

@@ -156,4 +156,16 @@
     <string name="plugin_scope_global">Všechny předvolby</string>
     <string name="plugin_scope_include">Jen vybrané předvolby</string>
     <string name="plugin_scope_exclude">Všechny kromě vybraných</string>
+    <string name="compaction_threshold">Komprese kontextu</string>
+    <string name="compaction_context_percentage">Práh komprese (% okna kontextu)</string>
+    <string name="compaction_percentage_range">Zadejte hodnotu od 1 do 100</string>
+    <string name="compaction_model_context">Okno kontextu modelu (%1$d tokenů)</string>
+    <string name="compaction_fallback_context">Náhradní okno kontextu (%1$d tokenů)</string>
+    <string name="background_compaction">Komprese na pozadí</string>
+    <string name="background_compaction_threshold">Spustit na pozadí</string>
+    <string name="background_compaction_range">Zadejte procento nižší než práh komprese</string>
+    <string name="export_archive">Exportovat</string>
+    <string name="export_preset">Exportovat předvolbu</string>
+    <string name="export_save">Exportovat uložená data</string>
+    <string name="import_save">Importovat uložená data</string>
 </resources>

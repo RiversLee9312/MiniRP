@@ -17,6 +17,7 @@ internal sealed class PluginDevelopmentProject(string root, string id, string pr
         AtomicFile.Write(FilePath("manifest.json"), JsonValues.Serialize(new JsonObject
         {
             ["id"] = PackageId, ["packageName"] = PackageName, ["name"] = name,
+            ["presetId"] = preset,
             ["apiVersion"] = 2, ["entry"] = "index.js", ["actions"] = new JsonObject { ["handlers"] = new JsonObject() }
         }));
         AtomicFile.Write(FilePath("index.js"), "globalThis.handlers = {};\n");
@@ -74,20 +75,26 @@ internal sealed class PluginDevelopmentProject(string root, string id, string pr
 
     private async Task<JsonNode?> Build(bool publish, JsonObject args, CancellationToken ct)
     {
-        var manifest = JsonValues.ParseObject(Read(FilePath("manifest.json")));
+        var manifestPath = FilePath("manifest.json");
+        var manifest = JsonValues.ParseObject(Read(manifestPath));
         var packageName = manifest.GetString("packageName");
         if (manifest.GetString("id") != PackageId || packageName != PackageName && packageName != "local.minichat.p" + id)
             throw new InvalidDataException("Keep the draft's assigned id and packageName.");
-        var signer = PluginDevelopmentSigner.Open(Path.Combine(root, "signer.json"));
+        if (!manifest.ContainsKey("presetId"))
+        {
+            manifest["presetId"] = preset;
+            Write(manifestPath, JsonValues.Serialize(manifest));
+        }
+        if (manifest.GetString("presetId") != preset)
+            throw new InvalidDataException("Keep the draft's assigned presetId.");
         var artifact = Path.Combine(root, JsonValues.NewId() + ".plugin");
         try
         {
-            PluginArchive.Pack(Source, artifact, signer.Sign);
+            var fingerprint = await runtime.PackDevelopment(Source, artifact, Path.Combine(root, "signer.json"), ct);
             var url = publish ? "" : args.GetString("handler");
             var tested = await runtime.Debug(artifact, Path.Combine(root, "preview"), preset, url, args.GetObject("event"), ct);
             if (!publish) return new JsonObject { ["ok"] = true, ["result"] = tested };
             ct.ThrowIfCancellationRequested();
-            var (_, fingerprint) = PluginArchive.Verify(artifact);
             AtomicFile.Write(Path.Combine(root, "deployment.json"), JsonValues.Serialize(new JsonObject { ["signer"] = fingerprint }));
             var package = runtime.Deploy(artifact, preset);
             changed();

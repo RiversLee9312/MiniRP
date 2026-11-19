@@ -71,6 +71,14 @@
     <string name="thinking_off">Off</string>
     <string name="thinking_on">On</string>
     <string name="context_size">Context size</string>
+    <string name="compaction_threshold">Context compaction</string>
+    <string name="compaction_context_percentage">Context window (%)</string>
+    <string name="compaction_percentage_range">Enter 1 to 100</string>
+    <string name="compaction_model_context">Model context window (%1$d tokens)</string>
+    <string name="compaction_fallback_context">Fallback context window (%1$d tokens)</string>
+    <string name="background_compaction">Background compaction</string>
+    <string name="background_compaction_threshold">Start in background (%)</string>
+    <string name="background_compaction_range">Enter a percentage below the compaction threshold</string>
     <string name="max_output">Maximum output</string>
     <string name="no_provider_configured">Add a provider to choose a model.</string>
     <string name="provider_saved">Provider saved</string>
@@ -153,4 +161,8 @@
     <string name="plugin_scope_global">All presets</string>
     <string name="plugin_scope_include">Selected presets only</string>
     <string name="plugin_scope_exclude">All except selected</string>
+    <string name="export_archive">Export</string>
+    <string name="export_preset">Export preset</string>
+    <string name="export_save">Export save</string>
+    <string name="import_save">Import save</string>
 </resources>

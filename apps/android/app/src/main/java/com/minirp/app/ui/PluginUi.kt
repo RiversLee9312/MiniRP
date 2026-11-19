@@ -262,7 +262,12 @@ internal fun PluginPickerHost(picker: PluginPicker) {
 }
 
 @Composable
-internal fun PluginsScreen(state: ChatState, model: ChatViewModel, modifier: Modifier) {
+internal fun PluginsScreen(
+    state: ChatState,
+    model: ChatViewModel,
+    modifier: Modifier,
+    onExport: (PluginInfo) -> Unit,
+) {
     val context = LocalContext.current
     var candidate by remember { mutableStateOf<Pair<File, PluginInfo>?>(null) }
     var removing by remember { mutableStateOf<PluginInfo?>(null) }
@@ -319,6 +324,11 @@ internal fun PluginsScreen(state: ChatState, model: ChatViewModel, modifier: Mod
                                         },
                                     )
                                 if (!plugin.builtIn) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.export_archive)) },
+                                        enabled = !state.archiveBusy,
+                                        onClick = { menu = false; onExport(plugin) },
+                                    )
                                     DropdownMenuItem(
                                         text = { Text(stringResource(R.string.plugin_scope)) },
                                         onClick = {

@@ -150,4 +150,16 @@
     <string name="plugin_scope_global">Tất cả preset</string>
     <string name="plugin_scope_include">Chỉ các preset đã chọn</string>
     <string name="plugin_scope_exclude">Tất cả trừ các preset đã chọn</string>
+    <string name="compaction_threshold">Nén ngữ cảnh</string>
+    <string name="compaction_context_percentage">Ngưỡng nén (% cửa sổ ngữ cảnh)</string>
+    <string name="compaction_percentage_range">Nhập giá trị từ 1 đến 100</string>
+    <string name="compaction_model_context">Cửa sổ ngữ cảnh của mô hình (%1$d token)</string>
+    <string name="compaction_fallback_context">Cửa sổ ngữ cảnh dự phòng (%1$d token)</string>
+    <string name="background_compaction">Nén trong nền</string>
+    <string name="background_compaction_threshold">Bắt đầu trong nền</string>
+    <string name="background_compaction_range">Nhập tỷ lệ thấp hơn ngưỡng nén</string>
+    <string name="export_archive">Xuất</string>
+    <string name="export_preset">Xuất cấu hình</string>
+    <string name="export_save">Xuất bản lưu</string>
+    <string name="import_save">Nhập bản lưu</string>
 </resources>

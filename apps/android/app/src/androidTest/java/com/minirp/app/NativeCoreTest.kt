@@ -9,6 +9,7 @@ import com.minirp.app.core.BrowserHost
 import com.minirp.app.core.CoreClient
 import java.io.File
 import java.util.UUID
+import java.util.zip.ZipFile
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import mockwebserver3.MockResponse
@@ -22,6 +23,66 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class NativeCoreTest {
+    @Test
+    fun nativeCoreRestoresPresetAndRoomFromPortableFiles() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = File(app.cacheDir, "archive-probe-${System.nanoTime()}").apply { mkdirs() }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        fun client(name: String) = CoreClient(
+            object : ContextWrapper(app) {
+                override fun getFilesDir() = directory.resolve(name).apply { mkdirs() }
+            },
+            scope,
+        )
+        fun command(op: String) = JSONObject().put("op", op)
+        val source = client("source")
+        val target = client("target")
+        try {
+            val preset = source.query(command("create_preset").put("name", "Portable fixture")
+                .put("open", true).put("interview", false)).getString("preset")
+            source.send(command("select_chat").put("preset", preset))
+            val loaded = withTimeout(10_000) { source.events.first { it.optString("kind") == "loaded" } }
+            val room = loaded.getJSONObject("chat").getString("id")
+            source.send(command("system_message").put("chat", room).put("preset", preset).put("text", "Persistent Room note"))
+            withTimeout(10_000) { source.events.first { it.optString("kind") == "system" } }
+
+            suspend fun export(type: String): File {
+                val file = directory.resolve("portable.minirp-$type")
+                val result = source.query(
+                    command("archive_export").put("type", type).put("preset", preset)
+                        .put("room", room).put("path", file.path),
+                )
+                assertEquals("archive_exported", result.getString("kind"))
+                return file
+            }
+            val roomFile = export("room")
+            val db = "conversations/$preset/$room/agents/chat.sqlite"
+            ZipFile(roomFile).use {
+                assertNotNull(it.getEntry("conversations/$preset/$room.json"))
+                assertNotNull(it.getEntry(db))
+            }
+            suspend fun restore(type: String) {
+                val file = export(type)
+                val result = target.query(command("archive_import").put("type", type).put("path", file.path))
+                assertEquals("archive_imported", result.getString("kind"))
+                assertEquals(preset, result.getString("preset"))
+            }
+            restore("preset")
+            assertFalse(directory.resolve("target/workspace/$db").exists())
+            restore("save")
+            assertTrue(directory.resolve("target/workspace/$db").isFile)
+            target.send(command("select_chat").put("preset", preset).put("id", room))
+            val restored = withTimeout(10_000) { target.events.first { it.optString("kind") == "loaded" } }
+            assertEquals("Persistent Room note",
+                restored.getJSONObject("chat").getJSONArray("blocks").getJSONObject(0).getString("content"))
+        } finally {
+            source.close()
+            target.close()
+            scope.cancel()
+            directory.deleteRecursively()
+        }
+    }
+
     @Test
     fun renamedAppKeepsItsLauncherComponent() {
         val app = ApplicationProvider.getApplicationContext<Context>()

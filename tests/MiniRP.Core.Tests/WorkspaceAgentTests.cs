@@ -94,7 +94,7 @@ public sealed class WorkspaceAgentTests
         var world = NewWorld();
         var model = Fixture(round => new JsonObject { ["content"] = round == 0 ? "Preserved key: note/task. Continue the request." : "Done." });
         using var session = new AgentSession("ChatAgent", Path.Combine(world.ChatRoot, "compact-test.sqlite"), model, _ => { });
-        var original = new string('x', 170000);
+        var original = new string('x', 225000);
         session.Restore(new JsonArray(new JsonObject { ["role"] = "user", ["content"] = original }));
         await session.Run("Test", "Continue", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
         var archives = session.Db.Call("db_list", new() { ["prefix"] = "_archive/history/" }).GetArray("entries");
@@ -138,7 +138,7 @@ public sealed class WorkspaceAgentTests
     {
         var world = NewWorld();
         var path = Path.Combine(world.ChatRoot, "history-test.sqlite");
-        var original = "Keep the lantern green 🟢. " + new string('x', 170000);
+        var original = "Keep the lantern green 🟢. " + new string('x', 225000);
         var events = new List<JsonObject>();
         using (var initial = new AgentSession("ChatAgent", path,
             Fixture(round => new JsonObject { ["content"] = round == 0 ? "Compressed summary." : "Done." }), events.Add))
@@ -169,6 +169,109 @@ public sealed class WorkspaceAgentTests
         Assert.AreEqual(0, JsonValues.ParseObject(otherSearch.GetString("text")).GetArray("matches").Count);
     }
 
+    [TestMethod]
+    public async Task BackgroundCheckpointSurvivesReloadAndKeepsMessagesAddedAfterItsCut()
+    {
+        var world = NewWorld();
+        var path = Path.Combine(world.ChatRoot, "background-compaction.sqlite");
+        var provider = new Provider("test", "Test", "openai", "http://fixture.invalid", "", "test",
+            ContextWindow: 50000, MaxOutput: 2000);
+        var summaryRequest = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requests = new System.Collections.Concurrent.ConcurrentQueue<JsonObject>();
+        var summaries = 0;
+        HostPort? port = null;
+        void Reply(JsonObject request, string text)
+        {
+            var data = new JsonObject { ["choices"] = new JsonArray(new JsonObject { ["delta"] = new JsonObject { ["content"] = text } }) };
+            port!.Reply(new() { ["id"] = request.GetString("id"), ["data"] = "data: " + JsonValues.Serialize(data) + "\n\n", ["done"] = true });
+        }
+        port = new(request =>
+        {
+            if (request.GetString("kind") == "cancel_io") return;
+            var body = JsonValues.ParseObject(request.GetString("body"));
+            var first = body.GetArray("messages")[0].GetString("content");
+            if (first.StartsWith("Write a continuation checkpoint", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref summaries);
+                if (!summaryRequest.TrySetResult(request)) Reply(request, "Unexpected second checkpoint.");
+                return;
+            }
+            requests.Enqueue(body);
+            Reply(request, "Reply after the cut.");
+        });
+        var model = new ModelClient(port, () => provider);
+        var original = "Original state " + new string('x', 68700);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using (var originalSession = new AgentSession("ChatAgent", path, model, _ => { }))
+        {
+            originalSession.Restore(new JsonArray(new JsonObject { ["role"] = "user", ["content"] = original }));
+            await originalSession.Run("Test", "Prepare without blocking", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), timeout.Token);
+            Assert.AreEqual("", originalSession.Summary);
+            Assert.AreEqual(original, originalSession.History[0].GetString("content"));
+            Reply(await summaryRequest.Task.WaitAsync(timeout.Token), "Checkpoint retained the original state.");
+            while (originalSession.Db.Get("_context/prepared-compaction") is null)
+                await Task.Delay(10, timeout.Token);
+            Assert.AreEqual("", originalSession.Summary);
+        }
+
+        var events = new List<JsonObject>();
+        using var resumed = new AgentSession("ChatAgent", path, model, events.Add);
+        var nextInput = "New input " + new string('y', 12000);
+        await resumed.Run("Test", nextInput, new(), (_, _, _) => Task.FromResult<JsonNode?>(null), timeout.Token);
+        Assert.AreEqual(1, summaries);
+        Assert.AreEqual(2, requests.Count);
+        var messages = requests.Last().GetArray("messages");
+        StringAssert.Contains(messages[0].GetString("content"), "Checkpoint retained the original state.");
+        Assert.IsTrue(messages.Any(message => message.GetString("content") == "Reply after the cut."));
+        Assert.AreEqual(nextInput, messages.Last().GetString("content"));
+        Assert.IsTrue(events.Any(e => e.GetString("text").StartsWith("Used the background checkpoint.", StringComparison.Ordinal)));
+        var key = events.Single(e => e.GetString("kind") == "compacted").GetString("key");
+        Assert.AreEqual(original, JsonValues.ParseObject(resumed.Db.Get(key)!).GetArray("history")[0].GetString("content"));
+    }
+
+    [TestMethod]
+    public async Task RepeatedCompactionCarriesProgressAndKeepsCompleteRecentToolBatches()
+    {
+        var world = NewWorld();
+        var requests = new List<JsonObject>();
+        var progress = 0;
+        var completed = 0;
+        var model = Fixture(round =>
+        {
+            var messages = requests[^1].GetArray("messages");
+            if (messages[0].GetString("content").StartsWith("Write a continuation checkpoint", StringComparison.Ordinal))
+            {
+                if (progress++ > 0)
+                    StringAssert.Contains(messages[1].GetString("content"), "Checkpoint " + (progress - 1));
+                return new() { ["content"] = "Checkpoint " + progress };
+            }
+            Assert.IsTrue(messages.Any(message => message.GetString("content") == "Finish the current job"));
+            var calls = messages.SelectMany(message => message.GetArray("tool_calls")).Select(call => call.GetString("id")).ToArray();
+            var results = messages.Where(message => message.GetString("role") == "tool").Select(message => message.GetString("tool_call_id")).ToArray();
+            CollectionAssert.AreEqual(calls, results);
+            if (completed >= 4)
+            {
+                Assert.IsTrue(messages.Any(message => message.GetString("role") == "tool" &&
+                    message.GetString("content").StartsWith("step-8", StringComparison.Ordinal)));
+                return new() { ["content"] = "Done" };
+            }
+            return Assistant(Call("step", new()), Call("step", new()));
+        }, requests.Add, new Provider("test", "Test", "openai", "http://fixture.invalid", "", "test",
+            CompactAt: 8000, BackgroundCompaction: false));
+        using var session = new AgentSession("ChatAgent", Path.Combine(world.ChatRoot, "repeated-compaction.sqlite"), model, _ => { });
+        session.Restore(new JsonArray(new JsonObject { ["role"] = "user", ["content"] = new string('x', 22000) }));
+        var callsExecuted = 0;
+        await session.Run("Test", "Finish the current job", new JsonArray(Tools.Define("step", "Complete one step.")), (_, _, _) =>
+        {
+            var step = ++callsExecuted;
+            completed = step / 2;
+            return Task.FromResult<JsonNode?>(JsonValue.Create($"step-{step} " + new string('p', 1880)));
+        }, CancellationToken.None);
+        Assert.IsGreaterThanOrEqualTo(2, progress);
+        Assert.AreEqual(8, callsExecuted);
+        StringAssert.Contains(session.Summary, "Checkpoint " + progress);
+    }
+
     private static string NewRoot() => Path.Combine(Path.GetTempPath(), "minirp-workspace-" + Guid.NewGuid().ToString("N"));
 
     private static Workspace NewWorld()
@@ -187,7 +290,7 @@ public sealed class WorkspaceAgentTests
 
         return new() { ["tool_calls"] = array };
     }
-    private static ModelClient Fixture(Func<int, JsonObject> respond, Action<JsonObject>? inspect = null)
+    private static ModelClient Fixture(Func<int, JsonObject> respond, Action<JsonObject>? inspect = null, Provider? provider = null)
     {
         var round = 0;
         HostPort? port = null;
@@ -202,6 +305,6 @@ public sealed class WorkspaceAgentTests
             var data = new JsonObject { ["choices"] = new JsonArray(new JsonObject { ["delta"] = respond(round++) }) };
             port!.Reply(new() { ["id"] = request.GetString("id"), ["data"] = "data: " + JsonValues.Serialize(data) + "\n\n", ["done"] = true });
         });
-        return new(port, () => new("test", "Test", "openai", "http://fixture.invalid", "test", "test"));
+        return new(port, () => provider ?? new("test", "Test", "openai", "http://fixture.invalid", "test", "test"));
     }
 }

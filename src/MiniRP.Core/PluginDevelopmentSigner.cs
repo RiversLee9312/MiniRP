@@ -1,4 +1,4 @@
-using System.IO.Compression;
+#if !MINIRP_ANDROID_BIONIC
 using System.Text.Json.Nodes;
 using Org.BouncyCastle.Asn1.Sec;
 using Org.BouncyCastle.Asn1.X509;
@@ -10,21 +10,40 @@ using Org.BouncyCastle.Math;
 using Org.BouncyCastle.Pkcs;
 using Org.BouncyCastle.Security;
 using Org.BouncyCastle.X509;
+#endif
 
 namespace MiniRP.Core;
 
-internal sealed record PluginDevelopmentSigner(AsymmetricKeyParameter Key, X509Certificate Certificate)
+internal static class PluginDevelopmentSigner
 {
+#if MINIRP_ANDROID_BIONIC
+    public static async Task<byte[]> Sign(string path, byte[] payload, HostPort port, CancellationToken ct)
+    {
+        var reply = await port.CallHost("plugin_sign", new()
+        {
+            ["path"] = path,
+            ["payload"] = Convert.ToBase64String(payload)
+        }, ct, TimeSpan.FromSeconds(15));
+        var signature = Convert.FromBase64String(reply.GetString("signature"));
+        if (signature.Length is < 1 or > 65536) throw new InvalidDataException("Invalid plugin signature size.");
+        return signature;
+    }
+#else
     private const string Algorithm = "SHA256WITHECDSA";
 
-    public byte[] Sign(ZipArchive archive) => PluginSignature.Sign(archive, Key, Certificate, Algorithm);
+    public static Task<byte[]> Sign(string path, byte[] payload, HostPort port, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var (key, certificate) = Open(path);
+        return Task.FromResult(PluginSignature.Sign(payload, key, certificate, Algorithm));
+    }
 
-    public static PluginDevelopmentSigner Open(string path)
+    private static (AsymmetricKeyParameter Key, X509Certificate Certificate) Open(string path)
     {
         if (File.Exists(path))
         {
             var document = JsonValues.ParseObject(File.ReadAllText(path));
-            return new(PrivateKeyFactory.CreateKey(Convert.FromBase64String(document.GetString("key"))),
+            return (PrivateKeyFactory.CreateKey(Convert.FromBase64String(document.GetString("key"))),
                 new X509CertificateParser().ReadCertificate(Convert.FromBase64String(document.GetString("certificate"))));
         }
 
@@ -46,6 +65,7 @@ internal sealed record PluginDevelopmentSigner(AsymmetricKeyParameter Key, X509C
             ["key"] = Convert.ToBase64String(PrivateKeyInfoFactory.CreatePrivateKeyInfo(pair.Private).GetEncoded()),
             ["certificate"] = Convert.ToBase64String(certificate.GetEncoded()),
         }));
-        return new(pair.Private, certificate);
+        return (pair.Private, certificate);
     }
+#endif
 }

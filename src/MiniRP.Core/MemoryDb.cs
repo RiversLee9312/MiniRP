@@ -14,17 +14,20 @@ public sealed partial class MemoryDb : IDisposable
         get;
     }
 
-    public MemoryDb(string path)
+    public MemoryDb(string path) : this(path, readOnly: false) { }
+
+    private MemoryDb(string path, bool readOnly)
     {
         Path = path;
-        if (path != ":memory:")
+        if (!readOnly && path != ":memory:")
         {
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
         }
 
         var vfs = OperatingSystem.IsWindows() ? "win32-longpath" : null;
-        Check(Open(NativePath(path), out _db, 0x00000002 | 0x00000004 | 0x00010000, vfs));
+        Check(Open(NativePath(path), out _db, (readOnly ? 0x00000001 : 0x00000002 | 0x00000004) | 0x00010000, vfs));
         BusyTimeout(_db, 5000);
+        if (readOnly) return;
         if (path != ":memory:")
         {
             Execute("PRAGMA journal_mode=WAL");
@@ -39,6 +42,8 @@ public sealed partial class MemoryDb : IDisposable
         }
         catch (InvalidOperationException) { _fts = false; }
     }
+
+    internal static MemoryDb ReadOnly(string path) => new(path, readOnly: true);
 
     public void Execute(string sql, params object?[] values)
     {
@@ -114,15 +119,7 @@ public sealed partial class MemoryDb : IDisposable
                     throw new InvalidOperationException($"revision conflict: {key}, current={current}");
                 }
 
-                Execute("INSERT INTO entries VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET content=excluded.content,revision=excluded.revision,updated_at=excluded.updated_at", key, content, current + 1, DateTimeOffset.UtcNow.ToString("O"));
-                if (_fts)
-                {
-                    if (current != 0)
-                    {
-                        Execute("DELETE FROM entry_search WHERE key=?", key);
-                    }
-                    Execute("INSERT INTO entry_search(key,content) VALUES(?,?)", key, content);
-                }
+                Upsert(key, content, current);
                 Execute("COMMIT");
                 return new()
                 {
@@ -133,6 +130,33 @@ public sealed partial class MemoryDb : IDisposable
             }
             catch { Execute("ROLLBACK"); throw; }
         }
+    }
+
+    internal void WriteInternal(params (string Key, string Content)[] entries)
+    {
+        lock (_gate)
+        {
+            Execute("BEGIN IMMEDIATE");
+            try
+            {
+                foreach (var (key, content) in entries)
+                {
+                    ValidateKey(key, true);
+                    var old = Query("SELECT revision FROM entries WHERE key=?", key).FirstOrDefault();
+                    Upsert(key, content, old is null ? 0 : int.Parse(old["revision"]));
+                }
+                Execute("COMMIT");
+            }
+            catch { Execute("ROLLBACK"); throw; }
+        }
+    }
+
+    private void Upsert(string key, string content, int current)
+    {
+        Execute("INSERT INTO entries VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET content=excluded.content,revision=excluded.revision,updated_at=excluded.updated_at", key, content, current + 1, DateTimeOffset.UtcNow.ToString("O"));
+        if (!_fts) return;
+        if (current != 0) Execute("DELETE FROM entry_search WHERE key=?", key);
+        Execute("INSERT INTO entry_search(key,content) VALUES(?,?)", key, content);
     }
 
     public JsonObject Call(string name, JsonObject args)

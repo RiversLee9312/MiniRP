@@ -156,4 +156,16 @@
     <string name="plugin_scope_global">Wszystkie presety</string>
     <string name="plugin_scope_include">Tylko wybrane presety</string>
     <string name="plugin_scope_exclude">Wszystkie poza wybranymi</string>
+    <string name="compaction_threshold">Kompresja kontekstu</string>
+    <string name="compaction_context_percentage">Próg kompresji (% okna kontekstu)</string>
+    <string name="compaction_percentage_range">Wpisz wartość od 1 do 100</string>
+    <string name="compaction_model_context">Okno kontekstu modelu (%1$d tokenów)</string>
+    <string name="compaction_fallback_context">Zastępcze okno kontekstu (%1$d tokenów)</string>
+    <string name="background_compaction">Kompresja w tle</string>
+    <string name="background_compaction_threshold">Rozpocznij w tle</string>
+    <string name="background_compaction_range">Wpisz procent niższy niż próg kompresji</string>
+    <string name="export_archive">Eksportuj</string>
+    <string name="export_preset">Eksportuj ustawienie</string>
+    <string name="export_save">Eksportuj zapis</string>
+    <string name="import_save">Importuj zapis</string>
 </resources>

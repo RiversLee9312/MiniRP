@@ -128,6 +128,25 @@ public sealed partial class Engine
         var request = command.GetString("request");
         switch (command.GetString("op"))
         {
+            case "archive_export":
+                await new WorkspaceTransfer(Workspace, plugins).Export(command.GetString("type"),
+                    command.GetString("preset"), command.GetString("room"), command.GetString("id"), command.GetString("path"), token);
+                Emit(new() { ["kind"] = "archive_exported", ["request"] = request });
+                return true;
+            case "archive_import":
+                var imported = await new WorkspaceTransfer(Workspace, plugins)
+                    .Import(command.GetString("type"), command.GetString("path"), token);
+                var index = await catalog;
+                var importedPreset = new Workspace(Workspace.Root, seedDefaultPreset: false);
+                importedPreset.UsePreset(imported);
+                index.Preset(imported, importedPreset.Config.GetString("name", imported));
+                foreach (var item in importedPreset.ChatEntries(imported))
+                    index.Chat(imported, item.GetString("id"), item.GetString("name"), item.GetString("updated_at"));
+                ShowHome(imported);
+                Emit(new() { ["kind"] = "library_changed", ["preset"] = imported, ["presets_changed"] = true });
+                Emit(new() { ["kind"] = "plugins", ["items"] = plugins.List() });
+                Emit(new() { ["kind"] = "archive_imported", ["request"] = request, ["preset"] = imported });
+                return true;
             case "_plugin_state_changed":
                 RefreshCards(command.GetObject("change"));
                 return true;

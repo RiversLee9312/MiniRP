@@ -80,16 +80,35 @@ internal static class PresetDesign
         _ => "Respect the lead character's perspective, established facts, and what they could plausibly discover.",
     };
 
-    public static AgentSkill Tabletop { get; } = new("tabletop", "Resolve uncertain actions using fair dice.", new JsonArray(
+    public static AgentSkill Tabletop(HostPort port) => new("tabletop", "Resolve uncertain actions using fair dice.", new JsonArray(
         Tools.Define("roll_dice", "Roll dice and return each result and the total.", new()
             { ["count"] = Tools.Integer(), ["sides"] = Tools.Integer(), ["modifier"] = Tools.Integer() }, "count", "sides")),
-        (_, args, _) =>
+        async (_, args, ct) =>
         {
             var count = args.GetInt32("count");
             var sides = args.GetInt32("sides");
             if (count is < 1 or > 30 || sides is < 2 or > 1000) throw new ArgumentException("Roll 1–30 dice with 2–1,000 sides.");
-            var rolls = Enumerable.Range(0, count).Select(_ => System.Security.Cryptography.RandomNumberGenerator.GetInt32(1, sides + 1)).ToArray();
-            return Task.FromResult<JsonNode?>(new JsonObject { ["rolls"] = new JsonArray(rolls.Select(roll => (JsonNode?)JsonValue.Create(roll)).ToArray()),
-                ["total"] = (long)rolls.Sum() + args.GetInt32("modifier") });
+            var rolls = await RollDice(port, count, sides, ct);
+            return new JsonObject { ["rolls"] = new JsonArray(rolls.Select(roll => (JsonNode?)JsonValue.Create(roll)).ToArray()),
+                ["total"] = (long)rolls.Sum() + args.GetInt32("modifier") };
         });
+
+    private static
+#if MINIRP_ANDROID_BIONIC
+        async Task<int[]> RollDice(HostPort port, int count, int sides, CancellationToken ct)
+    {
+        var reply = await port.CallHost("roll_dice", new() { ["count"] = count, ["sides"] = sides }, ct, TimeSpan.FromSeconds(15));
+        var rolls = reply.GetArray("rolls").Select(value => value is JsonValue n && n.TryGetValue<int>(out var roll) ? roll : 0).ToArray();
+        if (rolls.Length != count || rolls.Any(roll => roll < 1 || roll > sides))
+            throw new InvalidDataException("Invalid dice results from the platform.");
+        return rolls;
+    }
+#else
+        Task<int[]> RollDice(HostPort port, int count, int sides, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(Enumerable.Range(0, count)
+            .Select(_ => System.Security.Cryptography.RandomNumberGenerator.GetInt32(1, sides + 1)).ToArray());
+    }
+#endif
 }

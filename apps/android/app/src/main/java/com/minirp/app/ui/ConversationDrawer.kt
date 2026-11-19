@@ -17,6 +17,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -43,6 +44,8 @@ internal fun ConversationDrawer(
     onSelectPreset: (String) -> Unit,
     onCreateConversation: (String, Boolean) -> Unit,
     onCreatePreset: () -> Unit,
+    onArchiveExport: (ArchiveType, String, String, String) -> Unit,
+    onArchiveImport: (ArchiveType) -> Unit,
 ) {
     val library by model.chatLibrary.collectAsStateWithLifecycle()
     val preset = library.preset
@@ -63,7 +66,7 @@ internal fun ConversationDrawer(
             Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         ) {
-            TextButton(onClick = { picking = !picking }, modifier = Modifier.weight(1f)) {
+            TextButton(onClick = { picking = !picking }, modifier = Modifier.weight(1f).testTag("library-presets")) {
                 Text(
                     if (preset.isBlank()) stringResource(R.string.preset)
                     else if (preset == state.preset)
@@ -78,7 +81,7 @@ internal fun ConversationDrawer(
             }
         }
         HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-        val enabled = state.ready && !state.busy && !state.preparing
+        val enabled = state.ready && !state.busy && !state.preparing && !state.archiveBusy
         DrawerLibrary(
             picking = picking,
             enabled = enabled,
@@ -93,6 +96,18 @@ internal fun ConversationDrawer(
                 state = if (showPresets) presetScroll else chatScroll,
                 contentPadding = padding,
             ) {
+                if (showPresets || preset.isBlank()) {
+                    item(key = "import-archives") {
+                        Row {
+                            TextButton(onClick = { onArchiveImport(ArchiveType.Preset) }, enabled = enabled) {
+                                Text(stringResource(R.string.import_preset))
+                            }
+                            TextButton(onClick = { onArchiveImport(ArchiveType.Save) }, enabled = enabled) {
+                                Text(stringResource(R.string.import_save))
+                            }
+                        }
+                    }
+                }
                 pagedChoices(
                     if (showPresets) presets else chats,
                     if (showPresets) preset
@@ -101,6 +116,16 @@ internal fun ConversationDrawer(
                     fallback =
                         if (!showPresets && ensemble) R.string.new_room else R.string.new_chat,
                     onDelete = { deletion = it to showPresets },
+                    actions = { item ->
+                        if (showPresets) listOf(
+                            R.string.export_preset to { onArchiveExport(ArchiveType.Preset, item.name, item.id, "") },
+                            R.string.export_save to { onArchiveExport(ArchiveType.Save, item.name, item.id, "") },
+                        )
+                        else listOf(
+                            (if (ensemble) R.string.export_archive else R.string.export_chat) to
+                                { onArchiveExport(ArchiveType.Room, item.name, preset, item.id) },
+                        )
+                    },
                 ) { item ->
                     if (showPresets) {
                         onSelectPreset(item.id)
@@ -208,6 +233,7 @@ private fun LazyListScope.pagedChoices(
     enabled: Boolean = true,
     fallback: Int = R.string.new_chat,
     onDelete: (Choice) -> Unit,
+    actions: (Choice) -> List<Pair<Int, () -> Unit>>,
     onClick: (Choice) -> Unit,
 ) {
     val before = rows.loadState.prepend
@@ -232,6 +258,7 @@ private fun LazyListScope.pagedChoices(
                 { onClick(row) },
                 { onDelete(row) },
                 fallback,
+                actions(row),
             )
         }
     }
@@ -259,10 +286,12 @@ internal fun LibraryChoiceRow(
     onOpen: () -> Unit,
     onDelete: () -> Unit,
     fallback: Int = R.string.new_chat,
+    actions: List<Pair<Int, () -> Unit>> = emptyList(),
 ) {
     val label = choice.name.ifBlank { stringResource(fallback) }
     var menu by remember { mutableStateOf(false) }
     val delete = stringResource(R.string.delete)
+    val longClickLabel = if (actions.isEmpty()) delete else stringResource(R.string.more_options)
     Box {
         Surface(
             shape = MaterialTheme.shapes.large,
@@ -273,10 +302,11 @@ internal fun LibraryChoiceRow(
             Row(
                 Modifier.fillMaxWidth()
                     .heightIn(min = 48.dp)
+                    .testTag("library-choice-${choice.id}")
                     .combinedClickable(
                         enabled = enabled,
                         role = Role.Button,
-                        onLongClickLabel = delete,
+                        onLongClickLabel = longClickLabel,
                         onClick = onOpen,
                         onLongClick = { menu = true },
                     )
@@ -287,6 +317,12 @@ internal fun LibraryChoiceRow(
             }
         }
         DropdownMenu(menu, { menu = false }) {
+            actions.forEach { (title, run) ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(title)) },
+                    onClick = { menu = false; run() },
+                )
+            }
             DropdownMenuItem(
                 text = { Text(delete) },
                 onClick = {

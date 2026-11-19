@@ -156,4 +156,16 @@
     <string name="plugin_scope_global">Усі пресети</string>
     <string name="plugin_scope_include">Лише вибрані пресети</string>
     <string name="plugin_scope_exclude">Усі, крім вибраних</string>
+    <string name="compaction_threshold">Стиснення контексту</string>
+    <string name="compaction_context_percentage">Поріг стиснення (% від вікна контексту)</string>
+    <string name="compaction_percentage_range">Введіть значення від 1 до 100</string>
+    <string name="compaction_model_context">Вікно контексту моделі (%1$d токенів)</string>
+    <string name="compaction_fallback_context">Резервне вікно контексту (%1$d токенів)</string>
+    <string name="background_compaction">Фонове стиснення</string>
+    <string name="background_compaction_threshold">Запуск у фоновому режимі</string>
+    <string name="background_compaction_range">Введіть відсоток нижче порога стиснення</string>
+    <string name="export_archive">Експорт</string>
+    <string name="export_preset">Експортувати пресет</string>
+    <string name="export_save">Експортувати збереження</string>
+    <string name="import_save">Імпортувати збереження</string>
 </resources>

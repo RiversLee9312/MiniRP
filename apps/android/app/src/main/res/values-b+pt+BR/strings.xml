@@ -152,4 +152,16 @@
     <string name="plugin_scope_global">Todas as predefinições</string>
     <string name="plugin_scope_include">Somente as selecionadas</string>
     <string name="plugin_scope_exclude">Todas exceto as selecionadas</string>
+    <string name="compaction_threshold">Compactação do contexto</string>
+    <string name="compaction_context_percentage">Limite de compactação (% da janela de contexto)</string>
+    <string name="compaction_percentage_range">Digite um valor de 1 a 100</string>
+    <string name="compaction_model_context">Janela de contexto do modelo (%1$d tokens)</string>
+    <string name="compaction_fallback_context">Janela de contexto alternativa (%1$d tokens)</string>
+    <string name="background_compaction">Compactação em segundo plano</string>
+    <string name="background_compaction_threshold">Iniciar em segundo plano</string>
+    <string name="background_compaction_range">Digite um percentual abaixo do limite de compactação</string>
+    <string name="export_archive">Exportar</string>
+    <string name="export_preset">Exportar predefinição</string>
+    <string name="export_save">Exportar dados salvos</string>
+    <string name="import_save">Importar dados salvos</string>
 </resources>

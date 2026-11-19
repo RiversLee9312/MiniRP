@@ -3,6 +3,7 @@ package com.minirp.app.core
 import android.content.Context
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
@@ -28,11 +29,13 @@ class CoreClient(
     private val clientScope = CoroutineScope(scope.coroutineContext + owner)
     private val commands = Channel<JSONObject>(Channel.UNLIMITED)
     @Volatile private var closed = false
+    private val workspace = context.filesDir.resolve("workspace").apply { mkdirs() }
     private val handle =
         NativeBridge.create(
-            context.filesDir.resolve("workspace").apply { mkdirs() }.path.toByteArray(),
+            workspace.path.toByteArray(),
             seedDefaultPreset,
         )
+    private val diceRandom by lazy { SecureRandom() }
     private val http =
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
@@ -93,6 +96,8 @@ class CoreClient(
                             }
                         "plugin_script",
                         "plugin_verify",
+                        "plugin_sign",
+                        "roll_dice",
                         "agent_asset_sample",
                         "plugin_http",
                         "plugin_picker" -> {
@@ -153,6 +158,8 @@ class CoreClient(
                 when (event.getString("kind")) {
                     "plugin_script" -> checkNotNull(script).invoke()
                     "plugin_verify" -> PluginVerifier.verify(event)
+                    "plugin_sign" -> PluginSigner.sign(workspace, event)
+                    "roll_dice" -> rollDice(event)
                     "agent_asset_sample" ->
                         AgentMediaSampler.sample(
                             context.filesDir.resolve("workspace/attachments"),
@@ -168,6 +175,15 @@ class CoreClient(
             reply.put("error", failure.message ?: "Plugin request failed")
         }
         send(reply)
+    }
+
+    private fun rollDice(event: JSONObject): JSONObject {
+        val count = event.getInt("count")
+        val sides = event.getInt("sides")
+        require(count in 1..30 && sides in 2..1000) { "Invalid dice limits." }
+        val rolls = JSONArray()
+        repeat(count) { rolls.put(diceRandom.nextInt(sides) + 1) }
+        return JSONObject().put("rolls", rolls)
     }
 
     private suspend fun pluginHttpRequest(event: JSONObject): JSONObject {

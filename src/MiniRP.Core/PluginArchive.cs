@@ -8,12 +8,19 @@ public static class PluginArchive
 {
     public static void Pack(string sourceDirectory, string destinationFile, X509Certificate2 certificate)
     {
+#if MINIRP_ANDROID_BIONIC
+        throw new PlatformNotSupportedException("Use the Android host to sign plugin archives.");
+#else
         if (!certificate.HasPrivateKey) throw new ArgumentException("The certificate has no private signing key.");
-        Pack(sourceDirectory, destinationFile, archive => PluginSignature.Sign(archive, certificate));
+        Pack(sourceDirectory, destinationFile, (payload, _) => Task.FromResult(PluginSignature.Sign(payload, certificate)),
+            path => Verify(path).Signer, CancellationToken.None).GetAwaiter().GetResult();
+#endif
     }
 
-    internal static void Pack(string sourceDirectory, string destinationFile, Func<ZipArchive, byte[]> sign)
+    internal static async Task<string> Pack(string sourceDirectory, string destinationFile,
+        Func<byte[], CancellationToken, Task<byte[]>> sign, Func<string, string> verify, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         var source = Path.GetFullPath(sourceDirectory);
         var destination = Path.GetFullPath(destinationFile);
         var root = Path.TrimEndingDirectorySeparator(source) + Path.DirectorySeparatorChar;
@@ -32,6 +39,7 @@ public static class PluginArchive
                 var count = 0;
                 foreach (var file in Directory.EnumerateFiles(source, "*", options))
                 {
+                    ct.ThrowIfCancellationRequested();
                     var name = Path.GetRelativePath(source, file).Replace(Path.DirectorySeparatorChar, '/');
                     if (!PluginPackage.SafePath(name) || name.Equals(PluginSignature.EntryName, StringComparison.OrdinalIgnoreCase))
                         throw new InvalidDataException("Invalid package entry: " + name);
@@ -40,12 +48,16 @@ public static class PluginArchive
                     archive.CreateEntryFromFile(file, name, CompressionLevel.Optimal);
                 }
             }
-            byte[] signature;
-            using (var archive = ZipFile.OpenRead(temp)) signature = sign(archive);
+            byte[] payload;
+            using (var archive = ZipFile.OpenRead(temp)) (payload, _) = PluginSignature.Payload(archive);
+            var signature = await sign(payload, ct);
+            ct.ThrowIfCancellationRequested();
             using (var archive = ZipFile.Open(temp, ZipArchiveMode.Update))
             using (var output = archive.CreateEntry(PluginSignature.EntryName).Open()) output.Write(signature);
-            Verify(temp);
+            var signer = verify(temp);
+            ct.ThrowIfCancellationRequested();
             File.Move(temp, destination, overwrite: false);
+            return signer;
         }
         finally { File.Delete(temp); }
     }

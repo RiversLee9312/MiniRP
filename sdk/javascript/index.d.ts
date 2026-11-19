@@ -6,6 +6,12 @@ export type EventUrl = `${PluginUrlScheme}://actions/${string}/events/${string}`
 export type AssetUrl = `${PluginUrlScheme}://assets/${string}/${string}`;
 export type AssetToolResult = AssetUrl | readonly AssetUrl[];
 export type UUID = `${string}-${string}-${string}-${string}-${string}`;
+export interface PluginManifestIdentity {
+    id: string;
+    packageName: string;
+    /** Canonical lowercase UUID of the owning preset. */
+    presetId?: UUID;
+}
 export type ConversationAgent = "chat" | "env" | "preset";
 export type SessionAgent = ConversationAgent | "search" | "fetch" | "temporary";
 export type Scope = "session" | "room" | "chat" | "preset";

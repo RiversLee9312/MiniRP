@@ -129,9 +129,11 @@ public sealed class HostPort(Action<JsonObject> emit)
         finally { pending.TryRemove(id, out _); emit(new() { ["kind"] = "cancel_io", ["id"] = id }); }
     }
 
-    internal async Task<JsonObject> CallHost(string kind, JsonObject request, CancellationToken ct)
+    internal async Task<JsonObject> CallHost(string kind, JsonObject request, CancellationToken ct, TimeSpan? timeout = null)
     {
         ct.ThrowIfCancellationRequested();
+        using var deadline = timeout is null ? null : CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (timeout is { } duration) deadline!.CancelAfter(duration);
         var id = JsonValues.NewId();
         var channel = Channel.CreateUnbounded<JsonObject>();
         pending[id] = channel;
@@ -141,13 +143,17 @@ public sealed class HostPort(Action<JsonObject> emit)
         var received = false;
         try
         {
-            var reply = await channel.Reader.ReadAsync(ct);
+            var reply = await channel.Reader.ReadAsync(deadline?.Token ?? ct);
             received = true;
             if (reply.GetString("error") is { Length: > 0 } error) throw new IOException(error);
             var result = reply.GetObject("result");
             // The caller can embed this result directly in a reply to V8.
             reply.Remove("result");
             return result;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && deadline?.IsCancellationRequested == true)
+        {
+            throw new IOException($"Platform request {kind} timed out.");
         }
         finally
         {

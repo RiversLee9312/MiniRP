@@ -1,14 +1,21 @@
-using System.Collections.Frozen;
 using System.Text.Json.Nodes;
 
 namespace MiniRP.Core;
 
 internal sealed partial class PluginRuntime
 {
+    public Task<string> PackDevelopment(string source, string path, string signer, CancellationToken ct) =>
+        PluginArchive.Pack(source, path, (payload, token) => PluginDevelopmentSigner.Sign(signer, payload, port, token),
+            draft =>
+            {
+                using var stream = File.OpenRead(draft);
+                return ReadPackage(stream, ct: ct).Signer;
+            }, ct);
+
     public async Task<JsonNode?> Debug(string path, string workspace, string preset, string url, JsonObject input, CancellationToken ct)
     {
         using var stream = File.OpenRead(path);
-        var package = ReadPackage(stream, path);
+        var package = ReadPackage(stream, path, ct: ct);
         await using var runtime = new PluginRuntime(workspace, port, emit,
             (_, _, _, _, _) => throw new UnauthorizedAccessException(), preview: true);
         runtime.SetPackages([package]);
@@ -23,7 +30,7 @@ internal sealed partial class PluginRuntime
     }
 
     public PluginPackage Deploy(string path, string preset) => Install(path, inspect: false,
-        new PluginScope("include", new[] { preset }.ToFrozenSet(StringComparer.Ordinal)), new() { ["preset"] = preset });
+        PluginScope.Include(preset), new() { ["preset"] = preset });
 
     public void RemoveDevelopment(string id, string signer)
     {

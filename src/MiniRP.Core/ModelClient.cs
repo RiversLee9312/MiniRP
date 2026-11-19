@@ -6,6 +6,9 @@ namespace MiniRP.Core;
 /// <summary>Provider-neutral messages and explicit wire adapters. No runtime type discovery.</summary>
 public sealed class ModelClient(HostPort port, Func<Provider> selected, string? attachmentRoot = null)
 {
+    internal Provider SelectedProvider => selected();
+    internal ModelClient Bind(Provider provider) => new(port, () => provider, attachmentRoot);
+
     internal void ValidateAsset(JsonObject attachment) =>
         new MessageAttachments(attachmentRoot ?? throw new InvalidOperationException("Asset attachments are unavailable."))
             .Validate(new JsonArray(attachment.DeepClone()), selected());
@@ -22,10 +25,13 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
         get
         {
             var provider = selected();
-            var tokens = provider.CompactAt > 0 ? provider.CompactAt : provider.ContextWindow * 3 / 5;
-            return (int)Math.Clamp(Math.Min(tokens, Math.Max(1024, provider.ContextWindow - provider.MaxOutput)) * 2L, 2048, 16000000);
+            var tokens = provider.CompactAtPercent is { } percent ? provider.ContextWindow * (long)percent / 100
+                : provider.CompactAt > 0 ? provider.CompactAt : provider.ContextWindow * 80L / 100;
+            return CompactionCharacters(provider, tokens);
         }
     }
+    internal static int CompactionCharacters(Provider provider, long tokens) =>
+        (int)Math.Clamp(Math.Min(tokens, Math.Max(1024, provider.ContextWindow - provider.MaxOutput)) * 2L, 2048, 16000000);
     static JsonObject Headers(Provider p)
     {
         var h = new JsonObject { ["Content-Type"] = "application/json" };
@@ -75,7 +81,11 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
         } while (url.Length > 0);
         return result;
     }
-    public async Task<JsonObject> Complete(JsonArray messages, JsonArray tools, Action<string, string> delta, CancellationToken ct)
+    public Task<JsonObject> Complete(JsonArray messages, JsonArray tools, Action<string, string> delta, CancellationToken ct) =>
+        Complete(messages, tools, delta, ct, requireComplete: false);
+
+    internal async Task<JsonObject> Complete(JsonArray messages, JsonArray tools, Action<string, string> delta, CancellationToken ct,
+        bool requireComplete)
     {
         var p = selected();
         if (p.Url.Length == 0 || p.Model.Length == 0)
@@ -86,7 +96,7 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
         Dictionary<JsonNode, List<MessageAttachments.Media>> media = attachmentRoot is null ? new() : new MessageAttachments(attachmentRoot).Resolve(messages, p.Protocol);
         if (p.Protocol == "responses")
         {
-            return await ResponsesProtocol.Complete(port, p, messages, tools, delta, ct, media);
+            return await ResponsesProtocol.Complete(port, p, messages, tools, delta, ct, media, requireComplete);
         }
         var (path, body) = Build(p, messages, tools, media);
         var request = new JsonObject { ["url"] = p.Url + path, ["method"] = "POST", ["headers"] = Headers(p), ["body"] = JsonValues.Serialize(body), ["stream"] = true };
@@ -117,6 +127,9 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
 
             if (p.Protocol == "anthropic")
             {
+                if (requireComplete && data.GetObject("delta").GetString("stop_reason", data.GetString("stop_reason")) is
+                    "max_tokens" or "model_context_window_exceeded" or "refusal")
+                    throw IncompleteCheckpoint();
                 int index = data.GetInt32("index");
                 var block = data.GetObject("content_block");
                 var change = data.GetObject("delta");
@@ -166,6 +179,8 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
             {
                 foreach (var candidate in data.GetArray("candidates"))
                 {
+                    if (requireComplete && candidate.GetString("finishReason") is { Length: > 0 } reason && reason != "STOP")
+                        throw IncompleteCheckpoint();
                     foreach (var part in candidate.GetObject("content").GetArray("parts"))
                     {
                         geminiParts.AddNode(JsonValues.Clone(part));
@@ -186,6 +201,8 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
             else
             {
                 var choice = p.Protocol == "ollama" ? data : data.GetArray("choices").FirstOrDefault() as JsonObject ?? new();
+                if (requireComplete && choice.GetString("finish_reason", choice.GetString("done_reason")) is "length" or "content_filter")
+                    throw IncompleteCheckpoint();
                 var d = choice["delta"] as JsonObject ?? choice["message"] as JsonObject ?? new();
                 Feed("content", d.GetString("content"));
                 Feed("reasoning", d.GetString("reasoning_content", d.GetString("reasoning", d.GetString("thinking"))));
@@ -244,6 +261,9 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
         }
         return result;
     }
+
+    internal static IOException IncompleteCheckpoint() =>
+        new("The model did not finish generating the context checkpoint; original history is retained.");
     static JsonObject Call(string id, string name, string args = "") => new() { ["id"] = id, ["type"] = "function", ["function"] = new JsonObject { ["name"] = name, ["arguments"] = args } };
     static (string, JsonObject) Build(Provider p, JsonArray messages, JsonArray tools, Dictionary<JsonNode, List<MessageAttachments.Media>> media)
     {

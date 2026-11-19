@@ -91,6 +91,14 @@ internal sealed class MainWindow : Runnable
                 presetId = item.GetString("preset");
                 ShowChoices("对话", item.GetArray("items"), id => core.Send(new() { ["op"] = "select_chat", ["preset"] = presetId, ["id"] = id }), true);
                 break;
+            case "home":
+                presetId = item.GetString("preset");
+                chatId = ensembleChatId = "";
+                ensembleChats = null;
+                loadedBlocks = [];
+                main.Load([]);
+                foreach (var panel in agentPanes.Values) panel.Load([]);
+                break;
             case "loaded":
                 chatId = item.GetObject("chat").GetString("id");
                 ensembleChatId = "";
@@ -160,6 +168,12 @@ internal sealed class MainWindow : Runnable
                 break;
             case "error":
                 main.Notice(item.GetString("message"));
+                break;
+            case "archive_exported":
+                main.Notice("文件已导出");
+                break;
+            case "archive_imported":
+                main.Notice("文件已导入");
                 break;
             case "busy":
                 Title = item.GetBoolean("value") ? "MiniRP · 处理中" : "MiniRP";
@@ -269,6 +283,17 @@ internal sealed class MainWindow : Runnable
                 pluginInstallPath = Path.GetFullPath(argument.Trim('"'));
                 core.Send(new() { ["op"] = "plugin_inspect", ["path"] = pluginInstallPath, ["request"] = "inspect-plugin" });
                 break;
+            case "/export-room" or "/export-preset" or "/export-save":
+                TransferArchive("export", parts[0]["/export-".Length..], argument);
+                break;
+            case "/import-preset" or "/import-save":
+                TransferArchive("import", parts[0]["/import-".Length..], argument);
+                break;
+            case "/plugin-export":
+                var archive = argument.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+                if (archive.Length == 2) TransferArchive("export", "plugin", archive[1], archive[0]);
+                else main.Notice("用法 /plugin-export <插件 ID> <文件>");
+                break;
             case "/plugins":
                 core.Send(new() { ["op"] = "plugins_list" });
                 break;
@@ -329,6 +354,25 @@ internal sealed class MainWindow : Runnable
         }
         try { core.Send(new() { ["op"] = generating == role ? "steer" : "message", ["agent"] = role, ["chat"] = chatId, ["conversation"] = ensembleChatId, ["preset"] = presetId, ["text"] = text, ["stage"] = stage }); }
         catch (InvalidOperationException error) { main.Notice(error.Message); }
+    }
+
+    private void TransferArchive(string action, string type, string path, string plugin = "")
+    {
+        path = path.Trim().Trim('"');
+        if (path.Length == 0)
+        {
+            main.Notice("请输入文件路径");
+            return;
+        }
+        try
+        {
+            core.Send(new() { ["op"] = "archive_" + action, ["type"] = type,
+                ["path"] = Path.GetFullPath(path), ["preset"] = presetId, ["room"] = chatId, ["id"] = plugin });
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+        {
+            main.Notice(ex.Message);
+        }
     }
 
     private void PickEnsembleChat()

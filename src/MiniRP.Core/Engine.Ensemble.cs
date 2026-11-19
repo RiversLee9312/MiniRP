@@ -36,7 +36,7 @@ public sealed partial class Engine
 
     private IEnumerable<AgentSkill> ModeSkills(string role, Workspace workspace)
     {
-        if (role == "chat" && workspace.Mode == "tabletop") yield return PresetDesign.Tabletop;
+        if (role == "chat" && workspace.Mode == "tabletop") yield return PresetDesign.Tabletop(Port);
         if (role != "env") yield break;
         if (ensemble is { } hub)
         {
