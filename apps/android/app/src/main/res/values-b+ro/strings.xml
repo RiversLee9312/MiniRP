@@ -125,4 +125,32 @@
         <item quantity="few">%1$d modele</item>
         <item quantity="other">%1$d modele</item>
     </plurals>
+    <string name="latest_message">Cel mai recent mesaj</string>
+    <string name="steer">Ghidează</string>
+    <string name="send_as_system">Trimite ca mesaj de sistem</string>
+    <string name="system_message">Mesaj de sistem</string>
+    <string name="photos_videos">Fotografii și videoclipuri</string>
+    <string name="choose_files">Alege fișiere</string>
+    <string name="plugins">Pluginuri</string>
+    <string name="install_plugin">Instalează pluginul</string>
+    <string name="run_plugin">Rulează</string>
+    <string name="remove_plugin">Dezinstalează</string>
+    <string name="built_in">Integrat</string>
+    <string name="plugin_resource_request">%1$s dorește să alegi fișiere</string>
+    <string name="delete_chat">Șterge conversația</string>
+    <string name="delete_preset">Șterge presetarea</string>
+    <string name="delete_named">Ștergi „%1$s”?</string>
+    <string name="delete_preset_detail">Se vor șterge și conversațiile din această presetare.</string>
+    <string name="behavior_settings">Aspect și comportament</string>
+    <string name="model_provider_settings">Modele și furnizori</string>
+    <string name="about">Despre</string>
+    <string name="interactive_reply">Răspuns interactiv</string>
+    <string name="interactive_reply_unavailable">Răspunsul interactiv nu a putut fi încărcat</string>
+    <string name="welcome_to_preset">Bun venit în</string>
+    <string name="branch_edit_message">Editează într-o ramură</string>
+    <string name="no_presets_yet">Nu există încă presetări</string>
+    <string name="plugin_scope">Domeniul presetărilor</string>
+    <string name="plugin_scope_global">Toate presetările</string>
+    <string name="plugin_scope_include">Doar presetările selectate</string>
+    <string name="plugin_scope_exclude">Toate, mai puțin cele selectate</string>
 </resources>

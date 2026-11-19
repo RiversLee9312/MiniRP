@@ -54,6 +54,8 @@ internal sealed class ContextCompactor(
             var requestKey = archive(content, "user");
             continuation["content"] = content[..12000] + "\nFull request retained in DB at " + requestKey + ". Use db_read for the remaining text.";
         }
-        return new(new JsonArray(continuation), result.GetString("content") + "\nFull archive: " + key);
+        var preserved = new JsonArray(history.Where(message => message.GetString("role") == "system").Select(JsonValues.Clone).ToArray());
+        preserved.AddNode(continuation);
+        return new(preserved, result.GetString("content") + "\nFull archive: " + key);
     }
 }

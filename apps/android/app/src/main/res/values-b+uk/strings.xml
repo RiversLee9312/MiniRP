@@ -127,4 +127,32 @@
         <item quantity="many">%1$d моделі</item>
         <item quantity="other">%1$d моделі</item>
     </plurals>
+    <string name="latest_message">Останнє повідомлення</string>
+    <string name="steer">Спрямувати</string>
+    <string name="send_as_system">Надіслати як системне повідомлення</string>
+    <string name="system_message">Системне повідомлення</string>
+    <string name="photos_videos">Фото й відео</string>
+    <string name="choose_files">Вибрати файли</string>
+    <string name="plugins">Плагіни</string>
+    <string name="install_plugin">Установити плагін</string>
+    <string name="run_plugin">Запустити</string>
+    <string name="remove_plugin">Видалити</string>
+    <string name="built_in">Вбудовано</string>
+    <string name="plugin_resource_request">%1$s просить вибрати файли</string>
+    <string name="delete_chat">Видалити чат</string>
+    <string name="delete_preset">Видалити пресет</string>
+    <string name="delete_named">Видалити «%1$s»?</string>
+    <string name="delete_preset_detail">Це також видалить чати в цьому пресеті.</string>
+    <string name="behavior_settings">Вигляд і поведінка</string>
+    <string name="model_provider_settings">Моделі та провайдери</string>
+    <string name="about">Про застосунок</string>
+    <string name="interactive_reply">Інтерактивна відповідь</string>
+    <string name="interactive_reply_unavailable">Не вдалося завантажити інтерактивну відповідь</string>
+    <string name="welcome_to_preset">Вітаємо</string>
+    <string name="branch_edit_message">Редагувати в гілці</string>
+    <string name="no_presets_yet">Поки що немає пресетів</string>
+    <string name="plugin_scope">Область дії</string>
+    <string name="plugin_scope_global">Усі пресети</string>
+    <string name="plugin_scope_include">Лише вибрані пресети</string>
+    <string name="plugin_scope_exclude">Усі, крім вибраних</string>
 </resources>

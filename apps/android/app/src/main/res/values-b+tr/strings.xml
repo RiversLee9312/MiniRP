@@ -121,4 +121,32 @@
     <plurals name="model_count">
         <item quantity="other">%1$d model</item>
     </plurals>
+    <string name="latest_message">Son mesaj</string>
+    <string name="steer">Yönlendir</string>
+    <string name="send_as_system">Sistem mesajı olarak gönder</string>
+    <string name="system_message">Sistem mesajı</string>
+    <string name="photos_videos">Fotoğraflar ve videolar</string>
+    <string name="choose_files">Dosya seç</string>
+    <string name="plugins">Eklentiler</string>
+    <string name="install_plugin">Eklenti yükle</string>
+    <string name="run_plugin">Çalıştır</string>
+    <string name="remove_plugin">Kaldır</string>
+    <string name="built_in">Yerleşik</string>
+    <string name="plugin_resource_request">%1$s dosya seçmenizi istiyor</string>
+    <string name="delete_chat">Sohbeti sil</string>
+    <string name="delete_preset">Hazır ayarı sil</string>
+    <string name="delete_named">“%1$s” silinsin mi?</string>
+    <string name="delete_preset_detail">Bu işlem, hazır ayardaki sohbetleri de siler.</string>
+    <string name="behavior_settings">Görünüm ve davranış</string>
+    <string name="model_provider_settings">Modeller ve sağlayıcılar</string>
+    <string name="about">Hakkında</string>
+    <string name="interactive_reply">Etkileşimli yanıt</string>
+    <string name="interactive_reply_unavailable">Etkileşimli yanıt yüklenemedi</string>
+    <string name="welcome_to_preset">Hoş geldiniz</string>
+    <string name="branch_edit_message">Dal oluşturarak düzenle</string>
+    <string name="no_presets_yet">Henüz hazır ayar yok</string>
+    <string name="plugin_scope">Hazır ayar kapsamı</string>
+    <string name="plugin_scope_global">Tüm hazır ayarlar</string>
+    <string name="plugin_scope_include">Yalnızca seçilenler</string>
+    <string name="plugin_scope_exclude">Seçilenler hariç tümü</string>
 </resources>

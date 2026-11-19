@@ -46,6 +46,11 @@
           "MSTest.Analyzers": "4.5.3"
         }
       },
+      "BouncyCastle.Cryptography": {
+        "type": "Transitive",
+        "resolved": "2.7.0",
+        "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
+      },
       "ColorHelper": {
         "type": "Transitive",
         "resolved": "1.8.1",
@@ -65,6 +70,31 @@
         "type": "Transitive",
         "resolved": "2.23.0",
         "contentHash": "nWArUZTdU7iqZLycLKWe0TDms48KKGE6pONH2terYNa8REXiqixrMOkf1sk5DHGMaUTqONU2YkS4SAXBhLStgw=="
+      },
+      "Microsoft.ClearScript.Core": {
+        "type": "Transitive",
+        "resolved": "7.5.1.1",
+        "contentHash": "H3R4OaqQPfwxewnZcvTU6qUFyzJ05FchBD4IlO6Z0WO3iWh8PyAWHDcnt4FUmo/t0m40o8rkgnJ7g9pDT7pwJQ=="
+      },
+      "Microsoft.ClearScript.V8": {
+        "type": "Transitive",
+        "resolved": "7.5.1.1",
+        "contentHash": "oEJxEMqzzC8XYE9kA1ajmfmloAuSlNIzNyrIfwROXkKjfeePptvUT22MqHfV6rRV4//B7XShlq7VM6o2ZM1eZQ==",
+        "dependencies": {
+          "Microsoft.ClearScript.Core": "7.5.1.1",
+          "Microsoft.ClearScript.V8.ICUData": "7.5.1.1",
+          "Newtonsoft.Json": "13.0.3"
+        }
+      },
+      "Microsoft.ClearScript.V8.ICUData": {
+        "type": "Transitive",
+        "resolved": "7.5.1.1",
+        "contentHash": "Jg3yFIWPkfsjOHzVUTbA0VgnxXBtX9BwSL00E8HIljFm3f203e+mlJYO0tTHnqetA0xZyLKbRjRuPotUP/47Nw=="
+      },
+      "Microsoft.ClearScript.V8.Native.win-x64": {
+        "type": "Transitive",
+        "resolved": "7.5.1.1",
+        "contentHash": "N79bR+RG7FD8wv/tdXZuOLDx3YAQ+mSB5P0gcUNMGEFO4DljRSPlJcEzHLrPvrlPzNnc3aV6Rx2v5V3qordPJg=="
       },
       "Microsoft.DiaSymReader": {
         "type": "Transitive",
@@ -273,6 +303,11 @@
         "resolved": "4.5.3",
         "contentHash": "2d9suQBg9VeZ9pAStOXLz6l7Co9olPnrb6PpMBadiOZ6ggQpDkKxYXV1Z86Z/7xRij/3/QnzmBEUJ5YgtR6WeQ=="
       },
+      "Newtonsoft.Json": {
+        "type": "Transitive",
+        "resolved": "13.0.3",
+        "contentHash": "HrC5BXdl00IP9zeV+0Z848QWPAoCr9P3bDEZguI+gkLcBKAOxix/tLEAAHC+UvDNPv4a2d18lOReHMOagPa+zQ=="
+      },
       "Onigwrap": {
         "type": "Transitive",
         "resolved": "1.0.11",
@@ -291,6 +326,11 @@
           "TestableIO.System.IO.Abstractions": "22.2.0",
           "TestableIO.System.IO.Abstractions.Wrappers": "22.2.0"
         }
+      },
+      "System.IO.Hashing": {
+        "type": "Transitive",
+        "resolved": "10.0.11",
+        "contentHash": "OzKDcIRkeNJeC8qAsbn8yJXnfTLP1dtkWILe+T56Gf/z+IkAASi7sMqLqJQat08j5z/mRN5xVtoAwbkMNMoBUQ=="
       },
       "Terminal.Gui": {
         "type": "Transitive",
@@ -365,13 +405,17 @@
       "libminichatcore": {
         "type": "Project",
         "dependencies": {
+          "BouncyCastle.Cryptography": "[2.7.0, )",
           "Minichat.Protocol": "[1.0.0, )",
-          "SQLitePCLRaw.lib.e_sqlite3": "[3.53.3, )"
+          "SQLitePCLRaw.lib.e_sqlite3": "[3.53.3, )",
+          "System.IO.Hashing": "[10.0.11, )"
         }
       },
       "minichat": {
         "type": "Project",
         "dependencies": {
+          "Microsoft.ClearScript.V8": "[7.5.1.1, )",
+          "Microsoft.ClearScript.V8.Native.win-x64": "[7.5.1.1, )",
           "Minichat.Protocol": "[1.0.0, )",
           "ModelContextProtocol": "[2.4.0, )",
           "Terminal.Gui": "[2.5.0, )",
@@ -394,6 +438,11 @@
           "Microsoft.Testing.Platform": "2.5.0",
           "Mono.Cecil": "0.11.6"
         }
+      },
+      "Microsoft.ClearScript.V8.Native.win-x64": {
+        "type": "Transitive",
+        "resolved": "7.5.1.1",
+        "contentHash": "N79bR+RG7FD8wv/tdXZuOLDx3YAQ+mSB5P0gcUNMGEFO4DljRSPlJcEzHLrPvrlPzNnc3aV6Rx2v5V3qordPJg=="
       },
       "Onigwrap": {
         "type": "Transitive",

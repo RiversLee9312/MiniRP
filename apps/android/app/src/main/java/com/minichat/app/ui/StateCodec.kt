@@ -62,7 +62,7 @@ internal fun decodeBlock(value: JSONObject) =
     TraceBlock(
         value.getString("id"),
         value.optString("agent"),
-        value.optString("kind") == "user",
+        value.optString("kind") in setOf("user", "system"),
         value.optString("content"),
         value.optString("reasoning"),
         value.optString("tool"),
@@ -70,7 +70,79 @@ internal fun decodeBlock(value: JSONObject) =
         value.optString("result"),
         version = value.optString("version"),
         attachmentNames = value.attachmentNames(),
+        system = value.optString("kind") == "system",
+        thumbnails = value.thumbnails(),
+        openUi = value.optString("open_ui").takeIf(String::isNotBlank),
+        replyEnd =
+            if (value.optString("kind") == "reply_end")
+                ReplyEnd(value.optString("reply"), value.optString("first_block"))
+            else null,
     )
+
+internal fun JSONObject.branchDraft(): BranchDraft {
+    val files =
+        optJSONArray("attachments")
+            ?.objects()
+            .orEmpty()
+            .filter { it.optString("id").isNotBlank() }
+            .associateBy { "saved-attachment:${it.optString("id")}" }
+    return BranchDraft(optString("text"), files, optJSONObject("open_ui_action"))
+}
+
+internal fun List<TraceBlock>.withLegacyReplyActions(): List<TraceBlock> {
+    val savedStarts = mapNotNull { it.replyEnd?.firstBlock }.toHashSet()
+    return buildList {
+        val reply = mutableListOf<String>()
+        var last = ""
+        var hasSavedEnd = false
+        fun appendLegacyEnd() {
+            if (reply.isNotEmpty()) {
+                add(TraceBlock("copy:$last", replyEnd = ReplyEnd(reply.joinToString("\n\n"), "")))
+                reply.clear()
+            }
+        }
+        for (block in this@withLegacyReplyActions) {
+            if (block.role == AgentRole.Chat) {
+                if (block.user) appendLegacyEnd()
+                if (block.id in savedStarts) hasSavedEnd = true
+                if (block.replyEnd != null) {
+                    hasSavedEnd = false
+                    reply.clear()
+                } else if (!block.user && !hasSavedEnd) {
+                    val text =
+                            block.content.trim('\r', '\n').ifBlank {
+                            block.openUi?.let { "```openui-lang\n$it\n```" }.orEmpty()
+                        }
+                    if (text.isNotBlank()) {
+                        reply.add(text)
+                        last = block.id
+                    }
+                }
+            }
+            add(block)
+        }
+        appendLegacyEnd()
+    }
+}
 
 internal fun JSONObject.attachmentNames(): List<String> =
     optJSONArray("attachments")?.objects()?.map { it.optString("name") }.orEmpty()
+
+internal fun JSONObject.thumbnails(): List<AttachmentThumbnail> =
+    optJSONArray("attachments")
+        ?.objects()
+        ?.mapNotNull { attachment ->
+            val url =
+                attachment.optString("thumbnail_url").ifBlank {
+                    if (attachment.has("thumbnail"))
+                        "minichat://assets/minichat.legacy/attachment-thumbnail?attachment=${attachment.optString("id")}"
+                    else ""
+                }
+            url.takeIf(String::isNotBlank)?.let { AttachmentThumbnail(it, attachment) }
+        }
+        .orEmpty()
+
+internal fun JSONObject?.agentPrompts(): Map<String, String> =
+    AgentRole.entries.associate { role ->
+        role.id to this?.optJSONObject(role.id + "_agent")?.optString("system_prompt").orEmpty()
+    }

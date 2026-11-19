@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+using System.IO.Hashing;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -58,7 +58,7 @@ internal sealed class SessionHistory(MemoryDb db, string agent)
         foreach (var message in messages.OfType<JsonObject>())
         {
             var role = message.GetString("role");
-            if (role is not ("user" or "assistant"))
+            if (role is not ("user" or "assistant" or "system"))
             {
                 continue;
             }
@@ -74,7 +74,8 @@ internal sealed class SessionHistory(MemoryDb db, string agent)
             }
 
             // Older snapshots overlap. The same text and role only need one recall entry during import.
-            var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
+            // A deduplication key, not a security proof. This stays managed on Android/bionic.
+            var digest = Convert.ToHexString(XxHash128.Hash(Encoding.UTF8.GetBytes(content)));
             var key = $"{MessagePrefix}legacy/{digest}/{role}";
             if (db.Get(key) is null)
             {
@@ -107,7 +108,7 @@ internal sealed class SessionHistory(MemoryDb db, string agent)
     {
         var id = args.GetString("id");
         var role = RoleOf(id);
-        if (role is not ("user" or "assistant") || id.Length > 128)
+        if (role is not ("user" or "assistant" or "system") || id.Length > 128)
         {
             throw new ArgumentException("Use an id returned by history_search in this session.");
         }

@@ -131,4 +131,32 @@
         <item quantity="many">%1$d نموذج</item>
         <item quantity="other">%1$d نموذج</item>
     </plurals>
+    <string name="latest_message">أحدث رسالة</string>
+    <string name="steer">وجّه</string>
+    <string name="send_as_system">إرسال كرسالة نظام</string>
+    <string name="system_message">رسالة نظام</string>
+    <string name="photos_videos">الصور والفيديوهات</string>
+    <string name="choose_files">اختيار ملفات</string>
+    <string name="plugins">الإضافات</string>
+    <string name="install_plugin">تثبيت الإضافة</string>
+    <string name="run_plugin">تشغيل</string>
+    <string name="remove_plugin">إلغاء تثبيت</string>
+    <string name="built_in">مدمج</string>
+    <string name="plugin_resource_request">يريد %1$s منك اختيار ملفات</string>
+    <string name="delete_chat">حذف المحادثة</string>
+    <string name="delete_preset">حذف القالب</string>
+    <string name="delete_named">حذف «%1$s»؟</string>
+    <string name="delete_preset_detail">سيؤدي هذا أيضًا إلى حذف المحادثات في هذا القالب.</string>
+    <string name="behavior_settings">المظهر والسلوك</string>
+    <string name="model_provider_settings">النماذج والمزوّدون</string>
+    <string name="about">حول</string>
+    <string name="interactive_reply">رد تفاعلي</string>
+    <string name="interactive_reply_unavailable">تعذّر تحميل الرد التفاعلي</string>
+    <string name="welcome_to_preset">مرحبًا بك في</string>
+    <string name="branch_edit_message">تحرير في فرع</string>
+    <string name="no_presets_yet">لا توجد قوالب بعد</string>
+    <string name="plugin_scope">نطاق القوالب</string>
+    <string name="plugin_scope_global">كل القوالب</string>
+    <string name="plugin_scope_include">القوالب المحددة فقط</string>
+    <string name="plugin_scope_exclude">الكل باستثناء المحددة</string>
 </resources>

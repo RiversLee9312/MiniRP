@@ -123,4 +123,32 @@
         <item quantity="one">%1$d mallia</item>
         <item quantity="other">%1$d mallia</item>
     </plurals>
+    <string name="latest_message">Viimeisin viesti</string>
+    <string name="steer">Ohjaa</string>
+    <string name="send_as_system">Lähetä järjestelmäviestinä</string>
+    <string name="system_message">Järjestelmäviesti</string>
+    <string name="photos_videos">Kuvat ja videot</string>
+    <string name="choose_files">Valitse tiedostot</string>
+    <string name="plugins">Lisäosat</string>
+    <string name="install_plugin">Asenna lisäosa</string>
+    <string name="run_plugin">Suorita</string>
+    <string name="remove_plugin">Poista asennus</string>
+    <string name="built_in">Sisäänrakennettu</string>
+    <string name="plugin_resource_request">%1$s haluaa sinun valitsevan tiedostoja</string>
+    <string name="delete_chat">Poista keskustelu</string>
+    <string name="delete_preset">Poista esiasetus</string>
+    <string name="delete_named">Poistetaanko ”%1$s”?</string>
+    <string name="delete_preset_detail">Tämä poistaa myös tämän esiasetuksen keskustelut.</string>
+    <string name="behavior_settings">Ulkoasu ja toiminta</string>
+    <string name="model_provider_settings">Mallit ja palveluntarjoajat</string>
+    <string name="about">Tietoja</string>
+    <string name="interactive_reply">Interaktiivinen vastaus</string>
+    <string name="interactive_reply_unavailable">Interaktiivista vastausta ei voitu ladata</string>
+    <string name="welcome_to_preset">Tervetuloa</string>
+    <string name="branch_edit_message">Muokkaa haarassa</string>
+    <string name="no_presets_yet">Ei vielä esiasetuksia</string>
+    <string name="plugin_scope">Esiasetusten käyttöalue</string>
+    <string name="plugin_scope_global">Kaikki esiasetukset</string>
+    <string name="plugin_scope_include">Vain valitut esiasetukset</string>
+    <string name="plugin_scope_exclude">Kaikki paitsi valitut</string>
 </resources>

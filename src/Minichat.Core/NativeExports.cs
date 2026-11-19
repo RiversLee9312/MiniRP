@@ -12,11 +12,16 @@ public static class NativeExports
     public static int Version() => 1;
 
     [UnmanagedCallersOnly(EntryPoint = "mc_create", CallConvs = [typeof(CallConvCdecl)])]
-    public static long Create(nint root)
+    public static long Create(nint root) => Create(root, seedDefaultPreset: true);
+
+    [UnmanagedCallersOnly(EntryPoint = "mc_create_with_options", CallConvs = [typeof(CallConvCdecl)])]
+    public static long CreateWithOptions(nint root, int seedDefaultPreset) => Create(root, seedDefaultPreset != 0);
+
+    private static long Create(nint root, bool seedDefaultPreset)
     {
         try
         {
-            var engine = new Engine(Marshal.PtrToStringUTF8(root)!);
+            var engine = new Engine(Marshal.PtrToStringUTF8(root)!, seedDefaultPreset);
             var id = Interlocked.Increment(ref nextId);
             Engines[id] = engine;
             return id;
@@ -43,6 +48,35 @@ public static class NativeExports
             return Marshal.StringToCoTaskMemUTF8(JsonValues.Serialize(Engines[id].Poll()));
         }
         catch (Exception error) { return Marshal.StringToCoTaskMemUTF8(JsonValues.Serialize(new System.Text.Json.Nodes.JsonArray(JsonValues.Error(error.Message)))); }
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "mc_binary_take", CallConvs = [typeof(CallConvCdecl)])]
+    public static unsafe nint TakeBinary(long id, nint nonce, int* length)
+    {
+        *length = 0;
+        try
+        {
+            if (Engines[id].Port.TakeBinary(Marshal.PtrToStringUTF8(nonce)!) is not { } bytes) return 0;
+            var buffer = Marshal.AllocCoTaskMem(bytes.Length);
+            Marshal.Copy(bytes, 0, buffer, bytes.Length);
+            *length = bytes.Length;
+            return buffer;
+        }
+        catch { return 0; }
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "mc_binary_write", CallConvs = [typeof(CallConvCdecl)])]
+    public static int WriteBinary(long id, nint nonce, nint buffer, int length)
+    {
+        if (length is <= 0 or > HostPort.ChunkBytes) return 0;
+        try
+        {
+            var bytes = new byte[length];
+            Marshal.Copy(buffer, bytes, 0, length);
+            Engines[id].Port.WriteBinary(Marshal.PtrToStringUTF8(nonce)!, bytes);
+            return 1;
+        }
+        catch { return 0; }
     }
 
     [UnmanagedCallersOnly(EntryPoint = "mc_release", CallConvs = [typeof(CallConvCdecl)])]

@@ -121,4 +121,32 @@
     <plurals name="model_count">
         <item quantity="other">%1$d 个模型</item>
     </plurals>
+    <string name="latest_message">回到最新消息</string>
+    <string name="steer">插话</string>
+    <string name="send_as_system">作为系统消息发送</string>
+    <string name="system_message">系统消息</string>
+    <string name="photos_videos">照片和视频</string>
+    <string name="choose_files">选择文件</string>
+    <string name="plugins">插件</string>
+    <string name="install_plugin">安装插件</string>
+    <string name="run_plugin">运行</string>
+    <string name="remove_plugin">卸载</string>
+    <string name="built_in">内置</string>
+    <string name="plugin_resource_request">%1$s 请求你选择文件</string>
+    <string name="delete_chat">删除聊天</string>
+    <string name="delete_preset">删除预设</string>
+    <string name="delete_named">删除“%1$s”？</string>
+    <string name="delete_preset_detail">也会删除此预设下的聊天。</string>
+    <string name="behavior_settings">外观与行为</string>
+    <string name="model_provider_settings">模型和供应商</string>
+    <string name="about">关于</string>
+    <string name="interactive_reply">交互式回复</string>
+    <string name="interactive_reply_unavailable">无法加载交互式回复</string>
+    <string name="welcome_to_preset">欢迎来到</string>
+    <string name="branch_edit_message">在分支中编辑</string>
+    <string name="no_presets_yet">还没有预设</string>
+    <string name="plugin_scope">预设作用域</string>
+    <string name="plugin_scope_global">所有预设</string>
+    <string name="plugin_scope_include">仅限选中的预设</string>
+    <string name="plugin_scope_exclude">排除选中的预设</string>
 </resources>

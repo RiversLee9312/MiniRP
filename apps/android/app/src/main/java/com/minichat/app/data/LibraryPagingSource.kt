@@ -8,13 +8,16 @@ import kotlinx.coroutines.CancellationException
 class LibraryPagingSource(private val page: suspend (Int, Int) -> List<Choice>) :
     PagingSource<Int, Choice>() {
     override suspend fun load(params: LoadParams<Int>): LoadResult<Int, Choice> {
-        val offset = params.key ?: 0
+        val end = (params as? LoadParams.Prepend)?.key
+        val offset = end?.let { (it - params.loadSize).coerceAtLeast(0) } ?: params.key ?: 0
+        val limit = end?.minus(offset) ?: params.loadSize
         return try {
-            val rows = page(offset, params.loadSize)
+            val rows = page(offset, limit)
             LoadResult.Page(
                 data = rows,
-                prevKey = null,
-                nextKey = (offset + rows.size).takeIf { rows.size == params.loadSize },
+                prevKey = offset.takeIf { it > 0 },
+                nextKey = (offset + rows.size).takeIf { rows.size == limit },
+                itemsBefore = offset,
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -23,5 +26,11 @@ class LibraryPagingSource(private val page: suspend (Int, Int) -> List<Choice>) 
         }
     }
 
-    override fun getRefreshKey(state: PagingState<Int, Choice>): Int? = null
+    override fun getRefreshKey(state: PagingState<Int, Choice>): Int? {
+        val anchor = state.anchorPosition ?: return null
+        val row = state.closestItemToPosition(anchor) ?: return null
+        val page = state.closestPageToPosition(anchor) ?: return null
+        val offset = page.itemsBefore + page.data.indexOf(row)
+        return (offset - state.config.initialLoadSize / 2).coerceAtLeast(0)
+    }
 }

@@ -20,11 +20,13 @@ internal static class ConversationVersions
         return id;
     }
 
-    public static (string Id, string Input, JsonArray Attachments) Fork(Workspace workspace, string blockId, IEnumerable<string> roles)
+    public static (string Id, string Input, JsonArray Attachments, JsonObject? OpenUiAction) Fork(
+        Workspace workspace, string blockId, IEnumerable<string> roles, bool afterReply, bool seedDraft)
     {
         var blocks = workspace.Chat.GetArray("blocks");
         var position = blocks.ToList().FindIndex(block => block.GetString("id") == blockId);
-        if (position < 0 || blocks[position].GetString("version") is not { Length: > 0 } version)
+        if (position < 0 || blocks[position].GetString("kind", blocks[position].GetString("role")) != (afterReply ? "reply_end" : "user") ||
+            blocks[position].GetString("version") is not { Length: > 0 } version)
         {
             throw new InvalidOperationException("This message has no saved world version.");
         }
@@ -41,7 +43,7 @@ internal static class ConversationVersions
 
         var prefix = new JsonArray();
         var sourceMessages = workspace.Chat.GetArray("messages");
-        foreach (var block in blocks.Take(position).Where(block => !PresetConversation.IsPreset(block)))
+        foreach (var block in blocks.Take(afterReply ? position + 1 : position).Where(block => !PresetConversation.IsPreset(block)))
         {
             var copy = (JsonObject)block!.DeepClone();
             if (copy.ContainsKey("message_index"))
@@ -65,8 +67,20 @@ internal static class ConversationVersions
             ["messages"] = messages,
             ["world"] = JsonValues.ParseObject(File.ReadAllText(Path.Combine(root, "world.json")))
         };
+        var input = blocks[position].GetString("content");
+        var attachments = (JsonArray)blocks[position].GetArray("attachments").DeepClone();
+        var action = JsonValues.Clone(blocks[position]?["open_ui_action"]) as JsonObject;
+        if (seedDraft)
+        {
+            branch["draft"] = new JsonObject
+            {
+                ["text"] = input,
+                ["attachments"] = attachments.DeepClone(),
+                ["open_ui_action"] = action?.DeepClone()
+            };
+        }
         AtomicFile.Write(Path.Combine(parent, id + ".json"), JsonValues.Serialize(branch));
-        return (id, blocks[position].GetString("content"), (JsonArray)blocks[position].GetArray("attachments").DeepClone());
+        return (id, input, attachments, action);
     }
 
     private static string VersionRoot(Workspace workspace, string id) => Path.Combine(workspace.Root, "versions", Workspace.Safe(id));

@@ -28,6 +28,10 @@ public sealed class AgentSession : IDisposable
     readonly ModelClient model;
     readonly Action<JsonObject> emit;
     private readonly SessionHistory transcript;
+    private bool delegatedSearch;
+    internal Func<IEnumerable<AgentSkill>>? AdditionalSkills { get; set; }
+    internal Func<string>? OpenUiInstructions { get; set; }
+    internal TurnInbox? Inbox { get; set; }
     public AgentSession(string name, string path, ModelClient model, Action<JsonObject> emit)
     {
         Name = name;
@@ -44,6 +48,27 @@ public sealed class AgentSession : IDisposable
         Db.Write("_context/history", JsonValues.Serialize(History), internalWrite: true);
         Db.Write("_context/summary", Summary, internalWrite: true);
     }
+
+    internal void ConfigureWorldMode(bool? delegated)
+    {
+        if (delegated is null) return;
+        delegatedSearch = delegated.Value;
+        var mode = delegated.Value ? "delegated" : "direct";
+        if (Db.Get("_context/search-mode") == mode) return;
+        if (delegated.Value)
+        {
+            // Older summaries were generated without a world boundary. Keep archives on disk,
+            // but do not place those summaries or prior tool exchanges in a delegated request.
+            Summary = "";
+            if (History.Count > 0)
+                Db.Write("_archive/history/mode-" + JsonValues.NewId(), JsonValues.Serialize(History), internalWrite: true);
+            History = new JsonArray(History.Where(message => message.GetString("role") is "user" or "system" ||
+                (message.GetString("role") == "assistant" && message.GetArray("tool_calls").Count == 0))
+                .Select(JsonValues.Clone).ToArray());
+            Save();
+        }
+        Db.Write("_context/search-mode", mode, internalWrite: true);
+    }
     public void Restore(JsonArray history, string? summary = null)
     {
         History = (JsonArray)history.DeepClone();
@@ -57,7 +82,7 @@ public sealed class AgentSession : IDisposable
     }
     public string Archive(string text, string prefix = "tool")
     {
-        var key = "_archive/" + prefix + "/" + JsonValues.NewId();
+        var key = (delegatedSearch ? "_archive/public/" : "_archive/") + prefix + "/" + JsonValues.NewId();
         Db.Write(key, text, internalWrite: true);
         return key;
     }
@@ -71,21 +96,42 @@ public sealed class AgentSession : IDisposable
 
         return JsonValues.Serialize(new JsonObject { ["content_key"] = Archive(text), ["total_chars"] = text.Length, ["preview"] = text[..12000], ["instruction"] = "Full result retained. Use db_read in pages to read remaining content." });
     }
-    public async Task<JsonObject> Run(string system, string input, JsonArray tools, Func<string, JsonObject, CancellationToken, Task<JsonNode?>> execute, CancellationToken ct, Func<bool>? submitted = null, int maxRounds = 40, IReadOnlySet<string>? terminalTools = null, JsonArray? attachments = null, string? historyInput = null, Func<string?>? historySubmission = null)
+    internal void Insert(string text, string role)
+    {
+        History.AddNode(new JsonObject { ["role"] = role, ["content"] = text });
+        transcript.Record(role, text);
+        Save();
+    }
+
+    public Task<JsonObject> Run(string system, string input, JsonArray tools, Func<string, JsonObject, CancellationToken, Task<JsonNode?>> execute, CancellationToken ct, Func<bool>? submitted = null, int maxRounds = 40, IReadOnlySet<string>? terminalTools = null, JsonArray? attachments = null, string? historyInput = null, Func<string?>? historySubmission = null) =>
+        Run(system, input, new AgentSkill("session-task", "Tools required for this agent's task.", tools, execute, Required: true),
+            ct, submitted, maxRounds, terminalTools, attachments, historyInput, historySubmission);
+
+    public async Task<JsonObject> Run(string system, string input, AgentSkill skill, CancellationToken ct, Func<bool>? submitted = null, int maxRounds = 40, IReadOnlySet<string>? terminalTools = null, JsonArray? attachments = null, string? historyInput = null, Func<string?>? historySubmission = null, string inputRole = "user", string? reference = null)
     {
         var working = (JsonArray)History.DeepClone();
         var summary = Summary;
         var replies = new List<string>();
+        var interruptions = new List<JsonObject>();
+        void Append(JsonObject message)
+        {
+            interruptions.Add(message);
+            working.AddNode(message);
+        }
         void Commit()
         {
             ct.ThrowIfCancellationRequested();
             History = working;
             Summary = summary;
             Save();
-            transcript.Record("user", historyInput ?? input);
+            transcript.Record(inputRole, historyInput ?? input);
             foreach (var reply in replies)
             {
                 transcript.Record("assistant", reply);
+            }
+            foreach (var message in interruptions)
+            {
+                transcript.Record(message.GetString("role"), message.GetString("content"));
             }
             if (historySubmission?.Invoke() is { } submission)
             {
@@ -93,50 +139,99 @@ public sealed class AgentSession : IDisposable
             }
         }
         var compactor = new ContextCompactor(model, Name, Archive, emit);
-        var messageInput = new JsonObject { ["role"] = "user", ["content"] = input };
+        if (reference is not null) working.AddNode(new JsonObject { ["role"] = "user", ["content"] = reference });
+        var messageInput = new JsonObject { ["role"] = inputRole, ["content"] = input };
         if (attachments is { Count: > 0 })
         {
             messageInput["attachments"] = attachments.DeepClone();
         }
         working.AddNode(messageInput);
-        var allTools = Tools.Memory();
-        foreach (var t in tools)
+        // Some providers require a user message to request a completion even after a system event.
+        if (inputRole == "system")
+            working.AddNode(new JsonObject { ["role"] = "user", ["content"] = "Apply the preceding system instruction and respond as appropriate." });
+        var skills = new List<AgentSkill> { new("session-memory", "Save durable notes and recall earlier messages.", Tools.Memory(), MemoryTool,
+            Required: true, Instructions: MemoryInstructions), skill };
+        if (AdditionalSkills is not null) skills.AddRange(AdditionalSkills());
+        var openUiEnabled = false;
+        if (OpenUiInstructions?.Invoke() is { Length: > 0 and <= 60000 } openUi)
         {
-            allTools.AddNode(JsonValues.Clone(t));
+            skills.Add(new("interactive-ui",
+                "Build a rich interactive answer if a dashboard, calculator, editable itinerary, visual explanation, or working tool helps the user.",
+                new(), (_, _, _) => throw new InvalidOperationException("This skill renders OpenUI from the response."),
+                Instructions: openUi, OnActivate: () => openUiEnabled = true));
         }
+        var enabled = new SkillTurn(skills);
+        Task<JsonNode?> MemoryTool(string name, JsonObject args, CancellationToken _) => Task.FromResult<JsonNode?>(name switch
+        {
+            "history_search" => transcript.Search(args),
+            "history_recall" => transcript.Recall(args),
+            _ => CallMemory(name, args)
+        });
 
         for (var round = 0; round < maxRounds; round++)
         {
             ct.ThrowIfCancellationRequested();
+            Inbox?.Drain(Append);
             var compacted = await compactor.Compact(working, summary, ct);
             working = compacted.History;
             summary = compacted.Summary;
-            var messages = new JsonArray(new JsonObject { ["role"] = "system", ["content"] = system + "\n" + MemoryInstructions + "\nPrior context summary:\n" + summary });
+            var messages = new JsonArray(new JsonObject { ["role"] = "system", ["content"] = system + enabled.Prompt + "\nPrior context summary:\n" + summary });
             foreach (var item in working)
             {
                 messages.AddNode(JsonValues.Clone(item));
             }
 
             var block = JsonValues.NewId();
+            enabled.Broadcast("turn.started", new() { ["name"] = "turn.started", ["block"] = block });
             emit(new()
             {
                 ["kind"] = "turn_start",
                 ["agent"] = Name,
                 ["block"] = block
             });
-            var message = await model.Complete(messages, allTools, (type, value) => emit(new() { ["kind"] = "delta", ["agent"] = Name, ["block"] = block, ["type"] = type, ["text"] = value }), ct);
+            JsonObject? message = null;
+            var generation = Inbox?.BeginGeneration(ct);
+            var partial = new System.Text.StringBuilder();
+            var openUiStream = openUiEnabled ? new OpenUiStream(Name, block, emit) : null;
+            try
+            {
+                message = await model.Complete(messages, enabled.Definitions(), (type, value) =>
+                {
+                    if (type == "content")
+                    {
+                        partial.Append(value);
+                        if (openUiStream is not null)
+                        {
+                            openUiStream.Append(value);
+                            return;
+                        }
+                    }
+                    emit(new() { ["kind"] = "delta", ["agent"] = Name, ["block"] = block, ["type"] = type, ["text"] = value });
+                }, generation?.Token ?? ct);
+            }
+            catch (OperationCanceledException) when (generation?.IsCancellationRequested == true && !ct.IsCancellationRequested)
+            {
+                if (partial.Length > 0)
+                {
+                    var text = partial.ToString();
+                    working.AddNode(new JsonObject { ["role"] = "assistant", ["content"] = text });
+                    replies.Add(text);
+                }
+            }
+            finally
+            {
+                Inbox?.EndGeneration();
+                enabled.Broadcast("turn.finished", new() { ["name"] = "turn.finished", ["block"] = block, ["interrupted"] = message is null });
+                if (openUiStream is not null) openUiStream.Finish(message is null);
+                else emit(new() { ["kind"] = "turn_end", ["agent"] = Name, ["block"] = block, ["interrupted"] = message is null });
+            }
+            if (message is null) continue;
             working.AddNode(message);
             var replyText = message.GetString("content");
             if (!string.IsNullOrWhiteSpace(replyText))
             {
                 replies.Add(replyText);
             }
-            emit(new()
-            {
-                ["kind"] = "turn_end",
-                ["agent"] = Name,
-                ["block"] = block
-            });
             var calls = message.GetArray("tool_calls");
             if (calls.Count == 0)
             {
@@ -145,6 +240,7 @@ public sealed class AgentSession : IDisposable
                     working.AddNode(new JsonObject { ["role"] = "user", ["content"] = "No result submitted. Complete with a submission tool or fail_request." });
                     continue;
                 }
+                if (Inbox?.Drain(Append, finish: true) == true) continue;
                 Commit();
                 return message;
             }
@@ -174,13 +270,7 @@ public sealed class AgentSession : IDisposable
                         throw new InvalidOperationException("Submission must be the final tool in a batch.");
                     }
 
-                    result = name switch
-                    {
-                        "history_search" => transcript.Search(args),
-                        "history_recall" => transcript.Recall(args),
-                        _ when name.StartsWith("db_", StringComparison.Ordinal) => Db.Call(name, args),
-                        _ => await execute(name, args, ct)
-                    };
+                    result = await enabled.Invoke(name, args, ct);
                 }
                 catch (Exception error) when (error is not OperationCanceledException) { result = JsonValues.Error(error.Message); }
                 var text = name is "db_read" or "history_recall" ? JsonValues.Serialize(result) : ToolText(result);
@@ -202,5 +292,23 @@ public sealed class AgentSession : IDisposable
         }
         throw new InvalidOperationException($"{Name} reached its tool round limit. Changes were not committed.");
     }
+
+    private JsonObject CallMemory(string name, JsonObject args)
+    {
+        if (delegatedSearch)
+        {
+            if (name == "db_read" && args.GetString("key") is { Length: > 0 } key &&
+                (key.StartsWith("_context/", StringComparison.Ordinal) || key.StartsWith("_history/", StringComparison.Ordinal) ||
+                 key.StartsWith("_archive/", StringComparison.Ordinal) && !key.StartsWith("_archive/public/", StringComparison.Ordinal)))
+                throw new ArgumentException("This archive is unavailable to this session.");
+            if (name is "db_list" or "db_search" && !args.GetString("prefix").StartsWith("_archive/public/", StringComparison.Ordinal))
+            {
+                args = (JsonObject)args.DeepClone();
+                args["notes_only"] = true;
+            }
+        }
+        return Db.Call(name, args);
+    }
+
     public void Dispose() => Db.Dispose();
 }

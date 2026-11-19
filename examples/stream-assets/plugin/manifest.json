@@ -1,0 +1,34 @@
+{
+  "id": "stream-example",
+  "packageName": "example.minichat.stream",
+  "name": "Stream assets example",
+  "apiVersion": 2,
+  "entry": "index.js",
+  "permissions": ["db"],
+  "actions": {
+    "handlers": { "announce": "announce", "consume": "consume", "produce": "produce" },
+    "events": ["ready"],
+    "subscriptions": {
+      "minichat://actions/example.minichat.stream/events/ready": "minichat://actions/example.minichat.stream/hooks/consume"
+    }
+  },
+  "hooks": {
+    "plugin.command": "minichat://actions/example.minichat.stream/hooks/announce"
+  },
+  "assets": [
+    { "id": "about", "type": "file", "path": "about.md", "mimeType": "text/markdown", "accessibility": "public" },
+    {
+      "id": "sample",
+      "type": "dynamic",
+      "mimeType": "application/octet-stream",
+      "accessibility": "protected",
+      "handler": "minichat://actions/example.minichat.stream/hooks/produce"
+    }
+  ],
+  "settings": [
+    {
+      "key": "stream-example", "type": "page", "title": "Stream assets example",
+      "items": [{ "key": "about", "type": "markdown", "content": "about" }]
+    }
+  ]
+}

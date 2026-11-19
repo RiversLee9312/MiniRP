@@ -26,11 +26,15 @@ public sealed class ConversationFlowTests
     }
 
     [TestMethod]
-    public async Task BranchRestoresChatWorldAndSearchMemoryButSharesThePreset()
+    public async Task BranchRestoresWorldAndAgentSessionsButSharesThePreset()
     {
         await using var engine = new Engine(NewRoot());
         Configure(engine);
         var original = (await Run(engine, new() { ["op"] = "select_chat", ["preset"] = "default" })).Single(IsLoaded).GetObject("chat").GetString("id");
+        await Run(engine, new() { ["op"] = "rename", ["name"] = "Original" });
+        await Run(engine, new() { ["op"] = "message", ["agent"] = "env", ["text"] = "Before world turn" }, "Before world reply.");
+        await Run(engine, new() { ["op"] = "message", ["text"] = "Before chat turn" },
+            "activate_search", "search_before", "submit_search_results", "Before chat reply.");
         await Write(engine, "env", "fact", "before");
         await Write(engine, "search", "query", "before");
         var turn = await Run(engine, new() { ["op"] = "message", ["text"] = "Continue the story" }, "Reply");
@@ -38,26 +42,84 @@ public sealed class ConversationFlowTests
         Assert.IsFalse(string.IsNullOrEmpty(checkpoint.GetString("version")));
 
         await Run(engine, new() { ["op"] = "message", ["agent"] = "env", ["text"] = "Update the world" }, "add_fact", "Added.");
+        await Run(engine, new() { ["op"] = "message", ["text"] = "After chat turn" },
+            "activate_search", "search_after", "submit_search_results", "After chat reply.");
         await Run(engine, new() { ["op"] = "message", ["agent"] = "preset", ["text"] = "Shared preset edit" }, "Preset updated.");
         await Write(engine, "env", "fact", "after", 1);
         await Write(engine, "search", "query", "after", 1);
         await Write(engine, "preset", "shared", "same preset");
 
-        var branch = (await Run(engine, new() { ["op"] = "branch", ["chat"] = original, ["block"] = checkpoint.GetString("block") }, "Branch reply"))
-            .Single(IsLoaded).GetObject("chat");
+        var events = await Run(engine, new() { ["op"] = "branch", ["chat"] = original,
+            ["block"] = checkpoint.GetString("block"), ["mode"] = "edit" });
+        var loaded = events.Single(IsLoaded);
+        var branch = loaded.GetObject("chat");
         Assert.AreNotEqual(original, branch.GetString("id"));
+        Assert.AreEqual("Continue the story", loaded.GetObject("draft").GetString("text"));
+        Assert.IsFalse(events.Any(item => item.GetString("kind") == "generating"));
+        Assert.IsFalse(branch.GetArray("blocks").Any(item => item.GetString("content") == "Continue the story"));
         Assert.IsTrue(branch.GetArray("blocks").Any(item => item.GetString("content") == "Shared preset edit"));
         Assert.IsFalse(branch.GetArray("blocks").Any(item => item.GetString("content") == "Update the world"));
         Assert.AreEqual(0, engine.Workspace.State.GetArray("canon").Count);
         Assert.AreEqual("before", await Read(engine, "env", "fact"));
         Assert.AreEqual("before", await Read(engine, "search", "query"));
         Assert.AreEqual("same preset", await Read(engine, "preset", "shared"));
+        var branchChat = await Read(engine, "chat", "_context/history");
+        StringAssert.Contains(branchChat, "Before chat reply.");
+        Assert.IsFalse(branchChat.Contains("After chat turn", StringComparison.Ordinal));
+        Assert.IsFalse(branchChat.Contains("Continue the story", StringComparison.Ordinal));
+        var branchEnv = await Read(engine, "env", "_context/history");
+        StringAssert.Contains(branchEnv, "Before world turn");
+        Assert.IsFalse(branchEnv.Contains("Update the world", StringComparison.Ordinal));
+        var branchSearch = await Read(engine, "search", "_context/history");
+        StringAssert.Contains(branchSearch, "before checkpoint");
+        Assert.IsFalse(branchSearch.Contains("after checkpoint", StringComparison.Ordinal));
+        await Write(engine, "env", "fact", "branch only", 1);
+        var resumed = await Run(engine, new() { ["op"] = "message", ["text"] = "Continue with a different ending" }, "Branch reply");
+        var request = JsonValues.ParseObject(resumed.First(item => item.GetString("kind") == "http_request").GetString("body"));
+        Assert.AreEqual("Continue with a different ending", request.GetArray("messages").Last().GetString("content"));
+        Assert.IsFalse(engine.Workspace.Chat.ContainsKey("draft"));
 
         await Run(engine, new() { ["op"] = "select_chat", ["preset"] = "default", ["id"] = original });
         Assert.AreEqual("after", await Read(engine, "env", "fact"));
         Assert.AreEqual("after", await Read(engine, "search", "query"));
+        StringAssert.Contains(await Read(engine, "search", "_context/history"), "after checkpoint");
         Assert.AreEqual("new fact", engine.Workspace.State.GetArray("canon").Single()!.ToString());
         Assert.AreEqual("same preset", await Read(engine, "preset", "shared"));
+    }
+
+    [TestMethod]
+    public async Task ReplyBranchRestoresTheCompletedTurnAndStartsWithAnEmptyDraft()
+    {
+        await using var engine = new Engine(NewRoot());
+        Configure(engine);
+        var original = (await Run(engine, new() { ["op"] = "select_chat", ["preset"] = "default" }))
+            .Single(IsLoaded).GetObject("chat").GetString("id");
+        await Run(engine, new() { ["op"] = "rename", ["name"] = "Original" });
+        var turn = await Run(engine, new() { ["op"] = "message", ["text"] = "Remember the first result" },
+            "checkpoint_note", "    **First result**");
+        var footer = turn.Single(item => item.GetString("kind") == "reply_end");
+        Assert.AreEqual("Checking the result.\n\n    **First result**", footer.GetString("reply"));
+        Assert.AreEqual(turn.Single(item => item.GetString("kind") == "user").GetString("block"),
+            footer.GetString("first_block"));
+
+        await Run(engine, new() { ["op"] = "message", ["agent"] = "env", ["text"] = "Change the world" }, "add_fact", "Changed.");
+        await Run(engine, new() { ["op"] = "message", ["text"] = "Later input" }, "Later answer");
+        await Write(engine, "chat", "result", "later", 1);
+
+        var events = await Run(engine, new() { ["op"] = "branch", ["chat"] = original,
+            ["block"] = footer.GetString("id"), ["mode"] = "reply" });
+        var loaded = events.Single(IsLoaded);
+        Assert.IsNull(loaded["draft"]);
+        Assert.IsFalse(events.Any(item => item.GetString("kind") is "http_request" or "generating"));
+        Assert.AreNotEqual(original, engine.Workspace.ChatId);
+        Assert.AreEqual(0, engine.Workspace.State.GetArray("canon").Count);
+        Assert.AreEqual("first", await Read(engine, "chat", "result"));
+        var history = await Read(engine, "chat", "_context/history");
+        StringAssert.Contains(history, "**First result**");
+        Assert.IsFalse(history.Contains("Later input", StringComparison.Ordinal));
+        var blocks = loaded.GetObject("chat").GetArray("blocks");
+        Assert.AreEqual(footer.GetString("id"), blocks.Last().GetString("id"));
+        Assert.AreEqual(2, engine.Workspace.Chat.GetArray("messages").Count);
     }
 
     [TestMethod]
@@ -216,9 +278,21 @@ public sealed class ConversationFlowTests
                     }
                     Assert.IsLessThan(responses.Length, response, "Unexpected model call.");
                     var text = responses[response++];
-                    var delta = text is "add_fact" or "virtual_search"
-                        ? new JsonObject { ["tool_calls"] = new JsonArray(new JsonObject { ["id"] = "tool-call", ["type"] = "function", ["function"] = new JsonObject { ["name"] = text, ["arguments"] = text == "add_fact" ? "{\"fact\":\"new fact\"}" : "{}" } }) }
+                    var tool = text switch
+                    {
+                        "activate_search" => ("activate_skill", """{"name":"web-research"}"""),
+                        "search_before" => ("search", """{"query":"before checkpoint"}"""),
+                        "search_after" => ("search", """{"query":"after checkpoint"}"""),
+                        "submit_search_results" => ("submit_search_results", """{"refs":[]}"""),
+                        "checkpoint_note" => ("db_write", """{"key":"result","content":"first","expected_revision":0}"""),
+                        "add_fact" => ("add_fact", """{"fact":"new fact"}"""),
+                        "virtual_search" => ("virtual_search", "{}"),
+                        _ => ("", "")
+                    };
+                    var delta = tool.Item1.Length > 0
+                        ? new JsonObject { ["tool_calls"] = new JsonArray(new JsonObject { ["id"] = $"tool-{response}", ["type"] = "function", ["function"] = new JsonObject { ["name"] = tool.Item1, ["arguments"] = tool.Item2 } }) }
                         : new JsonObject { ["content"] = text };
+                    if (text == "checkpoint_note") delta["content"] = "Checking the result.";
                     var stream = body.ContainsKey("contents")
                         ? new JsonObject { ["candidates"] = new JsonArray(new JsonObject { ["content"] = new JsonObject { ["parts"] = new JsonArray(new JsonObject { ["text"] = text }) } }) }
                         : new JsonObject { ["choices"] = new JsonArray(new JsonObject { ["delta"] = delta }) };

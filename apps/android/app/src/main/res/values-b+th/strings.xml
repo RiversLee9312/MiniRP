@@ -121,4 +121,32 @@
     <plurals name="model_count">
         <item quantity="other">%1$d โมเดล</item>
     </plurals>
+    <string name="latest_message">ข้อความล่าสุด</string>
+    <string name="steer">กำหนดทิศทาง</string>
+    <string name="send_as_system">ส่งเป็นข้อความระบบ</string>
+    <string name="system_message">ข้อความระบบ</string>
+    <string name="photos_videos">รูปภาพและวิดีโอ</string>
+    <string name="choose_files">เลือกไฟล์</string>
+    <string name="plugins">ปลั๊กอิน</string>
+    <string name="install_plugin">ติดตั้งปลั๊กอิน</string>
+    <string name="run_plugin">เรียกใช้</string>
+    <string name="remove_plugin">ถอนการติดตั้ง</string>
+    <string name="built_in">มีมาให้ในตัว</string>
+    <string name="plugin_resource_request">%1$s ต้องการให้คุณเลือกไฟล์</string>
+    <string name="delete_chat">ลบแชต</string>
+    <string name="delete_preset">ลบพรีเซ็ต</string>
+    <string name="delete_named">ลบ “%1$s” หรือไม่</string>
+    <string name="delete_preset_detail">การดำเนินการนี้จะลบแชตในพรีเซ็ตนี้ด้วย</string>
+    <string name="behavior_settings">รูปลักษณ์และการทำงาน</string>
+    <string name="model_provider_settings">โมเดลและผู้ให้บริการ</string>
+    <string name="about">เกี่ยวกับ</string>
+    <string name="interactive_reply">คำตอบแบบโต้ตอบ</string>
+    <string name="interactive_reply_unavailable">โหลดคำตอบแบบโต้ตอบไม่ได้</string>
+    <string name="welcome_to_preset">ยินดีต้อนรับสู่</string>
+    <string name="branch_edit_message">แก้ไขในแชตแยก</string>
+    <string name="no_presets_yet">ยังไม่มีพรีเซ็ต</string>
+    <string name="plugin_scope">ขอบเขตพรีเซ็ต</string>
+    <string name="plugin_scope_global">พรีเซ็ตทั้งหมด</string>
+    <string name="plugin_scope_include">เฉพาะพรีเซ็ตที่เลือก</string>
+    <string name="plugin_scope_exclude">ทั้งหมดยกเว้นที่เลือก</string>
 </resources>

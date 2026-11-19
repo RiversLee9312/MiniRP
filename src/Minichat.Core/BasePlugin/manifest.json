@@ -1,0 +1,45 @@
+{
+  "id": "base",
+  "name": "Minichat",
+  "apiVersion": 2,
+  "packageName": "minichat.base",
+  "entry": "index.js",
+  "permissions": ["settings", "ui.home", "model"],
+  "actions": { "handlers": { "recommend": "recommend" } },
+  "hooks": { "home.requested": "minichat://actions/minichat.base/hooks/recommend" },
+  "settings": [
+    {
+      "key": "model-group", "type": "group", "title": "Models and providers", "label": "model_provider_settings",
+      "items": [
+        {"key":"providers","type":"link","title":"Providers","label":"providers","url":"minichat://actions/minichat.app/hooks/providers"},
+        {"key":"models","type":"link","title":"Models","label":"models","url":"minichat://actions/minichat.app/hooks/models"},
+        {"key":"prompts","type":"page","title":"System prompts","label":"system_prompt","items":[
+          {"key":"chat-prompt","type":"text","title":"Chat","label":"chat","binding":"prompt/chat","multiline":true},
+          {"key":"world-prompt","type":"text","title":"World","label":"world","binding":"prompt/env","multiline":true},
+          {"key":"preset-prompt","type":"text","title":"Preset","label":"preset","binding":"prompt/preset","multiline":true},
+          {"key":"search-prompt","type":"text","title":"Search","label":"search_agent","binding":"prompt/search","multiline":true},
+          {"key":"fetch-prompt","type":"text","title":"Fetch","label":"fetch_agent","binding":"prompt/fetch","multiline":true},
+          {"key":"title-prompt","type":"text","title":"Title","label":"title_model","binding":"prompt/title","multiline":true}
+        ]}
+      ]
+    },
+    {
+      "key":"behavior", "type":"group", "title":"Appearance and behavior", "label":"behavior_settings",
+      "items":[
+        {"key":"topics","type":"boolean","title":"Smart topic suggestions","titles":{"zh-Hans":"智能话题推荐","zh-Hant":"智慧話題推薦"},"default":false},
+        {"key":"thoughts","type":"boolean","title":"Expand reasoning","label":"expand_thoughts","binding":"thoughts"},
+        {"key":"fetch","type":"choice","title":"Page fetching","label":"fetch_mode","binding":"fetch","options":[
+          {"value":"api","title":"API","label":"fetch_api"},
+          {"value":"local","title":"Browser","label":"fetch_browser"},
+          {"value":"api_then_local","title":"API, then browser","label":"fetch_fallback"}
+        ]},
+        {"key":"language","type":"link","title":"Language","label":"language","url":"minichat://actions/minichat.app/hooks/language"}
+      ]
+    },
+    {
+      "key":"about", "type":"group", "title":"About", "label":"about", "items":[
+        {"key":"plugins","type":"link","title":"Plugins","label":"plugins","url":"minichat://actions/minichat.app/hooks/plugins"}
+      ]
+    }
+  ]
+}

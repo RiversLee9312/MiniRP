@@ -42,6 +42,12 @@ internal sealed class MessageAttachments(string root)
         }
         foreach (var item in attachments)
         {
+            if (item.GetString("type").Length > 0 && item.GetString("text").Length > 0)
+            {
+                total += FileFor(item).Length;
+                if (total > Budget(provider.Protocol)) throw new InvalidOperationException("Attachments exceed the upload limit.");
+                continue;
+            }
             if (!Supports(provider.Protocol, item.GetString("mime")))
             {
                 throw new InvalidOperationException("This model protocol cannot send this type of attachment.");
@@ -92,7 +98,10 @@ internal sealed class MessageAttachments(string root)
     {
         var content = message.GetString("content");
         var files = message.GetArray("attachments");
-        return files.Count == 0 ? content : content + "\n\nAttachments: " + string.Join(", ", files.Select(file => file.GetString("name")));
+        if (files.Count == 0) return content;
+        return content + "\n\nAttachments: " + string.Join(", ", files.Select(file => file.GetString("name"))) +
+            string.Concat(files.Where(file => file.GetString("text").Length > 0)
+                .Select(file => "\n\nAttachment " + file.GetString("name") + " (data):\n" + file.GetString("text")));
     }
 
     public static JsonArray Parts(string protocol, string text, IReadOnlyList<Media> files)

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.minichat.app.core.BrowserHost
 import com.minichat.app.core.CoreClient
 import java.io.File
@@ -11,13 +12,221 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class NativeCoreTest {
+    @Test
+    fun presetEditorUsesItsOwnSessionWithoutCreatingAChat() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = File(app.cacheDir, "preset-probe-${System.nanoTime()}").apply { mkdirs() }
+        val root =
+            object : ContextWrapper(app) {
+                override fun getFilesDir(): File = directory
+            }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val core = CoreClient(root, scope)
+        try {
+            val initial =
+                withTimeout(10_000) { core.events.first { it.optString("kind") == "ready" } }
+            assertEquals("", initial.getString("preset"))
+            val created =
+                core.query(
+                    JSONObject()
+                        .put("op", "create_preset")
+                        .put("open", true)
+                        .put("name", "Preset fixture")
+                )
+            assertEquals("preset_opened", created.getString("kind"))
+            assertTrue(created.getBoolean("created"))
+            val preset = created.getString("preset")
+            core.send(
+                JSONObject()
+                    .put("op", "system_message")
+                    .put("agent", "preset")
+                    .put("preset", preset)
+                    .put("text", "Preset-only note")
+            )
+            withTimeout(10_000) { core.events.first { it.optString("kind") == "system" } }
+            val reopened = core.query(JSONObject().put("op", "open_preset").put("preset", preset))
+            assertEquals(
+                "Preset-only note",
+                reopened.getJSONArray("blocks").getJSONObject(0).getString("content"),
+            )
+            assertFalse(directory.resolve("workspace/conversations").exists())
+            core.query(
+                JSONObject().put("op", "delete_preset").put("id", preset).put("preset", preset)
+            )
+            val home = withTimeout(10_000) { core.events.first { it.optString("kind") == "home" } }
+            assertEquals("", home.getString("preset"))
+            val page = core.query(JSONObject().put("op", "library_page"))
+            assertEquals(0, page.getJSONArray("items").length())
+        } finally {
+            core.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun nativePackageVerifiesSignerAndStreamsAssets() = runBlocking {
+        val fixture = InstrumentationRegistry.getArguments().getString("pluginFixture")
+        assumeTrue("Pass a signed stream-assets example with -e pluginFixture", fixture != null)
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = File(app.cacheDir, "asset-probe-${System.nanoTime()}").apply { mkdirs() }
+        val root =
+            object : ContextWrapper(app) {
+                override fun getFilesDir(): File = directory
+            }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val core = CoreClient(root, scope, seedDefaultPreset = true)
+        try {
+            val packageInfo =
+                core
+                    .query(JSONObject().put("op", "plugin_install").put("path", fixture))
+                    .getJSONObject("item")
+            assertEquals("example.minichat.stream", packageInfo.getString("packageName"))
+            val signer = packageInfo.getString("signer")
+            assertEquals(64, signer.length)
+            val docsUrl = "minichat://assets/example.minichat.stream/about"
+            val second =
+                core
+                    .query(JSONObject().put("op", "create_preset").put("open", true))
+                    .getString("preset")
+            fun selectScope(
+                mode: String,
+                ids: List<String> = emptyList(),
+                id: String = "stream-example",
+            ) =
+                JSONObject()
+                    .put("op", "plugin_scope")
+                    .put("id", id)
+                    .put("scope", JSONObject().put("mode", mode).put("presets", JSONArray(ids)))
+            suspend fun home(id: String) {
+                core.send(JSONObject().put("op", "home").put("preset", id))
+                withTimeout(10_000) { core.events.first { it.optString("kind") == "home" } }
+            }
+            core.query(selectScope("include", listOf("default")))
+            assertTrue(runCatching { core.readAsset(docsUrl, 64 * 1024) }.isFailure)
+            home("default")
+            val docs = core.readAsset(docsUrl, 64 * 1024)
+            assertTrue(docs.decodeToString().contains("Stream assets example"))
+            core.query(selectScope("exclude", listOf("default")))
+            assertTrue(runCatching { core.readAsset(docsUrl, 64 * 1024) }.isFailure)
+            home(second)
+            assertArrayEquals(docs, core.readAsset(docsUrl, 64 * 1024))
+            assertTrue(
+                runCatching { core.query(selectScope("exclude", listOf(second), "base")) }.isFailure
+            )
+            core.query(selectScope("global"))
+            home("default")
+            val chunks =
+                core.readAsset("minichat://assets/example.minichat.stream/sample", 2 * 1024 * 1024)
+            assertEquals(1_000_003, chunks.size)
+            assertTrue(chunks.all { it == 42.toByte() })
+
+            core.send(JSONObject().put("op", "system_message").put("text", "Fixture context"))
+            val loaded =
+                withTimeout(10_000) { core.events.first { it.optString("kind") == "loaded" } }
+            val chat = loaded.getJSONObject("chat").getString("id")
+            core.send(JSONObject().put("op", "plugin_command").put("id", "stream-example"))
+            val database =
+                directory.resolve(
+                    "workspace/plugins/data/example.minichat.stream.$signer/chat/$chat.sqlite"
+                )
+            withTimeout(20_000) {
+                var bytes: String? = null
+                while (bytes == null) {
+                    delay(80)
+                    if (database.isFile) {
+                        android.database.sqlite.SQLiteDatabase.openDatabase(
+                                database.absolutePath,
+                                null,
+                                android.database.sqlite.SQLiteDatabase.OPEN_READONLY,
+                            )
+                            .use { db ->
+                                val ready =
+                                    db.rawQuery(
+                                            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'entries'",
+                                            null,
+                                        )
+                                        .use { it.moveToFirst() }
+                                if (ready) {
+                                    db.rawQuery(
+                                            "SELECT content FROM entries WHERE key = ?",
+                                            arrayOf("stream-example/last-size"),
+                                        )
+                                        .use {
+                                            if (it.moveToFirst()) bytes = it.getString(0)
+                                        }
+                                }
+                            }
+                    }
+                }
+                assertEquals("1000003", bytes)
+            }
+        } finally {
+            core.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun nativeCoreLoadsLegacyChatAndRunsBuiltInV8Plugin() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = File(app.cacheDir, "legacy-probe-${System.nanoTime()}").apply { mkdirs() }
+        val parent = File(directory, "workspace/conversations/default").apply { mkdirs() }
+        File(parent, "legacy.json")
+            .writeText(
+                """{"name":"Old","chat":{"history":[{"role":"user","content":"旧记录🙂"}]},"trace":[false,null],"blocks":{}}"""
+            )
+        val context =
+            object : ContextWrapper(app) {
+                override fun getFilesDir(): File = directory
+            }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val core = CoreClient(context, scope, seedDefaultPreset = true)
+        try {
+            core.send(
+                JSONObject().put("op", "select_chat").put("preset", "default").put("id", "legacy")
+            )
+            val loaded =
+                withTimeout(10_000) { core.events.first { it.optString("kind") == "loaded" } }
+            assertEquals(
+                "旧记录🙂",
+                loaded
+                    .getJSONObject("chat")
+                    .getJSONArray("blocks")
+                    .getJSONObject(0)
+                    .getString("content"),
+            )
+            core.send(
+                JSONObject()
+                    .put("op", "home_request")
+                    .put("locale", "zh-Hans")
+                    .put("request", "fixture-home")
+            )
+            val home =
+                withTimeout(15_000) {
+                    core.events.first { event ->
+                        check(event.optString("kind") !in setOf("error", "plugin_error")) {
+                            event.toString()
+                        }
+                        event.optString("kind") == "home_suggestions"
+                    }
+                }
+            assertEquals("fixture-home", home.getString("request"))
+            assertEquals(0, home.getJSONArray("items").length())
+        } finally {
+            core.close()
+            scope.cancel()
+        }
+    }
+
     @Test
     fun nativeCoreStreamsToolsAndPersistsUnicodeMemory() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
@@ -63,7 +272,7 @@ class NativeCoreTest {
                 .body(event(JSONObject().put("content", "已保存🙂")))
                 .build()
         )
-        val core = CoreClient(context, scope)
+        val core = CoreClient(context, scope, seedDefaultPreset = true)
         try {
             core.send(
                 JSONObject()
@@ -78,21 +287,50 @@ class NativeCoreTest {
                     )
             )
             core.send(JSONObject().put("op", "select_chat").put("preset", "default"))
-            core.send(JSONObject().put("op", "message").put("text", "记住任务"))
+            core.send(JSONObject().put("op", "rename").put("name", "Branch fixture"))
+            val attachment =
+                directory.resolve("workspace/attachments/notes").apply {
+                    parentFile!!.mkdirs()
+                    writeText("%PDF-1.7")
+                }
+            core.send(
+                JSONObject()
+                    .put("op", "message")
+                    .put("text", "记住任务")
+                    .put(
+                        "attachments",
+                        org.json
+                            .JSONArray()
+                            .put(
+                                JSONObject()
+                                    .put("id", attachment.name)
+                                    .put("name", "notes.pdf")
+                                    .put("mime", "application/pdf")
+                            ),
+                    )
+            )
             var toolFinished = false
             var thoughts = false
+            var original = ""
+            var source = ""
             val completed =
                 withTimeout(30_000) {
                     core.events.first { event ->
                         check(event.optString("kind") != "error") { event.toString() }
                         if (event.optString("kind") == "tool_end") toolFinished = true
                         if (event.optString("type") == "reasoning") thoughts = true
+                        if (event.optString("kind") == "loaded")
+                            original = event.getJSONObject("chat").getString("id")
+                        if (event.optString("kind") == "user") source = event.getString("block")
                         event.optString("kind") == "completed"
                     }
                 }
             assertEquals("已保存🙂", completed.getString("text"))
             assertTrue(toolFinished)
             assertTrue(thoughts)
+            val footer =
+                withTimeout(10_000) { core.events.first { it.optString("kind") == "reply_end" } }
+            assertEquals("已保存🙂", footer.getString("reply"))
             core.send(
                 JSONObject()
                     .put("op", "memory")
@@ -102,6 +340,47 @@ class NativeCoreTest {
             val memory =
                 withTimeout(10_000) { core.events.first { it.optString("kind") == "memory" } }
             assertEquals("完整正文🙂", memory.getJSONObject("result").getString("content"))
+
+            core.send(
+                JSONObject()
+                    .put("op", "branch")
+                    .put("chat", original)
+                    .put("block", source)
+                    .put("mode", "edit")
+            )
+            val edited =
+                withTimeout(10_000) { core.events.first { it.optString("kind") == "loaded" } }
+            val draft = edited.getJSONObject("draft")
+            assertEquals("记住任务", draft.getString("text"))
+            assertEquals(
+                "notes.pdf",
+                draft.getJSONArray("attachments").getJSONObject(0).getString("name"),
+            )
+            assertEquals(0, edited.getJSONObject("chat").getJSONArray("blocks").length())
+
+            core.send(
+                JSONObject().put("op", "select_chat").put("preset", "default").put("id", original)
+            )
+            withTimeout(10_000) { core.events.first { it.optString("kind") == "loaded" } }
+            core.send(
+                JSONObject()
+                    .put("op", "branch")
+                    .put("chat", original)
+                    .put("block", footer.getString("id"))
+                    .put("mode", "reply")
+            )
+            val continued =
+                withTimeout(10_000) { core.events.first { it.optString("kind") == "loaded" } }
+            assertTrue(continued.isNull("draft"))
+            val blocks = continued.getJSONObject("chat").getJSONArray("blocks")
+            assertEquals(
+                footer.getString("id"),
+                blocks.getJSONObject(blocks.length() - 1).getString("id"),
+            )
+            withTimeout(10_000) {
+                core.events.first { it.optString("kind") == "busy" && !it.optBoolean("value") }
+            }
+            assertEquals(2, server.requestCount)
         } finally {
             core.close()
             scope.cancel()

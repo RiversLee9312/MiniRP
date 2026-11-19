@@ -13,8 +13,20 @@
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest</AnalysisLevel>
   </PropertyGroup>
+  <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('linux-bionic'))">
+    <DefineConstants>$(DefineConstants);MINICHAT_ANDROID_BIONIC</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="PluginBootstrap.js" LogicalName="Minichat.PluginBootstrap.js" />
+    <EmbeddedResource Include="Vendor/web-streams-polyfill.js" LogicalName="Minichat.WebStreams.js" />
+    <EmbeddedResource Include="BasePlugin/manifest.json" LogicalName="Minichat.BasePlugin.manifest.json" />
+    <EmbeddedResource Include="BasePlugin/index.js" LogicalName="Minichat.BasePlugin.index.js" />
+    <EmbeddedResource Include="BasePlugin/licenses.json" LogicalName="Minichat.Licenses.manifest.json" />
+    <EmbeddedResource Include="../../THIRD_PARTY_NOTICES.md" LogicalName="Minichat.Licenses.notices.md" />
+    <EmbeddedResource Include="../../LICENSE" LogicalName="Minichat.Licenses.project" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
+    <PackageReference Include="System.IO.Hashing" Version="10.0.11" />
     <ProjectReference Include="../Minichat.Protocol/Minichat.Protocol.csproj" />
   </ItemGroup>
   <Import Project="../../eng/AndroidNativeAot.targets" Condition="$(RuntimeIdentifier.StartsWith('linux-bionic'))" />

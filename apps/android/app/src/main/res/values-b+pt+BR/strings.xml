@@ -123,4 +123,32 @@
         <item quantity="one">%1$d modelos</item>
         <item quantity="other">%1$d modelos</item>
     </plurals>
+    <string name="latest_message">Mensagem mais recente</string>
+    <string name="steer">Direcionar</string>
+    <string name="send_as_system">Enviar como mensagem do sistema</string>
+    <string name="system_message">Mensagem do sistema</string>
+    <string name="photos_videos">Fotos e vídeos</string>
+    <string name="choose_files">Escolher arquivos</string>
+    <string name="plugins">Plugins</string>
+    <string name="install_plugin">Instalar plugin</string>
+    <string name="run_plugin">Executar</string>
+    <string name="remove_plugin">Desinstalar</string>
+    <string name="built_in">Integrado</string>
+    <string name="plugin_resource_request">%1$s quer que você escolha arquivos</string>
+    <string name="delete_chat">Excluir conversa</string>
+    <string name="delete_preset">Excluir predefinição</string>
+    <string name="delete_named">Excluir “%1$s”?</string>
+    <string name="delete_preset_detail">Isso também exclui as conversas desta predefinição.</string>
+    <string name="behavior_settings">Aparência e comportamento</string>
+    <string name="model_provider_settings">Modelos e provedores</string>
+    <string name="about">Sobre</string>
+    <string name="interactive_reply">Resposta interativa</string>
+    <string name="interactive_reply_unavailable">Não foi possível carregar a resposta interativa</string>
+    <string name="welcome_to_preset">Boas-vindas a</string>
+    <string name="branch_edit_message">Editar em uma ramificação</string>
+    <string name="no_presets_yet">Ainda não há predefinições</string>
+    <string name="plugin_scope">Escopo das predefinições</string>
+    <string name="plugin_scope_global">Todas as predefinições</string>
+    <string name="plugin_scope_include">Somente as selecionadas</string>
+    <string name="plugin_scope_exclude">Todas exceto as selecionadas</string>
 </resources>

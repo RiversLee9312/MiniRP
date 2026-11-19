@@ -9,6 +9,32 @@ namespace Minichat.Core;
 public sealed class HostPort(Action<JsonObject> emit)
 {
     readonly ConcurrentDictionary<string, Channel<JsonObject>> pending = new();
+    private readonly ConcurrentDictionary<string, byte[]> transfers = new();
+    private static readonly byte[] Reserved = [];
+    internal const int ChunkBytes = 64 * 1024;
+
+    internal string ReserveBinary()
+    {
+        var id = JsonValues.NewId();
+        if (!transfers.TryAdd(id, Reserved)) throw new InvalidOperationException("Duplicate binary transfer.");
+        return id;
+    }
+
+    internal string StageBinary(byte[] bytes)
+    {
+        var id = ReserveBinary();
+        WriteBinary(id, bytes);
+        return id;
+    }
+
+    public void WriteBinary(string id, byte[] bytes)
+    {
+        if (bytes.Length is 0 or > ChunkBytes || !transfers.TryUpdate(id, bytes, Reserved))
+            throw new InvalidOperationException("Invalid binary transfer.");
+    }
+
+    public byte[]? TakeBinary(string id) =>
+        transfers.TryRemove(id, out var value) && value.Length > 0 ? value : null;
     public void Reply(JsonObject message)
     {
         if (pending.TryGetValue(message.GetString("id"), out var channel))
@@ -101,5 +127,26 @@ public sealed class HostPort(Action<JsonObject> emit)
             return result.GetObject("result");
         }
         finally { pending.TryRemove(id, out _); emit(new() { ["kind"] = "cancel_io", ["id"] = id }); }
+    }
+
+    internal async Task<JsonObject> CallHost(string kind, JsonObject request, CancellationToken ct)
+    {
+        var id = JsonValues.NewId();
+        var channel = Channel.CreateUnbounded<JsonObject>();
+        pending[id] = channel;
+        request["id"] = id;
+        request["kind"] = kind;
+        emit(request);
+        try
+        {
+            var reply = await channel.Reader.ReadAsync(ct);
+            if (reply.GetString("error") is { Length: > 0 } error) throw new IOException(error);
+            return reply.GetObject("result");
+        }
+        finally
+        {
+            pending.TryRemove(id, out _);
+            emit(new() { ["kind"] = "cancel_io", ["id"] = id });
+        }
     }
 }

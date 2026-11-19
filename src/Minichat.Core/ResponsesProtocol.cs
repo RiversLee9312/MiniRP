@@ -141,7 +141,10 @@ internal static class ResponsesProtocol
             switch (message.GetString("role"))
             {
                 case "system":
-                    instructions.AppendLine(message.GetString("content"));
+                    if (ReferenceEquals(message, messages[0]))
+                        instructions.AppendLine(message.GetString("content"));
+                    else
+                        input.AddNode(new JsonObject { ["role"] = "developer", ["content"] = message.GetString("content") });
                     break;
                 case "tool":
                     input.AddNode(new JsonObject { ["type"] = "function_call_output", ["call_id"] = message.GetString("tool_call_id"), ["output"] = message.GetString("content") });

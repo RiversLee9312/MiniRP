@@ -37,6 +37,26 @@ internal sealed partial class NativeCore : IDisposable
 
     public JsonArray Poll() => JsonNode.Parse(Read(PollNative(handle)))!.AsArray();
 
+    internal byte[] TakeBinary(string id)
+    {
+        var buffer = TakeBinaryNative(handle, id, out int length);
+        if (buffer == 0) throw new IOException("Binary chunk is unavailable.");
+        try
+        {
+            var bytes = new byte[length];
+            Marshal.Copy(buffer, bytes, 0, length);
+            return bytes;
+        }
+        finally { Release(buffer); }
+    }
+
+    internal unsafe void WriteBinary(string id, byte[] bytes)
+    {
+        fixed (byte* buffer = bytes)
+            if (WriteBinaryNative(handle, id, (nint)buffer, bytes.Length) == 0)
+                throw new IOException("Binary transfer was rejected.");
+    }
+
     private static string Read(nint value)
     {
         try
@@ -54,6 +74,10 @@ internal sealed partial class NativeCore : IDisposable
     private static partial nint Dispatch(long handle, string json);
     [LibraryImport("libminichatcore", EntryPoint = "mc_poll")]
     private static partial nint PollNative(long handle);
+    [LibraryImport("libminichatcore", EntryPoint = "mc_binary_take", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial nint TakeBinaryNative(long handle, string id, out int length);
+    [LibraryImport("libminichatcore", EntryPoint = "mc_binary_write", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int WriteBinaryNative(long handle, string id, nint buffer, int length);
     [LibraryImport("libminichatcore", EntryPoint = "mc_release")]
     private static partial void Release(nint value);
     [LibraryImport("libminichatcore", EntryPoint = "mc_destroy")]

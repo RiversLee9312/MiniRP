@@ -125,4 +125,32 @@
         <item quantity="two">%1$d מודלים</item>
         <item quantity="other">%1$d מודלים</item>
     </plurals>
+    <string name="latest_message">ההודעה האחרונה</string>
+    <string name="steer">הנחיה</string>
+    <string name="send_as_system">שליחה כהודעת מערכת</string>
+    <string name="system_message">הודעת מערכת</string>
+    <string name="photos_videos">תמונות וסרטונים</string>
+    <string name="choose_files">בחירת קבצים</string>
+    <string name="plugins">תוספים</string>
+    <string name="install_plugin">התקנת תוסף</string>
+    <string name="run_plugin">הפעלה</string>
+    <string name="remove_plugin">הסרה</string>
+    <string name="built_in">מובנה</string>
+    <string name="plugin_resource_request">%1$s מבקש ממך לבחור קבצים</string>
+    <string name="delete_chat">מחיקת הצ׳אט</string>
+    <string name="delete_preset">מחיקת התבנית</string>
+    <string name="delete_named">למחוק את „%1$s”?</string>
+    <string name="delete_preset_detail">פעולה זו תמחק גם את הצ׳אטים שבתבנית הזו.</string>
+    <string name="behavior_settings">מראה והתנהגות</string>
+    <string name="model_provider_settings">מודלים וספקים</string>
+    <string name="about">מידע</string>
+    <string name="interactive_reply">תשובה אינטראקטיבית</string>
+    <string name="interactive_reply_unavailable">לא ניתן לטעון את התשובה האינטראקטיבית</string>
+    <string name="welcome_to_preset">ברוכים הבאים אל</string>
+    <string name="branch_edit_message">עריכה בענף</string>
+    <string name="no_presets_yet">עדיין אין תבניות</string>
+    <string name="plugin_scope">תחולת תבניות</string>
+    <string name="plugin_scope_global">כל התבניות</string>
+    <string name="plugin_scope_include">רק התבניות שנבחרו</string>
+    <string name="plugin_scope_exclude">הכול מלבד התבניות שנבחרו</string>
 </resources>

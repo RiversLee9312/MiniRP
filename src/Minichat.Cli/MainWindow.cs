@@ -21,6 +21,9 @@ internal sealed class MainWindow : Runnable
     private JsonArray presetItems = new();
     private string presetId = "default";
     private bool cot;
+    private string generating = "";
+    private string chatId = "";
+    private string pluginInstallPath = "";
 
     public MainWindow(NativeCore core, PlatformHost platform, EnvironmentSettings settings)
     {
@@ -86,6 +89,7 @@ internal sealed class MainWindow : Runnable
                 ShowChoices("对话", item.GetArray("items"), id => core.Send(new() { ["op"] = "select_chat", ["preset"] = presetId, ["id"] = id }), true);
                 break;
             case "loaded":
+                chatId = item.GetObject("chat").GetString("id");
                 presetId = item.GetString("preset");
                 Title = "Minichat · " + item.GetObject("chat").GetString("name");
                 var blocks = item.GetObject("chat").GetArray("blocks").OfType<JsonObject>().ToArray();
@@ -96,6 +100,30 @@ internal sealed class MainWindow : Runnable
                     panel.Value.Load(blocks.Where(block => Route(block.GetString("agent")) == panel.Key));
                 }
                 main.FocusInput();
+                break;
+            case "generating":
+                generating = item.GetBoolean("value") ? item.GetString("agent") : "";
+                break;
+            case "system":
+                GetAgentPane(Route(item.GetString("agent"))).Receive(new() { ["kind"] = "user", ["block"] = item.GetString("block"),
+                    ["agent"] = item.GetString("agent"), ["text"] = "System: " + item.GetString("text") });
+                break;
+            case "plugins":
+                main.Notice(string.Join(", ", item.GetArray("items").Select(plugin => plugin.GetString("id"))));
+                break;
+            case "plugin":
+                if (pluginInstallPath.Length > 0 && item.GetString("request") == "inspect-plugin")
+                {
+                    var plugin = item.GetObject("item");
+                    var path = pluginInstallPath;
+                    pluginInstallPath = "";
+                    var description = string.Join(", ", plugin.GetArray("permissions").Concat(plugin.GetArray("network")).Select(value => JsonValues.GetText(value)));
+                    if (MessageBox.Query(App!, "Install " + plugin.GetString("name"), description, "Install", "Cancel") == 0)
+                        core.Send(new() { ["op"] = "plugin_install", ["path"] = path });
+                }
+                break;
+            case "plugin_error":
+                main.Notice(item.GetString("plugin") + ": " + item.GetString("message"));
                 break;
             case "error":
                 main.Notice(item.GetString("message"));
@@ -192,6 +220,23 @@ internal sealed class MainWindow : Runnable
                     ["op"] = "cancel"
                 });
                 break;
+            case "/system" when argument.Length > 0:
+                core.Send(new() { ["op"] = generating == role ? "steer" : "system_message", ["agent"] = role,
+                    ["role"] = "system", ["chat"] = chatId, ["preset"] = presetId, ["text"] = argument });
+                break;
+            case "/plugin-install" when argument.Length > 0:
+                pluginInstallPath = Path.GetFullPath(argument.Trim('"'));
+                core.Send(new() { ["op"] = "plugin_inspect", ["path"] = pluginInstallPath, ["request"] = "inspect-plugin" });
+                break;
+            case "/plugins":
+                core.Send(new() { ["op"] = "plugins_list" });
+                break;
+            case "/plugin-run" when argument.Length > 0:
+                core.Send(new() { ["op"] = "plugin_command", ["id"] = argument });
+                break;
+            case "/plugin-remove" when argument.Length > 0:
+                core.Send(new() { ["op"] = "plugin_uninstall", ["id"] = argument });
+                break;
             case "/cot":
                 cot = argument.Length > 0 ? argument is "on" or "true" : !cot;
                 main.DefaultExpanded = cot;
@@ -234,7 +279,11 @@ internal sealed class MainWindow : Runnable
         }
     }
 
-    private void Send(string role, string text, bool stage = false) => core.Send(new() { ["op"] = "message", ["agent"] = role, ["text"] = text, ["stage"] = stage });
+    private void Send(string role, string text, bool stage = false)
+    {
+        try { core.Send(new() { ["op"] = generating == role ? "steer" : "message", ["agent"] = role, ["chat"] = chatId, ["preset"] = presetId, ["text"] = text, ["stage"] = stage }); }
+        catch (InvalidOperationException error) { main.Notice(error.Message); }
+    }
 
     private void OpenSidebar(string role)
     {
@@ -273,6 +322,7 @@ internal sealed class MainWindow : Runnable
 
     private TracePane GetAgentPane(string role)
     {
+        if (role == "chat") return main;
         if (!agentPanes.TryGetValue(role, out var panel))
         {
             panel = new(role) { DefaultExpanded = cot, Y = 1, Height = Dim.Fill(2) };

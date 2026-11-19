@@ -123,4 +123,32 @@
         <item quantity="one">%1$d modeller</item>
         <item quantity="other">%1$d modeller</item>
     </plurals>
+    <string name="latest_message">Senaste meddelandet</string>
+    <string name="steer">Styr</string>
+    <string name="send_as_system">Skicka som systemmeddelande</string>
+    <string name="system_message">Systemmeddelande</string>
+    <string name="photos_videos">Foton och videor</string>
+    <string name="choose_files">Välj filer</string>
+    <string name="plugins">Tillägg</string>
+    <string name="install_plugin">Installera tillägg</string>
+    <string name="run_plugin">Kör</string>
+    <string name="remove_plugin">Avinstallera</string>
+    <string name="built_in">Inbyggd</string>
+    <string name="plugin_resource_request">%1$s vill att du väljer filer</string>
+    <string name="delete_chat">Ta bort chatt</string>
+    <string name="delete_preset">Ta bort förinställning</string>
+    <string name="delete_named">Ta bort ”%1$s”?</string>
+    <string name="delete_preset_detail">Detta tar även bort chattarna i den här förinställningen.</string>
+    <string name="behavior_settings">Utseende och beteende</string>
+    <string name="model_provider_settings">Modeller och leverantörer</string>
+    <string name="about">Om</string>
+    <string name="interactive_reply">Interaktivt svar</string>
+    <string name="interactive_reply_unavailable">Det gick inte att läsa in det interaktiva svaret</string>
+    <string name="welcome_to_preset">Välkommen till</string>
+    <string name="branch_edit_message">Redigera i en gren</string>
+    <string name="no_presets_yet">Inga förinställningar än</string>
+    <string name="plugin_scope">Omfattning för förinställningar</string>
+    <string name="plugin_scope_global">Alla förinställningar</string>
+    <string name="plugin_scope_include">Endast valda förinställningar</string>
+    <string name="plugin_scope_exclude">Alla utom valda</string>
 </resources>

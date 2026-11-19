@@ -44,5 +44,7 @@ if (args.Contains("--stdio", StringComparer.Ordinal))
 }
 
 using IApplication application = Application.Create().Init();
+var pluginFiles = new PluginFiles(root);
+platform.Picker = (message, ct) => pluginFiles.Choose(application, message, ct);
 using var window = new MainWindow(core, platform, settings);
 application.Run(window);

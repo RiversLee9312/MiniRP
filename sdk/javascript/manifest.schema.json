@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Minichat plugin manifest v2",
+  "type": "object",
+  "required": ["id", "packageName", "name", "apiVersion", "entry"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": { "$ref": "#/$defs/id" },
+    "packageName": { "type": "string", "maxLength": 150, "pattern": "^(?!minichat\\.)[a-z][a-z0-9_]{0,47}(?:\\.[a-z][a-z0-9_]{0,47})+$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "apiVersion": { "const": 2 },
+    "entry": { "type": "string", "pattern": "\\.js$" },
+    "permissions": {
+      "type": "array", "uniqueItems": true,
+      "items": { "enum": ["db", "harness.read", "harness.write", "http", "model", "picker", "settings"] }
+    },
+    "network": { "type": "array", "items": { "type": "string", "pattern": "^https?://" } },
+    "actions": {
+      "type": "object",
+      "properties": {
+        "handlers": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/id" },
+          "additionalProperties": { "type": "string", "pattern": "^[a-zA-Z0-9_$]{1,64}$" }
+        },
+        "events": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "subscriptions": {
+          "type": "object",
+          "propertyNames": { "pattern": "^minichat://actions/[^/]+/events/[^/]+$" },
+          "additionalProperties": { "$ref": "#/$defs/hook" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "hooks": { "$ref": "#/$defs/hooks" },
+    "assets": { "type": "array", "items": { "$ref": "#/$defs/asset" } },
+    "settings": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/setting" } },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "description", "agents", "tools"],
+        "properties": {
+          "name": { "$ref": "#/$defs/id" },
+          "description": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "instructions": { "type": "string" },
+          "agents": { "type": "array", "minItems": 1, "items": { "enum": ["chat", "env", "preset", "search", "fetch", "temporary"] } },
+          "hooks": { "$ref": "#/$defs/hooks" },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "description", "parameters", "handler"],
+              "properties": {
+                "name": { "$ref": "#/$defs/id" },
+                "description": { "type": "string", "minLength": 1, "maxLength": 1024 },
+                "parameters": { "type": "object", "required": ["type"], "properties": { "type": { "const": "object" } } },
+                "handler": { "$ref": "#/$defs/hook" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "mimeTypes", "handler"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "name": { "type": "string", "minLength": 1 },
+          "mimeTypes": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "/" } },
+          "handler": { "$ref": "#/$defs/hook" },
+          "thumbnail": { "$ref": "#/$defs/id" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,47}$" },
+    "hook": { "type": "string", "pattern": "^minichat://actions/[^/]+/hooks/[a-z][a-z0-9_-]{0,47}$" },
+    "hooks": { "type": "object", "additionalProperties": { "$ref": "#/$defs/hook" } },
+    "asset": {
+      "type": "object",
+      "required": ["id", "type", "mimeType"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["file", "dynamic"] },
+        "mimeType": { "type": "string", "pattern": "^[a-zA-Z0-9.+-]+/[a-zA-Z0-9.+-]+$" },
+        "accessibility": { "enum": ["private", "protected", "public"], "default": "private" },
+        "path": { "type": "string" },
+        "handler": { "$ref": "#/$defs/hook" }
+      },
+      "if": { "properties": { "type": { "const": "file" } } },
+      "then": { "required": ["path"], "not": { "required": ["handler"] } },
+      "else": { "required": ["handler"], "not": { "required": ["path"] } },
+      "additionalProperties": false
+    },
+    "setting": {
+      "type": "object",
+      "required": ["key", "type"],
+      "properties": {
+        "key": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["group", "page", "boolean", "choice", "text", "link", "markdown"] },
+        "title": { "type": "string" },
+        "titles": { "type": "object", "additionalProperties": { "type": "string" } },
+        "default": { "type": ["string", "boolean", "null"] },
+        "multiline": { "type": "boolean" },
+        "content": { "$ref": "#/$defs/id" },
+        "markdown": { "type": "string" },
+        "url": { "$ref": "#/$defs/hook" },
+        "items": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/setting" } },
+        "options": {
+          "type": "array", "minItems": 1, "maxItems": 20,
+          "items": {
+            "type": "object", "required": ["value", "title"],
+            "properties": { "value": { "type": "string" }, "title": { "type": "string" } }
+          }
+        }
+      }
+    }
+  }
+}

@@ -123,4 +123,32 @@
         <item quantity="one">%1$d modeller</item>
         <item quantity="other">%1$d modeller</item>
     </plurals>
+    <string name="latest_message">Seneste besked</string>
+    <string name="steer">Styr</string>
+    <string name="send_as_system">Send som systembesked</string>
+    <string name="system_message">Systembesked</string>
+    <string name="photos_videos">Billeder og videoer</string>
+    <string name="choose_files">Vælg filer</string>
+    <string name="plugins">Plugins</string>
+    <string name="install_plugin">Installer plugin</string>
+    <string name="run_plugin">Kør</string>
+    <string name="remove_plugin">Afinstaller</string>
+    <string name="built_in">Indbygget</string>
+    <string name="plugin_resource_request">%1$s vil have dig til at vælge filer</string>
+    <string name="delete_chat">Slet chat</string>
+    <string name="delete_preset">Slet preset</string>
+    <string name="delete_named">Slet “%1$s”?</string>
+    <string name="delete_preset_detail">Dette sletter også chats i dette preset.</string>
+    <string name="behavior_settings">Udseende og adfærd</string>
+    <string name="model_provider_settings">Modeller og udbydere</string>
+    <string name="about">Om</string>
+    <string name="interactive_reply">Interaktivt svar</string>
+    <string name="interactive_reply_unavailable">Det interaktive svar kunne ikke indlæses</string>
+    <string name="welcome_to_preset">Velkommen til</string>
+    <string name="branch_edit_message">Rediger i en gren</string>
+    <string name="no_presets_yet">Ingen presets endnu</string>
+    <string name="plugin_scope">Presetomfang</string>
+    <string name="plugin_scope_global">Alle presets</string>
+    <string name="plugin_scope_include">Kun valgte presets</string>
+    <string name="plugin_scope_exclude">Alle undtagen valgte</string>
 </resources>

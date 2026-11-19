@@ -123,4 +123,32 @@
         <item quantity="one">%1$d مدل</item>
         <item quantity="other">%1$d مدل</item>
     </plurals>
+    <string name="latest_message">آخرین پیام</string>
+    <string name="steer">هدایت</string>
+    <string name="send_as_system">ارسال به‌عنوان پیام سیستم</string>
+    <string name="system_message">پیام سیستم</string>
+    <string name="photos_videos">عکس‌ها و ویدیوها</string>
+    <string name="choose_files">انتخاب فایل‌ها</string>
+    <string name="plugins">افزونه‌ها</string>
+    <string name="install_plugin">نصب افزونه</string>
+    <string name="run_plugin">اجرا</string>
+    <string name="remove_plugin">حذف نصب</string>
+    <string name="built_in">داخلی</string>
+    <string name="plugin_resource_request">%1$s از شما می‌خواهد فایل‌ها را انتخاب کنید</string>
+    <string name="delete_chat">حذف گفت‌وگو</string>
+    <string name="delete_preset">حذف قالب</string>
+    <string name="delete_named">%1$s حذف شود؟</string>
+    <string name="delete_preset_detail">این کار گفت‌وگوهای این قالب را هم حذف می‌کند.</string>
+    <string name="behavior_settings">ظاهر و رفتار</string>
+    <string name="model_provider_settings">مدل‌ها و ارائه‌دهندگان</string>
+    <string name="about">درباره</string>
+    <string name="interactive_reply">پاسخ تعاملی</string>
+    <string name="interactive_reply_unavailable">پاسخ تعاملی بارگیری نشد</string>
+    <string name="welcome_to_preset">خوش آمدید به</string>
+    <string name="branch_edit_message">ویرایش در شاخه</string>
+    <string name="no_presets_yet">هنوز قالبی وجود ندارد</string>
+    <string name="plugin_scope">محدودهٔ قالب‌ها</string>
+    <string name="plugin_scope_global">همهٔ قالب‌ها</string>
+    <string name="plugin_scope_include">فقط قالب‌های انتخاب‌شده</string>
+    <string name="plugin_scope_exclude">همه به‌جز انتخاب‌شده‌ها</string>
 </resources>

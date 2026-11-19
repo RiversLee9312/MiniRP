@@ -1,0 +1,59 @@
+:root {
+    font-family: Roboto, system-ui, sans-serif;
+}
+
+html, body {
+    background: transparent;
+    margin: 0;
+    overflow-wrap: anywhere;
+    overscroll-behavior: contain;
+}
+
+html:not(.expanded) {
+    overflow: hidden;
+}
+
+#surface {
+    box-sizing: border-box;
+    min-height: 1px;
+    padding: 8px 6px;
+}
+
+.map-card {
+    width: 100%;
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+.map {
+    width: 100%;
+    height: 270px;
+}
+
+.map-pin {
+    width: 32px;
+    height: 32px;
+    border: 2px solid white;
+    border-radius: 50%;
+    color: white;
+    background: #4256aa;
+    font: 600 14px Roboto, sans-serif;
+}
+
+.map-places {
+    margin: 8px 0 0;
+    padding-inline-start: 28px;
+}
+
+.map-places button {
+    background: transparent;
+    border: 0;
+    color: inherit;
+    min-height: 36px;
+    text-align: start;
+    font: inherit;
+}
+
+.map-places button[aria-pressed="true"] {
+    font-weight: 650;
+}

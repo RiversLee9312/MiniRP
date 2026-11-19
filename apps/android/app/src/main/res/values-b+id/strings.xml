@@ -121,4 +121,32 @@
     <plurals name="model_count">
         <item quantity="other">%1$d model</item>
     </plurals>
+    <string name="latest_message">Pesan terbaru</string>
+    <string name="steer">Arahkan</string>
+    <string name="send_as_system">Kirim sebagai pesan sistem</string>
+    <string name="system_message">Pesan sistem</string>
+    <string name="photos_videos">Foto dan video</string>
+    <string name="choose_files">Pilih file</string>
+    <string name="plugins">Plugin</string>
+    <string name="install_plugin">Instal plugin</string>
+    <string name="run_plugin">Jalankan</string>
+    <string name="remove_plugin">Copot pemasangan</string>
+    <string name="built_in">Bawaan</string>
+    <string name="plugin_resource_request">%1$s ingin Anda memilih file</string>
+    <string name="delete_chat">Hapus obrolan</string>
+    <string name="delete_preset">Hapus preset</string>
+    <string name="delete_named">Hapus “%1$s”?</string>
+    <string name="delete_preset_detail">Obrolan dalam preset ini juga akan dihapus.</string>
+    <string name="behavior_settings">Tampilan dan perilaku</string>
+    <string name="model_provider_settings">Model dan penyedia</string>
+    <string name="about">Tentang</string>
+    <string name="interactive_reply">Jawaban interaktif</string>
+    <string name="interactive_reply_unavailable">Jawaban interaktif tidak dapat dimuat</string>
+    <string name="welcome_to_preset">Selamat datang di</string>
+    <string name="branch_edit_message">Edit di cabang</string>
+    <string name="no_presets_yet">Belum ada preset</string>
+    <string name="plugin_scope">Cakupan preset</string>
+    <string name="plugin_scope_global">Semua preset</string>
+    <string name="plugin_scope_include">Hanya preset terpilih</string>
+    <string name="plugin_scope_exclude">Semua kecuali yang dipilih</string>
 </resources>

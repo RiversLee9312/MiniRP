@@ -13,6 +13,6 @@ $sqlite = Join-Path $nugetRoot "sqlitepclraw.lib.e_sqlite3/3.53.3/runtimes/$Runt
 Copy-Item -LiteralPath $sqlite -Destination $output
 New-Item -ItemType Directory -Force (Join-Path $output 'presets') | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $workspace 'presets') -Filter '*.json' -File | Copy-Item -Destination (Join-Path $output 'presets')
-foreach ($name in @('package.json', 'package-lock.json', '.env.example', 'README.md', 'THIRD_PARTY_NOTICES.md')) {
+foreach ($name in @('package.json', 'package-lock.json', '.env.example', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md')) {
     Copy-Item -LiteralPath (Join-Path $workspace $name) -Destination $output
 }

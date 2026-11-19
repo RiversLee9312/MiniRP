@@ -7,7 +7,7 @@ internal static class LegacyImporter
 {
     public static void ImportChat(JsonObject chat)
     {
-        if (chat["messages"] is null)
+        if (chat["messages"] is not JsonArray)
         {
             var messages = new JsonArray();
             foreach (var message in chat.GetObject("chat").GetArray("history"))
@@ -19,7 +19,7 @@ internal static class LegacyImporter
             }
             chat["messages"] = messages;
         }
-        if (chat["blocks"] is not null)
+        if (chat["blocks"] is JsonArray)
         {
             return;
         }
@@ -27,8 +27,10 @@ internal static class LegacyImporter
         var blocks = new JsonArray();
         foreach (var trace in chat.GetArray("trace"))
         {
+            if (trace is not JsonObject) continue;
             var kind = trace.GetString("kind");
             var block = new JsonObject { ["id"] = JsonValues.NewId(), ["agent"] = trace.GetString("agent"), ["running"] = false };
+            if (kind == "user" || trace.GetString("role") == "user") block["kind"] = "user";
             if (kind == "thought")
             {
                 block["reasoning"] = trace.GetString("text");
@@ -43,7 +45,7 @@ internal static class LegacyImporter
         }
         if (blocks.Count == 0)
         {
-            foreach (var message in chat.GetArray("messages"))
+            foreach (var message in chat.GetArray("messages").OfType<JsonObject>())
             {
                 var block = (JsonObject)message!.DeepClone();
                 block["id"] = JsonValues.NewId();

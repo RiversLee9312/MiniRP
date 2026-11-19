@@ -123,4 +123,32 @@
         <item quantity="one">%1$d modèles</item>
         <item quantity="other">%1$d modèles</item>
     </plurals>
+    <string name="latest_message">Dernier message</string>
+    <string name="steer">Orienter</string>
+    <string name="send_as_system">Envoyer comme message système</string>
+    <string name="system_message">Message système</string>
+    <string name="photos_videos">Photos et vidéos</string>
+    <string name="choose_files">Choisir des fichiers</string>
+    <string name="plugins">Extensions</string>
+    <string name="install_plugin">Installer l’extension</string>
+    <string name="run_plugin">Exécuter</string>
+    <string name="remove_plugin">Désinstaller</string>
+    <string name="built_in">Intégré</string>
+    <string name="plugin_resource_request">%1$s vous demande de choisir des fichiers</string>
+    <string name="delete_chat">Supprimer la discussion</string>
+    <string name="delete_preset">Supprimer le préréglage</string>
+    <string name="delete_named">Supprimer « %1$s » ?</string>
+    <string name="delete_preset_detail">Cela supprime aussi les discussions de ce préréglage.</string>
+    <string name="behavior_settings">Apparence et comportement</string>
+    <string name="model_provider_settings">Modèles et fournisseurs</string>
+    <string name="about">À propos</string>
+    <string name="interactive_reply">Réponse interactive</string>
+    <string name="interactive_reply_unavailable">Impossible de charger la réponse interactive</string>
+    <string name="welcome_to_preset">Bienvenue dans</string>
+    <string name="branch_edit_message">Modifier dans une branche</string>
+    <string name="no_presets_yet">Aucun préréglage pour le moment</string>
+    <string name="plugin_scope">Portée des préréglages</string>
+    <string name="plugin_scope_global">Tous les préréglages</string>
+    <string name="plugin_scope_include">Préréglages sélectionnés uniquement</string>
+    <string name="plugin_scope_exclude">Tous sauf les préréglages sélectionnés</string>
 </resources>

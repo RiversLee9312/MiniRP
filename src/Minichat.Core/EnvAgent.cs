@@ -3,7 +3,7 @@ namespace Minichat.Core;
 
 public sealed class EnvAgent(Workspace world, AgentSession session)
 {
-    public async Task<string> Run(string input, bool stage, CancellationToken ct, JsonArray? attachments = null)
+    public async Task<string> Run(string input, bool stage, CancellationToken ct, JsonArray? attachments = null, string inputRole = "user")
     {
         var state = (JsonObject)world.State.DeepClone();
         var initial = DateOnly.Parse(state.GetString("sim_date"));
@@ -112,7 +112,10 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
         {
             system += "\nChatAgent handles search directly. When changes affect search, use set_chat_search_guidance to explain how ChatAgent should apply current canon, interpret real sources, use simulated pages, and keep caches consistent. Preserve unrelated guidance and the preset's base prompt.";
         }
-        var answer = await session.Run(system, "Conversation reference:\n" + session.ToolText(JsonValue.Create(world.Conversation)) + "\nRequest:\n" + input, tools, Apply, ct, attachments: attachments, historyInput: input);
+        var reference = "Conversation reference:\n" + session.ToolText(JsonValue.Create(world.Conversation));
+        var answer = await session.Run(system + "\n" + world.AgentPrompt("env"), inputRole == "system" ? input : reference + "\nRequest:\n" + input,
+            new AgentSkill("world-state", "Inspect and edit the staged world state.", tools, Apply, Required: true), ct,
+            attachments: attachments, historyInput: input, inputRole: inputRole, reference: inputRole == "system" ? reference : null);
         ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(answer.GetString("content")))
         {

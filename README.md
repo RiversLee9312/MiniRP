@@ -39,7 +39,7 @@ Enter 发送，Alt+Enter 换行。输入框随换行和软换行增高，最多�
 
 ## Android
 
-当前提供 ARM64 构建，已在连接的Android ARM64 真机 上验证。需要 Android Studio/JDK 21、SDK 37 和 NDK 28.2.13676358。
+当前提供 ARM64 构建，已在连接的Android ARM64 真机 上验证。需要 Android Studio/JDK 21、SDK 37、NDK 28.2.13676358 和 Node.js 24。Gradle 根据锁文件构建随 APK 分发的 OpenUI 资源。
 
 ```powershell
 pwsh -File eng/build-android.ps1 -Install -Device '<ADB device serial>'
@@ -48,6 +48,8 @@ pwsh -File eng/build-android.ps1 -Install -Device '<ADB device serial>'
 输出 `artifacts/Minichat.apk`。也可用 Android Studio 打开 `apps/android`；先运行 `eng/build-native.ps1 -Runtime linux-bionic-arm64` 生成本地库。
 
 Android 的世界、预设和记忆面板打开即全屏。对话页支持流式 Markdown、可折叠的工具轨迹和附件；搜索轨迹缩进展示。长按支持分支的用户消息可从发送前的世界与 Agent 状态创建新对话。旧消息没有历史快照，不能分支。标题只根据主聊天生成，点击标题可编辑或重新生成。
+
+ChatAgent 可按需激活 `interactive-ui` 技能，在 Markdown 中插入流式交互界面。支持图表、表格、表单、本地计算、筛选、图片和地图。可以试试「做一个可以调整人数和天数的旅行预算计算器」。界面随对话保存，单次运行期间的输入会在滚动和展开时保留。详见 [Android 生成式 UI](docs/android-generative-ui.md)。
 
 在「提供商」设置名称、协议、地址和 API 密钥；在「模型」自动获取可用模型、保存常用模型、为 Agent 和标题指定模型。对话输入框下也可切换该页相关的 Agent 模型。提供商配置存入 DataStore，密钥用 Android Keystore AES-GCM 加密。附件可选图片、音频、PDF 和视频，能否发送取决于当前协议及模型。对话抽屉使用 Paging 3 按预设分页，默认打开聊天列表，收起预设列表。
 
@@ -90,15 +92,17 @@ ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conve
 
 旧 Python 格式的对话会自动导入，并把原档备份到对话目录的 `migration/python-v1.json`。旧 `world_state.json` 保留；导入时迁移该预设的世界进度和缓存。Python 运行时已从主线移除，最后可运行的 Python 检查点为 Git 提交 `24a52c2`。
 
+## 插件
+
+Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己的 V8 isolate。清单声明 Actions、Assets、Skill、附件和设置。Actions 通过 URL 投递事件，Assets 以 WHATWG 字节流读取，跨包访问按资源可见性和签名证书校验。Android 内置插件提供首页话题推荐、Agent 系统提示和许可证页面。
+
+[开发、签名与安装](docs/plugin-development.md) · [完整 API 参考](docs/plugin-api.md) · [插件 SDK](sdk/javascript/) · [示例插件](examples/stream-assets/plugin/) · [MIT 许可证](LICENSE)
+
 ## 代码与验证
 
-- `src/Minichat.Core`：Agent、共享运行时、上下文、世界和搜索工作区。
-- `src/Minichat.Protocol`：JSON/C ABI 使用的公共基础代码；JSON 使用 source generator。
-- `src/Minichat.Cli`：Terminal.Gui / Editor 界面、HTTP 和 Playwright MCP 平台适配。
-- `apps/android`：Compose UI、配置存储、OkHttp、WebView 和薄 JNI 字节桥。
-- `tests/Minichat.Core.Tests`：存储、Agent、协议、迁移、语言资源和真实 Chromium 集成测试。
+[项目结构](docs/architecture.md)列出 HarnessCore、桌面、Android、测试、SDK 和构建入口。
 
-NativeAOT 核心通过 `LibraryImport` 生成 P/Invoke，不做反射式 Agent 或工具发现；SSE 使用 .NET 自带解析器。C ABI 为 `mc_create`、`mc_dispatch`、`mc_poll`、`mc_release`、`mc_destroy`；创建和销毁在平台工作线程执行，销毁会等待最终保存。
+NativeAOT 核心通过 `LibraryImport` 生成 P/Invoke，JSON 使用 source generator，SSE 使用 .NET 自带解析器。C ABI 用 `mc_create`、`mc_dispatch`、`mc_poll`、`mc_release`、`mc_destroy` 管理会话和事件，用 `mc_binary_take` 和 `mc_binary_write` 传输原始字节。
 
 ```powershell
 dotnet run --project tests/Minichat.Core.Tests
@@ -107,5 +111,3 @@ $env:JAVA_HOME = '<JDK 21 installation directory>'
 ```
 
 提供商交互参考了 [Agora](https://github.com/newo-ether/Agora) 的配置和模型发现流程，协议边界参考了 [opencode](https://github.com/anomalyco/opencode)。没有复制 Agora 的 GPL 实现。平台依据：[NativeAOT](https://learn.microsoft.com/dotnet/core/deploying/native-aot/)、[Android/bionic 状态](https://github.com/dotnet/runtime/blob/main/src/coreclr/nativeaot/docs/android-bionic.md)、[Android 应用语言](https://developer.android.com/guide/topics/resources/app-languages)、[Compose Material 3](https://developer.android.com/develop/ui/compose/designsystems/material3)、[自适应图标](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive)、[Apple UI 写作](https://developer.apple.com/design/human-interface-guidelines/writing)。
-
-Git 仅在本地使用，未配置或推送 GitHub 远端。

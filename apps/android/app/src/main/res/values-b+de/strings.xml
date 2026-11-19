@@ -123,4 +123,32 @@
         <item quantity="one">%1$d Modelle</item>
         <item quantity="other">%1$d Modelle</item>
     </plurals>
+    <string name="latest_message">Letzte Nachricht</string>
+    <string name="steer">Steuern</string>
+    <string name="send_as_system">Als Systemnachricht senden</string>
+    <string name="system_message">Systemnachricht</string>
+    <string name="photos_videos">Fotos und Videos</string>
+    <string name="choose_files">Dateien auswählen</string>
+    <string name="plugins">Plugins</string>
+    <string name="install_plugin">Plugin installieren</string>
+    <string name="run_plugin">Ausführen</string>
+    <string name="remove_plugin">Deinstallieren</string>
+    <string name="built_in">Integriert</string>
+    <string name="plugin_resource_request">%1$s möchte, dass du Dateien auswählst</string>
+    <string name="delete_chat">Chat löschen</string>
+    <string name="delete_preset">Voreinstellung löschen</string>
+    <string name="delete_named">„%1$s“ löschen?</string>
+    <string name="delete_preset_detail">Dadurch werden auch die Chats in dieser Voreinstellung gelöscht.</string>
+    <string name="behavior_settings">Darstellung und Verhalten</string>
+    <string name="model_provider_settings">Modelle und Anbieter</string>
+    <string name="about">Info</string>
+    <string name="interactive_reply">Interaktive Antwort</string>
+    <string name="interactive_reply_unavailable">Die interaktive Antwort konnte nicht geladen werden</string>
+    <string name="welcome_to_preset">Willkommen bei</string>
+    <string name="branch_edit_message">In einem Zweig bearbeiten</string>
+    <string name="no_presets_yet">Noch keine Voreinstellungen</string>
+    <string name="plugin_scope">Geltungsbereich</string>
+    <string name="plugin_scope_global">Alle Voreinstellungen</string>
+    <string name="plugin_scope_include">Nur ausgewählte Voreinstellungen</string>
+    <string name="plugin_scope_exclude">Alle außer ausgewählten</string>
 </resources>

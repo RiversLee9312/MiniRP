@@ -121,4 +121,32 @@
     <plurals name="model_count">
         <item quantity="other">%1$d 個のモデル</item>
     </plurals>
+    <string name="latest_message">最新のメッセージ</string>
+    <string name="steer">方向付け</string>
+    <string name="send_as_system">システムメッセージとして送信</string>
+    <string name="system_message">システムメッセージ</string>
+    <string name="photos_videos">写真と動画</string>
+    <string name="choose_files">ファイルを選択</string>
+    <string name="plugins">プラグイン</string>
+    <string name="install_plugin">プラグインをインストール</string>
+    <string name="run_plugin">実行</string>
+    <string name="remove_plugin">アンインストール</string>
+    <string name="built_in">組み込み</string>
+    <string name="plugin_resource_request">%1$sがファイルの選択を求めています</string>
+    <string name="delete_chat">チャットを削除</string>
+    <string name="delete_preset">プリセットを削除</string>
+    <string name="delete_named">「%1$s」を削除しますか？</string>
+    <string name="delete_preset_detail">このプリセット内のチャットも削除されます。</string>
+    <string name="behavior_settings">外観と動作</string>
+    <string name="model_provider_settings">モデルとプロバイダー</string>
+    <string name="about">アプリについて</string>
+    <string name="interactive_reply">操作できる回答</string>
+    <string name="interactive_reply_unavailable">操作できる回答を読み込めませんでした</string>
+    <string name="welcome_to_preset">ようこそ</string>
+    <string name="branch_edit_message">分岐して編集</string>
+    <string name="no_presets_yet">プリセットがありません</string>
+    <string name="plugin_scope">適用するプリセット</string>
+    <string name="plugin_scope_global">すべてのプリセット</string>
+    <string name="plugin_scope_include">選択したプリセットのみ</string>
+    <string name="plugin_scope_exclude">選択したプリセット以外</string>
 </resources>

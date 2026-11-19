@@ -123,4 +123,32 @@
         <item quantity="one">%1$d मॉडल</item>
         <item quantity="other">%1$d मॉडल</item>
     </plurals>
+    <string name="latest_message">नवीनतम संदेश</string>
+    <string name="steer">दिशा दें</string>
+    <string name="send_as_system">सिस्टम संदेश के रूप में भेजें</string>
+    <string name="system_message">सिस्टम संदेश</string>
+    <string name="photos_videos">फ़ोटो और वीडियो</string>
+    <string name="choose_files">फ़ाइलें चुनें</string>
+    <string name="plugins">प्लगइन</string>
+    <string name="install_plugin">प्लगइन इंस्टॉल करें</string>
+    <string name="run_plugin">चलाएँ</string>
+    <string name="remove_plugin">अनइंस्टॉल करें</string>
+    <string name="built_in">अंतर्निहित</string>
+    <string name="plugin_resource_request">%1$s चाहता है कि आप फ़ाइलें चुनें</string>
+    <string name="delete_chat">चैट हटाएँ</string>
+    <string name="delete_preset">प्रीसेट हटाएँ</string>
+    <string name="delete_named">“%1$s” हटाएँ?</string>
+    <string name="delete_preset_detail">इससे इस प्रीसेट की चैट भी हट जाएँगी।</string>
+    <string name="behavior_settings">दिखावट और व्यवहार</string>
+    <string name="model_provider_settings">मॉडल और प्रदाता</string>
+    <string name="about">परिचय</string>
+    <string name="interactive_reply">इंटरैक्टिव जवाब</string>
+    <string name="interactive_reply_unavailable">इंटरैक्टिव जवाब लोड नहीं हो सका</string>
+    <string name="welcome_to_preset">आपका स्वागत है</string>
+    <string name="branch_edit_message">शाखा में संपादित करें</string>
+    <string name="no_presets_yet">अभी कोई प्रीसेट नहीं है</string>
+    <string name="plugin_scope">प्रीसेट का दायरा</string>
+    <string name="plugin_scope_global">सभी प्रीसेट</string>
+    <string name="plugin_scope_include">सिर्फ़ चुने गए प्रीसेट</string>
+    <string name="plugin_scope_exclude">चुने गए प्रीसेट छोड़कर सभी</string>
 </resources>

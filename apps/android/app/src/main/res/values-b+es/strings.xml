@@ -123,4 +123,32 @@
         <item quantity="one">%1$d modelos</item>
         <item quantity="other">%1$d modelos</item>
     </plurals>
+    <string name="latest_message">Mensaje más reciente</string>
+    <string name="steer">Guiar</string>
+    <string name="send_as_system">Enviar como mensaje del sistema</string>
+    <string name="system_message">Mensaje del sistema</string>
+    <string name="photos_videos">Fotos y vídeos</string>
+    <string name="choose_files">Elegir archivos</string>
+    <string name="plugins">Complementos</string>
+    <string name="install_plugin">Instalar complemento</string>
+    <string name="run_plugin">Ejecutar</string>
+    <string name="remove_plugin">Desinstalar</string>
+    <string name="built_in">Integrado</string>
+    <string name="plugin_resource_request">%1$s quiere que elijas archivos</string>
+    <string name="delete_chat">Eliminar chat</string>
+    <string name="delete_preset">Eliminar preajuste</string>
+    <string name="delete_named">¿Eliminar «%1$s»?</string>
+    <string name="delete_preset_detail">Esto también elimina los chats de este preajuste.</string>
+    <string name="behavior_settings">Apariencia y comportamiento</string>
+    <string name="model_provider_settings">Modelos y proveedores</string>
+    <string name="about">Acerca de</string>
+    <string name="interactive_reply">Respuesta interactiva</string>
+    <string name="interactive_reply_unavailable">No se pudo cargar la respuesta interactiva</string>
+    <string name="welcome_to_preset">Te damos la bienvenida a</string>
+    <string name="branch_edit_message">Editar en una rama</string>
+    <string name="no_presets_yet">Aún no hay preajustes</string>
+    <string name="plugin_scope">Ámbito de preajustes</string>
+    <string name="plugin_scope_global">Todos los preajustes</string>
+    <string name="plugin_scope_include">Solo los seleccionados</string>
+    <string name="plugin_scope_exclude">Todos menos los seleccionados</string>
 </resources>

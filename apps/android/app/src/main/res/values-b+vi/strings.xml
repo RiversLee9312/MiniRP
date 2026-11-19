@@ -121,4 +121,32 @@
     <plurals name="model_count">
         <item quantity="other">%1$d mô hình</item>
     </plurals>
+    <string name="latest_message">Tin nhắn mới nhất</string>
+    <string name="steer">Định hướng</string>
+    <string name="send_as_system">Gửi dưới dạng tin nhắn hệ thống</string>
+    <string name="system_message">Tin nhắn hệ thống</string>
+    <string name="photos_videos">Ảnh và video</string>
+    <string name="choose_files">Chọn tệp</string>
+    <string name="plugins">Plugin</string>
+    <string name="install_plugin">Cài đặt plugin</string>
+    <string name="run_plugin">Chạy</string>
+    <string name="remove_plugin">Gỡ cài đặt</string>
+    <string name="built_in">Tích hợp sẵn</string>
+    <string name="plugin_resource_request">%1$s muốn bạn chọn tệp</string>
+    <string name="delete_chat">Xóa cuộc trò chuyện</string>
+    <string name="delete_preset">Xóa preset</string>
+    <string name="delete_named">Xóa “%1$s”?</string>
+    <string name="delete_preset_detail">Thao tác này cũng xóa các cuộc trò chuyện trong preset này.</string>
+    <string name="behavior_settings">Giao diện và hành vi</string>
+    <string name="model_provider_settings">Mô hình và nhà cung cấp</string>
+    <string name="about">Giới thiệu</string>
+    <string name="interactive_reply">Câu trả lời tương tác</string>
+    <string name="interactive_reply_unavailable">Không thể tải câu trả lời tương tác</string>
+    <string name="welcome_to_preset">Chào mừng đến với</string>
+    <string name="branch_edit_message">Chỉnh sửa trong nhánh</string>
+    <string name="no_presets_yet">Chưa có preset</string>
+    <string name="plugin_scope">Phạm vi preset</string>
+    <string name="plugin_scope_global">Tất cả preset</string>
+    <string name="plugin_scope_include">Chỉ các preset đã chọn</string>
+    <string name="plugin_scope_exclude">Tất cả trừ các preset đã chọn</string>
 </resources>

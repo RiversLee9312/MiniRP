@@ -1,6 +1,5 @@
 package com.minichat.app.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,16 +13,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.minichat.app.R
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
 import org.json.JSONObject
 
 private data class Note(val key: String, val body: String = "", val revision: Int = 0)
 
+private sealed interface MemoryRoute {
+    @Serializable data object Notes : MemoryRoute
+
+    @Serializable data object Editor : MemoryRoute
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MemoryScreen(chatId: String, model: ChatViewModel, modifier: Modifier) {
+    val navigation = rememberNavController()
     var role by rememberSaveable(chatId) { mutableStateOf(AgentRole.Chat) }
     var query by rememberSaveable(chatId) { mutableStateOf("") }
     var entries by remember { mutableStateOf(emptyList<Note>()) }
@@ -36,6 +47,16 @@ internal fun MemoryScreen(chatId: String, model: ChatViewModel, modifier: Modifi
     var revision by remember { mutableIntStateOf(0) }
     var confirmDelete by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    fun edit(draft: Note) {
+        note = draft
+        original = draft.takeIf { it.revision > 0 }
+        navigation.navigate(MemoryRoute.Editor) { launchSingleTop = true }
+    }
+
+    fun closeEditor() {
+        navigation.popBackStack<MemoryRoute.Editor>(inclusive = true)
+    }
 
     suspend fun load(append: Boolean) {
         val search = query.isNotBlank()
@@ -94,8 +115,7 @@ internal fun MemoryScreen(chatId: String, model: ChatViewModel, modifier: Modifi
                     offset = result.optInt("next_offset")
                 } while (offset > 0)
             }
-            note = Note(key, body, noteRevision)
-            original = note
+            edit(Note(key, body, noteRevision))
         }
     }
 
@@ -108,160 +128,185 @@ internal fun MemoryScreen(chatId: String, model: ChatViewModel, modifier: Modifi
             load(false)
         }
     }
-    BackHandler(enabled = note != null && !loading) {
-        note = null
-        original = null
-    }
     Column(modifier) {
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         error?.let { message ->
             Text(message, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
         }
-        val current = note
-        if (current != null) {
-            val existing = current.revision > 0
-            val dirty = current != original
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            ) {
-                IconButton(
-                    onClick = {
-                        note = null
-                        original = null
-                    },
-                    enabled = !loading,
+        NavHost(navigation, startDestination = MemoryRoute.Notes, modifier = Modifier.weight(1f)) {
+            composable<MemoryRoute.Editor> {
+                val current = note
+                if (current == null) {
+                    LaunchedEffect(navigation) { closeEditor() }
+                    return@composable
+                }
+                Surface(
+                    color = BottomSheetDefaults.ContainerColor,
+                    modifier = Modifier.fillMaxSize(),
                 ) {
-                    Symbol("arrow_back", stringResource(R.string.back))
-                }
-                Spacer(Modifier.weight(1f))
-                if (existing)
-                    TextButton(onClick = { confirmDelete = true }, enabled = !loading) {
-                        Text(stringResource(R.string.delete))
-                    }
-                Button(
-                    onClick = {
-                        scope.launch {
-                            work {
-                                model.memory(
-                                    role,
-                                    "db_write",
-                                    JSONObject()
-                                        .put("key", current.key.trim())
-                                        .put("content", current.body)
-                                        .put("expected_revision", current.revision),
-                                )
-                                note = null
-                                original = null
-                                revision++
-                            }
-                        }
-                    },
-                    enabled =
-                        !loading &&
-                            dirty &&
-                            current.key.isNotBlank() &&
-                            !current.key.startsWith('_'),
-                ) {
-                    Text(stringResource(R.string.save))
-                }
-            }
-            Column(
-                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                if (existing) Text(current.key, style = MaterialTheme.typography.titleLarge)
-                else
-                    OutlinedTextField(
-                        current.key,
-                        { note = current.copy(key = it) },
-                        Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text(stringResource(R.string.entry_key)) },
-                    )
-                TextField(
-                    current.body,
-                    { note = current.copy(body = it) },
-                    Modifier.fillMaxWidth(),
-                    minLines = 12,
-                    placeholder = { Text(stringResource(R.string.entry_content)) },
-                )
-            }
-        } else {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                var roles by remember { mutableStateOf(false) }
-                Box {
-                    TextButton(
-                        onClick = { roles = true },
-                        enabled = !loading || entries.isEmpty(),
-                    ) {
-                        Text(stringResource(role.label))
-                        Symbol("expand_more", size = 18)
-                    }
-                    DropdownMenu(roles, { roles = false }) {
-                        AgentRole.entries
-                            .filter { it != AgentRole.Fetch && it != AgentRole.Title }
-                            .forEach { candidate ->
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(candidate.label)) },
-                                    onClick = {
-                                        role = candidate
-                                        roles = false
-                                    },
-                                )
-                            }
-                    }
-                }
-                TextButton(
-                    onClick = {
-                        note = Note("")
-                        original = null
-                    },
-                    enabled = !loading,
-                ) {
-                    Symbol("add")
-                    Text(stringResource(R.string.new_note))
-                }
-            }
-            OutlinedTextField(
-                query,
-                { query = it },
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                singleLine = true,
-                label = { Text(stringResource(R.string.search_entries)) },
-            )
-            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(vertical = 8.dp)) {
-                if (entries.isEmpty() && !loading && error == null)
-                    item {
-                        Text(
-                            stringResource(R.string.database_empty),
-                            Modifier.padding(24.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                items(entries, key = { it.key }) { entry ->
-                    ListItem(
-                        content = {
-                            Text(entry.key, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        },
-                        supportingContent = {
-                            Text(entry.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        },
-                        modifier = Modifier.clickable(enabled = !loading) { open(entry.key) },
-                    )
-                }
-                if (nextKey.isNotEmpty() || nextOffset > 0)
-                    item {
-                        TextButton(
-                            onClick = { scope.launch { work { load(true) } } },
-                            enabled = !loading,
+                    Column {
+                        val existing = current.revision > 0
+                        val dirty = current != original
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                         ) {
-                            Text(stringResource(R.string.load_more))
+                            IconButton(
+                                onClick = ::closeEditor,
+                                enabled = !loading,
+                            ) {
+                                Symbol("arrow_back", stringResource(R.string.back))
+                            }
+                            Spacer(Modifier.weight(1f))
+                            if (existing)
+                                TextButton(onClick = { confirmDelete = true }, enabled = !loading) {
+                                    Text(stringResource(R.string.delete))
+                                }
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        work {
+                                            model.memory(
+                                                role,
+                                                "db_write",
+                                                JSONObject()
+                                                    .put("key", current.key.trim())
+                                                    .put("content", current.body)
+                                                    .put("expected_revision", current.revision),
+                                            )
+                                            closeEditor()
+                                            revision++
+                                        }
+                                    }
+                                },
+                                enabled =
+                                    !loading &&
+                                        dirty &&
+                                        current.key.isNotBlank() &&
+                                        !current.key.startsWith('_'),
+                            ) {
+                                Text(stringResource(R.string.save))
+                            }
+                        }
+                        Column(
+                            Modifier.weight(1f)
+                                .verticalScroll(rememberScrollState())
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            if (existing)
+                                Text(current.key, style = MaterialTheme.typography.titleLarge)
+                            else
+                                OutlinedTextField(
+                                    current.key,
+                                    { note = current.copy(key = it) },
+                                    Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    label = { Text(stringResource(R.string.entry_key)) },
+                                )
+                            TextField(
+                                current.body,
+                                { note = current.copy(body = it) },
+                                Modifier.fillMaxWidth(),
+                                minLines = 12,
+                                placeholder = { Text(stringResource(R.string.entry_content)) },
+                            )
                         }
                     }
+                }
+            }
+            composable<MemoryRoute.Notes> {
+                Surface(
+                    color = BottomSheetDefaults.ContainerColor,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    Column {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            var roles by remember { mutableStateOf(false) }
+                            Box {
+                                TextButton(
+                                    onClick = { roles = true },
+                                    enabled = !loading || entries.isEmpty(),
+                                ) {
+                                    Text(stringResource(role.label))
+                                    Symbol("expand_more", size = 18)
+                                }
+                                DropdownMenu(roles, { roles = false }) {
+                                    AgentRole.entries
+                                        .filter { it != AgentRole.Fetch && it != AgentRole.Title }
+                                        .forEach { candidate ->
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(candidate.label)) },
+                                                onClick = {
+                                                    role = candidate
+                                                    roles = false
+                                                },
+                                            )
+                                        }
+                                }
+                            }
+                            TextButton(
+                                onClick = { edit(Note("")) },
+                                enabled = !loading,
+                            ) {
+                                Symbol("add")
+                                Text(stringResource(R.string.new_note))
+                            }
+                        }
+                        OutlinedTextField(
+                            query,
+                            { query = it },
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            singleLine = true,
+                            label = { Text(stringResource(R.string.search_entries)) },
+                        )
+                        LazyColumn(
+                            Modifier.weight(1f),
+                            contentPadding = PaddingValues(vertical = 8.dp),
+                        ) {
+                            if (entries.isEmpty() && !loading && error == null)
+                                item {
+                                    Text(
+                                        stringResource(R.string.database_empty),
+                                        Modifier.padding(24.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            items(entries, key = { it.key }) { entry ->
+                                ListItem(
+                                    content = {
+                                        Text(
+                                            entry.key,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    supportingContent = {
+                                        Text(
+                                            entry.body,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    modifier =
+                                        Modifier.clickable(enabled = !loading) { open(entry.key) },
+                                )
+                            }
+                            if (nextKey.isNotEmpty() || nextOffset > 0)
+                                item {
+                                    TextButton(
+                                        onClick = { scope.launch { work { load(true) } } },
+                                        enabled = !loading,
+                                    ) {
+                                        Text(stringResource(R.string.load_more))
+                                    }
+                                }
+                        }
+                    }
+                }
             }
         }
     }
@@ -288,8 +333,7 @@ internal fun MemoryScreen(chatId: String, model: ChatViewModel, modifier: Modifi
                                         .put("key", current.key)
                                         .put("expected_revision", current.revision),
                                 )
-                                note = null
-                                original = null
+                                closeEditor()
                                 revision++
                             }
                         }

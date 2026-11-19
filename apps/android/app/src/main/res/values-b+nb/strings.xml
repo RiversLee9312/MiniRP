@@ -123,4 +123,32 @@
         <item quantity="one">%1$d modeller</item>
         <item quantity="other">%1$d modeller</item>
     </plurals>
+    <string name="latest_message">Siste melding</string>
+    <string name="steer">Styr</string>
+    <string name="send_as_system">Send som systemmelding</string>
+    <string name="system_message">Systemmelding</string>
+    <string name="photos_videos">Bilder og videoer</string>
+    <string name="choose_files">Velg filer</string>
+    <string name="plugins">Programtillegg</string>
+    <string name="install_plugin">Installer programtillegg</string>
+    <string name="run_plugin">Kjør</string>
+    <string name="remove_plugin">Avinstaller</string>
+    <string name="built_in">Innebygd</string>
+    <string name="plugin_resource_request">%1$s vil at du skal velge filer</string>
+    <string name="delete_chat">Slett chat</string>
+    <string name="delete_preset">Slett forhåndsinnstilling</string>
+    <string name="delete_named">Slette «%1$s»?</string>
+    <string name="delete_preset_detail">Dette sletter også chattene i denne forhåndsinnstillingen.</string>
+    <string name="behavior_settings">Utseende og atferd</string>
+    <string name="model_provider_settings">Modeller og tilbydere</string>
+    <string name="about">Om</string>
+    <string name="interactive_reply">Interaktivt svar</string>
+    <string name="interactive_reply_unavailable">Kunne ikke laste det interaktive svaret</string>
+    <string name="welcome_to_preset">Velkommen til</string>
+    <string name="branch_edit_message">Rediger i en gren</string>
+    <string name="no_presets_yet">Ingen forhåndsinnstillinger ennå</string>
+    <string name="plugin_scope">Omfang for forhåndsinnstillinger</string>
+    <string name="plugin_scope_global">Alle forhåndsinnstillinger</string>
+    <string name="plugin_scope_include">Bare valgte forhåndsinnstillinger</string>
+    <string name="plugin_scope_exclude">Alle unntatt de valgte</string>
 </resources>

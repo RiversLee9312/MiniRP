@@ -123,4 +123,32 @@
         <item quantity="one">%1$d modellen</item>
         <item quantity="other">%1$d modellen</item>
     </plurals>
+    <string name="latest_message">Laatste bericht</string>
+    <string name="steer">Sturen</string>
+    <string name="send_as_system">Verzenden als systeembericht</string>
+    <string name="system_message">Systeembericht</string>
+    <string name="photos_videos">Foto’s en video’s</string>
+    <string name="choose_files">Bestanden kiezen</string>
+    <string name="plugins">Plug-ins</string>
+    <string name="install_plugin">Plug-in installeren</string>
+    <string name="run_plugin">Uitvoeren</string>
+    <string name="remove_plugin">Verwijderen</string>
+    <string name="built_in">Ingebouwd</string>
+    <string name="plugin_resource_request">%1$s wil dat je bestanden kiest</string>
+    <string name="delete_chat">Chat verwijderen</string>
+    <string name="delete_preset">Preset verwijderen</string>
+    <string name="delete_named">‘%1$s’ verwijderen?</string>
+    <string name="delete_preset_detail">Hierdoor worden ook de chats in deze preset verwijderd.</string>
+    <string name="behavior_settings">Uiterlijk en gedrag</string>
+    <string name="model_provider_settings">Modellen en providers</string>
+    <string name="about">Over</string>
+    <string name="interactive_reply">Interactief antwoord</string>
+    <string name="interactive_reply_unavailable">Het interactieve antwoord kon niet worden geladen</string>
+    <string name="welcome_to_preset">Welkom bij</string>
+    <string name="branch_edit_message">Bewerken in een vertakking</string>
+    <string name="no_presets_yet">Nog geen presets</string>
+    <string name="plugin_scope">Presetbereik</string>
+    <string name="plugin_scope_global">Alle presets</string>
+    <string name="plugin_scope_include">Alleen geselecteerde presets</string>
+    <string name="plugin_scope_exclude">Alle behalve geselecteerde</string>
 </resources>

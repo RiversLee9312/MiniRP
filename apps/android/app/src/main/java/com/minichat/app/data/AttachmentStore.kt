@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.minichat.app.R
+import com.minichat.app.ui.PluginAttachmentType
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -25,9 +26,15 @@ internal class AttachmentStore(private val context: Context) {
     private val directory
         get() = context.filesDir.resolve("workspace/attachments").apply { mkdirs() }
 
-    suspend fun describe(values: List<String>): List<DraftAttachment> =
+    suspend fun describe(
+        values: List<String>,
+        retained: Map<String, JSONObject> = emptyMap(),
+    ): List<DraftAttachment> =
         withContext(Dispatchers.IO) {
             values.map { value ->
+                retained[value]?.let {
+                    return@map DraftAttachment(value, it.optString("name"))
+                }
                 val uri = Uri.parse(value)
                 val name = runCatching {
                     resolver
@@ -44,18 +51,35 @@ internal class AttachmentStore(private val context: Context) {
             }
         }
 
-    suspend fun import(values: List<String>, protocol: String): JSONArray =
+    suspend fun import(
+        values: List<String>,
+        protocol: String,
+        pluginType: PluginAttachmentType? = null,
+        retained: Map<String, JSONObject> = emptyMap(),
+    ): JSONArray =
         withContext(Dispatchers.IO) {
             var remaining = if (protocol == "gemini") 14_000_000 else 16_000_000
             val created = mutableListOf<File>()
             check(values.size <= 20) { context.getString(R.string.attachment_too_large) }
             try {
                 val files = JSONArray()
-                for (draft in describe(values)) {
+                for (draft in describe(values, retained)) {
                     ensureActive()
+                    val saved = retained[draft.uri]
+                    if (saved != null) {
+                        files.put(saved)
+                        continue
+                    }
                     val uri = Uri.parse(draft.uri)
                     val mime = resolver.getType(uri)?.lowercase().orEmpty()
-                    check(supports(protocol, mime)) {
+                    check(
+                        protocol == "picker" ||
+                            pluginType?.mimeTypes?.any {
+                                it == mime ||
+                                    it == "*/*" ||
+                                    it.endsWith("/*") && mime.startsWith(it.dropLast(1))
+                            } ?: supports(protocol, mime)
+                    ) {
                         context.getString(R.string.attachment_type_unsupported)
                     }
                     val id = UUID.randomUUID().toString()
@@ -85,6 +109,10 @@ internal class AttachmentStore(private val context: Context) {
                             .put("id", id)
                             .put("name", draft.name.take(240))
                             .put("mime", mime)
+                            .apply {
+                                if (pluginType != null)
+                                    put("plugin", pluginType.plugin).put("type", pluginType.id)
+                            }
                     )
                 }
                 files

@@ -123,4 +123,32 @@
         <item quantity="one">%1$d μοντέλα</item>
         <item quantity="other">%1$d μοντέλα</item>
     </plurals>
+    <string name="latest_message">Τελευταίο μήνυμα</string>
+    <string name="steer">Καθοδήγηση</string>
+    <string name="send_as_system">Αποστολή ως μήνυμα συστήματος</string>
+    <string name="system_message">Μήνυμα συστήματος</string>
+    <string name="photos_videos">Φωτογραφίες και βίντεο</string>
+    <string name="choose_files">Επιλογή αρχείων</string>
+    <string name="plugins">Πρόσθετα</string>
+    <string name="install_plugin">Εγκατάσταση πρόσθετου</string>
+    <string name="run_plugin">Εκτέλεση</string>
+    <string name="remove_plugin">Κατάργηση εγκατάστασης</string>
+    <string name="built_in">Ενσωματωμένο</string>
+    <string name="plugin_resource_request">Το %1$s θέλει να επιλέξετε αρχεία</string>
+    <string name="delete_chat">Διαγραφή συνομιλίας</string>
+    <string name="delete_preset">Διαγραφή προεπιλογής</string>
+    <string name="delete_named">Να διαγραφεί το «%1$s»;</string>
+    <string name="delete_preset_detail">Θα διαγραφούν επίσης οι συνομιλίες αυτής της προεπιλογής.</string>
+    <string name="behavior_settings">Εμφάνιση και συμπεριφορά</string>
+    <string name="model_provider_settings">Μοντέλα και πάροχοι</string>
+    <string name="about">Σχετικά</string>
+    <string name="interactive_reply">Διαδραστική απάντηση</string>
+    <string name="interactive_reply_unavailable">Δεν ήταν δυνατή η φόρτωση της διαδραστικής απάντησης</string>
+    <string name="welcome_to_preset">Καλώς ήρθατε</string>
+    <string name="branch_edit_message">Επεξεργασία σε κλάδο</string>
+    <string name="no_presets_yet">Δεν υπάρχουν προεπιλογές ακόμα</string>
+    <string name="plugin_scope">Πεδίο προεπιλογών</string>
+    <string name="plugin_scope_global">Όλες οι προεπιλογές</string>
+    <string name="plugin_scope_include">Μόνο οι επιλεγμένες</string>
+    <string name="plugin_scope_exclude">Όλες εκτός από τις επιλεγμένες</string>
 </resources>

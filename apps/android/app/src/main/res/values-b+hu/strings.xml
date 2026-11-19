@@ -123,4 +123,32 @@
         <item quantity="one">%1$d modell</item>
         <item quantity="other">%1$d modell</item>
     </plurals>
+    <string name="latest_message">Legutóbbi üzenet</string>
+    <string name="steer">Irányítás</string>
+    <string name="send_as_system">Küldés rendszerüzenetként</string>
+    <string name="system_message">Rendszerüzenet</string>
+    <string name="photos_videos">Fotók és videók</string>
+    <string name="choose_files">Fájlok kiválasztása</string>
+    <string name="plugins">Bővítmények</string>
+    <string name="install_plugin">Bővítmény telepítése</string>
+    <string name="run_plugin">Futtatás</string>
+    <string name="remove_plugin">Eltávolítás</string>
+    <string name="built_in">Beépített</string>
+    <string name="plugin_resource_request">%1$s arra kér, hogy válassz fájlokat</string>
+    <string name="delete_chat">Csevegés törlése</string>
+    <string name="delete_preset">Előbeállítás törlése</string>
+    <string name="delete_named">Törlöd ezt: „%1$s”?</string>
+    <string name="delete_preset_detail">Ez az előbeállítás csevegéseit is törli.</string>
+    <string name="behavior_settings">Megjelenés és viselkedés</string>
+    <string name="model_provider_settings">Modellek és szolgáltatók</string>
+    <string name="about">Névjegy</string>
+    <string name="interactive_reply">Interaktív válasz</string>
+    <string name="interactive_reply_unavailable">Az interaktív válasz nem tölthető be</string>
+    <string name="welcome_to_preset">Üdvözlünk itt</string>
+    <string name="branch_edit_message">Szerkesztés egy ágban</string>
+    <string name="no_presets_yet">Még nincsenek előbeállítások</string>
+    <string name="plugin_scope">Előbeállítások hatóköre</string>
+    <string name="plugin_scope_global">Minden előbeállítás</string>
+    <string name="plugin_scope_include">Csak a kijelöltek</string>
+    <string name="plugin_scope_exclude">Minden, kivéve a kijelölteket</string>
 </resources>

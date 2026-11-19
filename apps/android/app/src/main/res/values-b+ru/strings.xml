@@ -127,4 +127,32 @@
         <item quantity="many">%1$d моделей</item>
         <item quantity="other">%1$d моделей</item>
     </plurals>
+    <string name="latest_message">Последнее сообщение</string>
+    <string name="steer">Направить</string>
+    <string name="send_as_system">Отправить как системное сообщение</string>
+    <string name="system_message">Системное сообщение</string>
+    <string name="photos_videos">Фото и видео</string>
+    <string name="choose_files">Выбрать файлы</string>
+    <string name="plugins">Плагины</string>
+    <string name="install_plugin">Установить плагин</string>
+    <string name="run_plugin">Запустить</string>
+    <string name="remove_plugin">Удалить</string>
+    <string name="built_in">Встроено</string>
+    <string name="plugin_resource_request">%1$s просит вас выбрать файлы</string>
+    <string name="delete_chat">Удалить чат</string>
+    <string name="delete_preset">Удалить пресет</string>
+    <string name="delete_named">Удалить «%1$s»?</string>
+    <string name="delete_preset_detail">При этом также будут удалены чаты из этого пресета.</string>
+    <string name="behavior_settings">Внешний вид и поведение</string>
+    <string name="model_provider_settings">Модели и провайдеры</string>
+    <string name="about">О приложении</string>
+    <string name="interactive_reply">Интерактивный ответ</string>
+    <string name="interactive_reply_unavailable">Не удалось загрузить интерактивный ответ</string>
+    <string name="welcome_to_preset">Добро пожаловать в</string>
+    <string name="branch_edit_message">Редактировать в ветке</string>
+    <string name="no_presets_yet">Пока нет пресетов</string>
+    <string name="plugin_scope">Область действия</string>
+    <string name="plugin_scope_global">Все пресеты</string>
+    <string name="plugin_scope_include">Только выбранные пресеты</string>
+    <string name="plugin_scope_exclude">Все, кроме выбранных</string>
 </resources>

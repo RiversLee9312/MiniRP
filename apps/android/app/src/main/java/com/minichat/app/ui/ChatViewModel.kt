@@ -3,9 +3,13 @@ package com.minichat.app.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.InvalidatingPagingSourceFactory
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
+import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import com.mikepenz.markdown.model.State as MarkdownState
+import com.mikepenz.markdown.model.parseMarkdown
 import com.minichat.app.R
 import com.minichat.app.core.BrowserHost
 import com.minichat.app.core.CoreClient
@@ -25,27 +29,51 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = Preferences(application)
     private val attachments = AttachmentStore(application)
     private val browser = BrowserHost(application)
+    internal val picker = PluginPicker()
+    private var homeRequest = ""
+    private var askedHome = false
+    private var homeLocale = ""
+    private var openUiInstructions = ""
+    private val openUiDrafts = android.util.LruCache<Pair<String, String>, String>(40)
+    internal val actions =
+        kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.BUFFERED)
     private val engine = CompletableDeferred<CoreClient>()
     @Volatile private var core: CoreClient? = null
     private var saveJob: Job? = null
-    private val libraryRevision = MutableStateFlow(0)
-    val libraryPreset = MutableStateFlow("default")
-    val presets = libraryRevision.flatMapLatest { library("") }.cachedIn(viewModelScope)
 
-    fun chatsFor(preset: String) = libraryRevision.flatMapLatest { library(preset) }
+    internal class LibraryFeed(
+        val preset: String,
+        val factory: InvalidatingPagingSourceFactory<Int, Choice>,
+        scope: CoroutineScope,
+    ) {
+        private val job = SupervisorJob(scope.coroutineContext[Job])
+        val pages: Flow<PagingData<Choice>> =
+            Pager(
+                    PagingConfig(pageSize = 30, enablePlaceholders = false),
+                    pagingSourceFactory = factory,
+                )
+                .flow
+                .cachedIn(CoroutineScope(scope.coroutineContext + job))
+
+        fun close() = job.cancel()
+    }
+
+    private val presetFeed = library("", listPresets = true)
+    val presets = presetFeed.pages
+    private val chatFeed = MutableStateFlow(library(""))
+    internal val chatLibrary = chatFeed.asStateFlow()
+
+    private fun selectLibraryPreset(preset: String) {
+        val previous = chatFeed.value
+        if (previous.preset == preset) return
+        chatFeed.value = library(preset)
+        previous.close()
+    }
 
     init {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch {
             try {
-                val root = application.filesDir.resolve("workspace/presets").apply { mkdirs() }
-                for (name in application.assets.list("presets").orEmpty()) {
-                    val file = root.resolve(name)
-                    if (!file.exists())
-                        application.assets.open("presets/$name").use { source ->
-                            file.outputStream().use(source::copyTo)
-                        }
-                }
-                val (profiles, options) = preferences.load()
+                val (profiles, options) = withContext(Dispatchers.IO) { preferences.load() }
                 val providers = profiles.objects().map(::decodeProvider)
                 val saved =
                     options.optJSONArray("models")?.objects()?.map(::decodeModel)
@@ -75,11 +103,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             selection?.let { role to it }
                         }
                         .toMap()
-                val preset = options.optString("preset", "default")
-                libraryPreset.value = preset
+                val savedPreset = options.optString("preset")
                 mutableState.update {
                     it.copy(
-                        preset = preset,
                         providers = providers,
                         savedModels = saved,
                         assignments = assignments,
@@ -87,13 +113,59 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         fetchMode = options.optString("fetch", "api_then_local"),
                     )
                 }
-                val client = CoreClient(application, viewModelScope)
+                val client =
+                    withContext(Dispatchers.IO) {
+                        openUiInstructions =
+                            runCatching {
+                                    application.assets
+                                        .open("openui/prompt.txt")
+                                        .bufferedReader()
+                                        .use { it.readText() }
+                                }
+                                .getOrDefault("")
+                        CoreClient(application, viewModelScope)
+                    }
                 client.browser = browser::execute
+                client.picker = picker::request
                 core = client
                 engine.complete(client)
                 configure()
-                options.optString("chat").takeIf(String::isNotBlank)?.let { chooseChat(preset, it) }
-                client.events.collect(::receive)
+                client.events.collect { event ->
+                    when (event.optString("kind")) {
+                        "ready" -> {
+                            receive(event)
+                            if (
+                                savedPreset.isNotBlank() && savedPreset != event.optString("preset")
+                            ) {
+                                command("home") {
+                                    put("preset", savedPreset)
+                                    put("restore", true)
+                                }
+                            }
+                        }
+                        "loaded" -> {
+                            val decoded =
+                                withContext(Dispatchers.Default) {
+                                    event
+                                        .getJSONObject("chat")
+                                        .optJSONArray("blocks")
+                                        ?.objects()
+                                        ?.map { decodeBlock(it).finishMarkdown() }
+                                        .orEmpty()
+                                        .withLegacyReplyActions()
+                                }
+                            receive(event, decoded)
+                        }
+                        "turn_end" -> {
+                            val block =
+                                state.value.blocks.lastOrNull { it.id == event.optString("block") }
+                            val finished =
+                                withContext(Dispatchers.Default) { block?.finishMarkdown() }
+                            if (finished != null) receiveTrace(event, finished)
+                        }
+                        else -> receive(event)
+                    }
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -103,9 +175,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun library(preset: String) =
-        Pager(PagingConfig(pageSize = 30, enablePlaceholders = false)) {
-                LibraryPagingSource { offset, limit ->
+    private fun library(preset: String, listPresets: Boolean = false): LibraryFeed {
+        val factory = InvalidatingPagingSourceFactory {
+            LibraryPagingSource { offset, limit ->
+                if (preset.isEmpty() && !listPresets) return@LibraryPagingSource emptyList()
+                withContext(Dispatchers.Default) {
                     val result =
                         engine
                             .await()
@@ -119,18 +193,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     result.getJSONArray("items").objects().map(::decodeChoice)
                 }
             }
-            .flow
+        }
+        return LibraryFeed(preset, factory, viewModelScope)
+    }
 
-    private fun receive(event: JSONObject) {
+    private fun receive(event: JSONObject, loadedBlocks: List<TraceBlock>? = null) {
         when (event.optString("kind")) {
             "ready" -> {
-                val initial = event.optString("preset", "default")
-                libraryPreset.value = initial
+                val initial = event.optString("preset")
+                selectLibraryPreset(initial)
                 mutableState.update {
                     it.copy(
                         ready = true,
                         preset = initial,
                         presetName = event.optString("preset_name", initial),
+                        agentPrompts = event.optJSONObject("config").agentPrompts(),
+                        agenticSearch =
+                            event.optJSONObject("config")?.optBoolean("agentic_search", true)
+                                ?: true,
                         catalog =
                             event
                                 .optJSONArray("catalog")
@@ -139,29 +219,82 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 .orEmpty(),
                     )
                 }
+                command("plugins_list")
+                command("plugin_settings")
             }
-            "library_changed" -> libraryRevision.update { it + 1 }
+            "library_changed" -> {
+                val preset = event.optString("preset")
+                if (preset.isBlank() || event.optBoolean("presets_changed"))
+                    presetFeed.factory.invalidate()
+                chatFeed.value.takeIf { it.preset == preset }?.factory?.invalidate()
+            }
+            "preset_removed" ->
+                if (chatFeed.value.preset == event.optString("id"))
+                    selectLibraryPreset(event.optString("fallback", state.value.preset))
+            "home" -> {
+                showHome(event.getString("preset"), event.getJSONObject("config"))
+                requestHome()
+            }
+            "plugin_action" -> actions.trySend(event.getString("url"))
+            "plugin_settings" ->
+                mutableState.update {
+                    if (event.optString("preset") != it.preset) return@update it
+                    it.copy(
+                        pluginSettings =
+                            event.getJSONArray("items").objects().map(::decodePluginSetting)
+                    )
+                }
+            "plugins" ->
+                mutableState.update {
+                    it.copy(
+                        installedPlugins = event.getJSONArray("items").objects().map(::decodePlugin)
+                    )
+                }
+            "home_suggestions" ->
+                if (event.optString("request") == homeRequest)
+                    mutableState.update {
+                        it.copy(
+                            homeSuggestions =
+                                event.getJSONArray("items").let { rows ->
+                                    List(rows.length()) { index -> rows.getString(index) }
+                                }
+                        )
+                    }
+            "plugin_error" ->
+                if (event.optString("plugin") != "base")
+                    report(IllegalStateException(event.optString("message")))
+            "generating" ->
+                mutableState.update { current ->
+                    current.copy(
+                        generating =
+                            AgentRole.entries.find {
+                                it.id == event.optString("agent") && event.optBoolean("value")
+                            }
+                    )
+                }
             "loaded" -> {
                 val chat = event.getJSONObject("chat")
                 val preset = event.getString("preset")
+                val changedPreset = preset != state.value.preset
                 val config = event.optJSONObject("config")
-                libraryPreset.value = preset
+                selectLibraryPreset(preset)
                 mutableState.update {
                     it.copy(
                         preset = preset,
                         presetName = config?.optString("name", preset) ?: preset,
                         chatName = chat.optString("name"),
                         chatId = chat.optString("id"),
-                        blocks =
-                            chat.optJSONArray("blocks")?.objects()?.map(::decodeBlock).orEmpty(),
-                        systemPrompt =
-                            config
-                                ?.optJSONObject("chat_agent")
-                                ?.optString("system_prompt")
-                                .orEmpty(),
+                        conversationViewKey =
+                            if (event.optBoolean("from_home_send")) it.conversationViewKey
+                            else chat.optString("id"),
+                        blocks = loadedBlocks.orEmpty(),
+                        branchDraft = event.optJSONObject("draft")?.branchDraft(),
+                        replyError = null,
+                        agentPrompts = config.agentPrompts(),
                         agenticSearch = config?.optBoolean("agentic_search", true) ?: true,
                     )
                 }
+                if (changedPreset) command("plugin_settings")
                 persist()
             }
             "title" ->
@@ -176,11 +309,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         presetName = config.optString("name", it.presetName),
                         agenticSearch = config.optBoolean("agentic_search", true),
-                        systemPrompt =
-                            config
-                                .optJSONObject("chat_agent")
-                                ?.optString("system_prompt")
-                                .orEmpty(),
+                        agentPrompts = config.agentPrompts(),
                     )
                 }
             "busy" ->
@@ -196,11 +325,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 },
                     )
                 }
-            "error" -> mutableState.update { it.copy(error = event.optString("message")) }
+            "error" ->
+                mutableState.update {
+                    val message = event.optString("message")
+                    val agent =
+                        it.generating
+                            ?: AgentRole.entries.find { role ->
+                                role.id == event.optString("agent")
+                            }
+                    if (agent != null && (it.generating != null || event.optBoolean("model_turn")))
+                        it.copy(replyError = ReplyError(agent, message))
+                    else it.copy(error = message)
+                }
             "models",
             "models_loading",
             "models_error" -> receiveModels(event)
-            "user" ->
+            "reply_end" -> mutableState.update { it.copy(blocks = it.blocks + decodeBlock(event)) }
+            "user",
+            "system" ->
                 mutableState.update {
                     it.copy(
                         blocks =
@@ -212,50 +354,70 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                     content = event.optString("text"),
                                     version = event.optString("version"),
                                     attachmentNames = event.attachmentNames(),
+                                    system = event.optString("kind") == "system",
+                                    thumbnails = event.thumbnails(),
                                 )
                     )
                 }
             "delta",
+            "open_ui_delta",
+            "open_ui_end",
             "tool_start",
-            "tool_end",
-            "turn_end" -> receiveTrace(event)
+            "tool_end" -> receiveTrace(event)
         }
     }
 
-    private fun receiveTrace(event: JSONObject) = mutableState.update { current ->
-        val id = event.getString("block")
-        val index = current.blocks.indexOfLast { it.id == id }
-        if (index < 0 && event.optString("kind") == "turn_end") return@update current
-        val old = current.blocks.getOrNull(index) ?: TraceBlock(id, event.optString("agent"))
-        val changed =
-            when (event.optString("kind")) {
-                "turn_end" -> old.copy(streaming = false)
-                "tool_start" ->
-                    old.copy(
-                        tool = event.optString("name"),
-                        arguments = event.optString("arguments"),
-                        running = true,
-                    )
-                "tool_end" ->
-                    old.copy(
-                        tool = event.optString("name"),
-                        result = event.optString("text"),
-                        running = false,
-                    )
-                else ->
-                    if (event.optString("type") == "reasoning")
+    private fun receiveTrace(event: JSONObject, finished: TraceBlock? = null) =
+        mutableState.update { current ->
+            val id = event.getString("block")
+            val index = current.blocks.indexOfLast { it.id == id }
+            if (index < 0 && event.optString("kind") in setOf("turn_end", "open_ui_end"))
+                return@update current
+            val old = current.blocks.getOrNull(index) ?: TraceBlock(id, event.optString("agent"))
+            val changed =
+                when (event.optString("kind")) {
+                    "turn_end" -> finished ?: old
+                    "open_ui_delta" ->
                         old.copy(
-                            reasoning = old.reasoning + event.optString("text"),
+                            openUi = old.openUi.orEmpty() + event.optString("text"),
                             streaming = true,
                         )
-                    else old.copy(content = old.content + event.optString("text"), streaming = true)
-            }
-        current.copy(
-            blocks =
-                if (index < 0) current.blocks + changed
-                else current.blocks.toMutableList().apply { set(index, changed) }
-        )
-    }
+                    "open_ui_end" -> old.copy(streaming = false)
+                    "tool_start" ->
+                        old.copy(
+                            tool = event.optString("name"),
+                            arguments = event.optString("arguments"),
+                            running = true,
+                        )
+                    "tool_end" ->
+                        old.copy(
+                            tool = event.optString("name"),
+                            result = event.optString("text"),
+                            running = false,
+                        )
+                    else ->
+                        if (event.optString("type") == "reasoning")
+                            old.copy(
+                                reasoning = old.reasoning + event.optString("text"),
+                                streaming = true,
+                            )
+                        else
+                            old.copy(
+                                content = old.content + event.optString("text"),
+                                streaming = true,
+                            )
+                }
+            current.copy(
+                blocks =
+                    if (index < 0) current.blocks + changed
+                    else current.blocks.toMutableList().apply { set(index, changed) }
+            )
+        }
+
+    private fun TraceBlock.finishMarkdown() =
+        if (!user && content.isNotBlank())
+            copy(streaming = false, markdown = parseMarkdown(content) as? MarkdownState.Success)
+        else if (streaming) copy(streaming = false) else this
 
     private fun receiveModels(event: JSONObject) {
         val id = event.optString("provider")
@@ -286,9 +448,36 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         documents: List<String>,
         role: AgentRole,
         stage: Boolean = false,
+        system: Boolean = false,
+        pluginAttachment: PluginAttachmentType? = null,
+        openUiAction: JSONObject? = null,
     ): Boolean {
         val current = state.value
-        if (!current.ready || current.busy || current.preparing) return false
+        if (!current.ready || current.preparing || current.preset.isBlank()) return false
+        if (openUiAction != null && current.busy) return false
+        if (current.generating == role) {
+            if (text.isBlank() || documents.isNotEmpty()) return false
+            return try {
+                engine
+                    .await()
+                    .query(
+                        JSONObject()
+                            .put("op", "steer")
+                            .put("chat", current.chatId)
+                            .put("agent", role.id)
+                            .put("role", if (system) "system" else "user")
+                            .put("text", text)
+                    )
+                true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                report(failure)
+                false
+            }
+        }
+        if (current.busy) return false
+        if (system && (text.isBlank() || documents.isNotEmpty())) return false
         val provider = current.providers.find { it.id == current.assigned(role)?.provider }
         if (provider == null) {
             mutableState.update {
@@ -298,18 +487,37 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
             return false
         }
-        mutableState.update { it.copy(preparing = true) }
+        mutableState.update { it.copy(preparing = true, replyError = null) }
         try {
-            val imported = attachments.import(documents, provider.protocol)
+            val draft = current.branchDraft.takeIf { role == AgentRole.Chat }
+            val imported =
+                attachments.import(
+                    documents,
+                    provider.protocol,
+                    pluginAttachment,
+                    draft?.attachments.orEmpty(),
+                )
+            val action = openUiAction ?: draft?.takeIf { !system && it.text == text }?.openUiAction
             currentCoroutineContext().ensureActive()
-            if (current.chatId.isBlank()) chooseChat(current.preset)
-            command("message") {
-                put("agent", role.id)
-                put("text", text)
-                put("stage", stage)
-                put("attachments", imported)
-            }
-            return true
+            val result =
+                engine
+                    .await()
+                    .query(
+                        JSONObject()
+                            .put("op", "message")
+                            .put("chat", current.chatId)
+                            .put("preset", current.preset)
+                            .put("agent", role.id)
+                            .put("role", if (system) "system" else "user")
+                            .put("text", text)
+                            .put("stage", stage)
+                            .put("open_ui_action", action)
+                            .put("attachments", imported),
+                        timeoutMillis = null,
+                    )
+            val accepted = result.optString("kind") == "message_accepted"
+            if (accepted && draft != null) mutableState.update { it.copy(branchDraft = null) }
+            return accepted
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
@@ -320,31 +528,302 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    internal fun openUiDraft(chatId: String, id: String): String =
+        openUiDrafts.get(chatId to id).orEmpty()
+
+    internal fun saveOpenUiDraft(chatId: String, id: String, value: String) {
+        if (value.length <= 32768) openUiDrafts.put(chatId to id, value)
+    }
+
+    internal fun respondToOpenUi(
+        chatId: String,
+        id: String,
+        text: String,
+        data: JSONObject,
+    ): Boolean {
+        val current = state.value
+        if (
+            current.chatId != chatId ||
+                current.busy ||
+                current.preparing ||
+                !current.blocks.any { it.id == id && it.openUi != null } ||
+                text.length !in 1..2000 ||
+                data.toString().length > 16384
+        )
+            return false
+        viewModelScope.launch {
+            send(
+                text,
+                emptyList(),
+                AgentRole.Chat,
+                openUiAction = JSONObject().put("block", id).put("data", data),
+            )
+        }
+        return true
+    }
+
     fun chooseChat(preset: String, id: String = "") =
-        command("select_chat") {
+        command(if (id.isEmpty()) "home" else "select_chat") {
             put("preset", preset)
             put("id", id)
         }
 
-    fun branch(id: String) =
+    fun selectPreset(preset: String) {
+        val current = state.value
+        if (current.chatId.isBlank() && current.preset != preset) chooseChat(preset)
+        else selectLibraryPreset(preset)
+    }
+
+    private fun showHome(
+        preset: String,
+        config: JSONObject,
+        blocks: List<TraceBlock> = emptyList(),
+        editPreset: Boolean = false,
+    ) {
+        selectLibraryPreset(preset)
+        val changedPreset = preset != state.value.preset
+        if (changedPreset) {
+            askedHome = false
+            homeRequest = ""
+        }
+        mutableState.update {
+            val keepDraft =
+                changedPreset && it.chatId.isBlank() && preset.isNotBlank() && !editPreset
+            it.copy(
+                chatId = "",
+                conversationViewKey =
+                    if (keepDraft) it.conversationViewKey else "home:${UUID.randomUUID()}",
+                chatName = "",
+                blocks = blocks,
+                branchDraft = null,
+                replyError = null,
+                preset = preset,
+                presetName = config.optString("name", preset),
+                homeSuggestions = if (it.preset == preset) it.homeSuggestions else emptyList(),
+                presetEditorOpen = editPreset,
+                agenticSearch = config.optBoolean("agentic_search", true),
+                agentPrompts = config.agentPrompts(),
+            )
+        }
+        if (changedPreset) command("plugin_settings")
+        persist()
+    }
+
+    fun openPresetEditor(create: Boolean = false) {
+        val current = state.value
+        if (!current.ready || current.busy || current.preparing || current.presetEditorOpen) return
+        if (!create && current.preset.isBlank()) return
+        mutableState.update { it.copy(preparing = true) }
+        viewModelScope.launch {
+            try {
+                val command =
+                    if (create)
+                        JSONObject()
+                            .put("op", "create_preset")
+                            .put("open", true)
+                            .put(
+                                "name",
+                                getApplication<Application>().getString(R.string.create_preset),
+                            )
+                    else
+                        JSONObject()
+                            .put("op", "open_preset")
+                            .put("preset", current.preset)
+                            .put("chat", current.chatId)
+                val result = engine.await().query(command)
+                val preset = result.getString("preset")
+                val config = result.getJSONObject("config")
+                val blocks =
+                    withContext(Dispatchers.Default) {
+                        result.getJSONArray("blocks").objects().map {
+                            decodeBlock(it).finishMarkdown()
+                        }
+                    }
+                if (result.optBoolean("created")) {
+                    showHome(preset, config, blocks, editPreset = true)
+                } else {
+                    mutableState.update {
+                        it.copy(
+                            blocks =
+                                it.blocks.filterNot { block -> block.role == AgentRole.Preset } +
+                                    blocks,
+                            replyError =
+                                it.replyError?.takeUnless { error ->
+                                    error.agent == AgentRole.Preset
+                                },
+                            presetName = config.optString("name", preset),
+                            presetEditorOpen = true,
+                            agenticSearch = config.optBoolean("agentic_search", true),
+                            agentPrompts = config.agentPrompts(),
+                        )
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                report(error)
+            } finally {
+                mutableState.update { it.copy(preparing = false) }
+            }
+        }
+    }
+
+    fun closePresetEditor() = mutableState.update { it.copy(presetEditorOpen = false) }
+
+    fun deleteChoice(preset: String, id: String, isPreset: Boolean) {
+        command(if (isPreset) "delete_preset" else "delete_chat") {
+            put("id", id)
+            put("preset", preset)
+        }
+    }
+
+    fun updateSetting(setting: PluginSetting, value: Any) {
+        when {
+            setting.binding == "thoughts" -> {
+                thoughts(value == true)
+                return
+            }
+            setting.binding == "fetch" -> {
+                fetchMode(value.toString())
+                return
+            }
+            setting.binding.startsWith("prompt/") -> {
+                prompt(setting.binding.substringAfter('/'), value.toString())
+                return
+            }
+        }
+        viewModelScope.launch {
+            try {
+                val result =
+                    engine
+                        .await()
+                        .query(
+                            JSONObject()
+                                .put("op", "plugin_setting")
+                                .put("id", setting.plugin)
+                                .put("key", setting.key)
+                                .put("value", value)
+                        )
+                receive(result)
+                askedHome = false
+                mutableState.update { it.copy(homeSuggestions = emptyList()) }
+                requestHome()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                report(failure)
+            }
+        }
+    }
+
+    fun requestHome() {
+        val current = state.value
+        val locale =
+            getApplication<Application>().resources.configuration.locales[0].toLanguageTag()
+        if (homeLocale != locale) {
+            homeLocale = locale
+            askedHome = false
+        }
+        if (
+            askedHome ||
+                !current.ready ||
+                current.preset.isBlank() ||
+                current.presetEditorOpen ||
+                current.chatId.isNotBlank() ||
+                current.assigned(AgentRole.Chat) == null
+        )
+            return
+        askedHome = true
+        homeRequest = UUID.randomUUID().toString()
+        command("home_request") {
+            put("request", homeRequest)
+            put("locale", locale)
+        }
+    }
+
+    internal suspend fun inspectPlugin(file: java.io.File) =
+        decodePlugin(
+            engine
+                .await()
+                .query(JSONObject().put("op", "plugin_inspect").put("path", file.path))
+                .getJSONObject("item")
+        )
+
+    internal suspend fun pluginPage(id: String, key: String): PluginSetting =
+        decodePluginSetting(
+            engine
+                .await()
+                .query(JSONObject().put("op", "plugin_page").put("id", id).put("key", key))
+                .getJSONObject("item")
+        )
+
+    internal suspend fun installPlugin(file: java.io.File) {
+        engine.await().query(JSONObject().put("op", "plugin_install").put("path", file.path))
+        command("plugins_list")
+        command("plugin_settings")
+    }
+
+    internal fun removePlugin(id: String) {
+        command("plugin_uninstall") { put("id", id) }
+        command("plugin_settings")
+    }
+
+    internal suspend fun setPluginScope(id: String, scope: PluginScope) {
+        val result =
+            engine
+                .await()
+                .query(
+                    JSONObject()
+                        .put("op", "plugin_scope")
+                        .put("id", id)
+                        .put("scope", scope.encode())
+                )
+        receive(result)
+    }
+
+    internal fun openSettingLink(setting: PluginSetting) =
+        command("plugin_action") {
+            put("id", setting.plugin)
+            put("key", setting.key)
+        }
+
+    internal suspend fun settingMarkdown(url: String): String =
+        engine.await().readAsset(url, 256 * 1024).decodeToString(throwOnInvalidSequence = true)
+
+    internal suspend fun thumbnail(role: AgentRole, preview: AttachmentThumbnail): ByteArray =
+        engine.await().readAsset(preview.url, 1024 * 1024, role.id, preview.attachment)
+
+    internal fun runPlugin(id: String) = command("plugin_command") { put("id", id) }
+
+    internal fun pluginFailure(failure: Exception) = report(failure)
+
+    fun branch(id: String, afterReply: Boolean = false) =
         command("branch") {
             put("block", id)
             put("chat", state.value.chatId)
+            put("mode", if (afterReply) "reply" else "edit")
         }
 
     fun generateTitle() = command("generate_title")
 
     fun rename(title: String) = command("rename") { put("name", title.trim()) }
 
-    fun searchMode(enabled: Boolean) = command("save_search_mode") { put("enabled", enabled) }
+    fun searchMode(enabled: Boolean) =
+        command("save_search_mode") {
+            put("enabled", enabled)
+            put("preset", state.value.preset)
+        }
 
     fun cancel() = command("cancel")
 
     fun clearError() = mutableState.update { it.copy(error = null) }
 
-    fun prompt(text: String) {
-        command("save_prompt") { put("text", text) }
-        mutableState.update { it.copy(systemPrompt = text) }
+    private fun prompt(agent: String, text: String) {
+        if (state.value.preset.isBlank()) return
+        command("save_prompt") {
+            put("agent", agent)
+            put("text", text)
+        }
     }
 
     suspend fun memory(
@@ -463,6 +942,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 "settings",
                 JSONObject()
                     .put("fetch_backend", current.fetchMode)
+                    .put("android_open_ui", openUiInstructions)
                     .put(
                         "search_key",
                         current.providers.find { it.url.contains("deepseek") }?.key.orEmpty(),

@@ -127,4 +127,32 @@
         <item quantity="many">%1$d modely</item>
         <item quantity="other">%1$d modely</item>
     </plurals>
+    <string name="latest_message">Nejnovější zpráva</string>
+    <string name="steer">Navést</string>
+    <string name="send_as_system">Odeslat jako systémovou zprávu</string>
+    <string name="system_message">Systémová zpráva</string>
+    <string name="photos_videos">Fotky a videa</string>
+    <string name="choose_files">Vybrat soubory</string>
+    <string name="plugins">Doplňky</string>
+    <string name="install_plugin">Nainstalovat doplněk</string>
+    <string name="run_plugin">Spustit</string>
+    <string name="remove_plugin">Odinstalovat</string>
+    <string name="built_in">Vestavěné</string>
+    <string name="plugin_resource_request">%1$s chce, abyste vybrali soubory</string>
+    <string name="delete_chat">Smazat chat</string>
+    <string name="delete_preset">Smazat předvolbu</string>
+    <string name="delete_named">Smazat „%1$s“?</string>
+    <string name="delete_preset_detail">Tím se také smažou chaty v této předvolbě.</string>
+    <string name="behavior_settings">Vzhled a chování</string>
+    <string name="model_provider_settings">Modely a poskytovatelé</string>
+    <string name="about">O aplikaci</string>
+    <string name="interactive_reply">Interaktivní odpověď</string>
+    <string name="interactive_reply_unavailable">Interaktivní odpověď nelze načíst</string>
+    <string name="welcome_to_preset">Vítejte v</string>
+    <string name="branch_edit_message">Upravit ve větvi</string>
+    <string name="no_presets_yet">Zatím žádné předvolby</string>
+    <string name="plugin_scope">Rozsah předvoleb</string>
+    <string name="plugin_scope_global">Všechny předvolby</string>
+    <string name="plugin_scope_include">Jen vybrané předvolby</string>
+    <string name="plugin_scope_exclude">Všechny kromě vybraných</string>
 </resources>

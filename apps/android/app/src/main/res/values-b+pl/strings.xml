@@ -127,4 +127,32 @@
         <item quantity="many">%1$d modely</item>
         <item quantity="other">%1$d modely</item>
     </plurals>
+    <string name="latest_message">Ostatnia wiadomość</string>
+    <string name="steer">Pokieruj</string>
+    <string name="send_as_system">Wyślij jako wiadomość systemową</string>
+    <string name="system_message">Wiadomość systemowa</string>
+    <string name="photos_videos">Zdjęcia i filmy</string>
+    <string name="choose_files">Wybierz pliki</string>
+    <string name="plugins">Wtyczki</string>
+    <string name="install_plugin">Zainstaluj wtyczkę</string>
+    <string name="run_plugin">Uruchom</string>
+    <string name="remove_plugin">Odinstaluj</string>
+    <string name="built_in">Wbudowane</string>
+    <string name="plugin_resource_request">%1$s prosi o wybranie plików</string>
+    <string name="delete_chat">Usuń czat</string>
+    <string name="delete_preset">Usuń preset</string>
+    <string name="delete_named">Usunąć „%1$s”?</string>
+    <string name="delete_preset_detail">Spowoduje to również usunięcie czatów z tego presetu.</string>
+    <string name="behavior_settings">Wygląd i zachowanie</string>
+    <string name="model_provider_settings">Modele i dostawcy</string>
+    <string name="about">Informacje</string>
+    <string name="interactive_reply">Interaktywna odpowiedź</string>
+    <string name="interactive_reply_unavailable">Nie udało się wczytać interaktywnej odpowiedzi</string>
+    <string name="welcome_to_preset">Witaj w</string>
+    <string name="branch_edit_message">Edytuj w gałęzi</string>
+    <string name="no_presets_yet">Nie ma jeszcze presetów</string>
+    <string name="plugin_scope">Zakres presetów</string>
+    <string name="plugin_scope_global">Wszystkie presety</string>
+    <string name="plugin_scope_include">Tylko wybrane presety</string>
+    <string name="plugin_scope_exclude">Wszystkie poza wybranymi</string>
 </resources>

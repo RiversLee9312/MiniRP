@@ -1,0 +1,21 @@
+{
+  "name": "@minichat/android-openui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@openuidev/intelligent-ui-library": "0.0.1",
+    "@openuidev/lang-core": "1.1.1",
+    "@openuidev/react-lang": "1.1.1",
+    "maplibre-gl": "6.13.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

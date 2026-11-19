@@ -1,5 +1,18 @@
 package com.minichat.app.ui
 
+import com.mikepenz.markdown.model.State as MarkdownState
+import org.json.JSONObject
+
+data class AttachmentThumbnail(val url: String, val attachment: JSONObject)
+
+data class BranchDraft(
+    val text: String,
+    val attachments: Map<String, JSONObject>,
+    val openUiAction: JSONObject?,
+)
+
+data class ReplyEnd(val text: String, val firstBlock: String)
+
 data class TraceBlock(
     val id: String,
     val agent: String = "chat",
@@ -13,6 +26,11 @@ data class TraceBlock(
     val streaming: Boolean = false,
     val version: String = "",
     val attachmentNames: List<String> = emptyList(),
+    val system: Boolean = false,
+    val thumbnails: List<AttachmentThumbnail> = emptyList(),
+    val markdown: MarkdownState.Success? = null,
+    val openUi: String? = null,
+    val replyEnd: ReplyEnd? = null,
 ) {
     val role: AgentRole
         get() =
@@ -57,13 +75,17 @@ data class ModelCatalog(
     val request: String = "",
 )
 
+data class ReplyError(val agent: AgentRole, val message: String)
+
 data class ChatState(
     val busy: Boolean = false,
+    val generating: AgentRole? = null,
     val ready: Boolean = false,
     val preparing: Boolean = false,
-    val preset: String = "default",
+    val preset: String = "",
     val chatName: String = "",
     val chatId: String = "",
+    val conversationViewKey: String = "home",
     val blocks: List<TraceBlock> = emptyList(),
     val providers: List<ProviderConfig> = emptyList(),
     val savedModels: List<SavedModel> = emptyList(),
@@ -71,11 +93,17 @@ data class ChatState(
     val modelCatalogs: Map<String, ModelCatalog> = emptyMap(),
     val catalog: List<ProviderConfig> = emptyList(),
     val presetName: String = "",
+    val presetEditorOpen: Boolean = false,
+    val branchDraft: BranchDraft? = null,
     val expandThoughts: Boolean = false,
     val fetchMode: String = "api_then_local",
-    val systemPrompt: String = "",
+    val agentPrompts: Map<String, String> = emptyMap(),
     val agenticSearch: Boolean = true,
     val error: String? = null,
+    val replyError: ReplyError? = null,
+    val pluginSettings: List<PluginSetting> = emptyList(),
+    val installedPlugins: List<PluginInfo> = emptyList(),
+    val homeSuggestions: List<String> = emptyList(),
 ) {
     fun assigned(role: AgentRole): SavedModel? = assignments[role] ?: assignments[AgentRole.Chat]
 }

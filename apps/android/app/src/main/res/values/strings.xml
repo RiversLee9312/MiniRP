@@ -124,4 +124,32 @@
         <item quantity="one">%1$d model</item>
         <item quantity="other">%1$d models</item>
     </plurals>
+    <string name="latest_message">Latest message</string>
+    <string name="steer">Steer</string>
+    <string name="send_as_system">Send as system message</string>
+    <string name="system_message">System message</string>
+    <string name="photos_videos">Photos and videos</string>
+    <string name="choose_files">Choose files</string>
+    <string name="plugins">Plugins</string>
+    <string name="install_plugin">Install plugin</string>
+    <string name="run_plugin">Run</string>
+    <string name="remove_plugin">Uninstall</string>
+    <string name="built_in">Built in</string>
+    <string name="plugin_resource_request">%1$s wants you to choose files</string>
+    <string name="delete_chat">Delete chat</string>
+    <string name="delete_preset">Delete preset</string>
+    <string name="delete_named">Delete “%1$s”?</string>
+    <string name="delete_preset_detail">This also deletes the chats in this preset.</string>
+    <string name="behavior_settings">Appearance and behavior</string>
+    <string name="model_provider_settings">Models and providers</string>
+    <string name="about">About</string>
+    <string name="welcome_to_preset">Welcome to</string>
+    <string name="interactive_reply">Interactive reply</string>
+    <string name="interactive_reply_unavailable">Couldn’t load the interactive reply</string>
+    <string name="branch_edit_message">Edit in a branch</string>
+    <string name="no_presets_yet">No presets yet</string>
+    <string name="plugin_scope">Preset scope</string>
+    <string name="plugin_scope_global">All presets</string>
+    <string name="plugin_scope_include">Selected presets only</string>
+    <string name="plugin_scope_exclude">All except selected</string>
 </resources>

@@ -42,15 +42,29 @@ internal sealed class WorkspaceCatalog : IDisposable
     public void Chat(string preset, string id, string name, string updated) =>
         db.Execute("INSERT INTO chats VALUES(?,?,?,?) ON CONFLICT(preset,id) DO UPDATE SET name=excluded.name,updated=excluded.updated", preset, id, name, updated);
 
-    public JsonArray Page(string preset, int offset, int limit)
+    public void RemoveChat(string preset, string id) => db.Execute("DELETE FROM chats WHERE preset=? AND id=?", preset, id);
+
+    public void RemovePreset(string preset)
+    {
+        lock (indexGate)
+        {
+            db.Execute("DELETE FROM presets WHERE id=?", preset);
+            db.Execute("DELETE FROM chats WHERE preset=?", preset);
+        }
+    }
+
+    public JsonArray Page(string preset, int offset, int limit, PluginScope? scope = null)
     {
         if (preset.Length > 0)
         {
             LoadLegacy(Workspace.Safe(preset));
         }
-        var rows = preset.Length == 0
-            ? db.Query("SELECT id,name FROM presets ORDER BY name COLLATE NOCASE,id LIMIT ? OFFSET ?", limit, offset)
-            : db.Query("SELECT id,name FROM chats WHERE preset=? ORDER BY updated DESC,id LIMIT ? OFFSET ?", preset, limit, offset);
+        var rows = preset.Length > 0
+            ? db.Query("SELECT id,name FROM chats WHERE preset=? ORDER BY updated DESC,id LIMIT ? OFFSET ?", preset, limit, offset)
+            : scope is { Mode: "include" or "exclude" }
+                ? db.Query("SELECT id,name FROM presets WHERE (id IN (SELECT value FROM json_each(?))) = ? ORDER BY name COLLATE NOCASE,id LIMIT ? OFFSET ?",
+                    JsonValues.Serialize(scope.Describe()["presets"]), scope.Mode == "include" ? 1 : 0, limit, offset)
+                : db.Query("SELECT id,name FROM presets ORDER BY name COLLATE NOCASE,id LIMIT ? OFFSET ?", limit, offset);
         var result = new JsonArray();
         foreach (var row in rows)
         {
