@@ -107,8 +107,13 @@ class NavigationTest {
         }
         compose.setContent { MiniRP(model) }
         compose.waitUntil(10_000) { model.state.value.ready }
+        val previous = model.state.value
         compose.runOnIdle { model.chooseChat(preset) }
-        compose.waitUntil(10_000) { model.state.value.ready && model.state.value.preset == preset }
+        compose.waitUntil(10_000) {
+            val current = model.state.value
+            current.preset == preset &&
+                (previous.preset != preset || current.conversationViewKey != previous.conversationViewKey)
+        }
     }
 
     @After
