@@ -12,7 +12,7 @@ public sealed class BrowserTests
     [TestMethod]
     public async Task PlaywrightCapturesFullLongPageWithoutReplacingItWithSummary()
     {
-        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../../"));
+        var root = TestWorkspace.Root;
         if (!File.Exists(Path.Combine(root, "node_modules", "@playwright", "mcp", "cli.js")))
         {
             Assert.Inconclusive("Run npm ci to enable the local browser integration test.");

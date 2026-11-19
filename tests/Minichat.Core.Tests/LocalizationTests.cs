@@ -9,7 +9,7 @@ public sealed partial class LocalizationTests
     [TestMethod]
     public void AtLeastTwentyFiveLocalesHaveCompleteResourcesAndMatchingPlaceholders()
     {
-        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../../apps/android/app/src/main/res"));
+        var root = Path.Combine(TestWorkspace.Root, "apps", "android", "app", "src", "main", "res");
         var canonical = XDocument.Load(Path.Combine(root, "values", "strings.xml")).Root!.Elements()
             .Where(element => element.Attribute("translatable")?.Value != "false")
             .ToDictionary(element => element.Attribute("name")!.Value);

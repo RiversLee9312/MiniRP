@@ -202,16 +202,22 @@ public sealed class ExtensionTests
         Assert.AreEqual("home", result.GetString("request"));
         Assert.AreEqual(5, result.GetArray("items").Count);
         using var db = new MemoryDb(database);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await WaitForWrite(previous: null);
         Assert.AreEqual("test.fixture:chat:1", db.Get("test"));
         engine.Dispatch(new() { ["op"] = "plugin_command", ["id"] = "fixture" });
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        while (db.Get("test") == "test.fixture:chat:1")
-        {
-            foreach (var item in engine.Poll().OfType<JsonObject>()) Process(engine, item, scripts, deadline.Token);
-            await Task.Delay(8, deadline.Token);
-        }
+        await WaitForWrite("test.fixture:chat:1");
         Assert.AreEqual("command:null:2", db.Get("test"));
         Assert.IsTrue(File.ReadAllBytes(plugin).SequenceEqual(File.ReadAllBytes(Path.Combine(root, "plugins", "fixture.plugin"))));
+
+        async Task WaitForWrite(string? previous)
+        {
+            while (db.Get("test") == previous)
+            {
+                foreach (var item in engine.Poll().OfType<JsonObject>()) Process(engine, item, scripts, deadline.Token);
+                await Task.Delay(8, deadline.Token);
+            }
+        }
     }
 
     [TestMethod]
