@@ -1,19 +1,19 @@
 (() => {
-  if (window.minichat) return 'ready';
+  if (window.minirp) return 'ready';
   const elements = new Map();
   let counter = 0;
   function snapshot() {
     const lines = [];
     for (const el of document.querySelectorAll('h1,h2,h3,p,a,button,input,textarea,select,[role="button"],[role="link"]')) {
       if (!el.getClientRects().length) continue;
-      let ref = el.dataset.minichatRef;
-      if (!ref) { ref = 'e' + ++counter; el.dataset.minichatRef = ref; elements.set(ref, el); }
+      let ref = el.dataset.minirpRef;
+      if (!ref) { ref = 'e' + ++counter; el.dataset.minirpRef = ref; elements.set(ref, el); }
       const label = (el.innerText || el.getAttribute('aria-label') || el.placeholder || '').trim();
       if (label) lines.push(`[${ref}] ${el.tagName.toLowerCase()} ${label}`);
     }
     return {url:location.href,title:document.title,snapshot:lines.join('\n')};
   }
-  window.minichat = {
+  window.minirp = {
     content: '',
     capture() {
       const clone = document.body.cloneNode(true);

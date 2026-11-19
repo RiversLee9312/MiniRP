@@ -1,0 +1,12 @@
+<Project Sdk="MSTest.Sdk/4.5.3">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/MiniRP.Core/MiniRP.Core.csproj" />
+    <ProjectReference Include="../../src/MiniRP.Cli/MiniRP.Cli.csproj" />
+  </ItemGroup>
+</Project>

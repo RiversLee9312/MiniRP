@@ -6,6 +6,7 @@
     <string name="presets">Presets</string>
     <string name="settings">Instellingen</string>
     <string name="new_chat">Nieuwe chat</string>
+    <string name="new_room">Nieuwe kamer</string>
     <string name="conversations">Chats</string>
     <string name="models">Modellen</string>
     <string name="providers">Providers</string>

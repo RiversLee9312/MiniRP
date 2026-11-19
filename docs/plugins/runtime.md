@@ -1,0 +1,70 @@
+# 运行时、清单与事件
+
+## 生命周期与执行
+
+- 启动时宿主加载已安装包，验证签名，随后投递 `app.ready`。内置插件随应用发布，拥有保留身份。手动安装、更新和 PluginAgent 部署都在保存签名包后向新实例投递 `plugin.enabled`。如果当前预设在允许的范围内，事件会使用它的上下文。限定预设的插件没有匹配上下文时，宿主会使用一个允许的预设。作用域为空时，Hook 仍可运行，但无法访问工作区。更新和卸载都会取消旧实例的调用、关闭它的 Asset 句柄并拒绝它仍在排队的 Harness 写入。已提交的数据按包名和证书指纹保留。当前没有卸载 Hook。
+- 每个已加载插件按需创建一个 V8 isolate。入口脚本每次 isolate 初始化执行一次，定义 `globalThis.handlers`。同一 isolate 内可以复用全局缓存和内存状态，升级、卸载、应用退出或 isolate 因异常重建时会丢失它们。
+- 每个插件有独立且有界的事件队列。普通 Hook 和 Actions 按入队顺序运行。技能工具、附件处理和动态资源由各自的调用方等待，可以在同一 isolate 内和普通 Hook 交错执行。每次调用拥有自己的参数、环境和待完成 Promise。单次 V8 执行仍是单线程，两个调用可在 `await` 边界交错。
+- V8 步骤和宿主 I/O 在后台运行。一个插件等待模型、文件选择或网络时，别的插件照常接收事件。普通 Hook 有 90 秒调用期限。动态资源在首次拉取时执行，生成期限为 5 分钟。单次 V8 步骤和 JS 清理均有 2 秒执行限制。取消宿主 I/O 后，宿主会清理对应调用。同一个 isolate 上的 V8 执行如果被中断、超时或未能完成清理，宿主会关闭它并在下一次调用时重新加载入口脚本。独立 isolate 继续运行。队列容量为 128，宿主流式事件在队列满时可能被丢弃，Actions 有明确的接受回执。
+- JavaScript 基线是 ECMAScript 2022，宿主提供 WHATWG Streams。可以用原生 `Uint8Array`、`ArrayBuffer`、`DataView` 和 Promise。运行环境是内嵌 V8，可用能力以本文所列为准。HTTP、文件选择、模型和持久化通过各自的宿主 API 完成。
+## 清单
+
+`manifest.json` 位于 ZIP 根目录，UTF-8 编码，只读，由包签名覆盖。完整示例见 [示例清单](../../examples/stream-assets/plugin/manifest.json)。
+
+| 字段 | 类型和含义 |
+| --- | --- |
+| `id` | 宿主 UI、CLI 命令和技能工具前缀使用的短 ID。小写字母开头，允许小写字母、数字、连字符和下划线，至多 48 字符。 |
+| `packageName` | URL 和签名身份使用的反域名，如 `com.example.notes`。各段以小写字母开头，允许小写字母、数字和下划线。总长至多 150 字符。`minirp.*` 与旧前缀 `minichat.*` 均保留。 |
+| `name` | 安装界面显示的名称，1–120 字符。 |
+| `apiVersion` | 宿主契约版本，当前为 `2`。 |
+| `entry` | ZIP 内入口脚本路径，扩展名为 `.js`，UTF-8，最大 2 MiB。 |
+| `permissions` | 可选。声明 `db`、`harness.read`、`harness.write`、`http`、`model`、`picker`、`settings`。 |
+| `network` | 使用 HTTP 时列出精确 HTTP(S) origin，例如 `https://example.com`。路径、通配符和自动重定向不参与授权。 |
+| `actions` | `handlers` 把 Hook ID 映射到 JS 导出名，`events` 声明本包的事件源 ID，`subscriptions` 将事件源 URL 映射到本包的 Hook URL。 |
+| `hooks` | 宿主事件名到本包 Hook URL 的映射。 |
+| `assets` | 资源声明数组，详见 Assets。 |
+| `skills` | Agent 技能声明数组，详见 Skills。 |
+| `stateEntries` | 插件维护的结构化状态声明，可按角色技能投影为会话 DB 的只读项。 |
+| `cards` | 可由 Agent 引用的 OpenUI 卡片声明。 |
+| `attachments` | 附件类型声明数组。 |
+| `settings` | 设置节点数组。 |
+
+Hook 的实现以 `handlers[导出名](event, api)` 被调用，可返回 Promise。清单中只有 `actions.handlers` 填写 JS 导出名。宿主事件、技能 Hook、技能工具、附件类型和动态 Asset 里的回调均使用本包的 Hook URL。
+
+`api.environment` 是调用时的只读快照，可能含有 `session`、`room`、`chat`、`preset`、`agent` 和群像角色 `participant`。无上下文的字段可能为 `null` 或缺失，例如 `app.ready` 没有会话。普通会话的 Chat 和 Room 使用同一个 UUID。群像的 Env 会话属于 Room，每个角色的 Chat 和 Search 会话也保存在 Room 内，事件的 `chat` 则指当前发生交互的那条 Chat。Preset 会话按预设共享，Fetch 和临时 Agent 按任务建立会话。作用域详见 [数据库与状态](state.md)。
+
+用户可在插件管理中设置预设作用域。第三方插件默认在所有预设中运行，可仅启用所选预设，也可排除所选预设。仅启用所选预设时，插件也会跳过无预设上下文的事件。排除模式仍接收无预设上下文的事件。内置插件固定为全局。宿主保存此配置，签名包及其 `manifest.json` 保持只读。
+
+作用域适用于事件、技能、附件、设置和通过 URL 调用的 Hook 与 Asset。插件使用 Harness API 显式指定预设时，宿主也检查目标预设。`harness.listPresets()` 按作用域分页。预设删除后，插件的作用域不会自动扩大。
+## 宿主事件
+
+宿主事件均含 `name`。聊天、工具等事件的详细 payload 需要 `harness.read`。没有该权限时仍能得到名称及环境。应用保留的权限和事件用在内置扩展中。
+
+| 名称 | 触发时机和主要载荷 |
+| --- | --- |
+| `app.ready` | 插件加载完成。无聊天上下文。 |
+| `plugin.enabled` | 本包成功安装或更新。 |
+| `plugin.command` | 用户在插件页点运行或输入 `/plugin-run <id>`。 |
+| `chat.loaded` | 打开普通聊天或群像 Room 中的一条 Chat。群像提供 `room`、`chat` 和 `preset`。 |
+| `room.loaded` | 打开群像 Room。提供 `room`、`preset`、`chats` 和 `config`。 |
+| `chat.changed` | 打开首页或切换预设，`preset`、`config`。 |
+| `chat.title` | 标题生成或更新，`id`、`name`。 |
+| `room.title` | 群像 Room 的标题生成或更新，`id`、`preset`、`name`。 |
+| `library.changed` | 会话或预设目录变化，可能有 `preset`。 |
+| `preset.changed` | 当前预设配置变更，`config`。 |
+| `preset.created` | 预设建档后。事件环境带新预设 ID。拥有 `harness.read` 时还可读取 `preset` 和 `title`。 |
+| `message.user` | 用户消息已写入，`agent`、`block`、`text`，可附检查点或附件。 |
+| `message.system` | 系统消息已写入，`agent`、`block`、`text`。 |
+| `message.completed` | Agent 完成回复，`agent`、`text`。 |
+| `turn.started` | 开始一次模型请求，`agent`、`block`。 |
+| `turn.delta` | 流式正文增量，`block`、`text`。 |
+| `turn.finished` | 模型请求结束，`agent`、`block`、`interrupted`。 |
+| `turn.cancelled` | 工作区操作取消，可含 `request`。 |
+| `tool.started` | 工具执行开始，`agent`、`block`、`name`（事件名覆盖原字段）、`arguments`。 |
+| `tool.finished` | 工具结束，`agent`、`block`、`text`。 |
+| `context.compacted` | Agent 历史完成压缩。 |
+| `world.changed` | 该回合修改了世界状态。 |
+| `settings.changed` | 本包设置保存，`key`、`value`。 |
+| `home.requested` | 首页请求推荐，`request`、`locale`。内置插件可通过 `ui.setHomeSuggestions({request,items})` 提交最多 5 条。 |
+
+附件处理、技能激活和动态资源通过各自的声明投递，名称分别为 `attachment.process`、`skill.activated`、`asset.requested`。

@@ -6,6 +6,7 @@
     <string name="presets">Esiasetukset</string>
     <string name="settings">Asetukset</string>
     <string name="new_chat">Uusi keskustelu</string>
+    <string name="new_room">Uusi huone</string>
     <string name="conversations">Keskustelut</string>
     <string name="models">Mallit</string>
     <string name="providers">Palveluntarjoajat</string>

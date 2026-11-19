@@ -7,6 +7,6 @@ if (!$env:ANDROID_HOME) { $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Andro
 & (Join-Path $workspace 'apps/android/gradlew.bat') -p (Join-Path $workspace 'apps/android') :app:assembleDebug --console=plain
 if ($LASTEXITCODE -ne 0) { throw 'Android build failed.' }
 $apk = Join-Path $workspace 'apps/android/app/build/outputs/apk/debug/app-debug.apk'
-$destination = Join-Path $workspace 'artifacts/Minichat.apk'
+$destination = Join-Path $workspace 'artifacts/MiniRP.apk'
 Copy-Item -LiteralPath $apk -Destination $destination
 if ($Install) { & (Join-Path $env:ANDROID_HOME 'platform-tools/adb.exe') -s $Device install -r $destination }

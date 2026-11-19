@@ -1,0 +1,23 @@
+{
+  "id": "licenses",
+  "name": "Open source notices",
+  "apiVersion": 2,
+  "packageName": "minirp.licenses",
+  "entry": "licenses.js",
+  "assets": [
+    { "id": "dependencies", "type": "file", "path": "notices.md", "mimeType": "text/markdown", "accessibility": "public" },
+    { "id": "project-license", "type": "file", "path": "LICENSE", "mimeType": "text/markdown", "accessibility": "public" }
+  ],
+  "settings": [
+    {
+      "key": "notices",
+      "type": "page",
+      "title": "Open source licenses",
+      "titles": { "zh-Hans": "开源许可证", "zh-Hant": "開放原始碼授權" },
+      "items": [
+        { "key": "dependencies", "type": "markdown", "content": "dependencies" },
+        { "key": "project-license", "type": "markdown", "content": "project-license" }
+      ]
+    }
+  ]
+}

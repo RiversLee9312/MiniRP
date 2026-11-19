@@ -6,6 +6,7 @@
     <string name="presets">预设</string>
     <string name="settings">设置</string>
     <string name="new_chat">新聊天</string>
+    <string name="new_room">新建房间</string>
     <string name="conversations">聊天</string>
     <string name="models">模型</string>
     <string name="providers">提供商</string>

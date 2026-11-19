@@ -1,7 +1,7 @@
 globalThis.handlers = {
     async announce(_event, api) {
         await api.actions.publish({
-            url: "minichat://actions/example.minichat.stream/events/ready",
+            url: "minirp://actions/example.minichat.stream/events/ready",
             assets: { sample: api.assets.url("sample") },
         });
     },

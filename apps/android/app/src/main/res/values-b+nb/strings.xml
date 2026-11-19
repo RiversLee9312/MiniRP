@@ -6,6 +6,7 @@
     <string name="presets">Forhåndsinnstillinger</string>
     <string name="settings">Innstillinger</string>
     <string name="new_chat">Ny chat</string>
+    <string name="new_room">Nytt rom</string>
     <string name="conversations">Chatter</string>
     <string name="models">Modeller</string>
     <string name="providers">Tilbydere</string>

@@ -6,7 +6,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import "./surface.css";
 import { library } from "./catalog.mjs";
 
-const host = window.MinichatSurface;
+const host = window.MiniRPSurface;
 const container = document.getElementById("surface");
 const root = createRoot(container);
 let initialState;
@@ -35,6 +35,9 @@ function action(event) {
 
 window.renderOpenUi = (state) => {
     initialState ??= state.initialState ?? {};
+    const managedState = state.managedState && Object.fromEntries(
+        Object.entries(state.managedState).map(([name, value]) => [name.startsWith("$") ? name : "$" + name, value]),
+    );
     document.documentElement.lang = state.locale || "en";
     document.documentElement.dir = state.rtl ? "rtl" : "ltr";
     document.documentElement.classList.toggle("expanded", state.expanded);
@@ -46,7 +49,8 @@ window.renderOpenUi = (state) => {
                     library={library}
                     response={state.program}
                     isStreaming={state.streaming}
-                    initialState={initialState}
+                    key={state.managedState ? `managed-${state.managedRevision}` : "reply"}
+                    initialState={managedState ?? initialState}
                     onParseResult={(result) => {
                         if (result?.root) post("rendered");
                         else if (!state.streaming) post("error");

@@ -6,6 +6,7 @@
     <string name="presets">Preset</string>
     <string name="settings">Impostazioni</string>
     <string name="new_chat">Nuova chat</string>
+    <string name="new_room">Nuova stanza</string>
     <string name="conversations">Chat</string>
     <string name="models">Modelli</string>
     <string name="providers">Provider</string>

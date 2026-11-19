@@ -15,7 +15,7 @@ static int (*core_binary_write)(int64_t, const char *, const void *, int);
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     (void)vm; (void)reserved;
-    void *library = dlopen("libminichatcore.so", RTLD_NOW | RTLD_LOCAL);
+    void *library = dlopen("libminirpcore.so", RTLD_NOW | RTLD_LOCAL);
     if (!library) return JNI_ERR;
     core_create = dlsym(library, "mc_create_with_options");
     core_dispatch = dlsym(library, "mc_dispatch");
@@ -45,21 +45,21 @@ static jbyteArray output(JNIEnv *env, char *text) {
     core_release(text);
     return bytes;
 }
-JNIEXPORT jlong JNICALL Java_com_minichat_app_core_NativeBridge_create(JNIEnv *env, jobject self, jbyteArray root, jboolean seed_default_preset) {
+JNIEXPORT jlong JNICALL Java_com_minirp_app_core_NativeBridge_create(JNIEnv *env, jobject self, jbyteArray root, jboolean seed_default_preset) {
     (void)self; char *path = input(env, root); if (!path) return 0;
     int64_t handle = core_create(path, seed_default_preset); free(path); return handle;
 }
-JNIEXPORT jbyteArray JNICALL Java_com_minichat_app_core_NativeBridge_dispatch(JNIEnv *env, jobject self, jlong handle, jbyteArray json) {
+JNIEXPORT jbyteArray JNICALL Java_com_minirp_app_core_NativeBridge_dispatch(JNIEnv *env, jobject self, jlong handle, jbyteArray json) {
     (void)self; char *text = input(env, json); if (!text) return NULL;
     char *result = core_dispatch(handle, text); free(text); return output(env, result);
 }
-JNIEXPORT jbyteArray JNICALL Java_com_minichat_app_core_NativeBridge_poll(JNIEnv *env, jobject self, jlong handle) {
+JNIEXPORT jbyteArray JNICALL Java_com_minirp_app_core_NativeBridge_poll(JNIEnv *env, jobject self, jlong handle) {
     (void)self; return output(env, core_poll(handle));
 }
-JNIEXPORT void JNICALL Java_com_minichat_app_core_NativeBridge_destroy(JNIEnv *env, jobject self, jlong handle) {
+JNIEXPORT void JNICALL Java_com_minirp_app_core_NativeBridge_destroy(JNIEnv *env, jobject self, jlong handle) {
     (void)env; (void)self; core_destroy(handle);
 }
-JNIEXPORT jbyteArray JNICALL Java_com_minichat_app_core_NativeBridge_takeBinary(JNIEnv *env, jobject self, jlong handle, jbyteArray nonce) {
+JNIEXPORT jbyteArray JNICALL Java_com_minirp_app_core_NativeBridge_takeBinary(JNIEnv *env, jobject self, jlong handle, jbyteArray nonce) {
     (void)self;
     char *token = input(env, nonce);
     if (!token) return NULL;
@@ -72,7 +72,7 @@ JNIEXPORT jbyteArray JNICALL Java_com_minichat_app_core_NativeBridge_takeBinary(
     core_release(buffer);
     return bytes;
 }
-JNIEXPORT jboolean JNICALL Java_com_minichat_app_core_NativeBridge_writeBinary(JNIEnv *env, jobject self, jlong handle, jbyteArray nonce, jbyteArray value) {
+JNIEXPORT jboolean JNICALL Java_com_minirp_app_core_NativeBridge_writeBinary(JNIEnv *env, jobject self, jlong handle, jbyteArray nonce, jbyteArray value) {
     (void)self;
     char *token = input(env, nonce);
     if (!token) return JNI_FALSE;

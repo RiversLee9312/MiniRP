@@ -9,11 +9,11 @@
     "handlers": { "announce": "announce", "consume": "consume", "produce": "produce" },
     "events": ["ready"],
     "subscriptions": {
-      "minichat://actions/example.minichat.stream/events/ready": "minichat://actions/example.minichat.stream/hooks/consume"
+      "minirp://actions/example.minichat.stream/events/ready": "minirp://actions/example.minichat.stream/hooks/consume"
     }
   },
   "hooks": {
-    "plugin.command": "minichat://actions/example.minichat.stream/hooks/announce"
+    "plugin.command": "minirp://actions/example.minichat.stream/hooks/announce"
   },
   "assets": [
     { "id": "about", "type": "file", "path": "about.md", "mimeType": "text/markdown", "accessibility": "public" },
@@ -22,7 +22,7 @@
       "type": "dynamic",
       "mimeType": "application/octet-stream",
       "accessibility": "protected",
-      "handler": "minichat://actions/example.minichat.stream/hooks/produce"
+      "handler": "minirp://actions/example.minichat.stream/hooks/produce"
     }
   ],
   "settings": [

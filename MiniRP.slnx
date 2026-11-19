@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MiniRP.Cli/MiniRP.Cli.csproj" />
+    <Project Path="src/MiniRP.Core/MiniRP.Core.csproj" />
+    <Project Path="src/MiniRP.Protocol/MiniRP.Protocol.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MiniRP.Core.Tests/MiniRP.Core.Tests.csproj" />
+  </Folder>
+</Solution>

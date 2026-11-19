@@ -6,6 +6,7 @@
     <string name="presets">프리셋 목록</string>
     <string name="settings">설정</string>
     <string name="new_chat">새 채팅</string>
+    <string name="new_room">새 방</string>
     <string name="conversations">채팅 목록</string>
     <string name="models">모델</string>
     <string name="providers">공급업체</string>

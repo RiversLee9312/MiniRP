@@ -6,6 +6,7 @@
     <string name="presets">พรีเซ็ต</string>
     <string name="settings">การตั้งค่า</string>
     <string name="new_chat">แชตใหม่</string>
+    <string name="new_room">ห้องใหม่</string>
     <string name="conversations">แชต</string>
     <string name="models">โมเดล</string>
     <string name="providers">ผู้ให้บริการ</string>

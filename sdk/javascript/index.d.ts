@@ -1,19 +1,25 @@
 export type Json = null | boolean | number | string | Json[] | { [name: string]: Json };
 export type JsonObject = { [name: string]: Json };
-export type HookUrl = `minichat://actions/${string}/hooks/${string}`;
-export type EventUrl = `minichat://actions/${string}/events/${string}`;
-export type AssetUrl = `minichat://assets/${string}/${string}`;
+export type PluginUrlScheme = "minirp" | "minichat";
+export type HookUrl = `${PluginUrlScheme}://actions/${string}/hooks/${string}`;
+export type EventUrl = `${PluginUrlScheme}://actions/${string}/events/${string}`;
+export type AssetUrl = `${PluginUrlScheme}://assets/${string}/${string}`;
+export type AssetToolResult = AssetUrl | readonly AssetUrl[];
+export type UUID = `${string}-${string}-${string}-${string}-${string}`;
 export type ConversationAgent = "chat" | "env" | "preset";
 export type SessionAgent = ConversationAgent | "search" | "fetch" | "temporary";
-export type Scope = "session" | "chat" | "preset";
-export type ReadTarget = { preset?: string; chat?: string };
-export type ChatTarget = { chat?: string; agent?: ConversationAgent };
+export type Scope = "session" | "room" | "chat" | "preset";
+export type RoomTarget = { preset?: UUID; room?: UUID };
+export type ReadTarget = RoomTarget & { chat?: UUID };
+export type ChatTarget = ReadTarget & { agent?: ConversationAgent };
 export type Page = { offset?: number; limit?: number };
 
 export interface Environment {
     readonly session?: string | null;
-    readonly chat?: string | null;
-    readonly preset?: string | null;
+    readonly chat?: UUID | null;
+    readonly room?: UUID | null;
+    readonly participant?: string | null;
+    readonly preset?: UUID | null;
     readonly agent?: SessionAgent | "title" | null;
 }
 
@@ -27,6 +33,8 @@ export interface Message {
     role: "user" | "assistant" | "system";
     agent: string;
     text: string;
+    participant?: string | null;
+    speaker?: string | null;
 }
 
 export interface Queued { queued: true; request: string }
@@ -48,8 +56,9 @@ export interface EntryChunk {
 }
 export interface Written { key: string; revision: number; total_chars: number }
 export interface DbKey { scope?: Scope; key: string }
+export interface StructuredState { key: string; scope: Scope; value: JsonObject; revision: number }
 
-export interface MinichatApi {
+export interface MiniRPApi {
     readonly environment: Environment;
     readonly assets: {
         url(id: string): AssetUrl;
@@ -98,13 +107,20 @@ export interface MinichatApi {
         }>;
     };
     readonly settings: { get(args: { key: string }): Promise<string | boolean | null> };
+    readonly state: {
+        get(args: { key: string }): Promise<StructuredState>;
+        set(args: { key: string; value: JsonObject; expected_revision: number }): Promise<StructuredState>;
+    };
     readonly harness: {
-        listPresets(args?: Page): Promise<Array<{ id: string; name: string }>>;
-        listChats(args?: Page & { preset?: string }): Promise<Array<{ id: string; name: string }>>;
-        getPreset(args?: { preset?: string }): Promise<JsonObject>;
-        readChat(args?: Page & ReadTarget): Promise<{ id: string; preset: string; name: string; messages: Message[] }>;
-        readSession(args?: Page & ReadTarget & { agent?: SessionAgent; id?: string }): Promise<Message[]>;
-        createChat(args?: { preset?: string }): Promise<Queued>;
+        listPresets(args?: Page): Promise<Array<{ id: UUID; name: string }>>;
+        listChats(args?: Page & RoomTarget): Promise<Array<{ id: UUID; name: string; members?: string[] }>>;
+        getPreset(args?: { preset?: UUID }): Promise<JsonObject>;
+        readChat(args?: Page & ReadTarget): Promise<{ id: UUID; room: UUID; preset: UUID; name: string; messages: Message[] }>;
+        listRooms(args?: Page & { preset?: UUID }): Promise<Array<{ id: UUID; name: string }>>;
+        readRoom(args?: Page & RoomTarget): Promise<{ id: UUID; preset: UUID; name: string; chats: Array<{ id: UUID; name: string; members: string[] }> }>;
+        readSession(args?: Page & ReadTarget & { agent?: SessionAgent; id?: string; participant?: string }): Promise<Message[]>;
+        createChat(args?: { preset?: UUID }): Promise<Queued>;
+        createRoom(args?: { preset?: UUID }): Promise<Queued>;
         createPreset(args?: { name?: string }): Promise<Queued>;
         send(args: ChatTarget & {
             text?: string;
@@ -113,12 +129,13 @@ export interface MinichatApi {
             attachments?: Array<SelectedFile & { type?: string }>;
         }): Promise<Queued>;
         steer(args: ChatTarget & { text: string; system?: boolean }): Promise<Accepted>;
-        insertSystemMessage(args: ChatTarget & { text: string }): Promise<Accepted | Queued>;
-        renameChat(args: { chat?: string; name: string }): Promise<Queued>;
-        generateTitle(args?: { chat?: string }): Promise<Queued>;
-        setSearchMode(args: { chat?: string; enabled: boolean }): Promise<Queued>;
-        setPrompt(args: { chat?: string; agent?: Exclude<SessionAgent, "temporary"> | "title"; text: string }): Promise<Queued>;
-        branchChat(args: { chat?: string; block: string }): Promise<Queued>;
+        insertSystemMessage(args: ChatTarget & { text: string; participant?: string }): Promise<Accepted | Queued>;
+        renameChat(args: ReadTarget & { name: string }): Promise<Queued>;
+        renameRoom(args: RoomTarget & { name: string }): Promise<Queued>;
+        generateTitle(args?: ReadTarget): Promise<Queued>;
+        setSearchMode(args: ReadTarget & { enabled: boolean }): Promise<Queued>;
+        setPrompt(args: ReadTarget & { agent?: Exclude<SessionAgent, "temporary"> | "title"; text: string }): Promise<Queued>;
+        branchChat(args: ReadTarget & { block: string }): Promise<Queued>;
         createTemporarySession(args?: Record<string, never>): Promise<{ id: string }>;
         runTemporary(args: { id: string; text: string; system?: string }): Promise<{ text: string }>;
         closeTemporary(args: { id: string }): Promise<{ closed: true }>;
@@ -129,6 +146,10 @@ export interface MinichatApi {
 export interface PluginEvent {
     readonly name: string;
     readonly [key: string]: unknown;
+}
+export interface StateChangedEvent extends PluginEvent, StructuredState {
+    readonly name: "state.changed";
+    readonly previous: JsonObject;
 }
 export interface ActionEvent extends PluginEvent {
     readonly name: "actions.invoke" | "actions.publish";
@@ -153,16 +174,20 @@ export interface SkillToolEvent extends PluginEvent {
     readonly tool: string;
     readonly arguments: JsonObject;
 }
-export type Handler<E extends PluginEvent = PluginEvent, R = Json | void> = (event: E, api: MinichatApi) => R | Promise<R>;
+export type Handler<E extends PluginEvent = PluginEvent, R = Json | void> = (event: E, api: MiniRPApi) => R | Promise<R>;
+
+/** @deprecated Use MiniRPApi. */
+export type MinichatApi = MiniRPApi;
 export type AssetHandler = Handler<AssetRequest, Uint8Array | ReadableStream<Uint8Array>>;
 export type ActionHandler = Handler<ActionEvent>;
 export type AttachmentHandler = Handler<AttachmentEvent, { text: string }>;
 
-export function defineHandlers<const T extends Record<string, (event: never, api: MinichatApi) => unknown>>(handlers: T): T;
+export function defineHandlers<const T extends Record<string, (event: never, api: MiniRPApi) => unknown>>(handlers: T): T;
 export function hookUrl(packageName: string, id: string): HookUrl;
 export function eventUrl(packageName: string, id: string): EventUrl;
 export function assetUrl(packageName: string, id: string): AssetUrl;
+export function workspaceId(value: unknown): UUID;
 
 declare global {
-    var handlers: Record<string, (event: never, api: MinichatApi) => unknown>;
+    var handlers: Record<string, (event: never, api: MiniRPApi) => unknown>;
 }

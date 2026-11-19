@@ -1,6 +1,8 @@
-# Minichat
+# MiniRP
 
 .NET 10 / C# 对话 Harness。桌面使用 Terminal.Gui，Android 使用 Kotlin + Jetpack Compose Material 3 Expressive；两端通过 UTF-8 C ABI 调用同一个 NativeAOT 核心。
+
+安装包见 [GitHub Releases](https://github.com/RiversLee9312/MiniRP/releases)。从旧版升级时，Android 可直接覆盖安装。桌面解压后运行 `minirp.exe <旧工作区路径>`，继续使用已有对话、预设和模型配置。旧的 `MINICHAT_*` 配置键仍可读取，新配置建议使用 `MINIRP_*`。
 
 ## Agent
 
@@ -19,7 +21,7 @@ Agent 共用 `AgentSession` 的流式事件、工具循环、取消、上下文�
 ```powershell
 npm ci
 pwsh -File eng/build-desktop.ps1
-.\artifacts\desktop\win-x64\minichat.exe .
+.\artifacts\desktop\win-x64\minirp.exe .
 ```
 
 首次运行选择预设，再选择其下已有对话或新建对话。`.env` 可参照 `.env.example`，也可在界面输入 `/config` 编辑。API Key 字段会遮盖显示。
@@ -45,11 +47,11 @@ Enter 发送，Alt+Enter 换行。输入框随换行和软换行增高，最多�
 pwsh -File eng/build-android.ps1 -Install -Device '<ADB device serial>'
 ```
 
-输出 `artifacts/Minichat.apk`。也可用 Android Studio 打开 `apps/android`；先运行 `eng/build-native.ps1 -Runtime linux-bionic-arm64` 生成本地库。
+输出 `artifacts/MiniRP.apk`。也可用 Android Studio 打开 `apps/android`；先运行 `eng/build-native.ps1 -Runtime linux-bionic-arm64` 生成本地库。
 
 Android 的世界、预设和记忆面板打开即全屏。对话页支持流式 Markdown、可折叠的工具轨迹和附件；搜索轨迹缩进展示。长按支持分支的用户消息可从发送前的世界与 Agent 状态创建新对话。旧消息没有历史快照，不能分支。标题只根据主聊天生成，点击标题可编辑或重新生成。
 
-ChatAgent 可按需激活 `interactive-ui` 技能，在 Markdown 中插入流式交互界面。支持图表、表格、表单、本地计算、筛选、图片和地图。可以试试「做一个可以调整人数和天数的旅行预算计算器」。界面随对话保存，单次运行期间的输入会在滚动和展开时保留。详见 [Android 生成式 UI](docs/android-generative-ui.md)。
+ChatAgent 可按需激活 `interactive-ui` 技能，在 Markdown 中插入流式交互界面。支持图表、表格、表单、本地计算、筛选、图片和地图。可以试试「做一个可以调整人数和天数的旅行预算计算器」。界面随对话保存，单次运行期间的输入会在滚动和展开时保留。详见 [Android 生成式 UI](docs/android/generated-ui.md)。
 
 在「提供商」设置名称、协议、地址和 API 密钥；在「模型」自动获取可用模型、保存常用模型、为 Agent 和标题指定模型。对话输入框下也可切换该页相关的 Agent 模型。提供商配置存入 DataStore，密钥用 Android Keystore AES-GCM 加密。附件可选图片、音频、PDF 和视频，能否发送取决于当前协议及模型。对话抽屉使用 Paging 3 按预设分页，默认打开聊天列表，收起预设列表。
 
@@ -63,7 +65,7 @@ UI 文案使用 Android 字符串资源，支持英文及另外 29 种语言；�
 
 兼容程度取决于服务实际支持的模型、工具调用和思考参数。协议回归使用本地夹具验证，没有逐个使用真实服务密钥联调。平台专有的云账号登录和签名认证不在当前密钥配置范围内。
 
-主模型使用其他服务时，桌面可单独填写 `MINICHAT_SEARCH_API_KEY`；Android 从已配置的 DeepSeek 提供商读取搜索密钥。
+主模型使用其他服务时，桌面可单独填写 `MINIRP_SEARCH_API_KEY`；Android 从已配置的 DeepSeek 提供商读取搜索密钥。
 
 ## 网页工作流
 
@@ -96,16 +98,16 @@ ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conve
 
 Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己的 V8 isolate。清单声明 Actions、Assets、Skill、附件和设置。Actions 通过 URL 投递事件，Assets 以 WHATWG 字节流读取，跨包访问按资源可见性和签名证书校验。Android 内置插件提供首页话题推荐、Agent 系统提示和许可证页面。
 
-[开发、签名与安装](docs/plugin-development.md) · [完整 API 参考](docs/plugin-api.md) · [插件 SDK](sdk/javascript/) · [示例插件](examples/stream-assets/plugin/) · [MIT 许可证](LICENSE)
+[开发、签名与安装](docs/plugins/getting-started.md) · [完整 API 参考](docs/plugins/README.md) · [插件 SDK](sdk/javascript/) · [示例插件](examples/stream-assets/plugin/) · [MIT 许可证](LICENSE)
 
 ## 代码与验证
 
-[项目结构](docs/architecture.md)列出 HarnessCore、桌面、Android、测试、SDK 和构建入口。
+[项目结构](docs/project/README.md)列出 HarnessCore、桌面、Android、测试、SDK 和构建入口。
 
 NativeAOT 核心通过 `LibraryImport` 生成 P/Invoke，JSON 使用 source generator，SSE 使用 .NET 自带解析器。C ABI 用 `mc_create`、`mc_dispatch`、`mc_poll`、`mc_release`、`mc_destroy` 管理会话和事件，用 `mc_binary_take` 和 `mc_binary_write` 传输原始字节。
 
 ```powershell
-dotnet run --project tests/Minichat.Core.Tests
+dotnet run --project tests/MiniRP.Core.Tests
 $env:JAVA_HOME = '<JDK 21 installation directory>'
 .\apps\android\gradlew.bat -p apps/android :app:connectedDebugAndroidTest
 ```

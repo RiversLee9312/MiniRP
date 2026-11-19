@@ -6,6 +6,7 @@
     <string name="presets">Preset</string>
     <string name="settings">Cài đặt</string>
     <string name="new_chat">Cuộc trò chuyện mới</string>
+    <string name="new_room">Phòng mới</string>
     <string name="conversations">Cuộc trò chuyện</string>
     <string name="models">Mô hình</string>
     <string name="providers">Nhà cung cấp</string>

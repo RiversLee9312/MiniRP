@@ -8,6 +8,9 @@ conversations/
 /attachments/
 /preset_sessions/
 /catalog.sqlite*
+/catalog-uuid.sqlite*
+/identity-migration.json
+/identity-backup/
 __pycache__/
 *.py[cod]
 *.json.tmp

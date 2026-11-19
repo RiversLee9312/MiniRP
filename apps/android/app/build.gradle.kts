@@ -48,15 +48,16 @@ androidComponents.onVariants { variant ->
 }
 
 android {
-    namespace = "com.minichat.app"
+    namespace = "com.minirp.app"
     compileSdk = 37
     ndkVersion = "28.2.13676358"
     defaultConfig {
+        // Android uses the application ID and signing key to preserve installed data on upgrade.
         applicationId = "com.minichat.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" } }
@@ -74,12 +75,19 @@ android {
         }
     }
     packaging {
-        jniLibs { useLegacyPackaging = false }
+        jniLibs {
+            useLegacyPackaging = false
+            // Older local builds may still have this generated binary in jniLibs.
+            excludes += "**/libminichatcore.so"
+        }
         resources { merges += "META-INF/LICENSE.md" }
     }
     buildTypes {
         debug {
-            if (providers.gradleProperty("minichat.isolatedTest").orNull == "true") {
+            val isolatedTest =
+                providers.gradleProperty("minirp.isolatedTest")
+                    .orElse(providers.gradleProperty("minichat.isolatedTest"))
+            if (isolatedTest.orNull == "true") {
                 applicationIdSuffix = ".qa"
             }
         }

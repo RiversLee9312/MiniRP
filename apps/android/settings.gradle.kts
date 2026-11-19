@@ -1,6 +1,6 @@
 pluginManagement {
     repositories {
-        if (System.getenv("MINICHAT_MAVEN_MIRROR") == "1")
+        if ((System.getenv("MINIRP_MAVEN_MIRROR") ?: System.getenv("MINICHAT_MAVEN_MIRROR")) == "1")
             maven("https://maven.aliyun.com/repository/google")
         google()
         mavenCentral()
@@ -11,13 +11,13 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        if (System.getenv("MINICHAT_MAVEN_MIRROR") == "1")
+        if ((System.getenv("MINIRP_MAVEN_MIRROR") ?: System.getenv("MINICHAT_MAVEN_MIRROR")) == "1")
             maven("https://maven.aliyun.com/repository/google")
         google()
         mavenCentral()
     }
 }
 
-rootProject.name = "Minichat"
+rootProject.name = "MiniRP"
 
 include(":app")

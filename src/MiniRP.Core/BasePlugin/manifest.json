@@ -1,0 +1,332 @@
+{
+  "id": "base",
+  "name": "MiniRP",
+  "apiVersion": 2,
+  "packageName": "minirp.base",
+  "entry": "index.js",
+  "permissions": ["settings", "ui.home", "model"],
+  "actions": { "handlers": { "recommend": "recommend", "develop": "develop", "preset-created": "presetCreated" } },
+  "hooks": { "home.requested": "minirp://actions/minirp.base/hooks/recommend", "preset.created": "minirp://actions/minirp.base/hooks/preset-created" },
+  "skills": [
+    {
+      "name": "plugin-docs",
+      "description": "Read or search the built-in plugin development guide, API reference and manifest schema.",
+      "agents": [
+        "preset",
+        "plugin"
+      ],
+      "tools": [
+        {
+          "name": "plugin_docs",
+          "description": "Read or search the plugin development guide, API reference, or manifest schema.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "topic": {
+                "type": "string",
+                "enum": [
+                  "development",
+                  "api",
+                  "schema",
+                  "preset",
+                  "automation",
+                  "search",
+                  "rooms",
+                  "state"
+                ]
+              },
+              "query": {
+                "type": "string"
+              },
+              "offset": {
+                "type": "integer"
+              },
+              "length": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "plugin-development",
+      "description": "Delegate plugin development and deployment to independent PluginAgents scoped to the current preset.",
+      "agents": [
+        "preset"
+      ],
+      "instructions": "Give each PluginAgent its own task and project. Spawn independent projects in parallel, send follow-up messages by ID, wait for their findings, and archive inactive agents. If you need to resume work on an existing plugin, use the original agent's ID. Only PluginAgent operates plugin files and deployments. Deploy or remove a plugin only when requested by the user.",
+      "tools": [
+        {
+          "name": "plugin_spawn",
+          "description": "Start an independent PluginAgent and return its persistent ID immediately.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "message"
+            ]
+          }
+        },
+        {
+          "name": "plugin_list",
+          "description": "List the current preset's PluginAgents with statuses and latest results.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "plugin_send",
+          "description": "Send a follow-up to an existing agent. Steers an active run at the next safe boundary.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "message"
+            ]
+          }
+        },
+        {
+          "name": "plugin_wait",
+          "description": "Wait briefly for one or several agents. Returns each status and any finished result.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "seconds": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "ids"
+            ]
+          }
+        },
+        {
+          "name": "plugin_archive",
+          "description": "Stop and archive an agent while retaining its project and conversation.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "name": "plugin_resume",
+          "description": "Restore an archived PluginAgent so you can send another task.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "plugin-project",
+      "description": "Read, edit, debug, publish and remove only the PluginAgent's own signed plugin project.",
+      "agents": [
+        "plugin"
+      ],
+      "instructions": "Paths are relative to your source bundle. Preserve the assigned manifest id and packageName. Debugging runs a fixture event in an isolated V8 runtime. Publishing validates the signed package and loads it for the current preset. Removing a deployment retains the local source.",
+      "tools": [
+        {
+          "name": "project_files",
+          "description": "List files in the assigned plugin project.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "project_read",
+          "description": "Read a text file in the plugin source directory with paging.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "offset": {
+                "type": "integer"
+              },
+              "length": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          }
+        },
+        {
+          "name": "project_write",
+          "description": "Write UTF-8 source, manifest, or text assets. Existing files require explicit overwrite.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "overwrite": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "path",
+              "text"
+            ]
+          }
+        },
+        {
+          "name": "project_edit",
+          "description": "Replace a unique exact text match in a plugin source file.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "before": {
+                "type": "string"
+              },
+              "after": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "before",
+              "after"
+            ]
+          }
+        },
+        {
+          "name": "project_delete",
+          "description": "Delete a file from this plugin's source directory.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          }
+        },
+        {
+          "name": "project_debug",
+          "description": "Validate the signed draft and optionally invoke a declared Action hook with a fixture event.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "handler": {
+                "type": "string"
+              },
+              "event": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "name": "project_publish",
+          "description": "Validate the draft and deploy its signed plugin. A new deployment is enabled only in this preset.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "project_remove",
+          "description": "Uninstall this project's deployment and retain its editable source.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "key": "model-group", "type": "group", "title": "Models and providers", "label": "model_provider_settings",
+      "items": [
+        {"key":"providers","type":"link","title":"Providers","label":"providers","url":"minirp://actions/minirp.app/hooks/providers"},
+        {"key":"models","type":"link","title":"Models","label":"models","url":"minirp://actions/minirp.app/hooks/models"}
+      ]
+    },
+    {
+      "key":"behavior", "type":"group", "title":"Appearance and behavior", "label":"behavior_settings",
+      "items":[
+        {"key":"topics","type":"boolean","title":"Smart topic suggestions","titles":{"zh-Hans":"智能话题推荐","zh-Hant":"智慧話題推薦"},"default":false},
+        {"key":"thoughts","type":"boolean","title":"Expand reasoning","label":"expand_thoughts","binding":"thoughts"},
+        {"key":"fetch","type":"choice","title":"Page fetching","label":"fetch_mode","binding":"fetch","options":[
+          {"value":"api","title":"API","label":"fetch_api"},
+          {"value":"local","title":"Browser","label":"fetch_browser"},
+          {"value":"api_then_local","title":"API, then browser","label":"fetch_fallback"}
+        ]},
+        {"key":"language","type":"link","title":"Language","label":"language","url":"minirp://actions/minirp.app/hooks/language"}
+      ]
+    },
+    {
+      "key":"about", "type":"group", "title":"About", "label":"about", "items":[
+        {"key":"plugins","type":"link","title":"Plugins","label":"plugins","url":"minirp://actions/minirp.app/hooks/plugins"}
+      ]
+    }
+  ]
+}

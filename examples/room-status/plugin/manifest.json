@@ -1,0 +1,50 @@
+{
+  "id": "room-status",
+  "name": "Room status",
+  "apiVersion": 2,
+  "packageName": "example.minichat.roomstatus",
+  "entry": "index.js",
+  "permissions": ["harness.write"],
+  "actions": {
+    "handlers": { "report": "report", "status-changed": "statusChanged" }
+  },
+  "stateEntries": [
+    {
+      "key": "station",
+      "scope": "room",
+      "description": "Current station status. Update through report, after verifying a change.",
+      "initial": { "line": "No change reported." },
+      "onChange": "minirp://actions/example.minichat.roomstatus/hooks/status-changed"
+    }
+  ],
+  "cards": [
+    {
+      "id": "station",
+      "title": "Station status",
+      "state": "station",
+      "program": "root = Col([Title(\"Station status\", \"md\"), Text($line)])\n$line = \"No change reported.\""
+    }
+  ],
+  "skills": [
+    {
+      "name": "status",
+      "description": "Report and show the station's current status.",
+      "agents": ["chat", "env"],
+      "instructions": "Read the room status before using it. Ask for confirmation if the reported change is uncertain. Show the station card when the user asks about status.",
+      "stateEntries": ["station"],
+      "cards": ["station"],
+      "tools": [
+        {
+          "name": "report",
+          "description": "Report a verified change in the station status.",
+          "parameters": {
+            "type": "object",
+            "properties": { "line": { "type": "string", "minLength": 1, "maxLength": 180 } },
+            "required": ["line"]
+          },
+          "handler": "minirp://actions/example.minichat.roomstatus/hooks/report"
+        }
+      ]
+    }
+  ]
+}

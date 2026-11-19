@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <AssemblyName>libminirpcore</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('linux-bionic'))">
+    <DefineConstants>$(DefineConstants);MINIRP_ANDROID_BIONIC</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="MiniRP.Core.Tests" />
+    <EmbeddedResource Include="PluginBootstrap.js" LogicalName="MiniRP.PluginBootstrap.js" />
+    <EmbeddedResource Include="Vendor/web-streams-polyfill.js" LogicalName="MiniRP.WebStreams.js" />
+    <EmbeddedResource Include="BasePlugin/manifest.json" LogicalName="MiniRP.BasePlugin.manifest.json" />
+    <EmbeddedResource Include="BasePlugin/index.js" LogicalName="MiniRP.BasePlugin.index.js" />
+    <EmbeddedResource Include="../../docs/plugins/*.md" Exclude="../../docs/plugins/README.md" LogicalName="MiniRP.PluginDocs.plugins.%(Filename)" />
+    <EmbeddedResource Include="../../docs/presets/*.md" Exclude="../../docs/presets/README.md" LogicalName="MiniRP.PluginDocs.presets.%(Filename)" />
+    <EmbeddedResource Include="../../sdk/javascript/manifest.schema.json" LogicalName="MiniRP.PluginDocs.schema" />
+    <EmbeddedResource Include="BasePlugin/licenses.json" LogicalName="MiniRP.Licenses.manifest.json" />
+    <EmbeddedResource Include="../../THIRD_PARTY_NOTICES.md" LogicalName="MiniRP.Licenses.notices.md" />
+    <EmbeddedResource Include="../../LICENSE" LogicalName="MiniRP.Licenses.project" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
+    <PackageReference Include="System.IO.Hashing" Version="10.0.11" />
+    <ProjectReference Include="../MiniRP.Protocol/MiniRP.Protocol.csproj" />
+  </ItemGroup>
+  <Import Project="../../eng/AndroidNativeAot.targets" Condition="$(RuntimeIdentifier.StartsWith('linux-bionic'))" />
+</Project>
