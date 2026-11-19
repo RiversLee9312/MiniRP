@@ -187,32 +187,32 @@ class NativeCoreTest {
                 directory.resolve(
                     "workspace/plugins/data/example.minichat.stream.$signer/chat/$chat.sqlite"
                 )
+            val wal = File(database.parentFile, database.name + "-wal")
+            val snapshot = directory.resolve("plugin-db-check.sqlite")
             withTimeout(20_000) {
                 var bytes: String? = null
                 while (bytes == null) {
                     delay(80)
-                    if (database.isFile) {
-                        android.database.sqlite.SQLiteDatabase.openDatabase(
-                                database.absolutePath,
-                                null,
-                                android.database.sqlite.SQLiteDatabase.OPEN_READONLY,
-                            )
-                            .use { db ->
-                                val ready =
-                                    db.rawQuery(
-                                            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'entries'",
-                                            null,
-                                        )
-                                        .use { it.moveToFirst() }
-                                if (ready) {
-                                    db.rawQuery(
-                                            "SELECT content FROM entries WHERE key = ?",
-                                            arrayOf("stream-example/last-size"),
-                                        )
-                                        .use {
-                                            if (it.moveToFirst()) bytes = it.getString(0)
-                                        }
-                                }
+                    if (database.isFile && !wal.exists()) {
+                        // Android SQLite and HarnessCore bundle separate SQLite libraries.
+                        // Inspect a checkpointed copy so they never share live WAL files.
+                        database.copyTo(snapshot, overwrite = true)
+                        bytes =
+                            try {
+                                android.database.sqlite.SQLiteDatabase.openDatabase(
+                                        snapshot.absolutePath,
+                                        null,
+                                        android.database.sqlite.SQLiteDatabase.OPEN_READONLY,
+                                    )
+                                    .use { db ->
+                                        db.rawQuery(
+                                                "SELECT content FROM entries WHERE key = ?",
+                                                arrayOf("stream-example/last-size"),
+                                            )
+                                            .use { if (it.moveToFirst()) it.getString(0) else null }
+                                    }
+                            } catch (_: android.database.sqlite.SQLiteException) {
+                                null
                             }
                     }
                 }
