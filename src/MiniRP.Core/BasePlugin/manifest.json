@@ -1,10 +1,14 @@
 {
   "id": "base",
-  "name": "MiniRP",
+  "name": "base",
   "apiVersion": 2,
   "packageName": "minirp.base",
   "entry": "index.js",
   "permissions": ["settings", "ui.home", "model"],
+  "assets": [
+    { "id": "dependencies", "type": "file", "path": "notices.md", "mimeType": "text/markdown", "accessibility": "public" },
+    { "id": "project-license", "type": "file", "path": "LICENSE", "mimeType": "text/markdown", "accessibility": "public" }
+  ],
   "actions": { "handlers": { "recommend": "recommend", "develop": "develop", "preset-created": "presetCreated" } },
   "hooks": { "home.requested": "minirp://actions/minirp.base/hooks/recommend", "preset.created": "minirp://actions/minirp.base/hooks/preset-created" },
   "skills": [
@@ -325,7 +329,17 @@
     },
     {
       "key":"about", "type":"group", "title":"About", "label":"about", "items":[
-        {"key":"plugins","type":"link","title":"Plugins","label":"plugins","url":"minirp://actions/minirp.app/hooks/plugins"}
+        {"key":"plugins","type":"link","title":"Plugins","label":"plugins","url":"minirp://actions/minirp.app/hooks/plugins"},
+        {
+          "key": "notices",
+          "type": "page",
+          "title": "Open source licenses",
+          "titles": { "zh-Hans": "开源许可证", "zh-Hant": "開放原始碼授權" },
+          "items": [
+            { "key": "dependencies", "type": "markdown", "content": "dependencies" },
+            { "key": "project-license", "type": "markdown", "content": "project-license" }
+          ]
+        }
       ]
     }
   ]

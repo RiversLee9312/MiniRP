@@ -96,7 +96,7 @@ ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conve
 
 ## 插件
 
-Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己的 V8 isolate。清单声明 Actions、Assets、Skill、附件和设置。Actions 通过 URL 投递事件，Assets 以 WHATWG 字节流读取，跨包访问按资源可见性和签名证书校验。Android 内置插件提供首页话题推荐、Agent 系统提示和许可证页面。
+Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己的 V8 isolate。清单声明 Actions、Assets、Skill、附件和设置。Actions 通过 URL 投递事件，Assets 以 WHATWG 字节流读取，跨包访问按资源可见性和签名证书校验。内置 `base` 插件声明应用设置、首页话题推荐、预设创建引导和开源许可证页。
 
 [开发、签名与安装](docs/plugins/getting-started.md) · [完整 API 参考](docs/plugins/README.md) · [插件 SDK](sdk/javascript/) · [示例插件](examples/stream-assets/plugin/) · [MIT 许可证](LICENSE)
 

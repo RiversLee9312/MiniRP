@@ -25,9 +25,8 @@
     <EmbeddedResource Include="../../docs/plugins/*.md" Exclude="../../docs/plugins/README.md" LogicalName="MiniRP.PluginDocs.plugins.%(Filename)" />
     <EmbeddedResource Include="../../docs/presets/*.md" Exclude="../../docs/presets/README.md" LogicalName="MiniRP.PluginDocs.presets.%(Filename)" />
     <EmbeddedResource Include="../../sdk/javascript/manifest.schema.json" LogicalName="MiniRP.PluginDocs.schema" />
-    <EmbeddedResource Include="BasePlugin/licenses.json" LogicalName="MiniRP.Licenses.manifest.json" />
-    <EmbeddedResource Include="../../THIRD_PARTY_NOTICES.md" LogicalName="MiniRP.Licenses.notices.md" />
-    <EmbeddedResource Include="../../LICENSE" LogicalName="MiniRP.Licenses.project" />
+    <EmbeddedResource Include="../../THIRD_PARTY_NOTICES.md" LogicalName="MiniRP.BasePlugin.notices.md" />
+    <EmbeddedResource Include="../../LICENSE" LogicalName="MiniRP.BasePlugin.license" />
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
     <PackageReference Include="System.IO.Hashing" Version="10.0.11" />

@@ -96,6 +96,17 @@ class NativeCoreTest {
         val core = CoreClient(root, scope, seedDefaultPreset = true)
         try {
             val initialPreset = seededPreset(core)
+            val builtIns = core.query(JSONObject().put("op", "plugins_list")).getJSONArray("items")
+            assertEquals(1, builtIns.length())
+            assertEquals("base", builtIns.getJSONObject(0).getString("name"))
+            val licensePage =
+                core.query(
+                    JSONObject().put("op", "plugin_page").put("id", "base").put("key", "notices")
+                ).getJSONObject("item")
+            val licenseUrl = licensePage.getJSONArray("items").getJSONObject(1).getString("assetUrl")
+            assertEquals("minirp://assets/minirp.base/project-license", licenseUrl)
+            assertTrue(core.readAsset(licenseUrl, 64 * 1024).decodeToString().contains("MIT License"))
+
             val packageInfo =
                 core
                     .query(JSONObject().put("op", "plugin_install").put("path", fixture))

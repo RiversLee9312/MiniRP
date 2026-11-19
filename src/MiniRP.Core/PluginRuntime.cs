@@ -13,17 +13,15 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         return reader.ReadToEnd();
     }
     private static readonly Lazy<string> Bootstrap = new(() => Resource("MiniRP.WebStreams.js") + "\n" + Resource("MiniRP.PluginBootstrap.js"));
-    private static readonly Lazy<PluginPackage> Base = new(() => new("base", "MiniRP", Resource("MiniRP.BasePlugin.index.js"),
-        JsonValues.ParseObject(Resource("MiniRP.BasePlugin.manifest.json")), BuiltIn: true));
-    private static readonly Lazy<PluginPackage> Licenses = new(() =>
+    private static readonly Lazy<PluginPackage> Base = new(() =>
     {
-        var manifest = JsonValues.ParseObject(Resource("MiniRP.Licenses.manifest.json"));
+        var manifest = JsonValues.ParseObject(Resource("MiniRP.BasePlugin.manifest.json"));
         var resources = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["notices.md"] = "MiniRP.Licenses.notices.md",
-            ["LICENSE"] = "MiniRP.Licenses.project"
+            ["notices.md"] = "MiniRP.BasePlugin.notices.md",
+            ["LICENSE"] = "MiniRP.BasePlugin.license"
         };
-        return new("licenses", "Open source notices", "", manifest, BuiltIn: true,
+        return new(manifest.GetString("id"), manifest.GetString("name"), Resource("MiniRP.BasePlugin.index.js"), manifest, BuiltIn: true,
             Assets: PluginPackage.ReadAssets(manifest, resources.ContainsKey), Resources: resources);
     });
 
@@ -158,7 +156,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
     public void Load()
     {
         Directory.CreateDirectory(root);
-        var installed = new List<PluginPackage> { Base.Value, Licenses.Value };
+        var installed = new List<PluginPackage> { Base.Value };
         foreach (var path in Directory.EnumerateFiles(root, "*.plugin").Order(StringComparer.Ordinal).Take(32))
         {
             try
@@ -295,6 +293,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
 
     public JsonObject Page(string id, string key, string preset)
     {
+        if (id == "licenses" && key == "notices") id = "base";
         var package = Installed(id);
         RequireScope(package, preset);
         var setting = Setting(package, key);

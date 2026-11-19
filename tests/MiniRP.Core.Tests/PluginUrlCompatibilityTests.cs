@@ -73,6 +73,51 @@ public sealed class PluginUrlCompatibilityTests
         Assert.IsFalse(PluginUrls.IsLegacyThumbnail("https://assets/minichat.legacy/attachment-thumbnail"));
     }
 
+    [TestMethod]
+    public async Task BaseOwnsLicenseSettingsAndThePreviousLicenseLinksStillWork()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "minirp-notices-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var port = new HostPort(_ => { });
+            await using var runtime = new PluginRuntime(root, port, _ => { },
+                (_, _, _, _, _) => throw new InvalidOperationException("The license page needs no Harness calls."));
+            runtime.Load();
+            var builtIn = runtime.List().Single()!.AsObject();
+            Assert.AreEqual("base", builtIn.GetString("id"));
+            Assert.AreEqual("base", builtIn.GetString("name"));
+            Assert.IsTrue(builtIn.GetBoolean("builtIn"));
+            var about = runtime.Settings("").Single(item => item.GetString("key") == "about");
+            var notices = about.GetArray("items").Single(item => item.GetString("key") == "notices");
+            Assert.AreEqual("base", notices.GetString("plugin"));
+            var page = runtime.Page("base", "notices", "");
+            Assert.IsTrue(JsonNode.DeepEquals(page, runtime.Page("licenses", "notices", "")));
+            var link = page.GetArray("items").Single(item => item.GetString("key") == "project-license").GetString("assetUrl");
+            Assert.AreEqual("minirp://assets/minirp.base/project-license", link);
+
+            async Task<string> ReadLicense(string url)
+            {
+                var handle = runtime.OpenHostAsset(url, new(), null).GetString("handle");
+                try
+                {
+                    var part = await runtime.PullHostAsset(handle, TestContext.CancellationToken);
+                    var bytes = port.TakeBinary(part.GetString("transfer"))!;
+                    Assert.IsTrue((await runtime.PullHostAsset(handle, TestContext.CancellationToken)).GetBoolean("done"));
+                    return System.Text.Encoding.UTF8.GetString(bytes);
+                }
+                finally { await runtime.CloseHostAsset(handle); }
+            }
+
+            var license = await ReadLicense(link);
+            StringAssert.Contains(license, "MIT License");
+            Assert.AreEqual(license, await ReadLicense("minichat://assets/minichat.licenses/project-license"));
+            Assert.AreEqual(license, await ReadLicense("minirp://assets/minirp.licenses/project-license"));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    public TestContext TestContext { get; set; } = null!;
+
     private static string Pack(string root, X509Certificate2 signer, string id, string manifest, string source)
     {
         var directory = Path.Combine(root, id);

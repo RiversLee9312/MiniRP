@@ -18,7 +18,9 @@ internal sealed partial class PluginRuntime
             package.Length is < 1 or > 150 || !package.All(character => char.IsAsciiLetterLower(character) ||
                 char.IsAsciiDigit(character) || character is '.' or '_'))
             throw new ArgumentException("Invalid Asset URL.");
-        return (PluginUrls.CanonicalPackage(package), PluginPackage.Identifier(id));
+        var owner = PluginUrls.CanonicalPackage(package);
+        if (owner == "minirp.licenses" && id is "dependencies" or "project-license") owner = "minirp.base";
+        return (owner, PluginPackage.Identifier(id));
     }
 
     private AssetContent OpenAsset(string url, PluginPackage? caller, JsonObject options, JsonObject environment, JsonObject? attachment = null)
