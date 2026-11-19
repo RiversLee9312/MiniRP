@@ -111,6 +111,7 @@ class NavigationTest {
         val providers = compose.activity.getString(R.string.providers)
         val gear = compose.onNodeWithContentDescription(settings)
         val composer = compose.onNodeWithTag("composer")
+        compose.waitUntil(10_000) { composer.isDisplayed() }
         composer.performTextInput("Predictive back draft")
         gear.performClick()
         val toolbar = compose.onNodeWithText(settings)
@@ -157,6 +158,7 @@ class NavigationTest {
         val input = compose.onNodeWithTag("composer")
         val gear =
             compose.onNodeWithContentDescription(compose.activity.getString(R.string.settings))
+        compose.waitUntil(10_000) { input.isDisplayed() }
         input.performTextInput("A draft to keep")
         gear.performClick()
         compose
