@@ -16,6 +16,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -158,7 +159,9 @@ class NavigationTest {
                 model.state.value.chatId.isBlank() &&
                 model.state.value.ensembleChats == null
         }
-        target.assertIsDisplayed()
+        compose
+            .onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading) and hasText("Switch target"))
+            .assertIsDisplayed()
         compose.onNodeWithText("Bridge").assertDoesNotExist()
     }
 
