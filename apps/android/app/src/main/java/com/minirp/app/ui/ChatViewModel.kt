@@ -37,9 +37,6 @@ internal constructor(
     private val attachments = AttachmentStore(workspace)
     private val browser = BrowserHost(application)
     internal val picker = PluginPicker()
-    private var homeRequest = ""
-    private var askedHome = false
-    private var homeLocale = ""
     private var openUiInstructions = ""
     private var editorOwnsTurn = false
     private val openUiDrafts = android.util.LruCache<Pair<String, String>, String>(40)
@@ -220,6 +217,7 @@ internal constructor(
                         chatMode =
                             event.optJSONObject("config")?.optString("chat_mode", "character")
                                 ?: "character",
+                        chatGreeting = event.optJSONObject("config").hasChatGreeting(),
                         agenticSearch =
                             event.optJSONObject("config")?.optBoolean("agentic_search", true)
                                 ?: true,
@@ -243,10 +241,7 @@ internal constructor(
             "preset_removed" ->
                 if (chatFeed.value.preset == event.optString("id"))
                     selectLibraryPreset(event.optString("fallback", state.value.preset))
-            "home" -> {
-                showHome(event.getString("preset"), event.getJSONObject("config"))
-                requestHome()
-            }
+            "home" -> showHome(event.getString("preset"), event.getJSONObject("config"))
             "plugin_action" -> actions.trySend(event.getString("url"))
             "plugin_settings" ->
                 mutableState.update {
@@ -262,16 +257,6 @@ internal constructor(
                         installedPlugins = event.getJSONArray("items").objects().map(::decodePlugin)
                     )
                 }
-            "home_suggestions" ->
-                if (event.optString("request") == homeRequest)
-                    mutableState.update {
-                        it.copy(
-                            homeSuggestions =
-                                event.getJSONArray("items").let { rows ->
-                                    List(rows.length()) { index -> rows.getString(index) }
-                                }
-                        )
-                    }
             "plugin_error" ->
                 if (event.optString("plugin") != "base")
                     report(IllegalStateException(event.optString("message")))
@@ -315,6 +300,7 @@ internal constructor(
                                 ?.map(::decodeChoice)
                                 .orEmpty(),
                         chatMode = config?.optString("chat_mode", "character") ?: "character",
+                        chatGreeting = config.hasChatGreeting(),
                         branchDraft = event.optJSONObject("draft")?.branchDraft(),
                         replyError = null,
                         agenticSearch = config?.optBoolean("agentic_search", true) ?: true,
@@ -336,6 +322,7 @@ internal constructor(
                         presetName = config.optString("name", it.presetName),
                         agenticSearch = config.optBoolean("agentic_search", true),
                         chatMode = config.optString("chat_mode", "character"),
+                        chatGreeting = config.hasChatGreeting(),
                     )
                 }
             "busy" ->
@@ -666,6 +653,17 @@ internal constructor(
             put("preset", preset)
         }
 
+    fun createChat(preset: String = state.value.preset) =
+        command("start_chat") { put("preset", preset) }
+
+    private fun greetActiveChat(current: ChatState = state.value) {
+        if (!current.chatGreeting || current.chatId.isBlank()) return
+        command("greet_chat") {
+            put("chat", current.chatId)
+            put("conversation", current.ensembleChatId)
+        }
+    }
+
     fun leaveEnsembleChat() {
         val current = state.value
         if (current.ensembleChats == null) return
@@ -688,6 +686,7 @@ internal constructor(
                             .put("op", "select_ensemble_chat")
                             .put("chat", room)
                             .put("conversation", conversation)
+                            .put("defer_greeting", true)
                     )
             val blocks =
                 withContext(Dispatchers.Default) {
@@ -697,6 +696,9 @@ internal constructor(
                 if (current.chatId != room) current
                 else current.copy(ensembleChatId = conversation, ensembleBlocks = blocks)
             }
+            val current = state.value
+            if (current.chatId == room && current.ensembleChatId == conversation)
+                greetActiveChat(current)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
@@ -706,8 +708,7 @@ internal constructor(
 
     fun selectPreset(preset: String) {
         val current = state.value
-        if (current.chatId.isBlank() && current.preset != preset) chooseChat(preset)
-        else selectLibraryPreset(preset)
+        if (current.chatId.isNotBlank() || current.preset != preset) chooseChat(preset)
     }
 
     private fun showHome(
@@ -718,10 +719,6 @@ internal constructor(
     ) {
         selectLibraryPreset(preset)
         val changedPreset = preset != state.value.preset
-        if (changedPreset) {
-            askedHome = false
-            homeRequest = ""
-        }
         mutableState.update {
             val keepDraft =
                 changedPreset && it.chatId.isBlank() && preset.isNotBlank() && !editPreset
@@ -736,11 +733,11 @@ internal constructor(
                 ensembleChatId = "",
                 ensembleBlocks = emptyList(),
                 chatMode = config.optString("chat_mode", "character"),
+                chatGreeting = config.hasChatGreeting(),
                 branchDraft = null,
                 replyError = null,
                 preset = preset,
                 presetName = config.optString("name", preset),
-                homeSuggestions = if (it.preset == preset) it.homeSuggestions else emptyList(),
                 presetEditor = if (editPreset) PresetEditorPhase.Open else PresetEditorPhase.Closed,
                 agenticSearch = config.optBoolean("agentic_search", true),
             )
@@ -856,39 +853,11 @@ internal constructor(
                                 .put("value", value)
                         )
                 receive(result)
-                askedHome = false
-                mutableState.update { it.copy(homeSuggestions = emptyList()) }
-                requestHome()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
                 report(failure)
             }
-        }
-    }
-
-    fun requestHome() {
-        val current = state.value
-        val locale =
-            getApplication<Application>().resources.configuration.locales[0].toLanguageTag()
-        if (homeLocale != locale) {
-            homeLocale = locale
-            askedHome = false
-        }
-        if (
-            askedHome ||
-                !current.ready ||
-                current.preset.isBlank() ||
-                current.presetEditorOpen ||
-                current.chatId.isNotBlank() ||
-                current.assigned(AgentRole.Chat) == null
-        )
-            return
-        askedHome = true
-        homeRequest = UUID.randomUUID().toString()
-        command("home_request") {
-            put("request", homeRequest)
-            put("locale", locale)
         }
     }
 
@@ -1041,6 +1010,7 @@ internal constructor(
             )
         }
         persist()
+        if (model != null && role == AgentRole.Chat) greetActiveChat()
         if (
             model != null &&
                 (role == AgentRole.Preset || role == AgentRole.Chat) &&
@@ -1153,3 +1123,6 @@ internal constructor(
         browser.close()
     }
 }
+
+private fun JSONObject?.hasChatGreeting(): Boolean =
+    this?.optJSONObject("chat_agent")?.optString("greeting_system_message")?.isNotBlank() == true

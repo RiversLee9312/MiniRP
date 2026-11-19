@@ -110,7 +110,6 @@ fun AgentConversation(
             onCancel,
             onSend,
             steering = state.generating == agent,
-            suggestions = if (home) state.homeSuggestions else emptyList(),
             pluginTypes =
                 state.installedPlugins
                     .filter { it.scope.allows(state.preset) }

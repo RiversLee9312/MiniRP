@@ -41,6 +41,7 @@ import com.minirp.app.ui.FullSheet
 import com.minirp.app.ui.MemoryScreen
 import com.minirp.app.ui.MiniRP
 import java.io.File
+import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
@@ -55,12 +56,111 @@ import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
 import org.json.JSONArray
 import org.json.JSONObject
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
 class NavigationTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    private val preferencesScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val preset = UUID.randomUUID().toString()
+    private val otherPreset = UUID.randomUUID().toString()
+    private lateinit var presetFile: File
+    private lateinit var model: ChatViewModel
+
+    @Before
+    fun launchPresetHome() {
+        val app = compose.activity.application
+        val directory = File(app.cacheDir, "navigation-home-$preset").apply { mkdirs() }
+        val context =
+            object : ContextWrapper(app) {
+                override fun getFilesDir(): File = directory
+            }
+        presetFile =
+            directory.resolve("workspace/presets").apply { mkdirs() }.resolve("$preset.json")
+        presetFile.writeText("""{"name":"Navigation fixture"}""")
+        presetFile.parentFile!!
+            .resolve("$otherPreset.json")
+            .writeText("""{"name":"Switch target"}""")
+        val preferences =
+            Preferences(
+                PreferenceDataStoreFactory.create(scope = preferencesScope) {
+                    directory.resolve("preferences.preferences_pb")
+                }
+            )
+        model = compose.runOnIdle {
+            ViewModelProvider.create(
+                    compose.activity,
+                    viewModelFactory { initializer { ChatViewModel(app, context, preferences) } },
+                )[ChatViewModel::class.java]
+        }
+        compose.setContent { MiniRP(model) }
+        compose.waitUntil(10_000) { model.state.value.ready }
+        compose.runOnIdle { model.chooseChat(preset) }
+        compose.waitUntil(10_000) { model.state.value.ready && model.state.value.preset == preset }
+    }
+
+    @After
+    fun stopFixture() {
+        preferencesScope.cancel()
+    }
+
+    @Test
+    fun presetGreetingUsesTheCenteredCreationActionInsteadOfTheComposer() {
+        presetFile.writeText(
+            """{"name":"Navigation fixture","chat_agent":{"greeting_system_message":"Open with a warm welcome."}}"""
+        )
+        compose.runOnIdle { model.chooseChat(preset) }
+        val create = compose.onNodeWithText(compose.activity.getString(R.string.new_chat))
+        compose.waitUntil(10_000) { model.state.value.chatGreeting && create.isDisplayed() }
+        compose.onNodeWithTag("composer").assertDoesNotExist()
+        create.performClick()
+        compose.waitUntil(10_000) { model.state.value.chatId.isNotBlank() }
+        compose.onNodeWithTag("composer").assertIsDisplayed()
+    }
+
+    @Test
+    fun switchingPresetsFromAConversationReturnsToTheSelectedHome() {
+        presetFile.writeText(
+            """{"name":"Navigation fixture","chat_agent":{"greeting_system_message":"Welcome the player."}}"""
+        )
+        switchFromCreatedConversation(R.string.new_chat)
+    }
+
+    @Test
+    fun switchingPresetsFromARoomReturnsToTheSelectedHome() {
+        presetFile.writeText(
+            """{"name":"Navigation fixture","chat_mode":"ensemble",
+               "ensemble":{"agents":[{"id":"ada","name":"Ada"},{"id":"bryn","name":"Bryn"}],
+                 "chats":[{"name":"Bridge","members":["ada","bryn"]}]}}"""
+        )
+        switchFromCreatedConversation(R.string.new_room)
+    }
+
+    private fun switchFromCreatedConversation(createLabel: Int) {
+        fun label(resource: Int) = compose.activity.getString(resource)
+        compose.runOnIdle { model.chooseChat(preset) }
+        val create = compose.onNodeWithText(label(createLabel))
+        compose.waitUntil(10_000) { create.isDisplayed() }
+        create.performClick()
+        compose.waitUntil(10_000) {
+            model.state.value.chatId.isNotBlank() && !model.state.value.busy
+        }
+        compose.onNodeWithContentDescription(label(R.string.open_menu)).performClick()
+        compose.onNodeWithText("Navigation fixture").performClick()
+        val target = compose.onNodeWithText("Switch target")
+        compose.waitUntil(10_000) { target.isDisplayed() }
+        target.performClick()
+        compose.waitUntil(10_000) {
+            model.state.value.preset == otherPreset &&
+                model.state.value.chatId.isBlank() &&
+                model.state.value.ensembleChats == null
+        }
+        target.assertIsDisplayed()
+        compose.onNodeWithText("Bridge").assertDoesNotExist()
+    }
 
     @Test
     fun settingsActionAndPluginPageReturnToTheirParent() {
@@ -236,7 +336,7 @@ class EmptyHomeTest {
         compose.setContent {
             MaterialExpressiveTheme {
                 AgentConversation(
-                    state = ChatState(ready = true, homeSuggestions = listOf("Old suggestion")),
+                    state = ChatState(ready = true),
                     agent = AgentRole.Chat,
                     modifier = Modifier.fillMaxSize(),
                     onCancel = {},
@@ -250,7 +350,6 @@ class EmptyHomeTest {
             .onNodeWithText(compose.activity.getString(R.string.no_presets_yet))
             .assertIsDisplayed()
         compose.onNodeWithTag("composer").assertDoesNotExist()
-        compose.onNodeWithText("Old suggestion").assertDoesNotExist()
         compose.onNodeWithText(compose.activity.getString(R.string.create_preset)).performClick()
         compose.runOnIdle { assertEquals(true, created) }
     }

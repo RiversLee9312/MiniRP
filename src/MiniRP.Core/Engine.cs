@@ -224,7 +224,7 @@ public sealed partial class Engine : IAsyncDisposable
             }
             using var operation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             var op = command.GetString("op");
-            var modifiesChat = op is "message" or "system_message" or "branch" or "rename" or "save_prompt" or "save_search_mode" or "reset_world" or "save"
+            var modifiesChat = op is "message" or "system_message" or "start_chat" or "branch" or "rename" or "save_prompt" or "save_search_mode" or "reset_world" or "save"
                 || op == "select_chat" && command.GetString("id").Length == 0;
             var showsBusy = modifiesChat || op is "select_chat" or "create_preset" or "delete_chat" or "delete_preset";
             turnRouting = Volatile.Read(ref routing);
@@ -255,7 +255,7 @@ public sealed partial class Engine : IAsyncDisposable
                 {
                     ["kind"] = "error",
                     ["request"] = command.GetString("request"),
-                    ["model_turn"] = op is "message" or "_preset_interview",
+                    ["model_turn"] = op is "message" or "_preset_interview" or "start_chat" or "greet_chat",
                     ["agent"] = command.GetString("agent", "chat"),
                     ["message"] = error.Message
                 });
@@ -363,6 +363,8 @@ public sealed partial class Engine : IAsyncDisposable
     {
         var nextWorkspace = new Workspace(Workspace.Root, seedDefaultPreset: false);
         nextWorkspace.Select(preset, id);
+        if (string.IsNullOrEmpty(id) && nextWorkspace.ChatGreeting.Length > 0)
+            nextWorkspace.Chat[GreetingPending] = true;
         nextWorkspace.Chat["mode"] ??= nextWorkspace.Mode;
         var nextEnsemble = nextWorkspace.Mode == "ensemble" ? new EnsembleConversation(nextWorkspace) : null;
         ConversationTitle.ClearLegacyTitle(nextWorkspace.Chat);
@@ -537,9 +539,19 @@ public sealed partial class Engine : IAsyncDisposable
                 return;
             case "select_chat":
                 SelectConversation(command.GetString("preset"), command.GetString("id"));
+                await GreetChat("", token);
+                return;
+            case "start_chat":
+                await StartChat(command.GetString("preset", Workspace.PresetId), token);
                 return;
             case "select_ensemble_chat":
                 SelectEnsembleChat(command);
+                if (!command.GetBoolean("defer_greeting")) await GreetChat(activeEnsembleChat, token);
+                return;
+            case "greet_chat":
+                if (Workspace.ChatId.Length > 0 && command.GetString("chat") == Workspace.ChatId &&
+                    command.GetString("conversation") == activeEnsembleChat)
+                    await GreetChat(activeEnsembleChat, token);
                 return;
             case "rename_ensemble_chat":
                 RequireActiveChat(command);
@@ -621,6 +633,8 @@ public sealed partial class Engine : IAsyncDisposable
             case "message":
                 var messageAgent = command.GetString("agent", "chat");
                 RequireAgent(command, messageAgent);
+                if (messageAgent == "chat")
+                    await GreetChat(command.GetString("conversation", activeEnsembleChat), token);
                 if (messageAgent == "chat" && ensemble is not null)
                 {
                     await RunEnsembleChat(command, token);
@@ -767,7 +781,7 @@ public sealed partial class Engine : IAsyncDisposable
             {
                 "env" => await environment!.Run(input, stage, token, attachments, inputRole),
                 "preset" => await presets!.Run(input, token, attachments, inputRole, privateInput: hiddenInput),
-                _ => await chat!.Run(modelInput, token, attachments, inputRole)
+                _ => await chat!.Run(modelInput, token, attachments, inputRole, privateInput: hiddenInput)
             };
             if (string.IsNullOrWhiteSpace(answer))
                 throw new IOException("The model finished without a visible reply.");
@@ -788,7 +802,7 @@ public sealed partial class Engine : IAsyncDisposable
                 }
                 EmitConfig();
             }
-            if (role == "chat" && !string.IsNullOrWhiteSpace(answer)) StartTitle(force: false);
+            if (role == "chat" && !hiddenInput) StartTitle(force: false);
         }
         finally
         {

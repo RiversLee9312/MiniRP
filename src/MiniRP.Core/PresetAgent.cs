@@ -3,12 +3,12 @@ namespace MiniRP.Core;
 
 public sealed class PresetAgent(Workspace world, AgentSession session)
 {
-    private static readonly HashSet<string> Editable = ["name", "subtitle", "sim_date", "phase", "world.summary", "chat_agent.system_prompt", "search_agent.system_prompt", "env_agent.system_prompt", "preset_agent.system_prompt", "fetch_agent.system_prompt", "title_agent.system_prompt", "search_editor.relevance", "search_editor.scope", "search_editor.credibility", "search_editor.add_guidance", "page_editor.guidance", "page_generator.guidance", "stage.guidance", "search_editor.max_results", "search_editor.max_visible", "search_editor.max_added"];
+    private static readonly HashSet<string> Editable = ["name", "subtitle", "sim_date", "phase", "world.summary", "chat_agent.system_prompt", "chat_agent.greeting_system_message", "search_agent.system_prompt", "env_agent.system_prompt", "preset_agent.system_prompt", "fetch_agent.system_prompt", "title_agent.system_prompt", "search_editor.relevance", "search_editor.scope", "search_editor.credibility", "search_editor.add_guidance", "page_editor.guidance", "page_generator.guidance", "stage.guidance", "search_editor.max_results", "search_editor.max_visible", "search_editor.max_added"];
     public async Task<string> Run(string input, CancellationToken ct, JsonArray? attachments = null, string inputRole = "user",
         bool privateInput = false)
     {
         var config = (JsonObject)world.Config.DeepClone();
-        var tools = new JsonArray(Tools.Define("inspect_preset", "Inspect current staged preset."), Tools.Define("set_value", "Set one supported dot path, including name, chat_agent.system_prompt and agentic_search (true or false). Empty prompt restores default.", new()
+        var tools = new JsonArray(Tools.Define("inspect_preset", "Inspect current staged preset."), Tools.Define("set_value", "Set one supported dot path, including name, chat_agent.system_prompt, chat_agent.greeting_system_message and agentic_search (true or false). An empty greeting disables the opening message.", new()
         {
             ["path"] = Tools.String(),
             ["value"] = Tools.String()
@@ -86,8 +86,8 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
                 else
                 {
                     var value = a.GetString("value");
-                    if (key == "system_prompt" && value.Length > 16000)
-                        throw new ArgumentException("A system prompt can contain up to 16,000 characters.");
+                    if ((key is "system_prompt" or "greeting_system_message") && value.Length > 16000)
+                        throw new ArgumentException("A system prompt or greeting can contain up to 16,000 characters.");
                     if (path == "name")
                     {
                         value = value.Trim();
@@ -123,7 +123,8 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
 
             return Task.FromResult<JsonNode?>(new JsonObject { ["staged"] = true });
         }
-        var guidance = "You are PresetAgent. Edit the preset with precise tool calls. Keep unrelated settings. Give new presets a short descriptive name. Set a tailored chat_agent.system_prompt and search_agent.system_prompt. Chat instructions support {date}. Use an empty prompt to restore defaults. Explain changes briefly in the user's language.\n" +
+        var guidance = "You are PresetAgent. Edit the preset with precise tool calls. Keep unrelated settings. Give new presets a short descriptive name. Set a tailored chat_agent.system_prompt and search_agent.system_prompt. Chat instructions support {date}. Use an empty prompt to restore defaults. " +
+            "If the user wants an opening scene or a welcome, set chat_agent.greeting_system_message to private instructions for ChatAgent to generate it when a new conversation begins. Put scene and voice details there. Leave it empty for conversations that should wait for the user's first message. Explain changes briefly in the user's language.\n" +
             PresetDesign.Practice + "\n" + (config.GetString("setup_status") == "draft" ? PresetDesign.Interview + "\n" : "") +
             JsonValues.Serialize(config) + "\n" + world.AgentPrompt("preset");
         var answer = await session.Run(guidance, input,

@@ -2,7 +2,7 @@
 
 ## 生命周期与执行
 
-内置的 `base` 插件随 MiniRP 发布，提供应用设置、首页话题推荐、预设创建引导和开源许可证页。
+内置的 `base` 插件随 MiniRP 发布，提供应用设置、预设创建引导和开源许可证页。
 
 - 启动时宿主加载已安装包，验证签名，随后投递 `app.ready`。内置插件随应用发布，拥有保留身份。手动安装、更新和 PluginAgent 部署都在保存签名包后向新实例投递 `plugin.enabled`。如果当前预设在允许的范围内，事件会使用它的上下文。限定预设的插件没有匹配上下文时，宿主会使用一个允许的预设。作用域为空时，Hook 仍可运行，但无法访问工作区。更新和卸载都会取消旧实例的调用、关闭它的 Asset 句柄并拒绝它仍在排队的 Harness 写入。已提交的数据按包名和证书指纹保留。当前没有卸载 Hook。
 - 每个已加载插件按需创建一个 V8 isolate。入口脚本每次 isolate 初始化执行一次，定义 `globalThis.handlers`。同一 isolate 内可以复用全局缓存和内存状态，升级、卸载、应用退出或 isolate 因异常重建时会丢失它们。
@@ -67,6 +67,5 @@ Hook 的实现以 `handlers[导出名](event, api)` 被调用，可返回 Promis
 | `context.compacted` | Agent 历史完成压缩。 |
 | `world.changed` | 该回合修改了世界状态。 |
 | `settings.changed` | 本包设置保存，`key`、`value`。 |
-| `home.requested` | 首页请求推荐，`request`、`locale`。内置插件可通过 `ui.setHomeSuggestions({request,items})` 提交最多 5 条。 |
 
 附件处理、技能激活和动态资源通过各自的声明投递，名称分别为 `attachment.process`、`skill.activated`、`asset.requested`。

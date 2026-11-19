@@ -363,7 +363,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
             var handler = package.Bind(package.Manifest.GetObject("hooks").GetString(name));
             if (handler.Length == 0) continue;
             // Context identifiers are available to every handler; transcript payloads require permission.
-            var payload = package.Has("harness.read") || name is "home.requested" or "plugin.command" or "settings.changed" ? (JsonObject)@event.DeepClone() : new JsonObject();
+            var payload = package.Has("harness.read") || name is "plugin.command" or "settings.changed" ? (JsonObject)@event.DeepClone() : new JsonObject();
             payload["name"] = name;
             Enqueue(package, handler, payload, environment);
         }
@@ -696,17 +696,6 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         {
             Require(package, "settings");
             return SettingValue(package, args.GetString("key"));
-        }
-        if (method == "ui.setHomeSuggestions")
-        {
-            Require(package, "ui.home");
-            var request = args.GetString("request");
-            if (request != invocation.Event.GetString("request")) throw new ArgumentException("The homepage request has changed.");
-            emit(new() { ["kind"] = "home_suggestions", ["request"] = request,
-                ["items"] = new JsonArray(args.GetArray("items").OfType<JsonValue>()
-                    .Where(item => item.TryGetValue<string>(out var text) && text.Length is > 0 and <= 150)
-                    .Take(5).Select(JsonValues.Clone).ToArray()) });
-            return null;
         }
         if (method.StartsWith("db.", StringComparison.Ordinal))
         {

@@ -100,12 +100,20 @@ class NativeCoreTest {
             assertEquals(1, builtIns.length())
             assertEquals("base", builtIns.getJSONObject(0).getString("name"))
             val licensePage =
-                core.query(
-                    JSONObject().put("op", "plugin_page").put("id", "base").put("key", "notices")
-                ).getJSONObject("item")
-            val licenseUrl = licensePage.getJSONArray("items").getJSONObject(1).getString("assetUrl")
+                core
+                    .query(
+                        JSONObject()
+                            .put("op", "plugin_page")
+                            .put("id", "base")
+                            .put("key", "notices")
+                    )
+                    .getJSONObject("item")
+            val licenseUrl =
+                licensePage.getJSONArray("items").getJSONObject(1).getString("assetUrl")
             assertEquals("minirp://assets/minirp.base/project-license", licenseUrl)
-            assertTrue(core.readAsset(licenseUrl, 64 * 1024).decodeToString().contains("MIT License"))
+            assertTrue(
+                core.readAsset(licenseUrl, 64 * 1024).decodeToString().contains("MIT License")
+            )
 
             val packageInfo =
                 core
@@ -159,7 +167,8 @@ class NativeCoreTest {
             assertTrue(chunks.all { it == 42.toByte() })
 
             val open =
-                core.query(JSONObject().put("op", "asset_open").put("url", docsUrl))
+                core
+                    .query(JSONObject().put("op", "asset_open").put("url", docsUrl))
                     .getJSONObject("result")
                     .getString("handle")
             val pull = { JSONObject().put("op", "asset_pull").put("handle", open) }
@@ -256,23 +265,6 @@ class NativeCoreTest {
                     .getJSONObject(0)
                     .getString("content"),
             )
-            core.send(
-                JSONObject()
-                    .put("op", "home_request")
-                    .put("locale", "zh-Hans")
-                    .put("request", "fixture-home")
-            )
-            val home =
-                withTimeout(15_000) {
-                    core.events.first { event ->
-                        check(event.optString("kind") !in setOf("error", "plugin_error")) {
-                            event.toString()
-                        }
-                        event.optString("kind") == "home_suggestions"
-                    }
-                }
-            assertEquals("fixture-home", home.getString("request"))
-            assertEquals(0, home.getJSONArray("items").length())
         } finally {
             core.close()
             scope.cancel()

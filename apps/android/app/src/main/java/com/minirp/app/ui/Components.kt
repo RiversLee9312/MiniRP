@@ -70,7 +70,6 @@ internal fun Composer(
     onSubmit: suspend (String, List<String>, Boolean, PluginAttachmentType?) -> Boolean,
     allowAttachments: Boolean = true,
     steering: Boolean = busy,
-    suggestions: List<String> = emptyList(),
     pluginTypes: List<PluginAttachmentType> = emptyList(),
     draft: BranchDraft? = null,
 ) {
@@ -131,17 +130,6 @@ internal fun Composer(
             }
         }
     }
-    if (text.isEmpty() && files.isEmpty() && !busy && suggestions.isNotEmpty())
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
-            suggestions.take(5).forEach { suggestion ->
-                TextButton(
-                    onClick = { text = suggestion },
-                    modifier = Modifier.align(Alignment.Start),
-                ) {
-                    Text(suggestion, maxLines = 2)
-                }
-            }
-        }
     if (drafts.isNotEmpty())
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),

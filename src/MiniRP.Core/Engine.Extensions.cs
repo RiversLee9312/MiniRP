@@ -172,9 +172,6 @@ public sealed partial class Engine
             case "plugin_url":
                 plugins.OpenSettingLink(command.GetString("id"), command.GetString("key"), PluginEnvironment());
                 return true;
-            case "home_request":
-                plugins.Publish("home.requested", new() { ["locale"] = command.GetString("locale"), ["request"] = request }, PluginEnvironment());
-                return true;
             case "_plugin_workspace":
                 PluginWorkspace(command);
                 return true;

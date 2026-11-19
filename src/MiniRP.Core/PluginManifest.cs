@@ -253,6 +253,7 @@ internal static class PluginEvents
         "app.ready", "plugin.enabled", "plugin.command", "chat.loaded", "chat.changed", "chat.title", "room.loaded", "room.title",
         "preset.created", "preset.changed", "library.changed", "message.user", "message.system", "message.completed",
         "turn.started", "turn.delta", "turn.finished", "turn.cancelled", "tool.started", "tool.finished",
-        "context.compacted", "world.changed", "attachment.process", "attachment.thumbnail", "skill.activated", "home.requested", "settings.changed"
+        "context.compacted", "world.changed", "attachment.process", "attachment.thumbnail", "skill.activated", "settings.changed",
+        "home.requested" // Recognize the old declaration when loading signed packages.
     ];
 }

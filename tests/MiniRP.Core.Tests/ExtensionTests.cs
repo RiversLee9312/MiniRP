@@ -11,6 +11,92 @@ namespace MiniRP.Core.Tests;
 public sealed class ExtensionTests
 {
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task PresetOpeningRunsAsPrivateSystemInputOnceForNewChats(bool agenticSearch)
+    {
+        var root = NewRoot();
+        var workspace = new Workspace(root);
+        var preset = workspace.InitialPreset().Id;
+        workspace.UsePreset(preset);
+        const string privateSetup = "Greet the user as the keeper of the lunar greenhouse.";
+        var config = (JsonObject)workspace.Config.DeepClone();
+        config["agentic_search"] = agenticSearch;
+        config.GetObject("chat_agent")["greeting_system_message"] = privateSetup;
+        workspace.CommitConfig(config);
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        await Until(engine, "ready", scripts);
+        Assert.AreEqual(0, engine.Workspace.Chats(preset).Count, "Opening the app does not create a conversation.");
+
+        var chat = "";
+        engine.Dispatch(new() { ["op"] = "start_chat", ["preset"] = preset });
+        var openingRequest = await NextModel(engine, scripts, item =>
+        {
+            if (item.GetString("kind") == "loaded") chat = item.GetObject("chat").GetString("id");
+            Assert.IsFalse(item.GetString("kind") is "system" or "user", "The setup must stay hidden.");
+        });
+        var opening = JsonValues.ParseObject(openingRequest.GetString("body")).GetArray("messages");
+        Assert.IsTrue(opening.Any(message => message.GetString("role") == "system" &&
+            message.GetString("content").Contains(privateSetup, StringComparison.Ordinal)));
+        Reply(engine, openingRequest, "Welcome to the greenhouse.");
+        await Until(engine, "completed", scripts);
+        AssertCanonicalUuid(chat);
+
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset, ["id"] = chat });
+        var loaded = (await Until(engine, "loaded", scripts)).GetObject("chat").GetArray("blocks");
+        Assert.IsTrue(loaded.Any(block => block.GetString("content") == "Welcome to the greenhouse."));
+        Assert.IsFalse(loaded.Any(block => block.GetString("content").Contains(privateSetup, StringComparison.Ordinal)));
+        engine.Dispatch(new() { ["op"] = "message", ["preset"] = preset, ["chat"] = chat, ["text"] = "Show me the plants." });
+        var followUp = await NextModel(engine, scripts);
+        var messages = JsonValues.ParseObject(followUp.GetString("body")).GetArray("messages");
+        Assert.AreEqual("Show me the plants.", messages.Last().GetString("content"), "Reopening did not start another greeting.");
+        Assert.AreEqual(1, messages.Count(message => message.GetString("content").Contains(privateSetup, StringComparison.Ordinal)));
+        Reply(engine, followUp, "Follow me.");
+        await Until(engine, "completed", scripts);
+    }
+
+    [TestMethod]
+    public async Task EnsembleOpeningAppearsOnlyOnceForEachCharacterAcrossChats()
+    {
+        var root = NewRoot();
+        var preset = WriteEnsemblePreset(root);
+        var workspace = new Workspace(root, seedDefaultPreset: false);
+        workspace.UsePreset(preset);
+        var config = (JsonObject)workspace.Config.DeepClone();
+        config["chat_agent"] = new JsonObject { ["greeting_system_message"] = "Give a private station welcome." };
+        workspace.CommitConfig(config);
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
+        var room = await Until(engine, "loaded", scripts);
+        var roomId = room.GetObject("chat").GetString("id");
+        var children = room.GetArray("ensemble_chats");
+
+        async Task OpenChild(string name, string participant)
+        {
+            var child = children.Single(entry => entry.GetString("name") == name).GetString("id");
+            engine.Dispatch(new() { ["op"] = "select_ensemble_chat", ["chat"] = roomId, ["conversation"] = child });
+            var request = await NextModel(engine, scripts);
+            var messages = JsonValues.ParseObject(request.GetString("body")).GetArray("messages");
+            Assert.IsTrue(messages.Any(message => message.GetString("role") == "system" &&
+                message.GetString("content").Contains("private station welcome", StringComparison.Ordinal)));
+            Assert.IsTrue(messages.Any(message => message.GetString("content").Contains("Your character is " + participant, StringComparison.Ordinal)));
+            Reply(engine, request, "Welcome from " + participant + ".");
+            var posted = await Until(engine, "ensemble_message", scripts);
+            Assert.AreEqual(child, posted.GetString("conversation"));
+            Assert.AreEqual("Welcome from " + participant + ".", posted.GetObject("item").GetString("content"));
+        }
+
+        await OpenChild("Lab", "Bryn");
+        await OpenChild("Bridge", "Ada");
+        var saved = JsonValues.ParseObject(File.ReadAllText(Path.Combine(root, "conversations", preset, roomId + ".json")));
+        CollectionAssert.AreEquivalent(new[] { "ada", "bryn" }, saved.GetArray("greeted_participants").Select(item => JsonValues.GetText(item)).ToArray());
+    }
+
+    [TestMethod]
     public async Task HomeStartsWithoutConversationAndDeletionRemovesChatAndPresetFromCatalog()
     {
         var root = NewRoot();
@@ -610,12 +696,6 @@ public sealed class ExtensionTests
         engine.Dispatch(new() { ["op"] = "system_message", ["text"] = "Trigger" });
         await Until(engine, "system", scripts);
         var database = ChatDb(root, "test.fixture", certificate, engine.Workspace.ChatId);
-        engine.Dispatch(new() { ["op"] = "plugin_setting", ["id"] = "base", ["key"] = "topics", ["value"] = true });
-        await Until(engine, "plugin_settings", scripts);
-        engine.Dispatch(new() { ["op"] = "home_request", ["locale"] = "en", ["request"] = "home" });
-        var result = await Until(engine, "home_suggestions", scripts);
-        Assert.AreEqual("home", result.GetString("request"));
-        Assert.AreEqual(5, result.GetArray("items").Count);
         using var db = new MemoryDb(database);
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await WaitForWrite(previous: null);

@@ -107,6 +107,7 @@ data class ChatState(
     val participants: List<Choice> = emptyList(),
     val ensembleChatId: String = "",
     val chatMode: String = "character",
+    val chatGreeting: Boolean = false,
     val providers: List<ProviderConfig> = emptyList(),
     val savedModels: List<SavedModel> = emptyList(),
     val assignments: Map<AgentRole, SavedModel> = emptyMap(),
@@ -122,7 +123,6 @@ data class ChatState(
     val replyError: ReplyError? = null,
     val pluginSettings: List<PluginSetting> = emptyList(),
     val installedPlugins: List<PluginInfo> = emptyList(),
-    val homeSuggestions: List<String> = emptyList(),
 ) {
     val preparing
         get() = submitting || presetEditor == PresetEditorPhase.Opening

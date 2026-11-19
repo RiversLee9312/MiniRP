@@ -16,6 +16,7 @@ public sealed class Workspace
     public bool AgenticSearch => Config.GetBoolean("agentic_search", true);
     public string Mode => Chat.GetString("mode", Config.GetString("chat_mode", "character"));
     public string AgentPrompt(string role) => Config.GetObject(role + "_agent").GetString("system_prompt");
+    internal string ChatGreeting => Config.GetObject("chat_agent").GetString("greeting_system_message").Trim();
     public string ChatRoot => Path.Combine(Root, "conversations", PresetId, ChatId);
     public Workspace(string root, bool seedDefaultPreset = true)
     {

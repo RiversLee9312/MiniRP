@@ -28,4 +28,4 @@ Agent 激活 `assets` 后可调用 `read_asset({url, mode?, offset?, length?, pa
 | `link` | `url` 为 Actions Hook URL，点击投递对应 Action。 |
 | `markdown` | `content` 指向 MIME 为 `text/markdown` 的 Asset ID，也可用 `markdown` 填写内联文本。Android 页面加载上限 256 KiB。 |
 
-节点使用全包唯一的 `key`，除 Markdown 外均填 `title`，可选 `titles` 提供 BCP 47 语言映射。每组最多 50 项，嵌套最多 5 层。宿主内部设置绑定和首页渲染权限仅开放给内置插件。
+节点使用全包唯一的 `key`，除 Markdown 外均填 `title`，可选 `titles` 提供 BCP 47 语言映射。每组最多 50 项，嵌套最多 5 层。宿主内部设置绑定仅开放给内置插件。

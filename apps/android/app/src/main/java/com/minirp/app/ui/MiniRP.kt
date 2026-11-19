@@ -15,7 +15,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -57,7 +56,6 @@ fun MiniRP(model: ChatViewModel) {
         val destination by navigation.currentBackStackEntryAsState()
         val active = destination?.destination
         val isChat = active?.hasRoute<AppRoute.Chat>() != false
-        val locale = LocalConfiguration.current.locales[0]
         var panel by rememberSaveable { mutableStateOf("") }
         val activePanel = if (state.presetEditorOpen) "preset" else panel
         fun closePanel() {
@@ -83,17 +81,17 @@ fun MiniRP(model: ChatViewModel) {
         }
         LaunchedEffect(actions) { for (url in model.actions) actions.open(url) }
         if (language) LegacyLanguageSheet { language = false }
-        LaunchedEffect(
-            isChat,
-            state.chatId,
-            state.preset,
-            state.presetEditorOpen,
-            state.assigned(AgentRole.Chat),
-            locale,
-        ) {
-            if (isChat) {
-                model.leaveEnsembleChat()
-                model.requestHome()
+        LaunchedEffect(isChat, state.chatId) {
+            if (isChat) model.leaveEnsembleChat()
+        }
+        LaunchedEffect(destination, state.ready, state.chatId) {
+            val entry = destination ?: return@LaunchedEffect
+            if (
+                state.ready &&
+                    entry.destination.hasRoute<AppRoute.EnsembleChat>() &&
+                    entry.toRoute<AppRoute.EnsembleChat>().room != state.chatId
+            ) {
+                navigation.popBackStack<AppRoute.Chat>(inclusive = false)
             }
         }
         PluginPickerHost(model.picker)
@@ -116,8 +114,12 @@ fun MiniRP(model: ChatViewModel) {
                         model.chooseChat(preset, id)
                         scope.launch { drawer.close() }
                     },
-                    onCreateRoom = { preset ->
-                        model.createEnsembleRoom(preset)
+                    onSelectPreset = { preset ->
+                        model.selectPreset(preset)
+                        scope.launch { drawer.close() }
+                    },
+                    onCreateConversation = { preset, ensemble ->
+                        if (ensemble) model.createEnsembleRoom(preset) else model.createChat(preset)
                         scope.launch { drawer.close() }
                     },
                     onCreatePreset = {
@@ -232,7 +234,11 @@ fun MiniRP(model: ChatViewModel) {
                                 EnsembleChats(state.ensembleChats.orEmpty()) {
                                     open(AppRoute.EnsembleChat(state.chatId, it))
                                 }
-                            } else if (state.chatId.isBlank() && state.chatMode == "ensemble") {
+                            } else if (
+                                state.chatId.isBlank() &&
+                                    (state.chatMode == "ensemble" || state.chatGreeting)
+                            ) {
+                                val ensemble = state.chatMode == "ensemble"
                                 Column(
                                     Modifier.fillMaxSize().padding(24.dp),
                                     verticalArrangement =
@@ -243,13 +249,21 @@ fun MiniRP(model: ChatViewModel) {
                                         state.presetName,
                                         Modifier.fillMaxWidth(),
                                         { model.openPresetEditor() },
-                                        enabled = !state.busy,
+                                        enabled = state.ready && !state.busy && !state.preparing,
                                     )
                                     Button(
-                                        onClick = { model.createEnsembleRoom() },
-                                        enabled = !state.busy,
+                                        onClick = {
+                                            if (ensemble) model.createEnsembleRoom()
+                                            else model.createChat()
+                                        },
+                                        enabled = state.ready && !state.busy && !state.preparing,
                                     ) {
-                                        Text(stringResource(R.string.new_room))
+                                        Text(
+                                            stringResource(
+                                                if (ensemble) R.string.new_room
+                                                else R.string.new_chat
+                                            )
+                                        )
                                     }
                                 }
                             } else

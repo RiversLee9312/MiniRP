@@ -4,13 +4,13 @@
   "apiVersion": 2,
   "packageName": "minirp.base",
   "entry": "index.js",
-  "permissions": ["settings", "ui.home", "model"],
+  "permissions": ["settings"],
   "assets": [
     { "id": "dependencies", "type": "file", "path": "notices.md", "mimeType": "text/markdown", "accessibility": "public" },
     { "id": "project-license", "type": "file", "path": "LICENSE", "mimeType": "text/markdown", "accessibility": "public" }
   ],
-  "actions": { "handlers": { "recommend": "recommend", "develop": "develop", "preset-created": "presetCreated" } },
-  "hooks": { "home.requested": "minirp://actions/minirp.base/hooks/recommend", "preset.created": "minirp://actions/minirp.base/hooks/preset-created" },
+  "actions": { "handlers": { "develop": "develop", "preset-created": "presetCreated" } },
+  "hooks": { "preset.created": "minirp://actions/minirp.base/hooks/preset-created" },
   "skills": [
     {
       "name": "plugin-docs",
@@ -317,7 +317,6 @@
     {
       "key":"behavior", "type":"group", "title":"Appearance and behavior", "label":"behavior_settings",
       "items":[
-        {"key":"topics","type":"boolean","title":"Smart topic suggestions","titles":{"zh-Hans":"智能话题推荐","zh-Hant":"智慧話題推薦"},"default":false},
         {"key":"thoughts","type":"boolean","title":"Expand reasoning","label":"expand_thoughts","binding":"thoughts"},
         {"key":"fetch","type":"choice","title":"Page fetching","label":"fetch_mode","binding":"fetch","options":[
           {"value":"api","title":"API","label":"fetch_api"},

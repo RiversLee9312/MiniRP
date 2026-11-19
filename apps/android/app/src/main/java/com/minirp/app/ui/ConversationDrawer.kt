@@ -40,7 +40,8 @@ internal fun ConversationDrawer(
     drawer: DrawerState,
     open: Boolean,
     onSelect: (String, String) -> Unit,
-    onCreateRoom: (String) -> Unit,
+    onSelectPreset: (String) -> Unit,
+    onCreateConversation: (String, Boolean) -> Unit,
     onCreatePreset: () -> Unit,
 ) {
     val library by model.chatLibrary.collectAsStateWithLifecycle()
@@ -81,7 +82,7 @@ internal fun ConversationDrawer(
         DrawerLibrary(
             picking = picking,
             enabled = enabled,
-            onNewChat = { if (ensemble) onCreateRoom(preset) else onSelect(preset, "") },
+            onNewChat = { onCreateConversation(preset, ensemble) },
             onCreatePreset = onCreatePreset,
             modifier = Modifier.weight(1f),
             hasPreset = preset.isNotBlank(),
@@ -102,7 +103,7 @@ internal fun ConversationDrawer(
                     onDelete = { deletion = it to showPresets },
                 ) { item ->
                     if (showPresets) {
-                        model.selectPreset(item.id)
+                        onSelectPreset(item.id)
                         presetName = item.name
                         selectedEnsemble = item.ensemble
                         picking = false

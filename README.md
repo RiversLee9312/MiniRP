@@ -51,6 +51,8 @@ pwsh -File eng/build-android.ps1 -Install -Device '<ADB device serial>'
 
 Android 的世界、预设和记忆面板打开即全屏。对话页支持流式 Markdown、可折叠的工具轨迹和附件；搜索轨迹缩进展示。长按支持分支的用户消息可从发送前的世界与 Agent 状态创建新对话。旧消息没有历史快照，不能分支。标题只根据主聊天生成，点击标题可编辑或重新生成。
 
+预设可以给 ChatAgent 配置一条隐藏的开场系统消息。有开场的预设在首页使用「新建对话」按钮，创建后由 ChatAgent 生成欢迎语。详见 [为新对话设置开场](docs/presets/workflows.md#为新对话设置开场)。
+
 ChatAgent 可按需激活 `interactive-ui` 技能，在 Markdown 中插入流式交互界面。支持图表、表格、表单、本地计算、筛选、图片和地图。可以试试「做一个可以调整人数和天数的旅行预算计算器」。界面随对话保存，单次运行期间的输入会在滚动和展开时保留。详见 [Android 生成式 UI](docs/android/generated-ui.md)。
 
 在「提供商」设置名称、协议、地址和 API 密钥；在「模型」自动获取可用模型、保存常用模型、为 Agent 和标题指定模型。对话输入框下也可切换该页相关的 Agent 模型。提供商配置存入 DataStore，密钥用 Android Keystore AES-GCM 加密。附件可选图片、音频、PDF 和视频，能否发送取决于当前协议及模型。对话抽屉使用 Paging 3 按预设分页，默认打开聊天列表，收起预设列表。
@@ -96,7 +98,7 @@ ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conve
 
 ## 插件
 
-Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己的 V8 isolate。清单声明 Actions、Assets、Skill、附件和设置。Actions 通过 URL 投递事件，Assets 以 WHATWG 字节流读取，跨包访问按资源可见性和签名证书校验。内置 `base` 插件声明应用设置、首页话题推荐、预设创建引导和开源许可证页。
+Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己的 V8 isolate。清单声明 Actions、Assets、Skill、附件和设置。Actions 通过 URL 投递事件，Assets 以 WHATWG 字节流读取，跨包访问按资源可见性和签名证书校验。内置 `base` 插件声明应用设置、预设创建引导和开源许可证页。
 
 [开发、签名与安装](docs/plugins/getting-started.md) · [完整 API 参考](docs/plugins/README.md) · [插件 SDK](sdk/javascript/) · [示例插件](examples/stream-assets/plugin/) · [MIT 许可证](LICENSE)
 

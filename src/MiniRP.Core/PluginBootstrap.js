@@ -87,7 +87,6 @@
                         ...(info.legacy ? bind("attachments", ["read"]) : {}),
                     }),
                     settings: bind("settings", ["get"]),
-                    ui: bind("ui", ["setHomeSuggestions"]),
                     actions: bind("actions", ["invoke", "publish"]),
                     assets: freeze({
                         url(id) {

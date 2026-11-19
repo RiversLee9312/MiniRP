@@ -16,14 +16,15 @@ public sealed class SearchAgent(Workspace world, AgentSession session, PageSourc
         """;
     private readonly SearchWorkflow workflow = new(world, web);
 
-    internal async Task<string> RunDirect(AgentSession chat, string system, string input, JsonArray? attachments, CancellationToken token, string inputRole)
+    internal async Task<string> RunDirect(AgentSession chat, string system, string input, JsonArray? attachments,
+        CancellationToken token, string inputRole, bool privateInput)
     {
         var turn = new SearchTurn("direct", "", world.State, chat);
         var response = await chat.Run(system + "\n" + SearchWorkflow.WorldInstructions + "\n" + workflow.Policies +
             "\n" + PresetDesign.SearchGuidance(world.Mode) + "\n" + world.AgentPrompt("search"),
             input, new AgentSkill("direct-research", "Find, edit and cache search results and pages.", SearchTools.Create(direct: true),
                 (tool, arguments, ct) => workflow.Execute(turn, tool, arguments, ct), Required: true),
-            token, attachments: attachments, inputRole: inputRole);
+            token, attachments: attachments, inputRole: inputRole, privateInput: privateInput);
         token.ThrowIfCancellationRequested();
         var answer = response.GetString("content");
         if (!turn.Failed && turn.Changed && !string.IsNullOrWhiteSpace(answer))
