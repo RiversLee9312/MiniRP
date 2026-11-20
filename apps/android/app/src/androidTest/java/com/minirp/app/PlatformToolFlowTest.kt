@@ -3,6 +3,7 @@ package com.minirp.app
 import android.content.ContextWrapper
 import android.app.Activity
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivityResultRegistryOwner
@@ -10,6 +11,7 @@ import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isDialog
@@ -19,10 +21,12 @@ import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.printToString
 import androidx.core.app.ActivityOptionsCompat
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.lifecycle.ViewModelProvider
@@ -155,10 +159,19 @@ class PlatformToolFlowTest {
                 val menu = compose.onNodeWithContentDescription(label(R.string.open_menu))
                 val presetSelector = compose.onNodeWithTag("library-presets")
                 val importPreset = compose.onNodeWithText(label(R.string.import_preset))
+                fun openLibrary() {
+                    try {
+                        compose.waitForIdle()
+                        if (presetSelector.isDisplayed()) return
+                        waitFor { menu.isDisplayed() }
+                        menu.performTouchInput { click() }
+                        waitFor { presetSelector.isDisplayed() }
+                    } catch (error: Throwable) {
+                        throw AssertionError(compose.onRoot(useUnmergedTree = true).printToString(), error)
+                    }
+                }
                 fun openPresetList() {
-                    menu.performClick()
-                    compose.waitForIdle()
-                    waitFor { presetSelector.isDisplayed() }
+                    openLibrary()
                     if (!importPreset.isDisplayed()) presetSelector.performClick()
                     waitFor { importPreset.isDisplayed() }
                 }
@@ -171,7 +184,7 @@ class PlatformToolFlowTest {
                     waitFor { !model.state.value.archiveBusy && file.isFile && file.length() > 0 }
                 }
                 val exportedRoom = directory.resolve("portable.minirp-room")
-                menu.performClick()
+                openLibrary()
                 pickFromLibrary(room, R.string.export_chat, exportedRoom)
                 ZipFile(exportedRoom).use { assertNotNull(it.getEntry("conversations/$preset/$room.json")) }
                 val exported = directory.resolve("portable.minirp-preset")
@@ -236,7 +249,7 @@ class PlatformToolFlowTest {
             val history = (0 until messages.length()).map(messages::getJSONObject)
             val result = history.lastOrNull { it.optString("role") == "tool" }?.optString("content").orEmpty()
             val delta = when {
-                system.startsWith("You are PluginAgent working on") -> workerReply(result)
+                system.startsWith("You are PluginAgent working on") -> workerReply(result, history)
                 !body.has("tools") -> json("content" to "Tabletop test")
                 history.any { it.optString("content") == DiceRequest } -> diceReply(result)
                 history.any { it.optString("content") == SetupRequest } -> presetReply(result)
@@ -253,7 +266,7 @@ class PlatformToolFlowTest {
         private fun presetReply(result: String): JSONObject = when (presetRound.getAndIncrement()) {
             0 -> tools(tool("configure_experience", "mode" to "tabletop", "agentic_search" to false))
             1 -> tools(tool("activate_skill", "name" to "base-plugin-development"))
-            2 -> tools(tool("plugin_base_plugin_spawn", "name" to ProjectName, "message" to "Debug and publish the draft."))
+            2 -> tools(tool("plugin_base_plugin_spawn", "name" to ProjectName, "message" to "Debug the draft, iterate on its card, then publish it."))
             3 -> tools(tool("plugin_base_plugin_wait", "ids" to JSONArray().put(JSONObject(result).getString("id")), "seconds" to 20))
             4 -> {
                 val child = JSONArray(result).getJSONObject(0)
@@ -268,17 +281,34 @@ class PlatformToolFlowTest {
             else -> error("Unexpected PresetAgent round")
         }
 
-        private fun workerReply(result: String): JSONObject = when (workerRound.getAndIncrement()) {
+        private fun workerReply(result: String, history: List<JSONObject>): JSONObject = when (workerRound.getAndIncrement()) {
             0 -> tools(tool("activate_skill", "name" to "base-plugin-project"))
             1 -> tools(tool("plugin_base_project_read", "path" to "manifest.json"))
             2 -> {
                 manifest = JSONObject(JSONObject(result).getString("text"))
                 fixtureHandler = "minirp://actions/${manifest.getString("packageName")}/hooks/probe"
                 manifest.put("actions", json("handlers" to json("probe" to "probe")))
+                    .put("stateEntries", JSONArray().put(json(
+                        "key" to "gate", "scope" to "room", "description" to "Gate display",
+                        "initial" to json("line" to "Gate open.", "steps" to 1),
+                    )))
+                    .put("cards", JSONArray().put(json(
+                        "id" to "gate", "title" to "Gate", "state" to "gate",
+                        "program" to CardProgram.replace("Title(", "WrongTitle("),
+                    )))
                 tools(
                     tool("plugin_base_project_write", "path" to "manifest.json", "overwrite" to true, "text" to manifest.toString()),
                     tool("plugin_base_project_write", "path" to "index.js", "overwrite" to true,
-                        "text" to "globalThis.handlers = { probe: event => ({ echoed: event.message }) };"),
+                        "text" to """
+                            globalThis.handlers = { probe: async (event, api) => {
+                                if (event.line) {
+                                    const state = await api.state.get({ key: "gate" });
+                                    await api.state.set({ key: "gate", expected_revision: state.revision,
+                                        value: { line: event.line, steps: 1 } });
+                                }
+                                return { echoed: event.message };
+                            } };
+                        """.trimIndent()),
                 )
             }
             3 -> {
@@ -295,9 +325,80 @@ class PlatformToolFlowTest {
                 val certificate = JSONObject(draft.resolve("signer.json").readText()).getString("certificate")
                 signer = MessageDigest.getInstance("SHA-256").digest(Base64.getDecoder().decode(certificate))
                     .joinToString("") { "%02X".format(it) }
-                tools(tool("plugin_base_project_publish"))
+                tools(tool("plugin_base_project_card_catalog", "query" to "Button(label:", "length" to 800))
             }
             5 -> {
+                val catalog = JSONObject(result)
+                assertTrue(catalog.getBoolean("available"))
+                assertTrue(result, catalog.getString("text").contains("Button(label:"))
+                tools(tool("plugin_base_project_card_preview", "id" to "gate"))
+            }
+            6 -> {
+                val invalid = JSONObject(result)
+                assertTrue(result, invalid.getBoolean("available"))
+                assertFalse(result, invalid.getBoolean("ok"))
+                val errors = invalid.getJSONArray("diagnostics")
+                assertTrue(result, (0 until errors.length()).map(errors::getJSONObject).any {
+                    it.getString("code") == "unknown-component" && it.getString("component") == "WrongTitle"
+                })
+                assertFalse(workspace.resolve("plugins/${manifest.getString("id")}.plugin").exists())
+                tools(tool("plugin_base_project_edit", "path" to "manifest.json", "before" to "WrongTitle(", "after" to "Title("))
+            }
+            7 -> {
+                assertTrue(result, JSONObject(result).getBoolean("edited"))
+                tools(tool("plugin_base_project_card_preview",
+                    "id" to "gate", "handler" to fixtureHandler, "ensemble" to true, "screenshot" to true,
+                    "event" to json("message" to "room fixture", "line" to "Gate closed."), "width" to 320,
+                    "steps" to JSONArray().put(json("control" to "Step count", "value" to "5"))
+                        .put(json("control" to "Add step")).put(json("control" to "Inspect gate"))
+                        .put(json("control" to "Manual"))))
+            }
+            8 -> {
+                val preview = JSONObject(result)
+                assertTrue(result, preview.getBoolean("ok"))
+                assertEquals("room fixture", preview.getJSONObject("handler_result").getString("echoed"))
+                assertTrue(result, preview.getJSONObject("initial").getString("text").contains("Gate closed."))
+                val view = preview.getJSONObject("view")
+                assertTrue(result, view.getString("text").contains("Steps 6"))
+                assertEquals(320, view.getInt("width"))
+                val actions = preview.getJSONArray("actions")
+                assertEquals(2, actions.length())
+                val action = actions.getJSONObject(0)
+                assertEquals("reply", action.getString("type"))
+                assertEquals("Check the gate", action.getString("text"))
+                assertEquals(6, action.getJSONObject("context").getInt("steps"))
+                val link = actions.getJSONObject(1)
+                assertEquals("link", link.getString("type"))
+                assertEquals("https://example.invalid/manual", link.getString("url"))
+                val screenshot = preview.getJSONObject("screenshot")
+                assertTrue(result, screenshot.getBoolean("captured"))
+                val media = history.last().getJSONArray("content")
+                val imageUrl = (0 until media.length()).map(media::getJSONObject)
+                    .single { it.getString("type") == "image_url" }.getJSONObject("image_url").getString("url")
+                assertTrue(imageUrl.startsWith("data:image/png;base64,"))
+                val png = Base64.getDecoder().decode(imageUrl.substringAfter(','))
+                val image = assertNotNullImage(png)
+                try {
+                    assertEquals(screenshot.getInt("width"), image.width)
+                    assertEquals(screenshot.getInt("height"), image.height)
+                    val colors = mutableSetOf<Int>()
+                    for (y in 0 until image.height step 4) {
+                        for (x in 0 until image.width step 4) colors.add(image.getPixel(x, y))
+                    }
+                    assertTrue("The renderer returned a blank screenshot.", colors.size > 10)
+                } finally { image.recycle() }
+                tools(tool("plugin_base_project_card_preview", "id" to "gate", "ensemble" to true))
+            }
+            9 -> {
+                val clean = JSONObject(result)
+                assertTrue(result, clean.getBoolean("ok"))
+                val text = clean.getJSONObject("view").getString("text")
+                assertTrue(result, text.contains("Gate open.") && text.contains("Steps 1"))
+                assertEquals(0, clean.getJSONArray("actions").length())
+                assertTrue(draft.listFiles()!!.none { it.extension == "preview" })
+                tools(tool("plugin_base_project_publish"))
+            }
+            10 -> {
                 val published = JSONObject(result)
                 assertEquals(result, manifest.getString("id"), published.getString("id"))
                 assertEquals(signer, published.getString("signer"))
@@ -311,6 +412,9 @@ class PlatformToolFlowTest {
             }
             else -> error("Unexpected PluginAgent round")
         }
+
+        private fun assertNotNullImage(bytes: ByteArray) =
+            checkNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size)) { "The model received an invalid PNG." }
 
         private fun diceReply(result: String): JSONObject = when (diceRound.getAndIncrement()) {
             0 -> tools(tool("activate_skill", "name" to "tabletop"))
@@ -346,6 +450,15 @@ class PlatformToolFlowTest {
         const val SetupReply = "The tabletop preset and plugin are ready."
         const val DiceRequest = "Roll thirty dice with a modifier of minus seven."
         const val DiceReply = "The dice results were checked."
+        val CardProgram = """
+            root = Col([Title("Gate monitor", "md"), Text(%line), Text("Steps " + %steps), slider, add, inspect, manual])
+            slider = Slider(%steps, 0, 10, 1, "Step count")
+            add = Button("Add step", @Set(%steps, %steps + 1))
+            inspect = Button("Inspect gate", @ToAssistant("Check the gate", {steps: %steps}))
+            manual = Button("Manual", @OpenUrl("https://example.invalid/manual"))
+            %line = "Missing fixture"
+            %steps = 0
+        """.trimIndent().replace('%', '$')
 
         fun json(vararg pairs: Pair<String, Any>) = JSONObject().apply { pairs.forEach { (key, value) -> put(key, value) } }
     }

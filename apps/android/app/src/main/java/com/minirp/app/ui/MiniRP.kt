@@ -1,5 +1,6 @@
 package com.minirp.app.ui
 
+import android.widget.FrameLayout
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
@@ -17,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,6 +53,11 @@ internal sealed interface AppRoute {
 @Composable
 fun MiniRP(model: ChatViewModel) {
     val state by model.state.collectAsStateWithLifecycle()
+    val view = LocalView.current
+    DisposableEffect(model, view) {
+        model.setPreviewWindow(view.rootView.findViewById<FrameLayout>(android.R.id.content))
+        onDispose { model.setPreviewWindow(null) }
+    }
     MiniRPTheme {
         val navigation = rememberNavController()
         val destination by navigation.currentBackStackEntryAsState()

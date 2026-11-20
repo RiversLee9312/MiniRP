@@ -19,6 +19,29 @@ html:not(.expanded) {
     padding: 8px 6px;
 }
 
+#surface :is(.openui-table-container, .openui-intelligent-markdown-table-scroll) {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    overflow-x: auto;
+}
+
+#surface :is(.openui-table, .openui-intelligent-markdown-table) :is(th, td) {
+    box-sizing: border-box;
+    min-inline-size: 6rem;
+    vertical-align: top;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+}
+
+#surface .openui-table-head-label {
+    min-inline-size: 0;
+}
+
+#surface :is(.openui-table, .openui-intelligent-markdown-table) :is(th, td) code {
+    white-space: inherit;
+}
+
 .map-card {
     width: 100%;
     border-radius: 16px;

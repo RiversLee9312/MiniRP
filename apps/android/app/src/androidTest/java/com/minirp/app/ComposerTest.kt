@@ -3,9 +3,14 @@ package com.minirp.app
 import android.content.Context
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -14,10 +19,12 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.mikepenz.markdown.model.State as MarkdownState
 import com.mikepenz.markdown.model.parseMarkdown
@@ -89,6 +96,37 @@ class ComposerTest {
         }
         compose.waitUntil(5_000) { compose.onNodeWithText("A second paragraph.").isDisplayed() }
         compose.onNodeWithText("Heading").assertIsDisplayed()
+    }
+
+    @Test
+    fun markdownTableWrapsHeadersAndLongCellsDuringAndAfterStreaming() {
+        val heading = "A heading with enough text to wrap across several lines"
+        val value = "long-identifier-" + "x".repeat(120)
+        val source = "| $heading | Result |\n| --- | --- |\n| `$value` **visible ending** | Done |\n"
+        val block = mutableStateOf(TraceBlock("table", content = source, streaming = true))
+        compose.setContent {
+            MaterialExpressiveTheme {
+                Box(Modifier.width(320.dp)) { TraceLog(listOf(block.value), false) }
+            }
+        }
+        fun assertWrapped(text: String) {
+            val node = compose.onNodeWithText(text, substring = true, useUnmergedTree = true)
+            compose.waitUntil(5_000) { node.isDisplayed() }
+            val layouts = mutableListOf<TextLayoutResult>()
+            node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { action ->
+                assertTrue(action(layouts))
+            }
+            val layout = layouts.single()
+            assertTrue(layout.lineCount > 1)
+            assertTrue((0 until layout.lineCount).none(layout::isLineEllipsized))
+            assertEquals(layout.layoutInput.text.length, layout.getLineEnd(layout.lineCount - 1))
+        }
+        assertWrapped(heading)
+        assertWrapped("visible ending")
+        val finished = parseMarkdown(source) as MarkdownState.Success
+        compose.runOnIdle { block.value = block.value.copy(streaming = false, markdown = finished) }
+        assertWrapped(heading)
+        assertWrapped("visible ending")
     }
 
     @Test

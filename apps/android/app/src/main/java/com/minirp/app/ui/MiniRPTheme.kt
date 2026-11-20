@@ -1,5 +1,6 @@
 package com.minirp.app.ui
 
+import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialExpressiveTheme
@@ -15,13 +16,13 @@ internal fun MiniRPTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    val context = LocalContext.current
-    val colors =
-        when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            darkTheme -> darkColorScheme()
-            else -> expressiveLightColorScheme()
-        }
-    MaterialExpressiveTheme(colorScheme = colors, content = content)
+    MaterialExpressiveTheme(colorScheme = minirpColors(LocalContext.current, darkTheme), content = content)
 }
+
+internal fun minirpColors(context: Context, dark: Boolean) =
+    when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        dark -> darkColorScheme()
+        else -> expressiveLightColorScheme()
+    }

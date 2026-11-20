@@ -23,7 +23,7 @@ internal sealed class MessageAttachments(string root)
         _ => Kind.Unknown
     };
 
-    private static bool Supports(string protocol, string mime) => (protocol, Format(mime)) switch
+    internal static bool Supports(string protocol, string mime) => (protocol, Format(mime)) switch
     {
         ("gemini", not Kind.Unknown) => mime is not ("image/gif" or "audio/webm"),
         ("anthropic" or "responses" or "openai", Kind.Image) => mime is not ("image/heic" or "image/heif"),

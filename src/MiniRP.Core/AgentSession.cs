@@ -297,7 +297,7 @@ public sealed partial class AgentSession : IDisposable
                 yield return new("session-memory", "Save durable notes and recall earlier messages.", Tools.Memory(), MemoryTool,
                     Required: true, Instructions: MemoryInstructions);
             foreach (var skill in taskSkills) yield return skill;
-            foreach (var extra in bindings.Skills()) yield return extra;
+            foreach (var extra in bindings.Skills(turnModel.SelectedProvider, attachment => samples.AddNode(attachment))) yield return extra;
             if (bindings.Assets is not null)
                 yield return new("assets", "Inspect Asset URLs returned by plugin tools. Read text in pages or sample supported media.",
                     new JsonArray(Tools.Define("read_asset", "Inspect an asset. Choose inspect, text, image, pdf_page, video_frame, or audio_clip. Media samples require a compatible multimodal model.", new()
@@ -472,7 +472,7 @@ public sealed partial class AgentSession : IDisposable
                 if (samples.Count > 0)
                 {
                     working.AddNode(new JsonObject { ["role"] = "user", ["_harness_asset"] = true,
-                        ["content"] = "Media samples requested by read_asset, in tool call order.", ["attachments"] = samples });
+                        ["content"] = "Media returned by your tools, in tool call order.", ["attachments"] = samples });
                     samples = new();
                 }
                 if (submitted?.Invoke() == true)

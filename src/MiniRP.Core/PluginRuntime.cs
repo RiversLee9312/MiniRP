@@ -385,7 +385,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
     }
 
     public IEnumerable<AgentSkill> Skills(string agent, JsonObject environment, bool builtInOnly = false, AgentAssets? assets = null,
-        Action<JsonObject>? showCard = null)
+        Action<JsonObject>? showCard = null, Provider? provider = null, Action<JsonObject>? attach = null)
     {
         foreach (var package in Volatile.Read(ref packages))
         {
@@ -438,7 +438,9 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                             showCard(card);
                             return new JsonObject { ["shown"] = true, ["id"] = id };
                         }
-                        var result = await Invoke(new(package, handlers[name], new() { ["name"] = "skill.tool", ["skill"] = key, ["tool"] = name, ["arguments"] = args.DeepClone() }, environment), ct);
+                        var invocation = new Invocation(package, handlers[name], new()
+                        { ["name"] = "skill.tool", ["skill"] = key, ["tool"] = name, ["arguments"] = args.DeepClone() }, environment);
+                        var result = await InvokeSkillTool(invocation, provider, attach, ct);
                         if (assetTools.Contains(name)) (assets ?? throw new InvalidOperationException("This agent has no asset reader.")).Grant(package, result);
                         return result;
                     },

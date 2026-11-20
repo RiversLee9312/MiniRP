@@ -29,6 +29,19 @@ $line = "尚无变化。"
 
 在 `skills[].stateEntries` 与 `skills[].cards` 里列出该技能可以触达的声明。宿主分别生成 `plugin_<id>_<skill>-state({key})` 和 `plugin_<id>_<skill>-card({id})`。读状态工具还会返回 `db_key`。将业务操作单独声明在 `skills[].tools` 并绑定自己的 Actions URL。
 
+## 在草稿中调试卡片
+
+PluginAgent 激活 `base-plugin-project` 后，可以在 Android 上独立完成下列循环。
+
+1. 用 `plugin_base_project_card_catalog` 查询组件签名。目录由 Android 渲染器所用的组件库生成，支持按 `next_offset` 翻页。
+2. 把卡片写进草稿的 `manifest.json`，再用 `plugin_base_project_card_preview({id})` 预览声明的卡片。预览会签名并加载草稿，返回 OpenUI 诊断、渲染文本、尺寸、横向溢出和控件列表。可以指定 `width` 和 `dark` 检查不同布局和深浅色。
+3. 添加 `handler` 和 `event`，可以先执行草稿自己的 Action 并用测试数据填充绑定状态。普通会话使用相同的虚拟 Chat 和 Room ID，`ensemble: true` 使用不同的 ID。每次预览从独立的临时存储开始。
+4. 从预览结果取控件标签，用 `steps` 重放最多六个步骤。省略 `value` 时点击控件，支持直接赋值的原生输入也可传入 `value`。逐项核对交互结果、渲染内容和状态。提交表单或打开链接时，预览记录操作和参数，以便检查实际载荷。
+5. 支持图像输入的模型可以传 `screenshot: true`。宿主截取交互结束后的卡片，把 PNG 作为下一次模型请求的图片附件。长卡片截取首屏，结果包含 `cropped`。
+6. 用 `project_edit` 修正源码，重跑同一组预览。按委派要求调用 `project_publish` 发布已验证的草稿。
+
+预览复用聊天中的 Android WebView 和 OpenUI 组件。它在离线环境中返回结构化结果，远程图片和地图底图依赖正式使用时的网络加载。Windows 终端会返回 `available: false`。
+
 ## 读取、更新、订阅
 
 - `api.state.get({key})` 返回 `{key,scope,value,revision}`。宿主根据事件环境和声明寻找持久化位置。

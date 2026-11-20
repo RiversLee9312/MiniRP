@@ -5,11 +5,13 @@ import { Component } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./surface.css";
 import { library } from "./catalog.mjs";
+import { createPreview } from "./preview.mjs";
 
 const host = window.MiniRPSurface;
 const container = document.getElementById("surface");
 const root = createRoot(container);
 let initialState;
+let preview;
 
 function post(type, data = {}) {
     host?.postMessage(JSON.stringify({ type, ...data }));
@@ -18,14 +20,17 @@ function post(type, data = {}) {
 class RenderBoundary extends Component {
     state = { crashed: false };
     static getDerivedStateFromError() { return { crashed: true }; }
-    componentDidCatch() { post("error"); }
+    componentDidCatch(error) {
+        post("error");
+        preview?.crashed(error);
+    }
     render() { return this.state.crashed ? null : this.props.children; }
 }
 
 function action(event) {
-    if (event.type === "open_url") post("link", { url: event.params?.url });
+    if (event.type === "open_url") sendAction("link", { url: event.params?.url });
     if (event.type === "continue_conversation") {
-        post("reply", {
+        sendAction("reply", {
             text: event.humanFriendlyMessage,
             form: event.formName ? event.formState?.[event.formName] : undefined,
             context: event.params?.context,
@@ -33,8 +38,16 @@ function action(event) {
     }
 }
 
+function sendAction(type, data) {
+    if (preview) preview.action({ type, ...data });
+    else post(type, data);
+}
+
 window.renderOpenUi = (state) => {
     initialState ??= state.initialState ?? {};
+    if (state.previewSteps) {
+        preview = createPreview(container, state.previewSteps, (result) => post("preview_result", { result }));
+    }
     const managedState = state.managedState && Object.fromEntries(
         Object.entries(state.managedState).map(([name, value]) => [name.startsWith("$") ? name : "$" + name, value]),
     );
@@ -54,9 +67,11 @@ window.renderOpenUi = (state) => {
                     onParseResult={(result) => {
                         if (result?.root) post("rendered");
                         else if (!state.streaming) post("error");
+                        preview?.parsed(result);
                     }}
+                    onError={preview?.errors}
                     onAction={action}
-                    onStateUpdate={(value) => post("state", { value })}
+                    onStateUpdate={preview?.state ?? ((value) => post("state", { value }))}
                     publishObservability={false}
                 />
             </ThemeProvider>
@@ -68,7 +83,7 @@ document.addEventListener("click", (event) => {
     const link = event.target.closest?.("a[href]");
     if (!event.isTrusted || !link) return;
     event.preventDefault();
-    post("link", { url: link.href });
+    sendAction("link", { url: link.href });
 }, true);
 
 let previousHeight = -1;

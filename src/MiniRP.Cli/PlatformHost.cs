@@ -48,6 +48,13 @@ internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?
             case "agent_asset_sample":
                 Start(message, token => PluginRequest(message, token));
                 return true;
+            case "open_ui_catalog":
+            case "open_ui_preview":
+                Reply(message.GetString("id"), new() { ["result"] = new JsonObject
+                {
+                    ["available"] = false, ["reason"] = "This host does not have the Android OpenUI renderer."
+                } });
+                return true;
             case "plugin_isolate_close":
                 if (scripts.Detach(message.GetString("isolate")) is { } retired) Track(Task.Run(retired.Dispose));
                 return true;

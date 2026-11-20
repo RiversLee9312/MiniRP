@@ -25,7 +25,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
             var id = Workspace.Safe(context.GetString("session"));
             lock (gate)
                 if (!running.ContainsKey((preset, id))) throw new InvalidOperationException("This PluginAgent is no longer running.");
-            return await Project(preset, id).Execute(action, args, ct);
+            return await Project(preset, id).Execute(action, args, ct, context.GetString(PluginRuntime.CardPreviewOutput));
         }
 
         switch (action)

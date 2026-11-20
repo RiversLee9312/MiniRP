@@ -8,9 +8,12 @@ import android.view.ViewGroup
 import android.view.inspector.WindowInspector
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -18,6 +21,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToKey
+import androidx.compose.ui.unit.dp
 import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import com.minirp.app.ui.OpenUiInteractions
@@ -36,6 +40,50 @@ import org.junit.Test
 
 class OpenUiRendererTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun openUiTablesWrapLongValuesAndKeepWideColumnsReachable() {
+        val longText = "x".repeat(120) + "-visible-ending"
+        val markdown = "| Header | Result |\n| --- | --- |\n| $longText | Done |"
+        val program = """
+            root = Col([wide, markdown])
+            wide = Table(["One", "Two", "Three", "Four", "Five"], [["$longText", "B", "C", "D", "Last column"]])
+            markdown = Markdown(${JSONObject.quote(markdown)})
+        """.trimIndent()
+        compose.setContent {
+            MaterialExpressiveTheme {
+                Box(Modifier.width(320.dp)) { TraceLog(listOf(TraceBlock("tables", openUi = program)), false) }
+            }
+        }
+        compose.waitUntil(10_000) {
+            js("document.querySelectorAll('table').length", cardId = "tables") == "2"
+        }
+        val measurements = js(
+            """
+            (() => {
+                const [wide, markdown] = document.querySelectorAll("table");
+                function wraps(table) {
+                    const cell = table.querySelector("td");
+                    const text = document.createRange();
+                    text.selectNodeContents(cell);
+                    const style = getComputedStyle(cell);
+                    return style.whiteSpace === "normal" && style.textOverflow === "clip" &&
+                        text.getClientRects().length > 1 && cell.textContent.endsWith("-visible-ending");
+                }
+                const viewport = wide.parentElement;
+                const last = wide.querySelector("tbody td:last-child");
+                last.scrollIntoView({block:"nearest", inline:"end"});
+                const bounds = viewport.getBoundingClientRect();
+                const cellBounds = last.getBoundingClientRect();
+                const reachable = viewport.scrollWidth > viewport.clientWidth &&
+                    cellBounds.left >= bounds.left - 1 && cellBounds.right <= bounds.right + 1;
+                return [wraps(wide), wraps(markdown), reachable];
+            })()
+            """.trimIndent(),
+            cardId = "tables",
+        )
+        assertEquals("[true,true,true]", measurements)
+    }
 
     @Test
     fun pluginCardRefreshesFromItsStoredStateWithoutReloadingTheWebView() {

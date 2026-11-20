@@ -23,7 +23,7 @@ internal sealed class PluginDevelopmentProject(string root, string id, string pr
         AtomicFile.Write(FilePath("index.js"), "globalThis.handlers = {};\n");
     }
 
-    public async Task<JsonNode?> Execute(string action, JsonObject args, CancellationToken ct)
+    public async Task<JsonNode?> Execute(string action, JsonObject args, CancellationToken ct, string imageOutput = "")
     {
         ct.ThrowIfCancellationRequested();
         switch (action)
@@ -62,6 +62,11 @@ internal sealed class PluginDevelopmentProject(string root, string id, string pr
             case "project_debug":
             case "project_publish":
                 return await Build(action == "project_publish", args, ct);
+            case "project_card_catalog":
+                return await runtime.OpenUiCatalog(args, ct);
+            case "project_card_preview":
+                var card = PluginPackage.Identifier(args.GetString("id"));
+                return await Build(false, args, ct, card, imageOutput);
             case "project_remove":
                 var deployment = Path.Combine(root, "deployment.json");
                 if (!File.Exists(deployment)) throw new InvalidOperationException("This project has no deployment.");
@@ -73,7 +78,7 @@ internal sealed class PluginDevelopmentProject(string root, string id, string pr
         }
     }
 
-    private async Task<JsonNode?> Build(bool publish, JsonObject args, CancellationToken ct)
+    private async Task<JsonNode?> Build(bool publish, JsonObject args, CancellationToken ct, string? card = null, string imageOutput = "")
     {
         var manifestPath = FilePath("manifest.json");
         var manifest = JsonValues.ParseObject(Read(manifestPath));
@@ -88,11 +93,13 @@ internal sealed class PluginDevelopmentProject(string root, string id, string pr
         if (manifest.GetString("presetId") != preset)
             throw new InvalidDataException("Keep the draft's assigned presetId.");
         var artifact = Path.Combine(root, JsonValues.NewId() + ".plugin");
+        var preview = card is null ? Path.Combine(root, "preview") : Path.ChangeExtension(artifact, ".preview");
         try
         {
             var fingerprint = await runtime.PackDevelopment(Source, artifact, Path.Combine(root, "signer.json"), ct);
             var url = publish ? "" : args.GetString("handler");
-            var tested = await runtime.Debug(artifact, Path.Combine(root, "preview"), preset, url, args.GetObject("event"), ct);
+            var tested = await runtime.Debug(artifact, preview, preset, url, args.GetObject("event"), ct, card, args, imageOutput);
+            if (card is not null) return tested;
             if (!publish) return new JsonObject { ["ok"] = true, ["result"] = tested };
             ct.ThrowIfCancellationRequested();
             AtomicFile.Write(Path.Combine(root, "deployment.json"), JsonValues.Serialize(new JsonObject { ["signer"] = fingerprint }));
@@ -100,7 +107,11 @@ internal sealed class PluginDevelopmentProject(string root, string id, string pr
             changed();
             return runtime.Descriptor(package);
         }
-        finally { File.Delete(artifact); }
+        finally
+        {
+            File.Delete(artifact);
+            if (card is not null && Directory.Exists(preview)) Directory.Delete(preview, recursive: true);
+        }
     }
 
     private static string Read(string path)

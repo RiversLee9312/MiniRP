@@ -1,6 +1,8 @@
 package com.minirp.app.core
 
 import android.content.Context
+import android.widget.FrameLayout
+import com.minirp.app.ui.OpenUiPreview
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.security.SecureRandom
@@ -44,6 +46,7 @@ class CoreClient(
     private val calls = ConcurrentHashMap<String, Call>()
     private val pluginJobs = ConcurrentHashMap<String, Job>()
     private val scripts = PluginScripts()
+    private val openUiPreview = OpenUiPreview(context) { previewWindow?.invoke() }
     private val pluginHttp =
         http.newBuilder().followRedirects(false).followSslRedirects(false).build()
     private val replies = ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
@@ -51,6 +54,7 @@ class CoreClient(
     val events = mutableEvents.receiveAsFlow()
     var browser: (suspend (JSONObject) -> JSONObject)? = null
     var picker: (suspend (JSONObject) -> JSONObject)? = null
+    internal var previewWindow: (() -> FrameLayout?)? = null
 
     init {
         check(handle != 0L) { "Could not initialize native core" }
@@ -99,6 +103,8 @@ class CoreClient(
                         "plugin_sign",
                         "roll_dice",
                         "agent_asset_sample",
+                        "open_ui_catalog",
+                        "open_ui_preview",
                         "plugin_http",
                         "plugin_picker" -> {
                             val id = event.getString("id")
@@ -160,6 +166,8 @@ class CoreClient(
                     "plugin_verify" -> PluginVerifier.verify(event)
                     "plugin_sign" -> PluginSigner.sign(workspace, event)
                     "roll_dice" -> rollDice(event)
+                    "open_ui_catalog" -> openUiPreview.catalog(event)
+                    "open_ui_preview" -> openUiPreview.render(event)
                     "agent_asset_sample" ->
                         AgentMediaSampler.sample(
                             context.filesDir.resolve("workspace/attachments"),

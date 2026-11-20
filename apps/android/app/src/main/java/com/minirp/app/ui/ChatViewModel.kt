@@ -3,6 +3,7 @@ package com.minirp.app.ui
 import android.app.Application
 import android.content.Context
 import android.net.Uri
+import android.widget.FrameLayout
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.InvalidatingPagingSourceFactory
@@ -22,6 +23,7 @@ import java.util.UUID
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.lang.ref.WeakReference
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.json.JSONArray
@@ -40,6 +42,10 @@ internal constructor(
     val state = mutableState.asStateFlow()
     private val attachments = AttachmentStore(workspace)
     private val browser = BrowserHost(application)
+    private var previewWindow: WeakReference<FrameLayout>? = null
+    internal fun setPreviewWindow(window: FrameLayout?) {
+        previewWindow = window?.let { WeakReference(it) }
+    }
     internal val picker = PluginPicker()
     private var openUiInstructions = ""
     private var editorOwnsTurn = false
@@ -136,6 +142,7 @@ internal constructor(
                     }
                 client.browser = browser::execute
                 client.picker = picker::request
+                client.previewWindow = { previewWindow?.get() }
                 core = client
                 engine.complete(client)
                 configure()

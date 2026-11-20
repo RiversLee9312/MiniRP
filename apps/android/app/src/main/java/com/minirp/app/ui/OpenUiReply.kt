@@ -32,6 +32,7 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.minirp.app.R
+import java.io.ByteArrayInputStream
 import java.util.Locale
 import org.json.JSONObject
 
@@ -53,9 +54,7 @@ internal fun OpenUiReply(
     var failed by remember { mutableStateOf(false) }
     val title = block.openUiTitle.ifBlank { stringResource(R.string.interactive_reply) }
     val context = LocalContext.current
-    val supported = remember {
-        WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
-    }
+    val supported = remember { OpenUiPage.isSupported() }
     if (!supported) {
         Text(stringResource(R.string.interactive_reply_unavailable))
         return
@@ -168,21 +167,7 @@ private fun OpenUiWebView(
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val locale = LocalConfiguration.current.locales[0].toLanguageTag()
     val colors = MaterialTheme.colorScheme
-    val theme =
-        remember(colors) {
-            JSONObject()
-                .put("foreground", colors.surface.rgb())
-                .put("textNeutralPrimary", colors.onSurface.rgb())
-                .put("textNeutralSecondary", colors.onSurfaceVariant.rgb())
-                .put("intelligentSurface", colors.surfaceContainer.rgb())
-                .put("intelligentSurfaceStrong", colors.surfaceContainerHigh.rgb())
-                .put("intelligentBorder", colors.outlineVariant.rgb())
-                .put("intelligentFocus", colors.primary.rgb())
-                .put("intelligentRangeThumb", colors.primary.rgb())
-                .put("intelligentChart1", colors.primary.rgb())
-                .put("intelligentChart2", colors.secondary.rgb())
-                .put("intelligentChart3", colors.tertiary.rgb())
-        }
+    val theme = remember(colors) { colors.openUiTheme() }
     val payload =
         remember(
             block.openUi,
@@ -195,16 +180,12 @@ private fun OpenUiWebView(
             theme,
             expanded,
         ) {
-            JSONObject()
-                .put("program", block.openUi.orEmpty())
+            openUiPayload(
+                block.openUi.orEmpty(), block.openUiState?.let(::JSONObject), block.openUiRevision,
+                dark, rtl, locale, theme,
+            )
                 .put("streaming", block.streaming)
-                .put("dark", dark)
-                .put("rtl", rtl)
-                .put("locale", locale)
-                .put("theme", theme)
                 .put("expanded", expanded)
-                .put("managedState", block.openUiState?.let(::JSONObject))
-                .put("managedRevision", block.openUiRevision)
                 .toString()
         }
     AndroidView(
@@ -221,6 +202,37 @@ private fun OpenUiWebView(
 }
 
 private fun Color.rgb(): String = String.format(Locale.ROOT, "#%06x", toArgb() and 0xffffff)
+
+internal fun ColorScheme.openUiTheme() =
+    JSONObject()
+        .put("foreground", surface.rgb())
+        .put("textNeutralPrimary", onSurface.rgb())
+        .put("textNeutralSecondary", onSurfaceVariant.rgb())
+        .put("intelligentSurface", surfaceContainer.rgb())
+        .put("intelligentSurfaceStrong", surfaceContainerHigh.rgb())
+        .put("intelligentBorder", outlineVariant.rgb())
+        .put("intelligentFocus", primary.rgb())
+        .put("intelligentRangeThumb", primary.rgb())
+        .put("intelligentChart1", primary.rgb())
+        .put("intelligentChart2", secondary.rgb())
+        .put("intelligentChart3", tertiary.rgb())
+
+internal fun openUiPayload(
+    program: String,
+    state: JSONObject?,
+    revision: Int,
+    dark: Boolean,
+    rtl: Boolean,
+    locale: String,
+    theme: JSONObject,
+) = JSONObject()
+    .put("program", program)
+    .put("managedState", state)
+    .put("managedRevision", revision)
+    .put("dark", dark)
+    .put("rtl", rtl)
+    .put("locale", locale)
+    .put("theme", theme)
 
 internal class OpenUiPageCache {
     // The LazyColumn recycles the host. Keep a small number of detached documents by card ID.
@@ -296,6 +308,7 @@ private class OpenUiSlot(context: Context) : FrameLayout(context) {
 internal class OpenUiPage(
     context: Context,
     private val ownsVerticalScroll: Boolean,
+    private val offline: Boolean = false,
 ) : WebView(context) {
     private var ready = false
     private var latest = ""
@@ -331,21 +344,26 @@ internal class OpenUiPage(
                 override fun shouldInterceptRequest(
                     view: WebView,
                     request: WebResourceRequest,
-                ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
+                ): WebResourceResponse? =
+                    assetLoader.shouldInterceptRequest(request.url)
+                        ?: if (offline) WebResourceResponse(
+                            "text/plain", "utf-8", 403, "Preview is offline", emptyMap(),
+                            ByteArrayInputStream(ByteArray(0)),
+                        ) else null
 
                 override fun onReceivedError(
                     view: WebView,
                     request: WebResourceRequest,
                     error: WebResourceError,
                 ) {
-                    if (request.isForMainFrame) receive(JSONObject().put("type", "error"))
+                    if (request.isForMainFrame) pageError()
                 }
 
                 override fun onRenderProcessGone(
                     view: WebView,
                     detail: RenderProcessGoneDetail,
                 ): Boolean {
-                    receive(JSONObject().put("type", "error"))
+                    pageError()
                     return true
                 }
             }
@@ -380,6 +398,10 @@ internal class OpenUiPage(
     fun detach() {
         callback = null
         onPause()
+    }
+
+    private fun pageError() {
+        receive(JSONObject().put("type", if (offline) "page_error" else "error"))
     }
 
     private fun receive(event: JSONObject) {
@@ -429,7 +451,9 @@ internal class OpenUiPage(
         evaluateJavascript("window.renderOpenUi(JSON.parse($argument));", null)
     }
 
-    private companion object {
-        const val Origin = "https://minirp-ui.invalid"
+    companion object {
+        private const val Origin = "https://minirp-ui.invalid"
+
+        fun isSupported() = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
     }
 }

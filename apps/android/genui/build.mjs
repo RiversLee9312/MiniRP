@@ -2,7 +2,7 @@ import { build } from "esbuild";
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { prompt } from "./catalog.mjs";
+import { cardPrompt, prompt } from "./catalog.mjs";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const output = join(resolve(process.argv[2] ?? join(here, "dist")), "openui");
@@ -47,3 +47,4 @@ await Promise.all([
 ]);
 await copyFile(join(here, "index.html"), join(output, "index.html"));
 await writeFile(join(output, "prompt.txt"), prompt);
+await writeFile(join(output, "card-prompt.txt"), cardPrompt);

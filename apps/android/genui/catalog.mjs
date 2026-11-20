@@ -96,12 +96,16 @@ export const library = intelligentUi.extend({
     components: { add: [MapView], remove: ["HtmlView", "YouTube"] },
 });
 
-export const prompt = library.prompt({
-    preamble: "You can compose a native chat reply with Markdown and optional interactive OpenUI Lang surfaces.",
+const promptOptions = {
     inlineMode: true,
     bindings: true,
     builtinFunctions: true,
     toolCalls: false,
+};
+
+export const prompt = library.prompt({
+    ...promptOptions,
+    preamble: "You can compose a native chat reply with Markdown and optional interactive OpenUI Lang surfaces.",
     additionalRules: [
         "Put each OpenUI program in a separate unindented fenced block starting with three backticks and openui-lang, and ending with three backticks. Start the program on the next line. Put ordinary prose outside the fences.",
         "Use the user's language and build the smallest useful interactive response. Choose charts and tables for data, drawings for spatial explanations, and forms or local controls for decisions.",
@@ -115,5 +119,19 @@ export const prompt = library.prompt({
         'root = Col([Title("Compare options", "lg"), Chart("bar", data, "item", ["value"]), Table(["Option", "Value"], @Each(data, "row", [row.item, row.value + ""]))])\ndata = [{item: "A", value: 15}, {item: "B", value: 23}]',
         'root = Col([Title("Choose a plan", "lg"), details])\ndetails = Form([SegmentedControl($plan, ["Basic", "Plus"]), Button("Compare this plan", @ToAssistant("Compare my plan", {plan: $plan}))])\n$plan = "Basic"',
         'root = Col([Title("Route overview", "lg"), Map([{label: "Golden Gate Bridge", lat: 37.8199, lng: -122.4783}, {label: "Ferry Building", lat: 37.7955, lng: -122.3937}], true, $stop), Text($stop)])\n$stop = "Golden Gate Bridge"',
+    ],
+});
+
+export const cardPrompt = library.prompt({
+    ...promptOptions,
+    preamble: "Use OpenUI Lang in the program field of a plugin manifest card.",
+    additionalRules: [
+        "Write the program as plain OpenUI Lang, without Markdown fences. Start with a root component.",
+        "If the card binds a state entry, each field in that entry is available as a $variable. Use @Set and @Reset for local state. Durable changes go through plugin Actions.",
+        "Use @ToAssistant to send the user's choice and explicit context to the conversation agent. Give each interactive control a unique readable label.",
+        "Preview the declared card, compare the rendered output with the fixture, inspect diagnostics and replay important interactions before publishing.",
+    ],
+    examples: [
+        'root = Col([Title("Trip budget", "lg"), Text("Estimated cost: " + ($days * 125)), Button("Add a day", @Set($days, $days + 1)), Button("Use this budget", @ToAssistant("Plan my trip", {days: $days}))])\n$days = 3',
     ],
 });

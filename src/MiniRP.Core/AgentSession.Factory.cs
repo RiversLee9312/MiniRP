@@ -9,7 +9,7 @@ public sealed partial class AgentSession
     private sealed record Profile(string Name, PluginAccess Plugins = PluginAccess.Scoped,
         bool Cards = false, bool InteractiveUi = false, bool Memory = true, bool FollowUp = true);
 
-    private sealed record Bindings(Func<IEnumerable<AgentSkill>> Skills, Func<string, JsonObject?> State,
+    private sealed record Bindings(Func<Provider, Action<JsonObject>, IEnumerable<AgentSkill>> Skills, Func<string, JsonObject?> State,
         AgentAssets? Assets, Func<string> OpenUi);
 
     /// <summary>Resolves role permissions and attaches every session to the same runtime.</summary>
@@ -38,11 +38,11 @@ public sealed partial class AgentSession
                 var scoped = profile.Plugins == PluginAccess.Scoped;
                 var assets = scoped && plugins is not null && attachmentRoot is not null
                     ? new AgentAssets(plugins, port, session.Db, attachmentRoot, context) : null;
-                IEnumerable<AgentSkill> ResolveSkills()
+                IEnumerable<AgentSkill> ResolveSkills(Provider selected, Action<JsonObject> attach)
                 {
                     if (plugins is not null && profile.Plugins != PluginAccess.None)
                         foreach (var skill in plugins.Skills(role, context(), builtInOnly: !scoped,
-                                     assets: assets, showCard: profile.Cards ? session.ShowCard : null))
+                                     assets: assets, showCard: profile.Cards ? session.ShowCard : null, provider: selected, attach: attach))
                             yield return skill;
                     if (skills is not null)
                         foreach (var skill in skills()) yield return skill;

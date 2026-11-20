@@ -510,6 +510,7 @@ fun TraceLog(
                                     item.document,
                                     modifier = Modifier.fillMaxWidth(),
                                     animations = stillMarkdown,
+                                    components = chatMarkdownComponents,
                                     success = { state, components, _ ->
                                         MarkdownElement(item.node, components, state.content)
                                     },
@@ -734,11 +735,16 @@ internal fun MessageMarkdown(text: String, streaming: Boolean = false) {
                     }
                 }
         }
-        Markdown(streamingMarkdownState = state, modifier = Modifier.fillMaxWidth())
+        Markdown(
+            streamingMarkdownState = state,
+            modifier = Modifier.fillMaxWidth(),
+            components = chatMarkdownComponents,
+        )
     } else {
         Markdown(
             rememberMarkdownState(text, retainState = true),
             modifier = Modifier.fillMaxWidth(),
+            components = chatMarkdownComponents,
         )
     }
 }
