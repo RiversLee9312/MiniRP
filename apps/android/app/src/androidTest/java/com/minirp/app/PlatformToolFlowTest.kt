@@ -153,6 +153,15 @@ class PlatformToolFlowTest {
                 val room = model.state.value.chatId
                 val plugin = model.state.value.installedPlugins.single { it.name == ProjectName }
                 val menu = compose.onNodeWithContentDescription(label(R.string.open_menu))
+                val presetSelector = compose.onNodeWithTag("library-presets")
+                val importPreset = compose.onNodeWithText(label(R.string.import_preset))
+                fun openPresetList() {
+                    menu.performClick()
+                    compose.waitForIdle()
+                    waitFor { presetSelector.isDisplayed() }
+                    if (!importPreset.isDisplayed()) presetSelector.performClick()
+                    waitFor { importPreset.isDisplayed() }
+                }
                 fun pickFromLibrary(id: String, option: Int, file: File) {
                     val row = compose.onNodeWithTag("library-choice-$id")
                     waitFor { row.isDisplayed() }
@@ -166,17 +175,14 @@ class PlatformToolFlowTest {
                 pickFromLibrary(room, R.string.export_chat, exportedRoom)
                 ZipFile(exportedRoom).use { assertNotNull(it.getEntry("conversations/$preset/$room.json")) }
                 val exported = directory.resolve("portable.minirp-preset")
-                menu.performClick()
-                compose.onNodeWithTag("library-presets").performClick()
+                openPresetList()
                 pickFromLibrary(preset, R.string.export_preset, exported)
                 val saved = directory.resolve("portable.minirp-save")
-                menu.performClick()
-                compose.onNodeWithTag("library-presets").performClick()
+                openPresetList()
                 pickFromLibrary(preset, R.string.export_save, saved)
-                menu.performClick()
-                compose.onNodeWithTag("library-presets").performClick()
+                openPresetList()
                 document.set(exported)
-                compose.onNodeWithText(label(R.string.import_preset)).performClick()
+                importPreset.performClick()
                 waitFor { !model.state.value.archiveBusy && model.state.value.chatId.isBlank() }
                 assertEquals(preset, model.state.value.preset)
                 val standalone = directory.resolve("standalone.plugin")
