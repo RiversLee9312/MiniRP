@@ -199,7 +199,7 @@ internal fun PluginPickerHost(picker: PluginPicker) {
         val active = request ?: return
         scope.launch {
             try {
-                val items = AttachmentStore(context).import(uris.map { it.toString() }, "picker")
+                val items = AttachmentStore(context).import(uris.map { it.toString() })
                 active.answer.complete(JSONObject().put("files", items))
             } catch (failure: Exception) {
                 active.answer.completeExceptionally(failure)

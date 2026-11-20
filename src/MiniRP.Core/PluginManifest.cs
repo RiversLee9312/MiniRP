@@ -38,6 +38,8 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
         if (name.Length is 0 or > 120 || version != 2 && !(allowLegacy && version == 1))
             throw new InvalidDataException("A plugin name and supported apiVersion are required.");
         var signed = version == 2;
+        if (signed && manifest.ContainsKey("tools"))
+            throw new InvalidDataException("Declare tools inside a skill.");
         if (signed) PackageIdentifier(manifest.GetString("packageName"));
         if (manifest.ContainsKey("presetId")) WorkspaceIds.Require(manifest.GetString("presetId"));
         var (certificate, hashes) = signed ? PluginSignature.Verify(archive, platformVerifier) : ("", null);

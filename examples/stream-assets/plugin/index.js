@@ -37,4 +37,24 @@ globalThis.handlers = {
             });
         }
     },
+
+    sampleUrl(_event, api) {
+        return api.assets.url("sample");
+    },
+
+    async measure(event, api) {
+        const { body } = await api.assets.open(event.arguments.url);
+        let bytes = 0;
+        for await (const chunk of body) bytes += chunk.byteLength;
+        return { bytes };
+    },
+
+    async encodeAbout(_event, api) {
+        const { text } = await api.text.read(api.assets.url("about"));
+        return api.text.encode("\uFEFF" + text, { encoding: "utf-16le" });
+    },
+
+    aboutUrl(_event, api) {
+        return api.assets.url("about-utf16");
+    },
 };

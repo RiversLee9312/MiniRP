@@ -4,6 +4,8 @@ import android.content.ContextWrapper
 import android.app.Activity
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivityResultRegistryOwner
@@ -28,6 +30,8 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.printToString
 import androidx.core.app.ActivityOptionsCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
@@ -152,6 +156,22 @@ class PlatformToolFlowTest {
                 waitFor {
                     !model.state.value.busy && model.state.value.blocks.any { it.content == DiceReply }
                 }
+                val pdf = directory.resolve("asset-probe.pdf")
+                val fixturePdf = PdfDocument()
+                try {
+                    val page = fixturePdf.startPage(PdfDocument.PageInfo.Builder(100, 200, 1).create())
+                    page.canvas.drawColor(Color.RED)
+                    fixturePdf.finishPage(page)
+                    pdf.outputStream().use(fixturePdf::writeTo)
+                } finally { fixturePdf.close() }
+                document.set(pdf)
+                compose.onNodeWithContentDescription(label(R.string.add_attachment)).performClick()
+                compose.onNodeWithText(label(R.string.choose_files)).performClick()
+                waitFor { compose.onNodeWithText(pdf.name).isDisplayed() }
+                send(AssetRequest)
+                waitFor {
+                    !model.state.value.busy && model.state.value.blocks.any { it.content == AssetReply }
+                }
                 assertTrue(model.state.value.chatId.isNotBlank())
                 val preset = model.state.value.preset
                 val room = model.state.value.chatId
@@ -161,6 +181,11 @@ class PlatformToolFlowTest {
                 val importPreset = compose.onNodeWithText(label(R.string.import_preset))
                 fun openLibrary() {
                     try {
+                        compose.runOnIdle {
+                            val window = compose.activity.window
+                            WindowCompat.getInsetsController(window, window.decorView)
+                                .hide(WindowInsetsCompat.Type.ime())
+                        }
                         compose.waitForIdle()
                         if (presetSelector.isDisplayed()) return
                         waitFor { menu.isDisplayed() }
@@ -236,6 +261,7 @@ class PlatformToolFlowTest {
         private val presetRound = AtomicInteger()
         private val workerRound = AtomicInteger()
         private val diceRound = AtomicInteger()
+        private val assetRound = AtomicInteger()
         private val callId = AtomicInteger()
         private lateinit var draft: File
         private lateinit var manifest: JSONObject
@@ -251,6 +277,7 @@ class PlatformToolFlowTest {
             val delta = when {
                 system.startsWith("You are PluginAgent working on") -> workerReply(result, history)
                 !body.has("tools") -> json("content" to "Tabletop test")
+                history.any { it.optString("content").startsWith(AssetRequest) } -> assetReply(result, history)
                 history.any { it.optString("content") == DiceRequest } -> diceReply(result)
                 history.any { it.optString("content") == SetupRequest } -> presetReply(result)
                 else -> json("content" to Interview)
@@ -416,6 +443,46 @@ class PlatformToolFlowTest {
         private fun assertNotNullImage(bytes: ByteArray) =
             checkNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size)) { "The model received an invalid PNG." }
 
+        private fun assetReply(result: String, history: List<JSONObject>): JSONObject {
+            val input = history.single { it.optString("content").startsWith(AssetRequest) }.getString("content")
+            val url = checkNotNull(Regex("minirp://assets/minirp.attachments/[a-f0-9-]+").find(input)).value
+            return when (assetRound.getAndIncrement()) {
+                0 -> tools(tool("activate_skill", "name" to "view_asset"))
+                1 -> {
+                    val names = JSONObject(result).getJSONArray("tools")
+                    assertEquals(11, names.length())
+                    tools(tool("plugin_base_view_url_metadata", "url" to url))
+                }
+                2 -> {
+                    val metadata = JSONObject(result)
+                    assertEquals("application/pdf", metadata.getString("mime"))
+                    assertEquals("asset-probe.pdf", metadata.getString("name"))
+                    tools(tool("plugin_base_view_pdf_metadata", "url" to url))
+                }
+                3 -> {
+                    val metadata = JSONObject(result).getJSONObject("metadata")
+                    assertEquals(1, metadata.getInt("page_count"))
+                    assertEquals(100, metadata.getInt("first_page_width_points"))
+                    tools(tool("plugin_base_view_pdf_page", "url" to url, "page" to 1))
+                }
+                4 -> {
+                    val part = history.last().getJSONArray("content").getJSONObject(1)
+                    val data = part.getJSONObject("image_url").getString("url")
+                    val bitmap = assertNotNullImage(Base64.getDecoder().decode(data.substringAfter(',')))
+                    try { assertEquals(Color.RED, bitmap.getPixel(bitmap.width / 2, bitmap.height / 2)) }
+                    finally { bitmap.recycle() }
+                    tools(tool("plugin_base_view_image_metadata", "url" to JSONObject(result).getString("sample_url")))
+                }
+                5 -> {
+                    val metadata = JSONObject(result).getJSONObject("metadata")
+                    assertEquals(700, metadata.getInt("width"))
+                    assertEquals(1400, metadata.getInt("height"))
+                    json("content" to AssetReply)
+                }
+                else -> error("Unexpected Asset preview round")
+            }
+        }
+
         private fun diceReply(result: String): JSONObject = when (diceRound.getAndIncrement()) {
             0 -> tools(tool("activate_skill", "name" to "tabletop"))
             1 -> tools(tool("roll_dice", "count" to 0, "sides" to 6))
@@ -450,6 +517,8 @@ class PlatformToolFlowTest {
         const val SetupReply = "The tabletop preset and plugin are ready."
         const val DiceRequest = "Roll thirty dice with a modifier of minus seven."
         const val DiceReply = "The dice results were checked."
+        const val AssetRequest = "Inspect the attached PDF using its Asset URL."
+        const val AssetReply = "The PDF asset and page sample were checked."
         val CardProgram = """
             root = Col([Title("Gate monitor", "md"), Text(%line), Text("Steps " + %steps), slider, add, inspect, manual])
             slider = Slider(%steps, 0, 10, 1, "Step count")

@@ -196,7 +196,7 @@ public sealed partial class AgentSession
                 default:
                     input.AddNode(new JsonObject { ["role"] = "user", ["content"] = message is not null && media.TryGetValue(message, out var attachments)
                         ? MessageAttachments.Parts(provider.Protocol, MessageAttachments.Text(message), attachments)
-                        : JsonValue.Create(message.GetString("content")) });
+                        : JsonValue.Create(MessageAttachments.Text(message)) });
                     break;
             }
         }

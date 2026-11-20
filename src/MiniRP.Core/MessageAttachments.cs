@@ -5,7 +5,23 @@ namespace MiniRP.Core;
 internal sealed class MessageAttachments(string root)
 {
     public const int MaxBytes = 16_000_000;
+    public const int MaxAssetBytes = 128 * 1024 * 1024;
     private const int GeminiMaxBytes = 14_000_000;
+    internal const string AssetPrefix = "minirp://assets/minirp.attachments/";
+
+    internal static bool IsAttachmentUrl(string url) =>
+        PluginUrls.Route(url, "assets").StartsWith("minirp.attachments/", StringComparison.Ordinal);
+
+    internal static string AssetUrl(JsonNode? file) => AssetPrefix + Workspace.Safe(file.GetString("id"));
+
+    internal static string Mime(JsonNode? file)
+    {
+        var mime = file.GetString("mime").Split(';', 2)[0].Trim().ToLowerInvariant();
+        var slash = mime.IndexOf('/');
+        return mime.Length <= 160 && slash > 0 && slash < mime.Length - 1 &&
+            mime.LastIndexOf('/') == slash && mime.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '/' or '+' or '.' or '-' or '_')
+            ? mime : "application/octet-stream";
+    }
 
     internal enum Kind { Image, Audio, Pdf, Video, Unknown }
 
@@ -33,8 +49,23 @@ internal sealed class MessageAttachments(string root)
         _ => false
     };
 
-    private static bool IsConvertedText(JsonNode? file) =>
-        file.GetString("type").Length > 0 && file.GetString("text").Length > 0;
+    internal static bool Supports(Provider provider, string mime) =>
+        Supports(provider.Protocol, mime) && (provider.InputModalities is null || provider.InputModalities.Contains(
+            Format(mime) == Kind.Pdf ? "document" : Format(mime).ToString().ToLowerInvariant(), StringComparer.Ordinal));
+
+    public void ValidateAssets(JsonArray attachments)
+    {
+        if (attachments.Count > 20) throw new InvalidOperationException("Too many attachments.");
+        long total = 0;
+        foreach (var item in attachments)
+        {
+            var info = FileFor(item);
+            if (!info.Exists || (info.Attributes & FileAttributes.ReparsePoint) != 0 || info.Length == 0)
+                throw new FileNotFoundException("The original attachment is unavailable.");
+            if ((total += info.Length) > MaxAssetBytes)
+                throw new InvalidOperationException("Attachments exceed the workspace resource limit.");
+        }
+    }
 
     public void Validate(JsonArray attachments, Provider provider)
     {
@@ -45,12 +76,7 @@ internal sealed class MessageAttachments(string root)
         }
         foreach (var item in attachments)
         {
-            if (IsConvertedText(item))
-            {
-                if (!FileFor(item).Exists) throw new FileNotFoundException("The original attachment is missing.");
-                continue;
-            }
-            if (!Supports(provider.Protocol, item.GetString("mime")))
+            if (!Supports(provider, Mime(item)))
             {
                 throw new InvalidOperationException("This model protocol cannot send this type of attachment.");
             }
@@ -62,22 +88,21 @@ internal sealed class MessageAttachments(string root)
         }
     }
 
-    public Dictionary<JsonNode, List<Media>> Resolve(JsonArray messages, string protocol, bool includeData = true)
+    public Dictionary<JsonNode, List<Media>> Resolve(JsonArray messages, Provider provider, bool includeData = true)
     {
-        var remaining = Budget(protocol);
+        var remaining = Budget(provider.Protocol);
         var result = new Dictionary<JsonNode, List<Media>>(ReferenceEqualityComparer.Instance);
         foreach (var message in messages.Reverse().OfType<JsonObject>())
         {
-            if (message.GetString("role") != "user" || message.GetArray("attachments") is not { Count: > 0 } files)
+            if (!message.GetBoolean("_harness_asset") || message.GetArray("attachments") is not { Count: > 0 } files)
             {
                 continue;
             }
             var media = new List<Media>();
             foreach (var file in files)
             {
-                if (IsConvertedText(file)) continue;
-                var mime = file.GetString("mime");
-                if (!Supports(protocol, mime))
+                var mime = Mime(file);
+                if (!Supports(provider, mime))
                 {
                     continue;
                 }
@@ -95,17 +120,18 @@ internal sealed class MessageAttachments(string root)
         return result;
     }
 
-    private FileInfo FileFor(JsonNode? file) => new(Path.Combine(root, Workspace.Safe(file.GetString("id"))));
-    private static int Budget(string protocol) => protocol == "gemini" ? GeminiMaxBytes : MaxBytes;
+    internal FileInfo FileFor(JsonNode? file) => new(Path.Combine(root, Workspace.Safe(file.GetString("id"))));
+    internal static int Budget(string protocol) => protocol == "gemini" ? GeminiMaxBytes : MaxBytes;
 
-    public static string Text(JsonNode? message)
+    public static string Text(JsonNode? message, string? original = null)
     {
-        var content = message.GetString("content");
+        var content = original ?? message.GetString("content");
         var files = message.GetArray("attachments");
         if (files.Count == 0) return content;
-        return content + "\n\nAttachments: " + string.Join(", ", files.Select(file => file.GetString("name"))) +
-            string.Concat(files.Where(file => file.GetString("text").Length > 0)
-                .Select(file => "\n\nAttachment " + file.GetString("name") + " (data):\n" + file.GetString("text")));
+        if (message.GetBoolean("_harness_asset"))
+            return content + "\n\nAttachments: " + string.Join(", ", files.Select(file => file.GetString("name")));
+        return content + "\n\nResources:\n" + string.Join("\n", files.OfType<JsonObject>().Where(file => file.GetString("url").Length > 0)
+            .Select(file => "- " + file.GetString("url") + " (" + Mime(file) + ", " + JsonValues.Serialize(file["name"]) + ")"));
     }
 
     public static JsonArray Parts(string protocol, string text, IReadOnlyList<Media> files)

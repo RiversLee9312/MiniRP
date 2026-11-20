@@ -4,7 +4,8 @@ namespace MiniRP.Core;
 
 public sealed record Provider(string Id, string Name, string Protocol, string Url, string Key, string Model, bool Thinking = false,
     int ContextWindow = 128000, int MaxOutput = 8192, int CompactAt = 0, string ReasoningEffort = "",
-    int? CompactAtPercent = null, bool BackgroundCompaction = true, int BackgroundCompactAtPercent = 70)
+    int? CompactAtPercent = null, bool BackgroundCompaction = true, int BackgroundCompactAtPercent = 70,
+    string[]? InputModalities = null)
 {
     public static Provider From(JsonObject p) => new(
         p.GetString("id", "default"), p.GetString("name", "Custom"), p.GetString("protocol", "openai"), p.GetString("url").TrimEnd('/'),
@@ -13,7 +14,9 @@ public sealed record Provider(string Id, string Name, string Protocol, string Ur
         Math.Clamp(p.GetInt32("max_output", 8192), 256, 1000000),
         Math.Max(0, p.GetInt32("compact_at")), p.GetString("reasoning_effort"),
         p.GetInt32("compact_at_percent") is >= 1 and <= 100 and var percent ? percent : null,
-        p.GetBoolean("background_compaction", true), Math.Clamp(p.GetInt32("background_compact_at_percent", 70), 1, 99));
+        p.GetBoolean("background_compaction", true), Math.Clamp(p.GetInt32("background_compact_at_percent", 70), 1, 99),
+        (p["input_modalities"] ?? p.GetObject("architecture")["input_modalities"]) is JsonArray modalities
+            ? modalities.Select(item => JsonValues.GetText(item).ToLowerInvariant()).ToArray() : null);
     public static JsonArray Catalog() => new(
         Item("OpenAI", "responses", "https://api.openai.com/v1"), Item("OpenAI Chat Completions", "openai", "https://api.openai.com/v1"), Item("Anthropic", "anthropic", "https://api.anthropic.com/v1"),
         Item("Google Gemini", "gemini", "https://generativelanguage.googleapis.com/v1beta"), Item("DeepSeek", "openai", "https://api.deepseek.com"),

@@ -82,7 +82,7 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
     private (string Path, JsonObject Body) Build(Provider p, JsonArray messages, JsonArray tools, bool includeMediaData)
     {
         Dictionary<JsonNode, List<MessageAttachments.Media>> media = attachmentRoot is null ? new() :
-            new MessageAttachments(attachmentRoot).Resolve(messages, p.Protocol, includeData: includeMediaData);
+            new MessageAttachments(attachmentRoot).Resolve(messages, p, includeData: includeMediaData);
         if (p.Protocol == "responses")
             return ("/responses", AgentSession.BuildResponses(p, messages, tools, media));
         if (p.Protocol == "anthropic")
@@ -113,9 +113,9 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
                     {
                         parts = MessageAttachments.Parts(p.Protocol, MessageAttachments.Text(message), attachments);
                     }
-                    else if (message.GetString("content").Length > 0)
+                    else if (MessageAttachments.Text(message) is { Length: > 0 } text)
                     {
-                        parts.AddNode(new JsonObject { ["type"] = "text", ["text"] = message.GetString("content") });
+                        parts.AddNode(new JsonObject { ["type"] = "text", ["text"] = text });
                     }
 
                     foreach (var call in message.GetArray("tool_calls"))
@@ -195,9 +195,9 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
                     {
                         parts = MessageAttachments.Parts(p.Protocol, MessageAttachments.Text(m), attachments);
                     }
-                    else if (m.GetString("content").Length > 0)
+                    else if (MessageAttachments.Text(m) is { Length: > 0 } text)
                     {
-                        parts.AddNode(new JsonObject { ["text"] = m.GetString("content") });
+                        parts.AddNode(new JsonObject { ["text"] = text });
                     }
 
                     foreach (var c in m.GetArray("tool_calls"))
@@ -241,7 +241,7 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
         var normalized = new JsonArray();
         foreach (var message in messages)
         {
-            var clean = new JsonObject { ["role"] = message.GetString("role"), ["content"] = message.GetString("content") };
+            var clean = new JsonObject { ["role"] = message.GetString("role"), ["content"] = MessageAttachments.Text(message) };
             if (message is not null && media.TryGetValue(message, out var attachments))
             {
                 clean["content"] = MessageAttachments.Text(message);

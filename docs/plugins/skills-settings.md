@@ -2,20 +2,23 @@
 
 ## Skills
 
-技能声明 `{name, description, agents, instructions?, tools, hooks?}`。 `agents` 可包含 `chat`、`env`、`preset`、`search`、`fetch`、`temporary`。内置 base 插件还使用 `plugin` 角色为 PluginAgent 提供开发工具。每个工具为 `{name, description, parameters, handler, returnType?}`，其中 `parameters` 是顶层 `type:"object"` 的 JSON Schema，`handler` 是本包 Hook URL。工具名在模型侧是 `plugin_<id>_<name>`，长度最多 64，同一插件的工具名全局唯一。
+技能声明 `{name, description, agents, instructions?, tools?, hooks?}`。技能可以有多个工具，也可以只提供指令。每个工具都声明在所属技能的 `tools` 中。 `agents` 可包含 `chat`、`env`、`preset`、`search`、`fetch`、`temporary`。内置 base 插件还为 `plugin` 角色提供技能。工具声明为 `{name, description, parameters, handler, returnType?}`，`parameters` 是顶层 `type:"object"` 的 JSON Schema，`handler` 是本包 Hook URL。工具名在模型侧是 `plugin_<id>_<name>`，长度最多 64，同一插件的工具名全局唯一。
 
 Agent 先看到技能说明，通过 `activate_skill` 激活后才看到技能工具。技能工具调用时 `event.name` 为 `skill.tool`，另有 `skill`、`tool`、`arguments`。 `skills[].hooks` 可绑定 `skill.activated`、`turn.started`、`turn.finished`、`tool.started`、`tool.finished`。回调值统一写本包 Actions Hook URL。
 
 `returnType` 默认是 `"json"`。声明 `"asset-url"` 时，处理器直接返回一个 Asset URL 字符串或字符串数组，例如 `return [api.assets.url("report"), api.assets.url("cover")]`。宿主检查插件能否访问每个资源，向调用该工具的 Agent session 授权，并在每次读取时复查签名、可见性和预设作用域。
 
-Agent 激活 `assets` 后可调用 `read_asset({url, mode?, offset?, length?, page?, start_ms?, duration_ms?})`。每次可检查一个 URL 中的一页、一个帧或一个片段。
+消息附件和工具返回的资源都以 Asset URL 交给 Agent。消息附件的 URI 形如 `minirp://assets/minirp.attachments/<id>`。模型可以激活 base 的 `view_asset`，也可把 URL 原样填入其他技能工具的参数。接收工具通过 `api.assets.open(url)` 或 `api.assets.read(url)` 读取本次传入的资源。工作区附件和经 Agent 转交的资源授权都限于本次工具调用。工具可以声明 `returnType: "asset-url"` 并把已传入的 URL 返回给同一 Agent。
 
 宿主按会话能力公开工具。返回 Asset URL 的工具出现在有 Asset 读取权限的会话中。生成卡片的工具出现在可显示卡片的 Chat、Env 和 Preset 会话中，调用时会重新核对插件是否仍然安装并对当前预设可用。
 
-- `inspect` 默认返回 MIME 类型和已知长度。
-- `text` 分页读取文本。默认 6,000 个字符，每页最多 16,000 个。用 `next_offset` 继续读。
-- `image` 读取图片。 `pdf_page` 渲染 `page` 指定的单页，页号从 1 开始。 `video_frame` 采样 `start_ms` 对应的帧。 `audio_clip` 读取音频或视频音轨，默认从 0 开始取 10 秒，单次最多 30 秒。
-- 媒体样本以附件提供给支持该样本格式的模型。Android 使用系统媒体组件。桌面需要 PATH 上的 Poppler `pdftoppm` 渲染 PDF，使用 FFmpeg 采样视频和音频。
+- `plugin_base_view_url_metadata` 查询 URL 的包名、资源 ID、来源、MIME 类型和已知字节数。
+- `plugin_base_view_text` 分页读取文本或附件处理器提取的文本。默认 6,000 个字符，每页最多 16,000 个。用 `next_offset` 继续读。
+- `plugin_base_view_image`、`plugin_base_view_video` 和 `plugin_base_view_audio` 查看完整媒体。完整视频通过 Gemini 的媒体输入发送。
+- `plugin_base_view_video_frame` 用 `start_ms` 取视频帧。`plugin_base_view_video_audio_clip` 用 `start_ms` 和 `duration_ms` 取视频音轨，默认从开头取 10 秒，单次最多 30 秒。`plugin_base_view_pdf_page` 渲染指定的 `page`，页号从 1 开始。
+- `plugin_base_view_pdf_metadata`、`plugin_base_view_image_metadata` 和 `plugin_base_view_video_metadata` 分别查看 PDF、图像和视频的文件属性。返回字段随平台和文件可用属性而变化。
+
+每个查看工具都接收 `url`。兼容的模型会收到媒体内容，返回的 `sample_url` 可继续用作工具参数。宿主使用模型提供的输入模态声明和协议限制。未公布输入模态的模型沿用协议支持的类型。Android 用系统组件采样。桌面通过 PATH 上的 Poppler `pdftoppm`、`pdfinfo` 和 FFmpeg 的 `ffmpeg`、`ffprobe` 采样和读取元数据。
 ## 设置
 
 `settings.get({key})` 需 `settings` 权限，读取本包声明的可存值节点，返回字符串、布尔值或默认的 `null`。用户写入由宿主处理，变更触发本包的 `settings.changed`。

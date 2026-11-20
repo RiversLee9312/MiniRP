@@ -50,6 +50,7 @@ data class Choice(
     val contextWindow: Int = 0,
     val maxOutput: Int = 0,
     val ensemble: Boolean = false,
+    val inputModalities: List<String>? = null,
 )
 
 data class ProviderConfig(

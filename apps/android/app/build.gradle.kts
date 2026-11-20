@@ -56,8 +56,8 @@ android {
         applicationId = "com.minichat.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.0.2"
+        versionCode = 7
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" } }
@@ -109,6 +109,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
     implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.43.0")
     implementation("androidx.paging:paging-compose:3.5.3")
+    implementation("androidx.media3:media3-transformer:1.11.1")
     implementation("androidx.navigation:navigation-compose:2.10.1")
     implementation("androidx.concurrent:concurrent-futures:1.2.0")
     implementation("com.caoccao.javet:javet-v8-android:6.0.3")

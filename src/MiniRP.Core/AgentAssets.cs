@@ -1,15 +1,49 @@
-using System.Text;
 using System.Text.Json.Nodes;
 
 namespace MiniRP.Core;
 
-internal sealed class AgentAssets(PluginRuntime runtime, HostPort port, MemoryDb db, string directory,
+internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string directory,
     Func<JsonObject> environment)
 {
     private const string Grants = "_context/asset-grants";
+    private const string FileGrants = "_context/asset-file/";
+    private readonly MessageAttachments files = new(directory);
     internal sealed record Reading(JsonObject Result, JsonObject? Attachment = null);
 
-    public void Grant(PluginPackage publisher, JsonNode? output)
+    internal string StoreFile(JsonObject file)
+    {
+        var url = MessageAttachments.AssetUrl(file);
+        var key = FileGrants + Workspace.Safe(file.GetString("id"));
+        if (db.Get(key) is null)
+        {
+            var grant = new JsonObject
+            {
+                ["id"] = file.GetString("id"), ["mime"] = MessageAttachments.Mime(file),
+                ["name"] = file.GetString("name"), ["text"] = JsonValues.Clone(file["text"]),
+                ["preset"] = environment().GetString("preset")
+            };
+            db.Write(key, JsonValues.Serialize(grant), internalWrite: true);
+        }
+        return url;
+    }
+
+    internal void RegisterMessage(JsonObject message)
+    {
+        if (message.GetBoolean("_harness_asset") || message.GetString("role") != "user") return;
+        foreach (var file in message.GetArray("attachments").OfType<JsonObject>())
+            file["url"] = StoreFile(file);
+    }
+
+    private JsonObject? FileGrant(string url)
+    {
+        if (!url.StartsWith(MessageAttachments.AssetPrefix, StringComparison.Ordinal)) return null;
+        var id = Workspace.Safe(url[MessageAttachments.AssetPrefix.Length..]);
+        if (db.Get(FileGrants + id) is not { } stored) return null;
+        var file = JsonValues.ParseObject(stored);
+        return file.GetString("preset") == environment().GetString("preset") ? file : null;
+    }
+
+    public void Grant(PluginPackage publisher, JsonNode? output, IReadOnlySet<string>? supplied = null)
     {
         var urls = output is JsonArray array ? array.AsEnumerable() : new[] { output };
         var grants = Load();
@@ -17,90 +51,82 @@ internal sealed class AgentAssets(PluginRuntime runtime, HostPort port, MemoryDb
         {
             if (item is not JsonValue value || !value.TryGetValue<string>(out var url))
                 throw new InvalidDataException("An asset-url tool must return an Asset URL or an array of Asset URLs.");
+            if (MessageAttachments.IsAttachmentUrl(url))
+            {
+                if (supplied?.Contains(url) != true || FileGrant(url) is null)
+                    throw new UnauthorizedAccessException("The file was not supplied to this tool.");
+                continue;
+            }
+            if (supplied?.Contains(url) == true)
+            {
+                Open(url, new());
+                continue;
+            }
             runtime.OpenAgentAsset(url, publisher.PackageName, publisher.Signer, environment());
             grants[url] = new JsonObject { ["package"] = publisher.PackageName, ["signer"] = publisher.Signer };
         }
         db.Write(Grants, JsonValues.Serialize(grants), internalWrite: true);
     }
 
-    public async Task<Reading> Read(JsonObject args, Provider provider, CancellationToken ct)
+    internal IReadOnlySet<string> SuppliedUrls(JsonNode? arguments)
     {
-        var url = args.GetString("url");
-        var grant = Load()[url] as JsonObject ?? throw new UnauthorizedAccessException("Use an Asset URL returned by a skill in this session.");
-        var asset = runtime.OpenAgentAsset(url, grant.GetString("package"), grant.GetString("signer"), environment());
-        var mime = asset.MimeType.Split(';', 2)[0].Trim().ToLowerInvariant();
-        var mode = args.GetString("mode", "inspect");
-        if (mode == "inspect") return new(new() { ["url"] = url, ["mime"] = mime, ["length"] = asset.Length });
-        var valid = mode switch
+        var allowed = new HashSet<string>(StringComparer.Ordinal);
+        var grants = Load();
+        Collect(arguments);
+        return allowed;
+
+        void Collect(JsonNode? node)
         {
-            "text" => mime.StartsWith("text/", StringComparison.Ordinal) || mime is "application/json" or "application/xml",
-            "image" => mime.StartsWith("image/", StringComparison.Ordinal),
-            "pdf_page" => mime == "application/pdf",
-            "video_frame" => mime.StartsWith("video/", StringComparison.Ordinal),
-            "audio_clip" => mime.StartsWith("audio/", StringComparison.Ordinal) || mime.StartsWith("video/", StringComparison.Ordinal),
-            _ => false,
-        };
-        if (!valid) throw new ArgumentException("This reading mode does not match the asset's MIME type.");
-        Directory.CreateDirectory(directory);
-        var sourceId = "asset-source-" + JsonValues.NewId();
-        var source = Path.Combine(directory, sourceId);
-        var outputId = "asset-sample-" + JsonValues.NewId();
-        var output = Path.Combine(directory, outputId);
-        var retain = false;
+            switch (node)
+            {
+                case JsonObject obj:
+                    foreach (var entry in obj) Collect(entry.Value);
+                    break;
+                case JsonArray array:
+                    foreach (var child in array) Collect(child);
+                    break;
+                case JsonValue value when value.TryGetValue<string>(out var url) &&
+                    PluginUrls.Route(url, "assets").Length > 0:
+                    if (MessageAttachments.IsAttachmentUrl(url) ? FileGrant(url) is not null : grants.ContainsKey(url))
+                        allowed.Add(url);
+                    break;
+            }
+        }
+    }
+
+    internal PluginRuntime.AssetContent Open(string url, JsonObject options)
+    {
+        if (MessageAttachments.IsAttachmentUrl(url))
+            return runtime.OpenAttachmentAsset(FileGrant(url) ?? throw MissingGrant());
+        var grant = Load()[url] as JsonObject ?? throw MissingGrant();
+        return runtime.OpenAgentAsset(url, grant.GetString("package"), grant.GetString("signer"), environment(), options);
+    }
+
+    private static UnauthorizedAccessException MissingGrant() => new("Use an Asset URL supplied in this session.");
+
+    internal async Task<Reading> Present(PluginRuntime.AssetContent asset, Provider provider, string url, CancellationToken ct)
+    {
+        var mime = asset.MimeType.Split(';', 2)[0].Trim().ToLowerInvariant();
+        if (!MessageAttachments.Supports(provider, mime))
+            throw new InvalidOperationException("The selected model or protocol does not accept this media.");
+        var path = await AssetCodecs.Stage(directory, asset, "asset-sample-", MessageAttachments.Budget(provider.Protocol), ct);
+        var retained = false;
         try
         {
-            await using (var file = File.Create(source))
+            if (new FileInfo(path).Length == 0) throw new IOException("The Asset contains no media.");
+            var attachment = new JsonObject { ["id"] = Path.GetFileName(path), ["mime"] = mime,
+                ["name"] = asset.Name.Length > 0 ? asset.Name : url[(url.LastIndexOf('/') + 1)..] };
+            files.Validate(new JsonArray(attachment.DeepClone()), provider);
+            var result = new JsonObject
             {
-                await foreach (var chunk in asset.Chunks(ct))
-                {
-                    if (file.Length + chunk.Length > PluginPackage.MaxPackageBytes)
-                        throw new IOException("Asset exceeds the supported sampling size.");
-                    await file.WriteAsync(chunk, ct);
-                }
-            }
-            if (mode == "text") return new(await ReadText(source, args, ct));
-            if (mode == "image") File.Move(source, output);
-            else
-            {
-                var response = await port.CallHost("agent_asset_sample", new()
-                {
-                    ["source"] = sourceId, ["output"] = outputId, ["mode"] = mode,
-                    ["page"] = Math.Max(1, args.GetInt32("page", 1)),
-                    ["start_ms"] = Math.Max(0, args.GetInt32("start_ms")),
-                    ["duration_ms"] = Math.Clamp(args.GetInt32("duration_ms", 10000), 100, 30000),
-                }, ct);
-                mime = response.GetString("mime");
-            }
-            var attachment = new JsonObject { ["id"] = outputId, ["mime"] = mime, ["name"] = url[(url.LastIndexOf('/') + 1)..] };
-            new MessageAttachments(directory).Validate(new JsonArray(attachment.DeepClone()), provider);
-            retain = true;
-            return new(new JsonObject { ["url"] = url, ["mode"] = mode, ["sample"] = "Attached after the tool response." }, attachment);
+                ["sample_url"] = StoreFile(attachment), ["sample_mime"] = mime,
+                ["sample"] = "Attached after the tool response."
+            };
+            retained = true;
+            return new(result, attachment);
         }
-        finally
-        {
-            File.Delete(source);
-            if (!retain) File.Delete(output);
-        }
+        finally { if (!retained) File.Delete(path); }
     }
 
     private JsonObject Load() => JsonValues.ParseObject(db.Get(Grants) ?? "{}");
-
-    private static async Task<JsonObject> ReadText(string path, JsonObject args, CancellationToken ct)
-    {
-        using var reader = new StreamReader(path, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: true);
-        var offset = Math.Max(0, args.GetInt32("offset"));
-        var buffer = new char[Math.Clamp(args.GetInt32("length", 6000), 1, 16000) + 1];
-        var skipped = 0;
-        while (skipped < offset)
-        {
-            var read = await reader.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, offset - skipped)), ct);
-            if (read == 0) break;
-            skipped += read;
-        }
-        var count = await reader.ReadBlockAsync(buffer.AsMemory(0, buffer.Length - 1), ct);
-        if (count > 0 && char.IsHighSurrogate(buffer[count - 1]))
-            count += await reader.ReadAsync(buffer.AsMemory(count, 1), ct);
-        return new() { ["text"] = new string(buffer, 0, count), ["offset"] = skipped,
-            ["next_offset"] = reader.Peek() < 0 ? null : JsonValue.Create(skipped + count) };
-    }
 }

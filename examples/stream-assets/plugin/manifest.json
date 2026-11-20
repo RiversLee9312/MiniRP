@@ -6,7 +6,7 @@
   "entry": "index.js",
   "permissions": ["db"],
   "actions": {
-    "handlers": { "announce": "announce", "consume": "consume", "produce": "produce" },
+    "handlers": { "announce": "announce", "consume": "consume", "produce": "produce", "sample-url": "sampleUrl", "measure": "measure", "encode-about": "encodeAbout", "about-url": "aboutUrl" },
     "events": ["ready"],
     "subscriptions": {
       "minirp://actions/example.minichat.stream/events/ready": "minirp://actions/example.minichat.stream/hooks/consume"
@@ -17,6 +17,7 @@
   },
   "assets": [
     { "id": "about", "type": "file", "path": "about.md", "mimeType": "text/markdown", "accessibility": "public" },
+    { "id": "about-utf16", "type": "dynamic", "handler": "minirp://actions/example.minichat.stream/hooks/encode-about", "mimeType": "text/plain", "accessibility": "private" },
     {
       "id": "sample",
       "type": "dynamic",
@@ -30,5 +31,32 @@
       "key": "stream-example", "type": "page", "title": "Stream assets example",
       "items": [{ "key": "about", "type": "markdown", "content": "about" }]
     }
-  ]
+  ],
+  "skills": [{
+    "name": "resources",
+    "description": "Generate a sample Asset URL or count the bytes of a supplied resource.",
+    "agents": ["chat", "env", "preset"],
+    "tools": [
+      {
+        "name": "sample_url",
+        "description": "Return the URL of the generated sample.",
+        "handler": "minirp://actions/example.minichat.stream/hooks/sample-url",
+        "parameters": { "type": "object" },
+        "returnType": "asset-url"
+      },
+      {
+        "name": "about_url",
+        "description": "Return the URL of the about text encoded as UTF-16LE.",
+        "handler": "minirp://actions/example.minichat.stream/hooks/about-url",
+        "parameters": { "type": "object" },
+        "returnType": "asset-url"
+      },
+      {
+        "name": "measure",
+        "description": "Count the bytes of a supplied Asset URL.",
+        "handler": "minirp://actions/example.minichat.stream/hooks/measure",
+        "parameters": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"] }
+      }
+    ]
+  }]
 }

@@ -184,7 +184,7 @@ public sealed class ConversationFlowTests
     }
 
     [TestMethod]
-    public async Task GeminiReceivesVideoBytesAndHistoryStoresOnlyAttachmentReferences()
+    public async Task GeminiReceivesVideoReferenceWithoutUploadingBytes()
     {
         var root = NewRoot();
         await using var engine = new Engine(root);
@@ -200,9 +200,9 @@ public sealed class ConversationFlowTests
             ["attachments"] = new JsonArray(new JsonObject { ["id"] = "movie", ["name"] = "clip.mp4", ["mime"] = "video/mp4" })
         }, "Clip reply", "Video description");
         var request = JsonValues.ParseObject(result.First(item => item.GetString("kind") == "http_request").GetString("body"));
-        var inline = request.GetArray("contents").Last().GetArray("parts").Last().GetObject("inlineData");
-        Assert.AreEqual("video/mp4", inline.GetString("mimeType"));
-        Assert.AreEqual("AQIDBA==", inline.GetString("data"));
+        var parts = request.GetArray("contents").Last().GetArray("parts");
+        Assert.IsFalse(parts.Any(part => part?["inlineData"] is not null));
+        StringAssert.Contains(parts[0].GetString("text"), "minirp://assets/minirp.attachments/movie");
         Assert.IsFalse(JsonValues.Serialize(engine.Workspace.Chat).Contains("AQIDBA==", StringComparison.Ordinal));
         Assert.AreEqual("movie", engine.Workspace.Chat.GetArray("messages")[0].GetArray("attachments")[0].GetString("id"));
     }

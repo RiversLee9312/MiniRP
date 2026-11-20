@@ -185,6 +185,7 @@ public sealed partial class AgentSession : IDisposable
         var summary = Summary;
         var summaryCommitted = true;
         var turnModel = model.Bind(model.SelectedProvider);
+        var messageInput = new JsonObject { ["role"] = inputRole, ["content"] = input };
         var budget = new ContextBudget(turnModel.SelectedProvider);
         var instructions = new SessionInstructions(instructionState);
         var replies = new List<string>();
@@ -195,6 +196,7 @@ public sealed partial class AgentSession : IDisposable
         var watches = new SessionStateWatches(Db, bindings.State);
         void Append(JsonObject message)
         {
+            bindings.Assets?.RegisterMessage(message);
             interruptions.Add((message, (JsonObject)message.DeepClone()));
             working.AddNode(message);
         }
@@ -208,14 +210,14 @@ public sealed partial class AgentSession : IDisposable
             Summary = summary;
             instructionState = instructions.State;
             watches.Save();
-            if (!privateInput) transcript.Record(inputRole, historyInput ?? input);
+            if (!privateInput) transcript.Record(inputRole, MessageAttachments.Text(messageInput, historyInput ?? input));
             foreach (var reply in replies)
             {
                 transcript.Record("assistant", reply);
             }
             foreach (var (_, original) in interruptions)
             {
-                transcript.Record(original.GetString("role"), original.GetString("content"));
+                transcript.Record(original.GetString("role"), MessageAttachments.Text(original));
             }
             if (historySubmission?.Invoke() is { } submission)
             {
@@ -223,13 +225,14 @@ public sealed partial class AgentSession : IDisposable
             }
             if (profile.FollowUp) await Compact(definitions, prepareOnly: true);
         }
-        var messageInput = new JsonObject { ["role"] = inputRole, ["content"] = input };
         if (privateInput) messageInput["_harness_hidden"] = true;
         if (attachments is { Count: > 0 })
         {
             messageInput["attachments"] = attachments.DeepClone();
         }
         working.AddNode(messageInput);
+        if (bindings.Assets is { } turnAssets)
+            foreach (var entry in working.OfType<JsonObject>()) turnAssets.RegisterMessage(entry);
         var request = messageInput;
         // Some providers require a user message to request a completion even after a system event.
         if (inputRole == "system")
@@ -298,13 +301,6 @@ public sealed partial class AgentSession : IDisposable
                     Required: true, Instructions: MemoryInstructions);
             foreach (var skill in taskSkills) yield return skill;
             foreach (var extra in bindings.Skills(turnModel.SelectedProvider, attachment => samples.AddNode(attachment))) yield return extra;
-            if (bindings.Assets is not null)
-                yield return new("assets", "Inspect Asset URLs returned by plugin tools. Read text in pages or sample supported media.",
-                    new JsonArray(Tools.Define("read_asset", "Inspect an asset. Choose inspect, text, image, pdf_page, video_frame, or audio_clip. Media samples require a compatible multimodal model.", new()
-                    {
-                        ["url"] = Tools.String(), ["mode"] = Tools.String(), ["offset"] = Tools.Integer(), ["length"] = Tools.Integer(),
-                        ["page"] = Tools.Integer(), ["start_ms"] = Tools.Integer(), ["duration_ms"] = Tools.Integer()
-                    }, "url")), ReadAsset);
             if (bindings.OpenUi() is { Length: > 0 and <= 60000 } openUi)
                 yield return new("interactive-ui",
                     "Build a rich interactive answer if a dashboard, calculator, editable itinerary, visual explanation, or working tool helps the user.",
@@ -319,12 +315,6 @@ public sealed partial class AgentSession : IDisposable
             "db_watch" => watches.Set(args),
             _ => CallMemory(name, args)
         });
-        async Task<JsonNode?> ReadAsset(string _, JsonObject args, CancellationToken token)
-        {
-            var result = await bindings.Assets!.Read(args, turnModel.SelectedProvider, token);
-            if (result.Attachment is not null) samples.AddNode(result.Attachment);
-            return result.Result;
-        }
 
         try
         {
@@ -458,7 +448,7 @@ public sealed partial class AgentSession : IDisposable
                         result = await enabled.Invoke(name, args, ct);
                     }
                     catch (Exception error) when (error is not OperationCanceledException) { result = JsonValues.Error(error.Message); }
-                    var text = name is "db_read" or "history_recall" or "read_asset" ? JsonValues.Serialize(result) : ToolText(result, budget);
+                    var text = name is "db_read" or "history_recall" ? JsonValues.Serialize(result) : ToolText(result, budget);
                     emit(new()
                     {
                         ["kind"] = "tool_end",
@@ -493,7 +483,7 @@ public sealed partial class AgentSession : IDisposable
                     history.AddNode(original);
                 Save(history, Summary, instructionState, Deliveries());
                 foreach (var (_, original) in interruptions)
-                    transcript.Record(original.GetString("role"), original.GetString("content"));
+                    transcript.Record(original.GetString("role"), MessageAttachments.Text(original));
             }
         }
     }

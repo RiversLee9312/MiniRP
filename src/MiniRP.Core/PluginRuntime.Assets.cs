@@ -7,7 +7,7 @@ namespace MiniRP.Core;
 internal sealed partial class PluginRuntime
 {
     internal sealed record AssetContent(string MimeType, long? Length, Func<CancellationToken, IAsyncEnumerable<byte[]>> Chunks,
-        string Generation = "");
+        string Generation = "", string Name = "", string Text = "");
 
     private readonly AssetReaders hostAssets;
     private static string AssetUrl(PluginPackage package, string id) => $"{PluginUrls.Scheme}://assets/{package.PackageName}/{id}";
@@ -70,13 +70,37 @@ internal sealed partial class PluginRuntime
 
     public ValueTask CloseHostAsset(string id) => hostAssets.Close(id);
 
-    internal AssetContent OpenAgentAsset(string url, string publisher, string signer, JsonObject environment)
+    internal AssetContent OpenAgentAsset(string url, string publisher, string signer, JsonObject environment, JsonObject? options = null)
     {
         var packageName = PluginUrls.CanonicalPackage(publisher);
         var package = Volatile.Read(ref packages).FirstOrDefault(item => item.PackageName == packageName && item.Signer == signer)
             ?? throw new UnauthorizedAccessException("The skill that supplied this asset is unavailable.");
         RequireScope(package, environment.GetString("preset"));
-        return OpenAsset(url, package, new(), environment);
+        return OpenAsset(url, package, options ?? new(), environment);
+    }
+
+    internal AssetContent OpenAttachmentAsset(JsonObject attachment)
+    {
+        var file = new MessageAttachments(files).FileFor(attachment);
+        if (!file.Exists || (file.Attributes & FileAttributes.ReparsePoint) != 0)
+            throw new FileNotFoundException("The workspace Asset is unavailable.");
+        return new(MessageAttachments.Mime(attachment), file.Length, token => ReadFile(file.FullName, token),
+            Name: attachment.GetString("name"), Text: attachment.GetString("text"));
+    }
+
+    internal static AssetContent OpenSample(string path, string mime, string name) =>
+        new(mime, new FileInfo(path).Length, token => ReadFile(path, token), Name: name);
+
+    internal static JsonObject Describe(string url, AssetContent asset)
+    {
+        var route = PluginUrls.Route(url, "assets").Split('/');
+        return new()
+        {
+            ["url"] = url, ["package"] = route[0], ["id"] = route[1],
+            ["source"] = MessageAttachments.IsAttachmentUrl(url) ? "workspace_file" : "plugin",
+            ["length"] = asset.Length, ["mime"] = asset.MimeType.Split(';', 2)[0].Trim().ToLowerInvariant(),
+            ["name"] = asset.Name.Length == 0 ? null : JsonValue.Create(asset.Name)
+        };
     }
 
     private async IAsyncEnumerable<byte[]> GenerateAsset(Invocation request, [EnumeratorCancellation] CancellationToken ct)
@@ -180,6 +204,11 @@ internal sealed partial class PluginRuntime
             catch { await Close(id); throw; }
         }
 
+        public AssetContent Content(string id)
+        {
+            lock (gate) return readers.GetValueOrDefault(id)?.Content ?? throw new IOException("Asset stream is closed.");
+        }
+
         public ValueTask Close(string id)
         {
             Reader? reader;
@@ -217,6 +246,7 @@ internal sealed partial class PluginRuntime
             private IAsyncEnumerator<byte[]>? stream;
             private bool disposed;
             public string Generation => content.Generation;
+            public AssetContent Content => content;
             public CancellationToken Token => lifetime.Token;
 
             public async Task<byte[]?> Pull(CancellationToken token)

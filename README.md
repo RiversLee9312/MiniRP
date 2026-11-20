@@ -18,6 +18,8 @@ Agent 共用 `AgentSession` 的流式事件、工具循环、取消、上下文�
 
 需要 .NET SDK 10.0.400、Visual Studio C++ 桌面生成工具。浏览器抓取另外需要 Node.js 和 Chrome；只用 API 或缓存时不启动浏览器。
 
+桌面版的图像和音视频转换使用 PATH 中的 `ffmpeg`、`ffprobe`，PDF 元数据和页面渲染使用 `pdfinfo`、`pdftoppm`，从图片生成 PDF 使用 `img2pdf`。文本读取和 Asset URL 传递可以独立使用。
+
 ```powershell
 npm ci
 pwsh -File eng/build-desktop.ps1
@@ -110,7 +112,7 @@ ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conve
 
 ## 插件
 
-Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己的 V8 isolate。清单声明 Actions、Assets、Skill、附件和设置。Actions 通过 URL 投递事件，Assets 以 WHATWG 字节流读取，跨包访问按资源可见性和签名证书校验。内置 `base` 插件声明应用设置、预设创建引导和开源许可证页。
+Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己的 V8 isolate。清单声明 Actions、Assets、Skill、附件和设置。Actions 通过 URL 投递事件，Assets 以 WHATWG 字节流读取，跨包访问按资源可见性和签名证书校验。内置 `base` 插件提供应用设置、预设创建引导、开源许可证页和 `view_asset` 技能。Agent 通过 Asset URL 接收附件和工具资源，按需调用 `view_asset` 查看内容。
 
 [开发、签名与安装](docs/plugins/getting-started.md) · [完整 API 参考](docs/plugins/README.md) · [插件 SDK](sdk/javascript/) · [示例插件](examples/stream-assets/plugin/) · [MIT 许可证](LICENSE)
 

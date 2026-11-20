@@ -15,6 +15,7 @@
     function invocation() {
         let nextId = 0;
         const pending = new Map();
+        const assetHandles = new WeakMap();
         const requests = [];
         let state = { done: false };
         let output;
@@ -31,7 +32,7 @@
         const bind = (group, names) => freeze(Object.fromEntries(names.map(name =>
             [name, (args = {}) => call(group + "." + name, args)])));
         async function openContent(method, args) {
-            const { handle, length, mimeType } = await call(method, args);
+            const { handle, length, mimeType, ...metadata } = await call(method, args);
             const body = new Stream({
                 type: "bytes",
                 async pull(controller) {
@@ -43,7 +44,9 @@
                 },
                 cancel() { return call("assets.close", { handle }); },
             });
-            return freeze({ body, length, mimeType });
+            const result = freeze({ body, length, mimeType, ...metadata });
+            assetHandles.set(result, handle);
+            return result;
         }
         const openAsset = (url, options = {}) => openContent("assets.open", { url, options });
 
@@ -78,7 +81,16 @@
                     environment: freeze(info.environment),
                     harness: bind("harness", ["readSession", "readChat", "listPresets", "listChats", "listRooms", "readRoom", "createChat", "createRoom", "createPreset", "send", "steer", "insertSystemMessage", "createTemporarySession", "runTemporary", "closeTemporary", "renameChat", "renameRoom", "generateTitle", "getPreset", "setSearchMode", "setPrompt", "branchChat", "generate"]),
                     state: bind("state", ["get", "set"]),
-                    ...(info.development ? { development: bind("development", ["run"]) } : {}),
+                    ...(info.development ? {
+                        development: bind("development", ["run"]),
+                        assetView: freeze({
+                            present(url, resource) {
+                                const handle = resource === undefined ? undefined : assetHandles.get(resource);
+                                if (resource !== undefined && !handle) throw new TypeError("Expected an open codec output.");
+                                return call("assetView.present", { url, handle });
+                            },
+                        }),
+                    } : {}),
                     db: bind("db", ["get", "put", "patch", "delete", "list", "search"]),
                     http: bind("http", ["request"]),
                     picker: bind("picker", ["media", "file"]),
@@ -93,7 +105,36 @@
                             if (typeof id !== "string" || !/^[a-z][a-z0-9_-]{0,47}$/.test(id)) throw new TypeError("Invalid asset ID.");
                             return "minirp://assets/" + info.packageName + "/" + id;
                         },
-                        open: openAsset, read: readAsset,
+                        open: openAsset, read: readAsset, describe: (url) => call("assets.describe", { url }),
+                    }),
+                    text: freeze({
+                        async encode(text, options = {}) {
+                            if (typeof text !== "string") throw new TypeError("Expected text.");
+                            return new Bytes(await call("text.encode", { ...options, text }));
+                        },
+                        decode(bytes, options = {}) {
+                            if (!(bytes instanceof Bytes) || bytes.byteLength > chunkSize)
+                                throw new TypeError("Expected up to 64 KiB of bytes.");
+                            return call("text.decode", { ...options, bytes: Array.from(bytes) });
+                        },
+                        read: (url, options = {}) => call("text.read", { ...options, url }),
+                    }),
+                    image: freeze({
+                        metadata: (url) => call("codecs.image_metadata", { url }),
+                        decode: (url) => openContent("codecs.image_decode", { url }),
+                        encode: (url, options = {}) => openContent("codecs.image_encode", { ...options, url }),
+                    }),
+                    media: freeze({
+                        videoMetadata: (url) => call("codecs.video_metadata", { url }),
+                        decodeFrame: (url, options = {}) => openContent("codecs.video_frame", { ...options, url }),
+                        decodeAudio: (url, options = {}) => openContent("codecs.audio_clip", { ...options, url }),
+                        encodeVideo: (url, options = {}) => openContent("codecs.video_encode", { ...options, url }),
+                        encodeAudio: (url, options = {}) => openContent("codecs.audio_clip", { ...options, url }),
+                    }),
+                    pdf: freeze({
+                        metadata: (url) => call("codecs.pdf_metadata", { url }),
+                        renderPage: (url, options = {}) => openContent("codecs.pdf_page", { ...options, url }),
+                        createPage: (url) => openContent("codecs.pdf_create_page", { url }),
                     }),
                     ...(info.legacy ? { url: bind("url", ["open"]) } : {}),
                 });

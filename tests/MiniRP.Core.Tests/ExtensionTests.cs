@@ -562,16 +562,16 @@ public sealed class ExtensionTests
                 var result = messages.LastOrDefault(message => message.GetString("role") == "tool").GetString("content");
                 switch (round++)
                 {
-                    case 0: ReplyTool(engine, item, "activate_skill", new() { ["name"] = "assets" }); break;
-                    case 1: ReplyTool(engine, item, "read_asset", query); break;
+                    case 0: ReplyTool(engine, item, "activate_skill", new() { ["name"] = "view_asset" }); break;
+                    case 1: ReplyTool(engine, item, "plugin_base_view_text", query); break;
                     case 2:
-                        StringAssert.Contains(result, "returned by a skill in this session");
+                        StringAssert.Contains(result, "supplied in this session");
                         ReplyTool(engine, item, "activate_skill", new() { ["name"] = "report-notes" });
                         break;
                     case 3: ReplyTool(engine, item, "plugin_report_notes_url", new()); break;
                     case 4:
                         Assert.AreEqual(url, JsonValues.GetText(((JsonArray)JsonNode.Parse(result)!)[0]));
-                        ReplyTool(engine, item, "read_asset", query);
+                        ReplyTool(engine, item, "plugin_base_view_text", query);
                         break;
                     case 5:
                         Assert.AreEqual("be", JsonValues.ParseObject(result).GetString("text"));
@@ -583,6 +583,63 @@ public sealed class ExtensionTests
             }
             await Task.Delay(8, timeout.Token);
         }
+    }
+
+    [TestMethod]
+    public async Task AssetArgumentsGrantOnlyTheInvocationAndToolsCanReturnTheSameUrl()
+    {
+        var root = NewRoot();
+        using var signer = Certificate();
+        const string url = "minirp://assets/minirp.attachments/shared";
+        var archive = Pack(root, "asset-probe", signer, """
+            {"id":"asset-probe","packageName":"test.assetprobe","name":"Asset fixture","apiVersion":2,"entry":"index.js",
+             "actions":{"handlers":{"echo":"echo"}},
+             "skills":[{"name":"forward","description":"Forward a resource.","agents":["chat"],"tools":[
+                {"name":"echo","description":"Echo the URL of a checked file.","parameters":{"type":"object"},
+                 "handler":"minirp://actions/test.assetprobe/hooks/echo","returnType":"asset-url"}]}]}
+            """, """
+            let previous;
+            globalThis.handlers = { async echo(event, api) {
+                const url = event.arguments.input?.url ?? previous;
+                const asset = await api.assets.read(url);
+                const decoded = await api.text.decode(asset.bytes);
+                const encoding = { encoding: "utf-16le" };
+                const unicode = await api.text.decode(await api.text.encode(decoded + " 🟢", encoding), encoding);
+                if (asset.mimeType !== "text/plain" || unicode !== "fixture 🟢")
+                    throw new Error("Incorrect supplied file");
+                previous = url;
+                return url;
+            } };
+            """);
+        Directory.CreateDirectory(Path.Combine(root, "attachments"));
+        File.WriteAllText(Path.Combine(root, "attachments", "shared"), "fixture");
+        File.WriteAllText(Path.Combine(root, "attachments", "outside"), "fixture");
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "plugin_install", ["path"] = archive });
+        await Until(engine, "plugin", scripts);
+        engine.Dispatch(new() { ["op"] = "message", ["text"] = "Forward the file.",
+            ["attachments"] = new JsonArray(new JsonObject { ["id"] = "shared", ["name"] = "fixture.txt", ["mime"] = "text/plain" }) });
+
+        async Task<JsonObject> Next() => await NextModel(engine, scripts);
+        static string Result(JsonObject request) => JsonValues.ParseObject(request.GetString("body")).GetArray("messages")
+            .Last(message => message.GetString("role") == "tool").GetString("content");
+        var request = await Next();
+        StringAssert.Contains(request.GetString("body"), url);
+        ReplyTool(engine, request, "activate_skill", new() { ["name"] = "asset-probe-forward" });
+        ReplyTool(engine, await Next(), "plugin_asset-probe_echo", new() { ["input"] = new JsonObject { ["url"] = url } });
+        request = await Next();
+        Assert.AreEqual(url, Result(request));
+        ReplyTool(engine, request, "plugin_asset-probe_echo", new());
+        request = await Next();
+        StringAssert.Contains(Result(request), "not supplied to the handler");
+        ReplyTool(engine, request, "plugin_asset-probe_echo",
+            new() { ["input"] = new JsonObject { ["url"] = "minirp://assets/minirp.attachments/outside" } });
+        request = await Next();
+        StringAssert.Contains(Result(request), "not supplied to the handler");
+        Reply(engine, request, "Asset URL round trip verified.");
+        await Until(engine, "completed", scripts);
     }
 
     [TestMethod]
@@ -745,10 +802,16 @@ public sealed class ExtensionTests
         await Until(engine, "plugin", scripts);
         engine.Dispatch(new() { ["op"] = "message", ["text"] = "Read this", ["attachments"] = new JsonArray(new JsonObject
             { ["id"] = "abc", ["name"] = "file.pdf", ["mime"] = "application/pdf", ["plugin"] = "attachment", ["type"] = "text" }) });
-        var request = await Until(engine, "http_request", scripts);
-        StringAssert.Contains(request.GetString("body"), "Parsed ABC");
+        var request = await NextModel(engine, scripts);
+        StringAssert.Contains(request.GetString("body"), "minirp://assets/minirp.attachments/abc");
+        Assert.IsFalse(request.GetString("body").Contains("Parsed ABC", StringComparison.Ordinal));
         Assert.IsFalse(request.GetString("body").Contains("data:application/pdf;base64", StringComparison.Ordinal));
         Assert.IsFalse(request.GetString("body").Contains("thumbnail_url", StringComparison.Ordinal));
+        ReplyTool(engine, request, "activate_skill", new() { ["name"] = "view_asset" });
+        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_view_text",
+            new() { ["url"] = "minirp://assets/minirp.attachments/abc" });
+        var converted = await NextModel(engine, scripts);
+        StringAssert.Contains(converted.GetString("body"), "Parsed ABC");
         var attachment = engine.Workspace.Chat.GetArray("blocks").First().GetArray("attachments").First();
         Assert.AreEqual("minirp://assets/test.attachment/preview?attachment=abc", attachment.GetString("thumbnail_url"));
         Assert.IsFalse(attachment!.AsObject().ContainsKey("thumbnail"));
@@ -758,6 +821,7 @@ public sealed class ExtensionTests
         var chunk = (await Until(engine, "asset_result", scripts)).GetObject("result").GetString("transfer");
         CollectionAssert.AreEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, engine.Port.TakeBinary(chunk));
         engine.Dispatch(new() { ["op"] = "asset_close", ["handle"] = stream });
+        Reply(engine, converted, "Converted text read.");
     }
 
     [TestMethod]

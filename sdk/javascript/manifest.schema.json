@@ -3,6 +3,7 @@
   "title": "MiniRP plugin manifest v2",
   "type": "object",
   "required": ["id", "packageName", "name", "apiVersion", "entry"],
+  "not": { "required": ["tools"] },
   "properties": {
     "$schema": { "type": "string" },
     "id": { "$ref": "#/$defs/id" },
@@ -42,7 +43,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "description", "agents", "tools"],
+        "required": ["name", "description", "agents"],
         "properties": {
           "name": { "$ref": "#/$defs/id" },
           "description": { "type": "string", "minLength": 1, "maxLength": 1024 },

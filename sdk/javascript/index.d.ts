@@ -4,6 +4,8 @@ export type PluginUrlScheme = "minirp" | "minichat";
 export type HookUrl = `${PluginUrlScheme}://actions/${string}/hooks/${string}`;
 export type EventUrl = `${PluginUrlScheme}://actions/${string}/events/${string}`;
 export type AssetUrl = `${PluginUrlScheme}://assets/${string}/${string}`;
+/** Created by the host when a file is shared with an Agent. Use the URL supplied by the host. */
+export type WorkspaceAssetUrl = `minirp://assets/minirp.attachments/${string}`;
 export type AssetToolResult = AssetUrl | readonly AssetUrl[];
 export type UUID = `${string}-${string}-${string}-${string}-${string}`;
 export interface PluginManifestIdentity {
@@ -14,6 +16,21 @@ export interface PluginManifestIdentity {
 }
 export type ConversationAgent = "chat" | "env" | "preset";
 export type SessionAgent = ConversationAgent | "search" | "fetch" | "temporary";
+export interface SkillToolDeclaration {
+    name: string;
+    description: string;
+    parameters: JsonObject & { type: "object" };
+    handler: HookUrl;
+    returnType?: "json" | "asset-url";
+}
+export interface SkillDeclaration {
+    name: string;
+    description: string;
+    agents: readonly SessionAgent[];
+    instructions?: string;
+    tools?: readonly SkillToolDeclaration[];
+    hooks?: Readonly<Record<string, HookUrl>>;
+}
 export type Scope = "session" | "room" | "chat" | "preset";
 export type RoomTarget = { preset?: UUID; room?: UUID };
 export type ReadTarget = RoomTarget & { chat?: UUID };
@@ -51,6 +68,23 @@ export interface AssetBody {
     readonly body: ReadableStream<Uint8Array>;
 }
 export interface AssetBytes { readonly mimeType: string; readonly bytes: Uint8Array }
+export interface AssetMetadata {
+    readonly url: AssetUrl;
+    readonly package: string;
+    readonly id: string;
+    readonly source: "workspace_file" | "plugin";
+    readonly mime: string;
+    readonly length: number | null;
+    readonly name: string | null;
+}
+export type TextEncoding = "utf-8" | "utf-16le" | "utf-16be";
+export type TextPage = { text: string; offset: number; next_offset: number | null };
+export type MediaInterval = { start_ms?: number; duration_ms?: number };
+export interface DecodedImage extends AssetBody {
+    readonly width: number;
+    readonly height: number;
+    readonly pixel_format: "rgba8";
+}
 export interface Entry { key: string; revision: number; chars: number; snippet: string }
 export interface EntryChunk {
     key: string;
@@ -68,8 +102,32 @@ export interface MiniRPApi {
     readonly environment: Environment;
     readonly assets: {
         url(id: string): AssetUrl;
+        /** Skill tools can also open authorised Asset URLs supplied in their arguments for this invocation. */
         open(url: AssetUrl, options?: JsonObject): Promise<AssetBody>;
         read(url: AssetUrl, options?: JsonObject): Promise<AssetBytes>;
+        describe(url: AssetUrl): Promise<AssetMetadata>;
+    };
+    readonly text: {
+        encode(text: string, options?: { encoding?: TextEncoding }): Promise<Uint8Array>;
+        decode(bytes: Uint8Array, options?: { encoding?: TextEncoding }): Promise<string>;
+        read(url: AssetUrl, options?: { encoding?: TextEncoding; offset?: number; length?: number }): Promise<TextPage>;
+    };
+    readonly image: {
+        metadata(url: AssetUrl): Promise<JsonObject>;
+        decode(url: AssetUrl): Promise<DecodedImage>;
+        encode(url: AssetUrl, options?: { format?: "png" | "jpeg" | "webp"; quality?: number }): Promise<AssetBody>;
+    };
+    readonly media: {
+        videoMetadata(url: AssetUrl): Promise<JsonObject>;
+        decodeFrame(url: AssetUrl, options?: { start_ms?: number }): Promise<AssetBody>;
+        decodeAudio(url: AssetUrl, options?: MediaInterval): Promise<AssetBody>;
+        encodeAudio(url: AssetUrl, options?: MediaInterval): Promise<AssetBody>;
+        encodeVideo(url: AssetUrl, options?: MediaInterval): Promise<AssetBody>;
+    };
+    readonly pdf: {
+        metadata(url: AssetUrl): Promise<JsonObject>;
+        renderPage(url: AssetUrl, options?: { page?: number }): Promise<AssetBody>;
+        createPage(url: AssetUrl): Promise<AssetBody>;
     };
     readonly actions: {
         invoke(args: { url: HookUrl; assets?: Record<string, AssetUrl> }): Promise<Accepted>;

@@ -82,7 +82,7 @@ public sealed partial class Engine
             if (data.Length > 16384) throw new ArgumentException("The interactive reply data is too large.");
             interaction = "\nInteractive reply data: " + data;
         }
-        attachments = await PrepareAttachments(attachments, "chat", GroupContext("chat", "", conversation), token);
+        attachments = await PrepareAttachments(attachments, GroupContext("chat", "", conversation), token);
         if (opening is null) PostEnsembleMessage(conversation, hub.Post(conversation, "", role, input, attachments));
         var turn = new TurnInbox(Workspace.ChatId, "chat", message =>
         {

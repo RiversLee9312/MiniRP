@@ -36,8 +36,8 @@ public sealed partial class AgentSession
             return new AgentSession(profile, database, model, emit, inbox, session =>
             {
                 var scoped = profile.Plugins == PluginAccess.Scoped;
-                var assets = scoped && plugins is not null && attachmentRoot is not null
-                    ? new AgentAssets(plugins, port, session.Db, attachmentRoot, context) : null;
+                var assets = profile.Plugins != PluginAccess.None && plugins is not null && attachmentRoot is not null
+                    ? new AgentAssets(plugins, session.Db, attachmentRoot, context) : null;
                 IEnumerable<AgentSkill> ResolveSkills(Provider selected, Action<JsonObject> attach)
                 {
                     if (plugins is not null && profile.Plugins != PluginAccess.None)

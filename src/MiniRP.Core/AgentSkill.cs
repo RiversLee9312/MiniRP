@@ -18,11 +18,17 @@ internal sealed class SkillTurn
     private readonly Dictionary<string, AgentSkill> catalog;
     private readonly Dictionary<string, AgentSkill> enabled = new(StringComparer.Ordinal);
     private readonly HashSet<string> loaded = new(StringComparer.Ordinal);
+    private readonly AgentSkill activation;
 
     public SkillTurn(IEnumerable<AgentSkill> skills, IEnumerable<string>? previouslyActive = null)
     {
         catalog = skills.ToDictionary(skill => skill.Name, StringComparer.Ordinal);
         var retained = previouslyActive?.ToHashSet(StringComparer.Ordinal);
+        if (retained?.Contains("assets") == true) retained.Add("view_asset");
+        activation = new("skill-management", "Load a session skill.",
+            new JsonArray(Tools.Define(Activate, "Load a skill's instructions and tools. Choose its name from Available skills.",
+                new() { ["name"] = Tools.String() }, "name")), ActivateSkill);
+        if (catalog.Count > 0) enabled.Add(Activate, activation);
         foreach (var skill in catalog.Values.Where(skill => skill.Required || retained?.Contains(skill.Name) == true))
         {
             Load(skill);
@@ -45,7 +51,7 @@ internal sealed class SkillTurn
         var tools = new JsonArray();
         if (catalog.Keys.Any(name => !loaded.Contains(name)))
         {
-            tools.AddNode(Tools.Define(Activate, "Load a skill's instructions and tools. Choose the skill by its name in Available skills.", new() { ["name"] = Tools.String() }, "name"));
+            tools.AddNode(activation.Tools[0]!.DeepClone());
         }
         foreach (var skill in catalog.Values.Where(skill => loaded.Contains(skill.Name)))
         {
@@ -59,20 +65,6 @@ internal sealed class SkillTurn
 
     public async Task<JsonNode?> Invoke(string name, JsonObject args, CancellationToken ct)
     {
-        if (name == Activate)
-        {
-            var key = args.GetString("name");
-            if (!catalog.TryGetValue(key, out var skill))
-            {
-                throw new ArgumentException("This skill is unavailable in this session.");
-            }
-            if (!loaded.Contains(key))
-            {
-                Load(skill);
-                skill.OnActivate?.Invoke();
-            }
-            return new JsonObject { ["name"] = skill.Name, ["instructions"] = skill.Instructions, ["tools"] = new JsonArray(skill.Tools.Select(tool => (JsonNode?)JsonValue.Create(ToolName(tool))).ToArray()) };
-        }
         if (!enabled.TryGetValue(name, out var owner))
         {
             throw new InvalidOperationException("This tool is unavailable. Activate its skill first.");
@@ -81,6 +73,24 @@ internal sealed class SkillTurn
         var result = await owner.Execute(name, args, ct);
         owner.OnEvent?.Invoke("tool.finished", new() { ["name"] = "tool.finished", ["tool"] = name, ["result"] = JsonValues.Clone(result) });
         return result;
+    }
+
+    private Task<JsonNode?> ActivateSkill(string _, JsonObject args, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var key = args.GetString("name");
+        if (!catalog.TryGetValue(key, out var skill))
+            throw new ArgumentException("This skill is unavailable in this session.");
+        if (!loaded.Contains(key))
+        {
+            Load(skill);
+            skill.OnActivate?.Invoke();
+        }
+        return Task.FromResult<JsonNode?>(new JsonObject
+        {
+            ["name"] = skill.Name, ["instructions"] = skill.Instructions,
+            ["tools"] = new JsonArray(skill.Tools.Select(tool => (JsonNode?)JsonValue.Create(ToolName(tool))).ToArray())
+        });
     }
 
     public void Broadcast(string name, JsonObject data)

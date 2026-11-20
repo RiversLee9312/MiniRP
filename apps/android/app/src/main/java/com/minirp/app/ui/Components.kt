@@ -187,7 +187,7 @@ internal fun Composer(
                         onClick = {
                             mediaMenu = false
                             pendingType = ""
-                            picker.launch(arrayOf("audio/*", "application/pdf"))
+                            picker.launch(com.minirp.app.data.AttachmentStore.documentTypes)
                         },
                     )
                     pluginTypes.forEach { type ->

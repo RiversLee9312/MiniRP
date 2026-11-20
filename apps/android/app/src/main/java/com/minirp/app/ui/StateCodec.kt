@@ -45,6 +45,9 @@ internal fun decodeChoice(value: JSONObject) =
             ),
         ),
         ensemble = value.optBoolean("ensemble"),
+        inputModalities =
+            (value.optJSONArray("input_modalities") ?: value.optJSONObject("architecture")?.optJSONArray("input_modalities"))
+                ?.let { (0 until it.length()).map(it::getString) },
     )
 
 internal fun decodeModel(value: JSONObject) =
@@ -65,6 +68,7 @@ internal fun encodeModel(value: SavedModel) =
         .put("name", value.choice.name)
         .put("context_length", value.choice.contextWindow)
         .put("max_output_tokens", value.choice.maxOutput)
+        .put("input_modalities", value.choice.inputModalities?.let(::JSONArray))
         .putCompaction(value.compaction)
 
 internal fun JSONObject.putCompaction(value: CompactionSettings): JSONObject =

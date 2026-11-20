@@ -1,7 +1,7 @@
 {
   "name": "minirp-browser-runtime",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Playwright MCP browser tools for the local FetchAgent",
   "dependencies": {
     "@playwright/mcp": "0.0.85"

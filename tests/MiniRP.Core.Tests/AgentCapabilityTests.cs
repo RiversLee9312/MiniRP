@@ -8,6 +8,40 @@ namespace MiniRP.Core.Tests;
 public sealed class AgentCapabilityTests
 {
     [TestMethod]
+    public async Task DirectMediaUsesTheSelectedModelAndKeepsASampleUrl()
+    {
+        var root = Directory.CreateTempSubdirectory("minirp-media-").FullName;
+        try
+        {
+            var directory = Path.Combine(root, "attachments");
+            Directory.CreateDirectory(directory);
+            await File.WriteAllBytesAsync(Path.Combine(directory, "clip"), [1, 2, 3, 4]);
+            var port = new HostPort(_ => { });
+            await using var runtime = new PluginRuntime(root, port, _ => { },
+                (_, _, _, _, _) => throw new InvalidOperationException());
+            using var db = new MemoryDb(Path.Combine(root, "session.sqlite"));
+            var assets = new AgentAssets(runtime, db, directory, () => new());
+            var file = new JsonObject { ["id"] = "clip", ["name"] = "clip.mp4", ["mime"] = "video/mp4" };
+            var url = assets.StoreFile(file);
+            var video = assets.Open(url, new());
+            var textOnly = new Provider("text", "Text", "gemini", "https://example.invalid", "", "text", InputModalities: ["text"]);
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => assets.Present(video, textOnly, url, CancellationToken.None));
+            var provider = textOnly with { InputModalities = ["text", "video"] };
+            var sample = await assets.Present(video, provider, url, CancellationToken.None);
+            var model = new ModelClient(port, () => provider, directory);
+            var messages = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = "Video sample",
+                ["_harness_asset"] = true, ["attachments"] = new JsonArray(sample.Attachment) });
+            var body = JsonValues.ParseObject(model.Request(provider, messages, new()).GetString("body"));
+            var inline = body.GetArray("contents")[0].GetArray("parts")[1].GetObject("inlineData");
+            Assert.AreEqual("video/mp4", inline.GetString("mimeType"));
+            Assert.AreEqual("AQIDBA==", inline.GetString("data"));
+            var saved = assets.Open(sample.Result.GetString("sample_url"), new());
+            Assert.AreEqual(4L, saved.Length);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
     public async Task SkillToolsFollowHostCapabilitiesAndRecheckStatelessCardsAfterRevocation()
     {
         const string Skill = "caps-display";
@@ -24,7 +58,7 @@ public sealed class AgentCapabilityTests
             runtime.Install(CreateArchive(root), inspect: false, initialScope: PluginScope.Include(preset));
             var environment = new JsonObject { ["preset"] = preset };
             using var db = new MemoryDb(":memory:");
-            var assets = new AgentAssets(runtime, port, db, Path.Combine(root, "attachments"), () => environment);
+            var assets = new AgentAssets(runtime, db, Path.Combine(root, "attachments"), () => environment);
 
             var searchSkill = runtime.Skills("search", environment, assets: assets).Single(skill => skill.Name == Skill);
             CollectionAssert.DoesNotContain(ToolNames(searchSkill), CardTool);

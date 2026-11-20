@@ -172,6 +172,7 @@ class CoreClient(
                         AgentMediaSampler.sample(
                             context.filesDir.resolve("workspace/attachments"),
                             event,
+                            context.applicationContext,
                         )
                     "plugin_http" -> pluginHttpRequest(event)
                     else -> picker?.invoke(event) ?: error("No picker is available")

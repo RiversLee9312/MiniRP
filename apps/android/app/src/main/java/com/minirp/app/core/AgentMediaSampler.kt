@@ -1,30 +1,54 @@
 package com.minirp.app.core
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
 import android.media.AudioFormat
+import android.media.ExifInterface
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.transformer.Composition
+import androidx.media3.transformer.ExportException
+import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.Transformer
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 internal object AgentMediaSampler {
-    suspend fun sample(directory: File, event: JSONObject): JSONObject {
+    suspend fun sample(directory: File, event: JSONObject, context: Context? = null): JSONObject {
         val source = file(directory, event.getString("source"), "asset-source-")
         val output = file(directory, event.getString("output"), "asset-sample-")
         check(source.isFile && !output.exists()) { "Invalid media sample files" }
+        when (event.getString("mode")) {
+            "pdf_metadata" -> return pdfMetadata(source)
+            "image_metadata" -> return imageMetadata(source)
+            "video_metadata" -> return videoMetadata(source)
+        }
         val start = event.optLong("start_ms").coerceAtLeast(0)
+        val duration = event.optLong("duration_ms", 10_000).coerceIn(100, 30_000)
         val mime =
             when (event.getString("mode")) {
                 "pdf_page" -> {
@@ -36,13 +60,18 @@ internal object AgentMediaSampler {
                     "image/png"
                 }
                 "audio_clip" -> {
-                    renderAudio(
-                        source,
-                        output,
-                        start,
-                        event.optLong("duration_ms", 10_000).coerceIn(100, 30_000),
-                    )
+                    renderAudio(source, output, start, duration)
                     "audio/wav"
+                }
+                "image_decode" -> return decodeImage(source, output)
+                "image_encode" -> encodeImage(source, output, event.optString("format"), event.optInt("quality", 90))
+                "pdf_create_page" -> {
+                    createPdfPage(source, output)
+                    "application/pdf"
+                }
+                "video_encode" -> {
+                    encodeVideo(checkNotNull(context), source, output, start, duration)
+                    "video/mp4"
                 }
                 else -> error("Unknown asset sample mode")
             }
@@ -54,39 +83,171 @@ internal object AgentMediaSampler {
         return directory.resolve(id)
     }
 
-    private fun renderPdf(source: File, output: File, page: Int) {
-        ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-            PdfRenderer(descriptor).use { renderer ->
-                require(page in 1..renderer.pageCount) { "PDF page is outside the document" }
-                renderer.openPage(page - 1).use {
-                    val scale = 1400f / maxOf(it.width, it.height)
-                    val bitmap =
-                        Bitmap.createBitmap(
-                            (it.width * scale).toInt().coerceAtLeast(1),
-                            (it.height * scale).toInt().coerceAtLeast(1),
-                            Bitmap.Config.ARGB_8888,
-                        )
-                    try {
-                        bitmap.eraseColor(android.graphics.Color.WHITE)
-                        it.render(
-                            bitmap,
-                            null,
-                            Matrix().apply { setScale(scale, scale) },
-                            PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY,
-                        )
-                        encode(bitmap, output)
-                    } finally {
-                        bitmap.recycle()
+    private fun pdfMetadata(source: File): JSONObject =
+        withPdf(source) { renderer ->
+            JSONObject()
+                .put("page_count", renderer.pageCount)
+                .put("scales_for_printing", renderer.shouldScaleForPrinting())
+                .apply {
+                    if (renderer.pageCount > 0) renderer.openPage(0).use {
+                        put("first_page_width_points", it.width)
+                        put("first_page_height_points", it.height)
                     }
+                    if (Build.VERSION.SDK_INT >= 35) {
+                        put("linearized", renderer.documentLinearizationType == PdfRenderer.DOCUMENT_LINEARIZED_TYPE_LINEARIZED)
+                        put("form_type", renderer.pdfFormType)
+                    }
+                }
+        }
+
+    private fun imageMetadata(source: File): JSONObject {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(source.path, bounds)
+        check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Image metadata is unavailable" }
+        val orientation = runCatching {
+            ExifInterface(source.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED)
+        }.getOrNull()
+        return JSONObject().put("width", bounds.outWidth).put("height", bounds.outHeight)
+            .put("detected_mime", bounds.outMimeType)
+            .put("orientation", orientation?.takeUnless { it == ExifInterface.ORIENTATION_UNDEFINED })
+    }
+
+    private inline fun <T> withBitmap(source: File, block: (Bitmap) -> T): T {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(source.path, bounds)
+        val longest = maxOf(bounds.outWidth, bounds.outHeight)
+        check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Unable to decode image" }
+        var divisor = 1
+        while (longest / divisor > 2048) divisor *= 2
+        val options = BitmapFactory.Options().apply { inSampleSize = divisor; inPreferredConfig = Bitmap.Config.ARGB_8888 }
+        val bitmap = checkNotNull(BitmapFactory.decodeFile(source.path, options)) { "Unable to decode image" }
+        return try { block(bitmap) } finally { bitmap.recycle() }
+    }
+
+    private suspend fun decodeImage(source: File, output: File): JSONObject = withBitmap(source) { bitmap ->
+        val row = IntArray(bitmap.width)
+        val rgba = ByteArray(bitmap.width * 4)
+        output.outputStream().buffered().use { stream ->
+            for (y in 0 until bitmap.height) {
+                currentCoroutineContext().ensureActive()
+                bitmap.getPixels(row, 0, bitmap.width, 0, y, bitmap.width, 1)
+                row.forEachIndexed { x, argb ->
+                    val offset = x * 4
+                    rgba[offset] = (argb ushr 16).toByte()
+                    rgba[offset + 1] = (argb ushr 8).toByte()
+                    rgba[offset + 2] = argb.toByte()
+                    rgba[offset + 3] = (argb ushr 24).toByte()
+                }
+                stream.write(rgba)
+            }
+        }
+        JSONObject().put("mime", "application/octet-stream")
+            .put("width", bitmap.width).put("height", bitmap.height).put("pixel_format", "rgba8")
+    }
+
+    @Suppress("DEPRECATION")
+    private fun encodeImage(source: File, output: File, format: String, quality: Int): String = withBitmap(source) { bitmap ->
+        val codec = when (format) {
+            "png" -> Bitmap.CompressFormat.PNG
+            "jpeg" -> Bitmap.CompressFormat.JPEG
+            "webp" -> Bitmap.CompressFormat.WEBP
+            else -> error("Unsupported image format")
+        }
+        output.outputStream().use { check(bitmap.compress(codec, quality, it)) { "Image encoding failed" } }
+        "image/$format"
+    }
+
+    private fun createPdfPage(source: File, output: File) = withBitmap(source) { bitmap ->
+        val doc = PdfDocument()
+        try {
+            val page = doc.startPage(PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, 1).create())
+            page.canvas.drawColor(android.graphics.Color.WHITE)
+            page.canvas.drawBitmap(bitmap, 0f, 0f, null)
+            doc.finishPage(page)
+            output.outputStream().use(doc::writeTo)
+        } finally { doc.close() }
+    }
+
+    @androidx.annotation.OptIn(UnstableApi::class)
+    private suspend fun encodeVideo(context: Context, source: File, output: File, start: Long, duration: Long) =
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine<Unit> { continuation ->
+                val transformer = Transformer.Builder(context)
+                    .setVideoMimeType(MimeTypes.VIDEO_H264)
+                    .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                    .addListener(object : Transformer.Listener {
+                        override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                            if (continuation.isActive) continuation.resume(Unit)
+                        }
+                        override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
+                            if (continuation.isActive) continuation.resumeWithException(exportException)
+                        }
+                    }).build()
+                continuation.invokeOnCancellation { Handler(Looper.getMainLooper()).post(transformer::cancel) }
+                val item = MediaItem.Builder().setUri(android.net.Uri.fromFile(source))
+                    .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(start).setEndPositionMs(start + duration).build())
+                    .build()
+                transformer.start(item, output.path)
+            }
+        }
+
+    private fun videoMetadata(source: File): JSONObject = withVideo(source) { video ->
+        fun value(key: Int) = video.extractMetadata(key)
+        val width = value(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
+        val height = value(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
+        check(width != null && height != null) { "Video metadata is unavailable" }
+        JSONObject().put("width", width).put("height", height)
+            .put("duration_ms", value(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull())
+            .put("rotation_degrees", value(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull())
+            .put("bit_rate", value(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.toLongOrNull())
+            .put("has_audio", value(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) == "yes")
+            .put("detected_mime", value(MediaMetadataRetriever.METADATA_KEY_MIMETYPE))
+    }
+
+    private inline fun <T> withPdf(source: File, block: (PdfRenderer) -> T): T =
+        ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            PdfRenderer(descriptor).use(block)
+        }
+
+    private fun renderPdf(source: File, output: File, page: Int) {
+        withPdf(source) { renderer ->
+            require(page in 1..renderer.pageCount) { "PDF page is outside the document" }
+            renderer.openPage(page - 1).use {
+                val scale = 1400f / maxOf(it.width, it.height)
+                val bitmap = Bitmap.createBitmap(
+                    (it.width * scale).toInt().coerceAtLeast(1),
+                    (it.height * scale).toInt().coerceAtLeast(1),
+                    Bitmap.Config.ARGB_8888,
+                )
+                try {
+                    bitmap.eraseColor(android.graphics.Color.WHITE)
+                    it.render(
+                        bitmap,
+                        null,
+                        Matrix().apply { setScale(scale, scale) },
+                        PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY,
+                    )
+                    encode(bitmap, output)
+                } finally {
+                    bitmap.recycle()
                 }
             }
         }
     }
 
-    private fun renderVideo(source: File, output: File, start: Long) {
+    private inline fun <T> withVideo(source: File, block: (MediaMetadataRetriever) -> T): T {
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(source.path)
+            return block(retriever)
+        } finally {
+            retriever.release()
+        }
+    }
+
+    private fun renderVideo(source: File, output: File, start: Long) {
+        withVideo(source) { retriever ->
             val duration =
                 retriever
                     .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
@@ -119,8 +280,6 @@ internal object AgentMediaSampler {
             } finally {
                 frame.recycle()
             }
-        } finally {
-            retriever.release()
         }
     }
 

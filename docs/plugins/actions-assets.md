@@ -31,6 +31,18 @@ Asset URL 为 `minirp://assets/<packageName>/<id>`。清单中每项填写 `id`�
 | `assets.open(url, options?)` | 返回 `{mimeType, length, body}`。长度未知为 `null`，`body` 为 WHATWG 可读字节流。支持默认 reader、BYOB reader、异步迭代和取消。调用方负责消费、释放或取消。 |
 | `assets.read(url, options?)` | 返回 `{mimeType, bytes:Uint8Array}`。适合小资源，最多读 8 MiB。更大资源用 `open`。 |
 
+Agent 可把已获授权的 Asset URL 传给技能工具。对于这种调用，`assets.open` 和 `assets.read` 可打开本次参数中传入的资源，包括工作区附件和来自其他工具的资源。宿主在打开时复查原始授权。Agent 工具传递方式见 [技能文档](skills-settings.md)。
+
+## 查看和转换资源
+
+- `api.assets.describe(url)` 返回已授权资源的 MIME 类型、来源、名称和已知大小。
+- `api.text.encode(text, {encoding?})` 返回 `Uint8Array`。`api.text.decode(bytes, {encoding?})` 解码字节。支持 UTF-8、UTF-16LE、UTF-16BE，每次最多 64 KiB；非法字符序列报错。`api.text.read(url, {encoding?, offset?, length?})` 分页读取文本，优先使用附件处理器提取的文本，文件读取可按字节顺序标记选择编码。
+- `api.image.metadata(url)` 查询尺寸及可用格式信息。`api.image.decode(url)` 返回 `AssetBody`，另含 `width`、`height`、`pixel_format:"rgba8"`。流是按行排列的 RGBA 字节。`api.image.encode(url, {format?, quality?})` 将来源图片编码为 PNG、JPEG 或 WebP。解码与重新编码最长边限制为 2048 像素。
+- `api.media.videoMetadata(url)` 查询视频属性。`api.media.decodeFrame(url, {start_ms?})` 输出 PNG。`api.media.decodeAudio(url, {start_ms?, duration_ms?})` 从音频或视频音轨读取一段 PCM WAV。`api.media.encodeAudio` 也可将同一段音频导出为 PCM WAV。`api.media.encodeVideo` 以相同的时间参数输出 H.264/AAC MP4。每段默认 10 秒，最长 30 秒。
+- `api.pdf.metadata(url)` 查询页数等文档信息。`api.pdf.renderPage(url, {page?})` 将单页渲染为 PNG，页号从 1 开始。`api.pdf.createPage(imageUrl)` 从一张图片生成单页 PDF。
+
+转换结果是本次调用内可消费的 `AssetBody`。动态 Asset 处理器可以返回 `body`，技能工具再以 `returnType: "asset-url"` 返回对应 URL。Android 使用系统图像、音频和 PDF API，MP4 转码使用 Media3 Transformer。桌面使用 PATH 上的 FFmpeg、Poppler 和用于创建 PDF 的 `img2pdf`。转换继续受 Asset 访问、文件大小、时间和插件调用限制约束。
+
 宿主跨语言每次最多传 64 KiB 原始字节，保留 TypedArray 的视图范围。动态生成最多 128 MiB，`options` 序列化大小最多 8 KiB，每个调用最多打开 16 条流，Asset 嵌套最多 8 层。句柄打开 5 分钟后会自动关闭并释放名额，包括一直没有读取的句柄。资源所属插件更新或卸载时，宿主会撤销由应用打开的旧句柄。
 ## HTTP、Picker 和附件
 

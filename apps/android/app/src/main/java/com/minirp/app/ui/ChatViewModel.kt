@@ -596,7 +596,6 @@ internal constructor(
             val imported =
                 attachments.import(
                     documents,
-                    provider.protocol,
                     pluginAttachment,
                     draft?.attachments.orEmpty(),
                 )
@@ -1145,7 +1144,7 @@ internal constructor(
                     contextWindow = choice.contextWindow.takeIf { it > 0 } ?: provider.contextWindow,
                     maxOutput = choice.maxOutput.takeIf { it > 0 } ?: provider.maxOutput,
                 )
-            ).putCompaction(model.compaction)
+            ).put("input_modalities", choice.inputModalities?.let(::JSONArray)).putCompaction(model.compaction)
         }
         val assignments = JSONObject()
         current.assignments.forEach { (role, model) ->

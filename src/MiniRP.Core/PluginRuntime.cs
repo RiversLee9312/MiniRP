@@ -32,13 +32,16 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
     private readonly Func<PluginPackage, JsonObject, string, JsonObject, CancellationToken, Task<JsonNode?>> harness;
     private readonly Action<JsonObject>? stateChanged;
     private readonly bool preview;
+    private readonly string mediaFiles;
     private readonly CancellationTokenSource stop = new();
     private readonly object packageGate = new();
     private readonly Dictionary<string, EventLoop> loops = new(StringComparer.Ordinal);
     private readonly List<Task> retirements = [];
     private PluginPackage[] packages = [];
     private sealed record Invocation(PluginPackage Package, string Handler, JsonObject Event, JsonObject Environment,
-        bool Installation = false, Task<bool>? Committed = null);
+        bool Installation = false, Task<bool>? Committed = null,
+        Func<string, JsonObject, AssetContent?>? OpenSuppliedAsset = null,
+        Func<AssetContent, string, CancellationToken, Task<JsonObject>>? PresentAsset = null);
 
     private sealed class Isolate
     {
@@ -141,10 +144,11 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
 
     public PluginRuntime(string workspace, HostPort port, Action<JsonObject> emit,
         Func<PluginPackage, JsonObject, string, JsonObject, CancellationToken, Task<JsonNode?>> harness, bool preview = false,
-        Action<JsonObject>? stateChanged = null, TimeProvider? clock = null)
+        Action<JsonObject>? stateChanged = null, TimeProvider? clock = null, string? mediaFiles = null)
     {
         root = Path.Combine(workspace, "plugins");
         files = Path.Combine(workspace, "attachments");
+        this.mediaFiles = mediaFiles ?? files;
         this.port = port;
         this.emit = emit;
         this.harness = harness;
@@ -393,7 +397,10 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
             foreach (var declaration in package.Manifest.GetArray("skills"))
             {
                 if (!declaration.GetArray("agents").Any(item => JsonValues.GetText(item) == agent)) continue;
-                var key = package.Id + "-" + declaration.GetString("name");
+                var skillName = declaration.GetString("name");
+                var assetView = package.BuiltIn && package.Id == "base" && skillName == "view_asset";
+                if (assetView && (assets is null || provider is null || attach is null)) continue;
+                var key = assetView ? skillName : package.Id + "-" + skillName;
                 var handlers = new Dictionary<string, string>(StringComparer.Ordinal);
                 var assetTools = new HashSet<string>(StringComparer.Ordinal);
                 var tools = new JsonArray();
@@ -409,13 +416,19 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                     tools.AddNode(new JsonObject { ["type"] = "function", ["function"] = new JsonObject
                     {
                         ["name"] = qualified,
-                        ["description"] = tool.GetString("description") + (assetTools.Contains(qualified) ? " Returns an asset URL or list. Activate the assets skill to inspect it." : ""),
+                        ["description"] = tool.GetString("description") + (returnsAsset ? " Returns an Asset URL or list. Activate view_asset to inspect it." : ""),
                         ["parameters"] = tool.GetObject("parameters").DeepClone()
                     } });
                 }
                 var stateTool = "plugin_" + package.Id + "_" + declaration.GetString("name") + "-state";
                 var cardTool = "plugin_" + package.Id + "_" + declaration.GetString("name") + "-card";
                 AddStateTools(package, declaration, tools, stateTool, showCard is null ? null : cardTool);
+                async Task<JsonObject> PresentAsset(AssetContent asset, string url, CancellationToken token)
+                {
+                    var reading = await assets!.Present(asset, provider!, url, token);
+                    if (reading.Attachment is not null) attach!(reading.Attachment);
+                    return reading.Result;
+                }
                 yield return new AgentSkill(key, declaration.GetString("description"), tools,
                     async (name, args, ct) =>
                     {
@@ -438,10 +451,13 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                             showCard(card);
                             return new JsonObject { ["shown"] = true, ["id"] = id };
                         }
+                        var supplied = assets?.SuppliedUrls(args);
                         var invocation = new Invocation(package, handlers[name], new()
-                        { ["name"] = "skill.tool", ["skill"] = key, ["tool"] = name, ["arguments"] = args.DeepClone() }, environment);
-                        var result = await InvokeSkillTool(invocation, provider, attach, ct);
-                        if (assetTools.Contains(name)) (assets ?? throw new InvalidOperationException("This agent has no asset reader.")).Grant(package, result);
+                        { ["name"] = "skill.tool", ["skill"] = key, ["tool"] = name, ["arguments"] = args.DeepClone() }, environment,
+                            OpenSuppliedAsset: (url, options) => supplied?.Contains(url) == true ? assets!.Open(url, options) : null,
+                            PresentAsset: assetView ? PresentAsset : null);
+                        var result = await InvokeSkillTool(invocation, provider, attach, assets, ct);
+                        if (assetTools.Contains(name)) (assets ?? throw new InvalidOperationException("This agent has no asset reader.")).Grant(package, result, supplied);
                         return result;
                     },
                     Instructions: declaration.GetString("instructions"),
@@ -544,6 +560,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
             throw;
         }
         var run = JsonValues.NewId();
+        using var codecs = new AssetCodecs(mediaFiles, port);
         await using var readers = new AssetReaders(TimeProvider.System);
         var staged = new List<string>();
         var finished = false;
@@ -642,7 +659,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                             else reply["result"] = null;
                         }
                         else
-                            reply["result"] = await Api(invocation, method, args, grantedFiles, readers, token);
+                            reply["result"] = await Api(invocation, method, args, grantedFiles, readers, codecs, token);
                     }
                     catch (Exception error) when (error is not OperationCanceledException) { reply["error"] = error.Message; }
                     replies.AddNode(reply);
@@ -676,22 +693,41 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         else RequireScope(invocation.Package, invocation.Environment.GetString("preset"));
     }
 
-    private async Task<JsonNode?> Api(Invocation invocation, string method, JsonObject args, HashSet<string> grantedFiles, AssetReaders readers, CancellationToken ct)
+    private async Task<JsonNode?> Api(Invocation invocation, string method, JsonObject args, HashSet<string> grantedFiles,
+        AssetReaders readers, AssetCodecs codecs, CancellationToken ct)
     {
         var package = invocation.Package;
         var ctx = invocation.Environment;
         RequireScope(package, ctx.GetString("preset"));
         if (preview && !(method.StartsWith("db.", StringComparison.Ordinal) || method.StartsWith("state.", StringComparison.Ordinal) || method.StartsWith("assets.", StringComparison.Ordinal) ||
-            method.StartsWith("actions.", StringComparison.Ordinal) || method == "settings.get"))
+            method.StartsWith("actions.", StringComparison.Ordinal) || method.StartsWith("text.", StringComparison.Ordinal) ||
+            method.StartsWith("codecs.", StringComparison.Ordinal) || method == "settings.get"))
             throw new UnauthorizedAccessException("The preview runs with isolated settings, storage, actions and assets.");
         if (method == "development.run" && package.BuiltIn && package.Id == "base")
             return await harness(package, ctx, "pluginDevelopment", args, ct);
+        if (method == "assetView.present" && invocation.PresentAsset is { } present)
+        {
+            var url = args.GetString("url");
+            var asset = args.GetString("handle") is { Length: > 0 } handle ? readers.Content(handle) : ResolveAsset(url, new());
+            return await present(asset, url, ct);
+        }
+        if (method == "text.encode") return AssetCodecs.EncodeText(args);
+        if (method == "text.decode") return AssetCodecs.DecodeText(args);
+        if (method == "text.read") return await codecs.ReadText(ResolveAsset(args.GetString("url"), new()), args, ct);
+        if (method.StartsWith("codecs.", StringComparison.Ordinal))
+        {
+            var (info, output) = await codecs.Media(method[7..], ResolveAsset(args.GetString("url"), new()), args, ct);
+            if (output is null) return info;
+            var opened = readers.Open(output);
+            foreach (var (key, value) in info) opened[key] = JsonValues.Clone(value);
+            return opened;
+        }
         if (method is "state.get" or "state.set") return State(package, ctx, args, method == "state.set");
         if (method == "url.open" && !package.UsesActions) return OpenUrl(args.GetString("url"), ctx, package.Id, package.BuiltIn);
         if (method.StartsWith("actions.", StringComparison.Ordinal))
             return WhileCurrent(package, ctx.GetString("preset"), () => DispatchAction(package, method, args, ctx));
-        if (method == "assets.open")
-            return readers.Open(OpenAsset(args.GetString("url"), package, args.GetObject("options"), ctx));
+        if (method == "assets.open") return readers.Open(ResolveAsset(args.GetString("url"), args.GetObject("options")));
+        if (method == "assets.describe") return Describe(args.GetString("url"), ResolveAsset(args.GetString("url"), new()));
         if (method == "assets.close")
         {
             await readers.Close(args.GetString("handle"));
@@ -749,6 +785,13 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
             return await harness(package, ctx, op, args, ct);
         }
         throw new ArgumentException("Unknown plugin API method.");
+
+        AssetContent ResolveAsset(string url, JsonObject options) => invocation.OpenSuppliedAsset?.Invoke(url, options) ??
+            (invocation.PresentAsset is not null
+                ? throw new UnauthorizedAccessException("Use an Asset URL supplied in this session.")
+                : MessageAttachments.IsAttachmentUrl(url)
+                    ? throw new UnauthorizedAccessException("This workspace Asset was not supplied to the handler.")
+                    : OpenAsset(url, package, options, ctx));
     }
 
     public JsonObject OpenUrl(string value, JsonObject environment, string sender = "", bool platform = false)

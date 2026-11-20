@@ -747,7 +747,7 @@ public sealed partial class Engine : IAsyncDisposable
             if (data.Count > 0)
                 modelInput += "\n\nData from the user's interactive reply (JSON):\n" + serialized;
         }
-        attachments = await PrepareAttachments(attachments, role, PluginEnvironment(role), token);
+        attachments = await PrepareAttachments(attachments, PluginEnvironment(role), token);
         var session = sessions[role];
         if (role == "chat") session.ConfigureWorldMode(Workspace.AgenticSearch);
         var turn = new TurnInbox(Workspace.ChatId, role, message =>
@@ -801,11 +801,11 @@ public sealed partial class Engine : IAsyncDisposable
         if (role == "chat") RecordReplyEnd(turnStart, answer);
     }
 
-    private async Task<JsonArray> PrepareAttachments(JsonArray files, string role, JsonObject context, CancellationToken ct)
+    private async Task<JsonArray> PrepareAttachments(JsonArray files, JsonObject context, CancellationToken ct)
     {
+        new MessageAttachments(attachmentRoot).ValidateAssets(files);
         if (files.OfType<JsonObject>().Any(item => item.GetString("type").Length > 0))
             files = await plugins.ProcessAttachments(files, context, ct);
-        new MessageAttachments(attachmentRoot).Validate(files, turnRouting.For(role));
         return files;
     }
 

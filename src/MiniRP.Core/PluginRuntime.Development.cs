@@ -6,13 +6,13 @@ internal sealed partial class PluginRuntime
 {
     internal const string CardPreviewOutput = "_card_preview_output";
 
-    private async Task<JsonNode?> InvokeSkillTool(Invocation invocation, Provider? provider, Action<JsonObject>? attach, CancellationToken ct)
+    private async Task<JsonNode?> InvokeSkillTool(Invocation invocation, Provider? provider, Action<JsonObject>? attach, AgentAssets? assets, CancellationToken ct)
     {
         var arguments = invocation.Event.GetObject("arguments");
         if (!invocation.Package.BuiltIn || invocation.Package.Id != "base" ||
             invocation.Event.GetString("tool") != "plugin_base_project_card_preview" || !arguments.GetBoolean("screenshot"))
             return await Invoke(invocation, ct);
-        if (provider is null || attach is null || !MessageAttachments.Supports(provider.Protocol, "image/png"))
+        if (provider is null || attach is null || !MessageAttachments.Supports(provider, "image/png"))
         {
             var result = await Invoke(invocation, ct);
             if (result is JsonObject preview)
@@ -32,6 +32,7 @@ internal sealed partial class PluginRuntime
             {
                 var attachment = new JsonObject { ["id"] = id, ["mime"] = "image/png", ["name"] = arguments.GetString("id") + ".png" };
                 new MessageAttachments(files).Validate(new JsonArray(attachment.DeepClone()), provider);
+                if (assets is not null) result!.AsObject()["asset_url"] = assets.StoreFile(attachment);
                 attach(attachment);
                 retained = true;
             }
@@ -61,7 +62,7 @@ internal sealed partial class PluginRuntime
         using var stream = File.OpenRead(path);
         var package = ReadPackage(stream, path, ct: ct);
         await using var runtime = new PluginRuntime(workspace, port, emit,
-            (_, _, _, _, _) => throw new UnauthorizedAccessException(), preview: true);
+            (_, _, _, _, _) => throw new UnauthorizedAccessException(), preview: true, mediaFiles: mediaFiles);
         runtime.SetPackages([package]);
         var environment = new JsonObject { ["preset"] = preset, ["session"] = "preview-" + JsonValues.NewId(), ["agent"] = "plugin" };
         if (card is not null)

@@ -9,9 +9,83 @@
     { "id": "dependencies", "type": "file", "path": "notices.md", "mimeType": "text/markdown", "accessibility": "public" },
     { "id": "project-license", "type": "file", "path": "LICENSE", "mimeType": "text/markdown", "accessibility": "public" }
   ],
-  "actions": { "handlers": { "develop": "develop", "preset-created": "presetCreated" } },
+  "actions": { "handlers": { "develop": "develop", "preset-created": "presetCreated", "view-asset": "viewAsset" } },
   "hooks": { "preset.created": "minirp://actions/minirp.base/hooks/preset-created" },
   "skills": [
+    {
+      "name": "view_asset",
+      "description": "View Asset URLs supplied with messages or returned by tools.",
+      "agents": ["chat", "env", "preset", "search", "fetch", "temporary", "plugin"],
+      "instructions": "Use the Asset URL as-is. If the media type is unclear, inspect the URL metadata first. Call the corresponding viewer for each file. You can also pass the URL directly to a tool that accepts an Asset URL. Samples returned by viewers have their own Asset URLs.",
+      "tools": [
+        {
+          "name": "view_image",
+          "description": "Send the complete image to an image-capable model.",
+          "handler": "minirp://actions/minirp.base/hooks/view-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."}},"required":["url"]}
+        },
+        {
+          "name": "view_video_frame",
+          "description": "View a video frame at start_ms, starting from zero.",
+          "handler": "minirp://actions/minirp.base/hooks/view-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."},"start_ms":{"type":"integer","minimum":0}},"required":["url"]}
+        },
+        {
+          "name": "view_video",
+          "description": "Send the complete video to a video-capable model.",
+          "handler": "minirp://actions/minirp.base/hooks/view-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."}},"required":["url"]}
+        },
+        {
+          "name": "view_video_audio_clip",
+          "description": "Listen to up to 30 seconds from the video's audio track.",
+          "handler": "minirp://actions/minirp.base/hooks/view-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."},"start_ms":{"type":"integer","minimum":0},"duration_ms":{"type":"integer","minimum":100,"maximum":30000}},"required":["url"]}
+        },
+        {
+          "name": "view_audio",
+          "description": "Send the complete audio file to an audio-capable model.",
+          "handler": "minirp://actions/minirp.base/hooks/view-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."}},"required":["url"]}
+        },
+        {
+          "name": "view_text",
+          "description": "Read UTF text or the text extracted by the attachment handler. Continue at next_offset.",
+          "handler": "minirp://actions/minirp.base/hooks/view-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."},"offset":{"type":"integer","minimum":0},"length":{"type":"integer","minimum":1,"maximum":16000}},"required":["url"]}
+        },
+        {
+          "name": "view_pdf_page",
+          "description": "View one PDF page as an image. Pages start at 1.",
+          "handler": "minirp://actions/minirp.base/hooks/view-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."},"page":{"type":"integer","minimum":1}},"required":["url"]}
+        },
+        {
+          "name": "view_pdf_metadata",
+          "description": "Inspect the PDF document and its page count.",
+          "handler": "minirp://actions/minirp.base/hooks/view-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."}},"required":["url"]}
+        },
+        {
+          "name": "view_image_metadata",
+          "description": "Inspect image dimensions and available format metadata.",
+          "handler": "minirp://actions/minirp.base/hooks/view-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."}},"required":["url"]}
+        },
+        {
+          "name": "view_video_metadata",
+          "description": "Inspect video dimensions, duration, and audio-track presence.",
+          "handler": "minirp://actions/minirp.base/hooks/view-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."}},"required":["url"]}
+        },
+        {
+          "name": "view_url_metadata",
+          "description": "Inspect an authorised Asset URL, MIME type, origin, and known size.",
+          "handler": "minirp://actions/minirp.base/hooks/view-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."}},"required":["url"]}
+        }
+      ]
+    },
     {
       "name": "plugin-docs",
       "description": "Read or search the built-in plugin development guide, API reference and manifest schema.",
