@@ -37,7 +37,7 @@ public sealed partial class Engine
             return;
         }
 
-        if (sessions["chat"].History.Count == 0)
+        if (!sessions["chat"].HasHistory)
             await RunMessage("chat", opening, false, new(), token, inputRole: "system", hiddenInput: true);
         Workspace.Chat.Remove(GreetingPending);
         Workspace.Save();

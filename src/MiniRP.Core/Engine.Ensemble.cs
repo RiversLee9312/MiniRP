@@ -82,15 +82,15 @@ public sealed partial class Engine
             if (data.Length > 16384) throw new ArgumentException("The interactive reply data is too large.");
             interaction = "\nInteractive reply data: " + data;
         }
-        if (attachments.OfType<JsonObject>().Any(item => item.GetString("type").Length > 0))
-            attachments = await plugins.ProcessAttachments(attachments, GroupContext("chat", "", conversation), token);
-        new MessageAttachments(attachmentRoot).Validate(attachments, turnRouting.For("chat"));
+        attachments = await PrepareAttachments(attachments, "chat", GroupContext("chat", "", conversation), token);
         if (opening is null) PostEnsembleMessage(conversation, hub.Post(conversation, "", role, input, attachments));
         var turn = new TurnInbox(Workspace.ChatId, "chat", message =>
-            PostEnsembleMessage(conversation, hub.Post(conversation, "", message.GetString("role", "user"), message.GetString("text"))),
-            keepOpen: true, conversation: conversation);
-        Volatile.Write(ref inbox, turn);
-        Emit(new() { ["kind"] = "generating", ["agent"] = "chat", ["value"] = true });
+        {
+            var posted = hub.Post(conversation, "", message.GetString("role", "user"), message.GetString("text"));
+            PostEnsembleMessage(conversation, posted);
+            return EnsembleConversation.DeliveryId(posted);
+        }, keepOpen: true, conversation: conversation);
+        BeginInteractiveTurn(turn);
         var request = command.GetString("request");
         if (request.Length > 0)
             Emit(new() { ["kind"] = "message_accepted", ["request"] = request, ["chat"] = Workspace.ChatId });
@@ -102,24 +102,6 @@ public sealed partial class Engine
                 var character = hub.Agent(member);
                 var name = character.GetString("name");
                 var (roleContext, searchContext) = (GroupContext("chat", member, conversation), GroupContext("search", member, conversation));
-                var chatModel = new ModelClient(Port, () => turnRouting.For("chat"), attachmentRoot);
-                var searchModel = new ModelClient(Port, () => turnRouting.For("search"), attachmentRoot);
-                using var own = new AgentSession("ChatAgent", hub.Database(member, "chat"), chatModel, item =>
-                    RecordEnsembleTrace(hub, conversation, member, name, item, roleContext));
-                if (opening is not null && own.History.Count > 0)
-                {
-                    RememberEnsembleGreeting(greeted, member);
-                    continue;
-                }
-                using var research = Workspace.AgenticSearch
-                    ? new AgentSession("SearchAgent", hub.Database(member, "search"), searchModel, item =>
-                        RecordEnsembleTrace(hub, conversation, member, name, item, searchContext))
-                    : null;
-                own.ConfigureWorldMode(Workspace.AgenticSearch);
-                ConfigureSkillAccess(own, "chat", chatModel, () => roleContext, target => hub.IsMember(target, member));
-                if (research is not null)
-                    ConfigureSkillAccess(research, "search", searchModel, () => searchContext, target => hub.IsMember(target, member));
-                var pluginsForCharacter = own.AdditionalSkills!;
                 var postedOpening = false;
                 var dialogue = hub.CharacterSkill(member, conversation, (target, message) =>
                 {
@@ -130,9 +112,20 @@ public sealed partial class Engine
                     }
                     PostEnsembleMessage(target, message);
                 });
-                own.AdditionalSkills = () => pluginsForCharacter().Append(dialogue);
-                own.OpenUiInstructions = () => turnRouting.Settings.GetString("android_open_ui");
-                own.Inbox = turn;
+                bool CanReadChat(string target) => hub.IsMember(target, member);
+                using var own = agentSessions.Open("chat", hub.Database(member, "chat"), () => turnRouting.For("chat"), () => roleContext,
+                    item => RecordEnsembleTrace(hub, conversation, member, name, item, roleContext),
+                    () => [dialogue], CanReadChat, turn);
+                if (opening is not null && own.HasHistory)
+                {
+                    RememberEnsembleGreeting(greeted, member);
+                    continue;
+                }
+                using var research = Workspace.AgenticSearch
+                    ? agentSessions.Open("search", hub.Database(member, "search"), () => turnRouting.For("search"), () => searchContext,
+                        item => RecordEnsembleTrace(hub, conversation, member, name, item, searchContext), canReadChat: CanReadChat)
+                    : null;
+                own.ConfigureWorldMode(Workspace.AgenticSearch);
                 if (opening is null)
                 {
                     EnsembleConversation.DeliverPrivate(own);
@@ -159,10 +152,7 @@ public sealed partial class Engine
         }
         finally
         {
-            turn.Close();
-            turn.Drain(_ => { });
-            Volatile.Write(ref inbox, null);
-            Emit(new() { ["kind"] = "generating", ["agent"] = "chat", ["value"] = false });
+            EndInteractiveTurn(turn);
         }
     }
 

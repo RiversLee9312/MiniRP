@@ -14,7 +14,7 @@ Preset、Room 和 Chat 都使用标准小写 UUID，例如 `7844467a-14ae-48eb-8
 | `harness.readChat` | `harness.read` | `{preset?,room?,chat?,offset?,limit?}` → `{id,room,preset,name,messages}`。群像消息可含 `participant` 与 `speaker`。 |
 | `harness.listRooms` | `harness.read` | `{preset?,offset?,limit?}` → 预设下的 Room 列表 `[{id,name}]`。普通预设的 Room 与 Chat 使用同一个 ID。 |
 | `harness.readRoom` | `harness.read` | `{preset?,room?,offset?,limit?}` → `{id,preset,name,chats}`，其中 `chats` 是该 Room 的 Chat 列表。 |
-| `harness.readSession` | `harness.read` | `{preset?,room?,chat?,agent?,id?,participant?,offset?,limit?}` → 指定 Agent 的消息数组。群像的 Chat/Search 会话以 Room 和角色 ID `participant` 定位。Fetch 和临时 Agent 可提供任务 ID，临时会话只向所有者开放。 |
+| `harness.readSession` | `harness.read` | `{preset?,room?,chat?,agent?,id?,participant?,offset?,limit?}` → 指定 Agent 当前上下文中的可见消息。群像的 Chat/Search 会话以 Room 和角色 ID `participant` 定位。Fetch 和临时 Agent 可提供任务 ID，临时会话只向所有者开放。 |
 | `harness.createChat` | `harness.write` | `{preset?}` → 在普通预设中新建聊天并选中。 |
 | `harness.createRoom` | `harness.write` | `{preset?}` → 在群像预设中新建 Room，用预设定义初始化角色和 Chat。Room 内新增 Chat 或改变成员由 EnvAgent 处理。 |
 | `harness.createPreset` | `harness.write` | `{name?}` → 新建预设，省略时用默认名称。 |

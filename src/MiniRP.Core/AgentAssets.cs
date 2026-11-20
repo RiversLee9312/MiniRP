@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 namespace MiniRP.Core;
 
 internal sealed class AgentAssets(PluginRuntime runtime, HostPort port, MemoryDb db, string directory,
-    ModelClient model, Func<JsonObject> environment)
+    Func<JsonObject> environment)
 {
     private const string Grants = "_context/asset-grants";
     internal sealed record Reading(JsonObject Result, JsonObject? Attachment = null);
@@ -23,7 +23,7 @@ internal sealed class AgentAssets(PluginRuntime runtime, HostPort port, MemoryDb
         db.Write(Grants, JsonValues.Serialize(grants), internalWrite: true);
     }
 
-    public async Task<Reading> Read(JsonObject args, CancellationToken ct)
+    public async Task<Reading> Read(JsonObject args, Provider provider, CancellationToken ct)
     {
         var url = args.GetString("url");
         var grant = Load()[url] as JsonObject ?? throw new UnauthorizedAccessException("Use an Asset URL returned by a skill in this session.");
@@ -72,7 +72,7 @@ internal sealed class AgentAssets(PluginRuntime runtime, HostPort port, MemoryDb
                 mime = response.GetString("mime");
             }
             var attachment = new JsonObject { ["id"] = outputId, ["mime"] = mime, ["name"] = url[(url.LastIndexOf('/') + 1)..] };
-            model.ValidateAsset(attachment);
+            new MessageAttachments(directory).Validate(new JsonArray(attachment.DeepClone()), provider);
             retain = true;
             return new(new JsonObject { ["url"] = url, ["mode"] = mode, ["sample"] = "Attached after the tool response." }, attachment);
         }

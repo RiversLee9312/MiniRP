@@ -310,7 +310,7 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
     private static void ReadSessionReferences(string file, Contents contents, CancellationToken ct)
     {
         using var db = MemoryDb.ReadOnly(file);
-        if (db.Query("SELECT name FROM sqlite_master WHERE type='table' AND name='entries'").Count == 0) return;
+        if (!db.HasEntriesTable()) return;
         foreach (var row in db.Query("SELECT content FROM entries WHERE key='_context/history' OR key GLOB '_archive/history/*' OR key GLOB '_archive/public/history/*'"))
         {
             ct.ThrowIfCancellationRequested();

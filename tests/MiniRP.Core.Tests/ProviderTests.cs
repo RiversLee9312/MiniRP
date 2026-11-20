@@ -15,7 +15,8 @@ public sealed class ProviderTests
         {
             ["choices"] = new JsonArray(new JsonObject { ["delta"] = new JsonObject { ["content"] = expected } })
         }), splitBytes: true);
-        var result = await model.Complete(Messages(), new(), (_, _) => { }, CancellationToken.None);
+        using var session = TestAgentSession.Open("title", ":memory:", model, _ => { });
+        var result = await session.Run("Provider fixture", "test", CancellationToken.None);
         Assert.AreEqual(expected, result.GetString("content"));
     }
 
@@ -34,11 +35,9 @@ public sealed class ProviderTests
             Assert.AreEqual("opaque-signature", body.GetArray("messages")[1].GetArray("content")[0].GetString("signature"));
             return Event(JsonValues.ParseObject("""{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"done"}}"""));
         });
-        var messages = Messages();
-        var first = await model.Complete(messages, new(), (_, _) => { }, CancellationToken.None);
-        messages.AddNode(first);
-        messages.AddNode(new JsonObject { ["role"] = "user", ["content"] = "continue" });
-        var next = await model.Complete(messages, new(), (_, _) => { }, CancellationToken.None);
+        using var session = TestAgentSession.Open("chat", ":memory:", model, _ => { });
+        await session.Run("Provider fixture", "test", CancellationToken.None);
+        var next = await session.Run("Provider fixture", "continue", CancellationToken.None);
         Assert.AreEqual("done", next.GetString("content"));
     }
 
@@ -54,10 +53,9 @@ public sealed class ProviderTests
             }
             return Event(JsonValues.ParseObject("""{"candidates":[{"content":{"parts":[{"text":"answer","thoughtSignature":"gemini-signature"}]}}]}"""));
         });
-        var messages = Messages();
-        messages.AddNode(await model.Complete(messages, new(), (_, _) => { }, CancellationToken.None));
-        messages.AddNode(new JsonObject { ["role"] = "user", ["content"] = "continue" });
-        await model.Complete(messages, new(), (_, _) => { }, CancellationToken.None);
+        using var session = TestAgentSession.Open("chat", ":memory:", model, _ => { });
+        await session.Run("Provider fixture", "test", CancellationToken.None);
+        await session.Run("Provider fixture", "continue", CancellationToken.None);
     }
 
     [TestMethod]
@@ -76,12 +74,9 @@ public sealed class ProviderTests
             return Event(JsonValues.ParseObject("""{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"r1","encrypted_content":"encrypted-state","summary":[]}}""")) +
                 Event(JsonValues.ParseObject("""{"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","id":"f1","call_id":"call-1","name":"db_list","arguments":"{}"}}"""));
         });
-        var messages = Messages();
-        var response = await model.Complete(messages, Tools.Memory(), (_, _) => { }, CancellationToken.None);
-        Assert.AreEqual("call-1", response.GetArray("tool_calls")[0].GetString("id"));
-        messages.AddNode(response);
-        messages.AddNode(new JsonObject { ["role"] = "tool", ["tool_call_id"] = "call-1", ["content"] = "[]" });
-        Assert.AreEqual("done", (await model.Complete(messages, Tools.Memory(), (_, _) => { }, CancellationToken.None)).GetString("content"));
+        using var session = TestAgentSession.Open("chat", ":memory:", model, _ => { });
+        Assert.AreEqual("done", (await session.Run("Provider fixture", "test", CancellationToken.None)).GetString("content"));
+        Assert.AreEqual("call-1", session.History.Single(message => message.GetString("role") == "tool").GetString("tool_call_id"));
     }
 
     [TestMethod]
@@ -106,16 +101,16 @@ public sealed class ProviderTests
                 completed;
         });
         var trace = new StringBuilder();
-        var response = await model.Complete(Messages(), new(), (kind, content) =>
+        using var session = TestAgentSession.Open("title", ":memory:", model, item =>
         {
-            if (kind == "reasoning") trace.Append(content);
-        }, CancellationToken.None);
+            if (item.GetString("type") == "reasoning") trace.Append(item.GetString("text"));
+        });
+        var response = await session.Run("Provider fixture", "test", CancellationToken.None);
         Assert.AreEqual("Check the facts", trace.ToString());
         Assert.AreEqual(trace.ToString(), response.GetString("reasoning_content"));
         Assert.AreEqual("Done.", response.GetString("content"));
     }
 
-    private static JsonArray Messages() => new(new JsonObject { ["role"] = "user", ["content"] = "test" });
     private static string Event(JsonObject data) => "data: " + JsonValues.Serialize(data) + "\n\n";
 
     private static ModelClient Fixture(string protocol, Func<JsonObject, int, string> respond, bool splitBytes = false)

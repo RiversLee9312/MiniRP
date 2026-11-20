@@ -727,7 +727,7 @@ public sealed class ExtensionTests
                 {"id":"attachment","packageName":"test.attachment","name":"Attachment fixture","apiVersion":2,"entry":"index.js",
                  "actions":{"handlers":{"convert":"convert","preview":"preview"}},
                  "assets":[{"id":"preview","type":"dynamic","mimeType":"image/png","accessibility":"private","handler":"minirp://actions/test.attachment/hooks/preview"}],
-                 "attachments":[{"id":"text","name":"Plain text","mimeTypes":["text/plain"],"handler":"minirp://actions/test.attachment/hooks/convert","thumbnail":"preview"}]}
+                 "attachments":[{"id":"text","name":"Converted PDF","mimeTypes":["application/pdf"],"handler":"minirp://actions/test.attachment/hooks/convert","thumbnail":"preview"}]}
                 """, """
                 globalThis.handlers = {
                   async convert(event, api) {
@@ -744,9 +744,10 @@ public sealed class ExtensionTests
         engine.Dispatch(new() { ["op"] = "plugin_install", ["path"] = plugin });
         await Until(engine, "plugin", scripts);
         engine.Dispatch(new() { ["op"] = "message", ["text"] = "Read this", ["attachments"] = new JsonArray(new JsonObject
-            { ["id"] = "abc", ["name"] = "file.txt", ["mime"] = "text/plain", ["plugin"] = "attachment", ["type"] = "text" }) });
+            { ["id"] = "abc", ["name"] = "file.pdf", ["mime"] = "application/pdf", ["plugin"] = "attachment", ["type"] = "text" }) });
         var request = await Until(engine, "http_request", scripts);
         StringAssert.Contains(request.GetString("body"), "Parsed ABC");
+        Assert.IsFalse(request.GetString("body").Contains("data:application/pdf;base64", StringComparison.Ordinal));
         Assert.IsFalse(request.GetString("body").Contains("thumbnail_url", StringComparison.Ordinal));
         var attachment = engine.Workspace.Chat.GetArray("blocks").First().GetArray("attachments").First();
         Assert.AreEqual("minirp://assets/test.attachment/preview?attachment=abc", attachment.GetString("thumbnail_url"));
@@ -929,6 +930,15 @@ public sealed class ExtensionTests
         var workspace = new Workspace(root);
         var initialPreset = workspace.InitialPreset().Id;
         var outpost = workspace.CreatePreset("Outpost");
+        workspace.Select(outpost, null);
+        workspace.Save();
+        var room = workspace.ChatId;
+        using (var sessionDb = new MemoryDb(SessionFiles.Conversation(workspace.ChatRoot, "chat")))
+            sessionDb.Write("_context/history", """
+                [{"role":"user","content":"Visible message"},
+                 {"role":"system","_harness_delta":true,"content":"Internal change"},
+                 {"role":"user","content":"No result submitted. Complete with a submission tool or fail_request."}]
+                """, internalWrite: true);
         using var signer = Certificate();
         using var scripts = new PluginScripts();
         var path = Pack(root, "scoped", signer, """
@@ -952,7 +962,13 @@ public sealed class ExtensionTests
                 try { await api.harness[method](args); }
                 catch (error) { if (String(error.message).includes("UUID")) malformed.push(method); }
               }
-              await api.db.put({scope: "preset", key: "result", content: JSON.stringify({presets, denied, malformed})});
+              const session = await api.harness.readSession({room:event.room});
+              let roomConflict = false, participantDenied = false;
+              try { await api.harness.readSession({room:event.room, chat:event.otherRoom}); }
+              catch (error) { roomConflict = String(error.message).includes("same."); }
+              try { await api.harness.readSession({room:event.room, participant:"ada"}); }
+              catch (error) { participantDenied = String(error.message).includes("no character sessions"); }
+              await api.db.put({scope: "preset", key: "result", content: JSON.stringify({presets, denied, malformed, session, roomConflict, participantDenied})});
             } };
             """);
 
@@ -984,7 +1000,7 @@ public sealed class ExtensionTests
             .Any(item => item.GetString("plugin") == "scoped"));
 
         reloaded.Dispatch(new() { ["op"] = "plugin_command", ["id"] = "scoped",
-            ["arguments"] = new JsonObject { ["excludedPreset"] = initialPreset } });
+            ["arguments"] = new JsonObject { ["excludedPreset"] = initialPreset, ["room"] = room, ["otherRoom"] = WorkspaceIds.New() } });
         var database = Path.Combine(root, "plugins", "data", "test.scoped." + signer.GetCertHashString(HashAlgorithmName.SHA256),
             "preset", outpost + ".sqlite");
         using var db = new MemoryDb(database);
@@ -997,6 +1013,9 @@ public sealed class ExtensionTests
         }
         var result = JsonValues.ParseObject(text);
         Assert.IsTrue(result.GetBoolean("denied"));
+        Assert.IsTrue(result.GetBoolean("roomConflict"));
+        Assert.IsTrue(result.GetBoolean("participantDenied"));
+        Assert.AreEqual("Visible message", result.GetArray("session").Single().GetString("text"));
         Assert.AreEqual(outpost, result.GetArray("presets").Single().GetString("id"));
         CollectionAssert.AreEquivalent(new[] { "getPreset", "readRoom", "readChat", "listRooms" },
             result.GetArray("malformed").Select(item => JsonValues.GetText(item)).ToArray());

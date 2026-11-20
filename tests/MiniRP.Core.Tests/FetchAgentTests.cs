@@ -43,7 +43,9 @@ public sealed class FetchAgentTests
             port!.Reply(new() { ["id"] = request.GetString("id"), ["data"] = "data: " + JsonValues.Serialize(message) + "\n\n", ["done"] = true });
         });
         var model = new ModelClient(port, () => new("fixture", "Fixture", "openai", "http://fixture.invalid", "test", "model"));
-        var fetch = new FetchAgent(port, model, _ => { }, Path.Combine(Path.GetTempPath(), "minirp-fetch-" + Guid.NewGuid().ToString("N")));
+        var root = Path.Combine(Path.GetTempPath(), "minirp-fetch-" + Guid.NewGuid().ToString("N"));
+        var fetch = new FetchAgent(port, job => TestAgentSession.Open("fetch",
+            Path.Combine(root, "fetch", job + ".sqlite"), model, _ => { }));
         var page = await fetch.Fetch("https://example.com", CancellationToken.None);
         Assert.AreEqual(170003, page.GetString("content").Length);
         Assert.IsTrue(page.GetString("content").EndsWith("END", StringComparison.Ordinal));

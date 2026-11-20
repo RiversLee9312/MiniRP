@@ -13,6 +13,9 @@ internal sealed class SessionInstructions(JsonObject saved)
 
     public void Reset() => State = new();
 
+    public void RememberActiveSkills(IEnumerable<string> names) =>
+        State["active"] = new JsonArray(names.Select(name => (JsonNode?)JsonValue.Create(name)).ToArray());
+
     public JsonObject? Update(string system, SkillTurn skills, JsonArray tools)
     {
         var instructions = skills.InstructionSections();

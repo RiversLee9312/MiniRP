@@ -42,7 +42,7 @@ public sealed class WorkspaceAgentTests
                 ["phase"] = "Updated phase"
             }))
             : new JsonObject { ["content"] = "Updated." });
-        using var session = new AgentSession("EnvAgent", Path.Combine(world.ChatRoot, "env-test.sqlite"), model, _ => { });
+        using var session = TestAgentSession.Open("env", Path.Combine(world.ChatRoot, "env-test.sqlite"), model, _ => { });
         await new EnvAgent(world, session).Run("Update facts", false, CancellationToken.None);
         Assert.AreEqual("Updated phase", world.State.GetString("phase"));
         Assert.AreEqual("Established fact", world.State.GetArray("canon")[0]!.ToString());
@@ -59,7 +59,7 @@ public sealed class WorkspaceAgentTests
                 ["value"] = "Date: {date}"
             }))
             : new JsonObject { ["content"] = "Saved." });
-        using var session = new AgentSession("PresetAgent", Path.Combine(world.ChatRoot, "preset-test.sqlite"), model, _ => { });
+        using var session = TestAgentSession.Open("preset", Path.Combine(world.ChatRoot, "preset-test.sqlite"), model, _ => { });
         await new PresetAgent(world, session).Run("Set prompt", CancellationToken.None);
         var loaded = new Workspace(world.Root);
         loaded.Select(world.PresetId, world.ChatId);
@@ -81,7 +81,7 @@ public sealed class WorkspaceAgentTests
         var model = Fixture(round => round == 0 ? Assistant(Call("configure_experience",
             new() { ["mode"] = requested, ["agentic_search"] = true })) : new JsonObject { ["content"] = "Create a new preset." },
             requests.Add);
-        using var session = new AgentSession("PresetAgent", Path.Combine(world.ChatRoot, "mode-test.sqlite"), model, _ => { });
+        using var session = TestAgentSession.Open("preset", Path.Combine(world.ChatRoot, "mode-test.sqlite"), model, _ => { });
         await new PresetAgent(world, session).Run("Change the chat structure.", CancellationToken.None);
         Assert.AreEqual(current, world.Config.GetString("chat_mode"));
         var result = requests[1].GetArray("messages").Single(message => message.GetString("role") == "tool");
@@ -93,8 +93,8 @@ public sealed class WorkspaceAgentTests
     {
         var world = NewWorld();
         var model = Fixture(round => new JsonObject { ["content"] = round == 0 ? "Preserved key: note/task. Continue the request." : "Done." });
-        using var session = new AgentSession("ChatAgent", Path.Combine(world.ChatRoot, "compact-test.sqlite"), model, _ => { });
-        var original = new string('x', 225000);
+        using var session = TestAgentSession.Open("chat", Path.Combine(world.ChatRoot, "compact-test.sqlite"), model, _ => { });
+        var original = new string('x', 330000);
         session.Restore(new JsonArray(new JsonObject { ["role"] = "user", ["content"] = original }));
         await session.Run("Test", "Continue", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
         var archives = session.Db.Call("db_list", new() { ["prefix"] = "_archive/history/" }).GetArray("entries");
@@ -110,7 +110,7 @@ public sealed class WorkspaceAgentTests
         var world = NewWorld();
         var requests = new List<JsonObject>();
         var model = Fixture(_ => new JsonObject { ["content"] = "Done." }, inspect: requests.Add);
-        using var session = new AgentSession("SearchAgent", Path.Combine(world.ChatRoot, "search-test.sqlite"), model, _ => { });
+        using var session = TestAgentSession.Open("search", Path.Combine(world.ChatRoot, "search-test.sqlite"), model, _ => { });
         var reference = "Recent chat: " + new string('x', 2400);
         var oldSkill = new AgentSkill("research", "Find facts.", new(),
             (_, _, _) => Task.FromResult<JsonNode?>(null), Required: true, Instructions: "Policy one.");
@@ -138,9 +138,9 @@ public sealed class WorkspaceAgentTests
     {
         var world = NewWorld();
         var path = Path.Combine(world.ChatRoot, "history-test.sqlite");
-        var original = "Keep the lantern green 🟢. " + new string('x', 225000);
+        var original = "Keep the lantern green 🟢. " + new string('x', 370000);
         var events = new List<JsonObject>();
-        using (var initial = new AgentSession("ChatAgent", path,
+        using (var initial = TestAgentSession.Open("chat", path,
             Fixture(round => new JsonObject { ["content"] = round == 0 ? "Compressed summary." : "Done." }), events.Add))
         {
             await initial.Run("Test", original, new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
@@ -150,7 +150,7 @@ public sealed class WorkspaceAgentTests
         string MessageId() => JsonValues.ParseObject(events.Last(e => e.GetString("name") == "history_search" && e.GetString("kind") == "tool_end").GetString("text"))
             .GetArray("matches")[0].GetString("id");
 
-        using var resumed = new AgentSession("ChatAgent", path, Fixture(round => round switch
+        using var resumed = TestAgentSession.Open("chat", path, Fixture(round => round switch
         {
             0 => Assistant(Call("history_search", new() { ["query"] = "lantern green" })),
             1 => Assistant(Call("history_recall", new() { ["id"] = MessageId(), ["length"] = 25 })),
@@ -162,7 +162,7 @@ public sealed class WorkspaceAgentTests
         Assert.AreEqual(original.Length, recalled.GetInt32("total_chars"));
         Assert.AreEqual(25, recalled.GetInt32("next_offset"));
 
-        using var other = new AgentSession("EnvAgent", Path.Combine(world.ChatRoot, "separate-history-test.sqlite"), Fixture(round => round == 0
+        using var other = TestAgentSession.Open("env", Path.Combine(world.ChatRoot, "separate-history-test.sqlite"), Fixture(round => round == 0
             ? Assistant(Call("history_search", new() { ["query"] = "lantern green" })) : new JsonObject { ["content"] = "No match." }), events.Add);
         await other.Run("Test", "Find a lantern", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
         var otherSearch = events.Last(e => e.GetString("name") == "history_search" && e.GetString("kind") == "tool_end");
@@ -200,9 +200,9 @@ public sealed class WorkspaceAgentTests
             Reply(request, "Reply after the cut.");
         });
         var model = new ModelClient(port, () => provider);
-        var original = "Original state " + new string('x', 68700);
+        var original = "Original state " + new string('x', 105000);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        using (var originalSession = new AgentSession("ChatAgent", path, model, _ => { }))
+        using (var originalSession = TestAgentSession.Open("chat", path, model, _ => { }))
         {
             originalSession.Restore(new JsonArray(new JsonObject { ["role"] = "user", ["content"] = original }));
             await originalSession.Run("Test", "Prepare without blocking", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), timeout.Token);
@@ -215,8 +215,8 @@ public sealed class WorkspaceAgentTests
         }
 
         var events = new List<JsonObject>();
-        using var resumed = new AgentSession("ChatAgent", path, model, events.Add);
-        var nextInput = "New input " + new string('y', 12000);
+        using var resumed = TestAgentSession.Open("chat", path, model, events.Add);
+        var nextInput = "New input " + new string('y', 21000);
         await resumed.Run("Test", nextInput, new(), (_, _, _) => Task.FromResult<JsonNode?>(null), timeout.Token);
         Assert.AreEqual(1, summaries);
         Assert.AreEqual(2, requests.Count);
@@ -257,8 +257,8 @@ public sealed class WorkspaceAgentTests
             }
             return Assistant(Call("step", new()), Call("step", new()));
         }, requests.Add, new Provider("test", "Test", "openai", "http://fixture.invalid", "", "test",
-            CompactAt: 8000, BackgroundCompaction: false));
-        using var session = new AgentSession("ChatAgent", Path.Combine(world.ChatRoot, "repeated-compaction.sqlite"), model, _ => { });
+            CompactAt: 5400, BackgroundCompaction: false));
+        using var session = TestAgentSession.Open("chat", Path.Combine(world.ChatRoot, "repeated-compaction.sqlite"), model, _ => { });
         session.Restore(new JsonArray(new JsonObject { ["role"] = "user", ["content"] = new string('x', 22000) }));
         var callsExecuted = 0;
         await session.Run("Test", "Finish the current job", new JsonArray(Tools.Define("step", "Complete one step.")), (_, _, _) =>
@@ -270,6 +270,135 @@ public sealed class WorkspaceAgentTests
         Assert.IsGreaterThanOrEqualTo(2, progress);
         Assert.AreEqual(8, callsExecuted);
         StringAssert.Contains(session.Summary, "Checkpoint " + progress);
+    }
+
+    [TestMethod]
+    public async Task PresetEditsReadTheCurrentConfigWithoutFeedingHistoricalSnapshots()
+    {
+        var world = NewWorld();
+        var marker = new string('设', 25000);
+        var config = (JsonObject)world.Config.DeepClone();
+        config["canon"] = new JsonArray(marker);
+        world.CommitConfig(config);
+        var path = Path.Combine(world.ChatRoot, "old-preset.sqlite");
+        using (var legacy = new MemoryDb(path))
+        {
+            legacy.WriteInternal(("_context/history", """[{"role":"user","content":"Keep the lantern green."}]"""),
+                ("_context/instructions", JsonValues.Serialize(new JsonObject { ["base"] = marker, ["system"] = marker })));
+        }
+        var requests = new List<JsonObject>();
+        var seen = new List<JsonObject>();
+        var model = Fixture(round => round % 2 == 0
+            ? Assistant(Call("set_value", new() { ["path"] = "name", ["value"] = "Preset " + round }))
+            : new JsonObject { ["content"] = "Saved." },
+            inspect: requests.Add, provider: new Provider("fixture", "Fixture", "openai", "http://fixture.invalid", "", "fixture",
+                ContextWindow: 16000, MaxOutput: 1000, BackgroundCompaction: false));
+        using var session = TestAgentSession.Open("preset", path, model, seen.Add);
+        var preset = new PresetAgent(world, session);
+        for (var i = 0; i < 6; i++)
+            await preset.Run("Rename the preset " + i, CancellationToken.None);
+
+        Assert.AreEqual(12, requests.Count);
+        Assert.AreEqual("Preset 10", world.Config.GetString("name"));
+        Assert.IsTrue(requests.All(request => !JsonValues.Serialize(request).Contains(marker, StringComparison.Ordinal)));
+        Assert.IsTrue(requests.All(request => request.GetArray("messages").Any(item => item.GetString("content") == "Keep the lantern green.")));
+        Assert.IsFalse(session.History.Any(SessionInstructions.IsFrame));
+        Assert.IsFalse(seen.Any(item => item.GetString("name") == "compact_context"));
+    }
+
+    [TestMethod]
+    public async Task EnvAgentKeepsOnlyTheUserRequestsAndUsesTheLatestRoomReference()
+    {
+        var world = NewWorld();
+        var requests = new List<JsonObject>();
+        var model = Fixture(_ => new() { ["content"] = "Done." }, requests.Add);
+        using var session = TestAgentSession.Open("env", Path.Combine(world.ChatRoot, "env-reference.sqlite"), model, _ => { });
+        var agent = new EnvAgent(world, session);
+        world.Chat["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = "Previous room view" });
+        await agent.Run("First edit", false, CancellationToken.None);
+        world.Chat["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = "Current room view" });
+        await agent.Run("Second edit", false, CancellationToken.None);
+        var sent = requests[1].GetArray("messages");
+        Assert.AreEqual(1, sent.Count(item => item.GetString("content").Contains("Conversation reference:", StringComparison.Ordinal)));
+        Assert.IsTrue(sent.Any(item => item.GetString("content").Contains("Current room view", StringComparison.Ordinal)));
+        Assert.IsFalse(sent.Any(item => item.GetString("content").Contains("Previous room view", StringComparison.Ordinal)));
+        CollectionAssert.AreEqual(new[] { "First edit", "Second edit" }, session.History
+            .Where(item => item.GetString("role") == "user").Select(item => item.GetString("content")).ToArray());
+    }
+
+    [TestMethod]
+    public async Task ProviderUsageSurvivesResumeAndIsDiscardedWithThePricedHistory()
+    {
+        var world = NewWorld();
+        var path = Path.Combine(world.ChatRoot, "usage-anchor.sqlite");
+        var requests = new List<JsonObject>();
+        var summaries = 0;
+        var provider = new Provider("fixture", "Fixture", "openai", "http://fixture.invalid", "", "fixture",
+            ContextWindow: 10000, MaxOutput: 1000, CompactAtPercent: 80, BackgroundCompaction: false);
+        var model = Fixture(_ =>
+        {
+            if (requests[^1].GetArray("messages")[0].GetString("content").StartsWith("Write a continuation checkpoint", StringComparison.Ordinal))
+            {
+                summaries++;
+                return new() { ["content"] = "Remember the original status." };
+            }
+            return new() { ["content"] = "Reply." };
+        }, requests.Add, provider, inputUsage: round => round == 0 ? 8400 : 0);
+        var original = "Preserve original status " + new string('a', 11250);
+        using (var first = TestAgentSession.Open("preset", path, model, _ => { }))
+            await first.Run("Test", original, new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+
+        using var second = TestAgentSession.Open("preset", path, model, _ => { });
+        await second.Run("Test", "Continue", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+        await second.Run("Test", "One more turn", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+        Assert.AreEqual(1, summaries);
+        Assert.AreEqual(4, requests.Count);
+        Assert.IsFalse(second.History.Any(item => item.GetString("content") == original));
+        Assert.IsFalse(requests[2].GetArray("messages").Any(item => item.GetString("content") == original));
+        StringAssert.Contains(requests[3].GetArray("messages")[0].GetString("content"), "Remember the original status.");
+    }
+
+    [TestMethod]
+    public async Task FailedTurnDoesNotRestoreTheCompactedCommittedHistory()
+    {
+        var world = NewWorld();
+        var path = Path.Combine(world.ChatRoot, "durable-compaction.sqlite");
+        var original = new string('x', 16000);
+        var provider = new Provider("fixture", "Fixture", "openai", "http://fixture.invalid", "", "fixture",
+            ContextWindow: 12000, MaxOutput: 1000, CompactAt: 4000, BackgroundCompaction: false);
+        using (var session = TestAgentSession.Open("preset", path, Fixture(round => round == 0
+                   ? new() { ["content"] = "The committed checkpoint." }
+                   : throw new IOException("Primary generation failed."), provider: provider), _ => { }))
+        {
+            session.Restore(new JsonArray(new JsonObject { ["role"] = "user", ["content"] = original }));
+            await Assert.ThrowsExactlyAsync<IOException>(() => session.Run("Test", "Uncommitted request", new(),
+                (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None));
+        }
+        var requests = new List<JsonObject>();
+        using var resumed = TestAgentSession.Open("preset", path, Fixture(_ => new() { ["content"] = "Reply." }, requests.Add, provider), _ => { });
+        Assert.AreEqual(0, resumed.History.Count);
+        StringAssert.Contains(resumed.Summary, "The committed checkpoint.");
+        await resumed.Run("Test", "Retry", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+        Assert.AreEqual(1, requests.Count);
+        var sent = requests[0].GetArray("messages");
+        Assert.IsFalse(sent.Any(item => item.GetString("content") == original || item.GetString("content") == "Uncommitted request"));
+    }
+
+    [TestMethod]
+    public void EstimatesTheProviderProjectionAndCountsUnicodeAndToolSchemas()
+    {
+        var model = Fixture(_ => new() { ["content"] = "Done." });
+        var baseMessage = new JsonObject { ["role"] = "assistant", ["content"] = new string('a', 900) };
+        var oldMessage = (JsonObject)baseMessage.DeepClone();
+        oldMessage["reasoning_content"] = new string('思', 20000);
+        oldMessage["response_items"] = new JsonArray(new JsonObject { ["encrypted_content"] = new string('x', 20000) });
+        var baseline = model.EstimateInput(new JsonArray(baseMessage.DeepClone()), new());
+        Assert.AreEqual(baseline, model.EstimateInput(new JsonArray(oldMessage), new()));
+        Assert.IsGreaterThan(baseline, model.EstimateInput(new JsonArray(new JsonObject
+            { ["role"] = "assistant", ["content"] = new string('字', 900) }), new()));
+        var tools = new JsonArray(Tools.Define("state", "Report state", new()
+            { ["status"] = new JsonObject { ["type"] = "string", ["description"] = new string('a', 3000) } }));
+        Assert.IsGreaterThan(baseline + 900, model.EstimateInput(new JsonArray(baseMessage.DeepClone()), tools));
     }
 
     private static string NewRoot() => Path.Combine(Path.GetTempPath(), "minirp-workspace-" + Guid.NewGuid().ToString("N"));
@@ -290,7 +419,8 @@ public sealed class WorkspaceAgentTests
 
         return new() { ["tool_calls"] = array };
     }
-    private static ModelClient Fixture(Func<int, JsonObject> respond, Action<JsonObject>? inspect = null, Provider? provider = null)
+    private static ModelClient Fixture(Func<int, JsonObject> respond, Action<JsonObject>? inspect = null,
+        Provider? provider = null, Func<int, int>? inputUsage = null)
     {
         var round = 0;
         HostPort? port = null;
@@ -302,7 +432,10 @@ public sealed class WorkspaceAgentTests
             }
 
             inspect?.Invoke(JsonValues.ParseObject(request.GetString("body")));
-            var data = new JsonObject { ["choices"] = new JsonArray(new JsonObject { ["delta"] = respond(round++) }) };
+            var index = round++;
+            var data = new JsonObject { ["choices"] = new JsonArray(new JsonObject { ["delta"] = respond(index) }) };
+            if (inputUsage?.Invoke(index) is > 0 and var tokens)
+                data["usage"] = new JsonObject { ["prompt_tokens"] = tokens };
             port!.Reply(new() { ["id"] = request.GetString("id"), ["data"] = "data: " + JsonValues.Serialize(data) + "\n\n", ["done"] = true });
         });
         return new(port, () => provider ?? new("test", "Test", "openai", "http://fixture.invalid", "test", "test"));

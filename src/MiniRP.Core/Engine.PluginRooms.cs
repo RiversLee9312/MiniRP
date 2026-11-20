@@ -6,6 +6,8 @@ public sealed partial class Engine
 {
     private static string PluginRoom(JsonObject args, JsonObject context, string preset, bool grouped)
     {
+        if (!grouped && args.GetString("room") is { Length: > 0 } room && args.GetString("chat", room) != room)
+            throw new ArgumentException("In a regular conversation the Chat and Room IDs are the same.");
         var active = preset == context.GetString("preset") && grouped == context.GetBoolean("_ensemble");
         return args.GetString("room", grouped ? (active ? context.GetString("room") : "") :
             args.GetString("chat", active ? context.GetString("room", context.GetString("chat")) : ""));

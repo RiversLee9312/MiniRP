@@ -11,6 +11,16 @@ internal sealed class SessionHistory(MemoryDb db, string agent)
     private const string MessagePrefix = "_history/messages/";
     private const string ImportMarker = "_history/imported";
     private const string ArchivePrefix = "_archive/history/";
+    internal const string RetrySubmission = "No result submitted. Complete with a submission tool or fail_request.";
+
+    internal static bool IsVisible(JsonNode? message) =>
+        !SessionInstructions.IsFrame(message) && !message.GetBoolean("_harness_asset") &&
+        !message.GetBoolean("_harness_hidden") && (message.GetString("role") switch
+        {
+            "user" => message.GetString("content") is not (RetrySubmission or "Continue the active task using the preserved context and DB tools."),
+            "assistant" or "system" => true,
+            _ => false
+        });
 
     public void Record(string role, string content)
     {
@@ -60,12 +70,8 @@ internal sealed class SessionHistory(MemoryDb db, string agent)
     {
         foreach (var message in messages.OfType<JsonObject>())
         {
-            if (SessionInstructions.IsFrame(message) || message.GetBoolean("_harness_asset") || message.GetBoolean("_harness_hidden")) continue;
+            if (!IsVisible(message)) continue;
             var role = message.GetString("role");
-            if (role is not ("user" or "assistant" or "system"))
-            {
-                continue;
-            }
 
             var content = message.GetString("content");
             if (role == "user")
@@ -131,12 +137,6 @@ internal sealed class SessionHistory(MemoryDb db, string agent)
 
     private string OriginalRequest(string content)
     {
-        if (content is "No result submitted. Complete with a submission tool or fail_request." or
-            "Continue the active task using the preserved context and DB tools.")
-        {
-            return "";
-        }
-
         var separator = agent switch
         {
             "EnvAgent" when content.StartsWith("Conversation reference:\n", StringComparison.Ordinal) => "\nRequest:\n",

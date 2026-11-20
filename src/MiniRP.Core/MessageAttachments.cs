@@ -33,6 +33,9 @@ internal sealed class MessageAttachments(string root)
         _ => false
     };
 
+    private static bool IsConvertedText(JsonNode? file) =>
+        file.GetString("type").Length > 0 && file.GetString("text").Length > 0;
+
     public void Validate(JsonArray attachments, Provider provider)
     {
         long total = 0;
@@ -42,10 +45,9 @@ internal sealed class MessageAttachments(string root)
         }
         foreach (var item in attachments)
         {
-            if (item.GetString("type").Length > 0 && item.GetString("text").Length > 0)
+            if (IsConvertedText(item))
             {
-                total += FileFor(item).Length;
-                if (total > Budget(provider.Protocol)) throw new InvalidOperationException("Attachments exceed the upload limit.");
+                if (!FileFor(item).Exists) throw new FileNotFoundException("The original attachment is missing.");
                 continue;
             }
             if (!Supports(provider.Protocol, item.GetString("mime")))
@@ -60,7 +62,7 @@ internal sealed class MessageAttachments(string root)
         }
     }
 
-    public Dictionary<JsonNode, List<Media>> Resolve(JsonArray messages, string protocol)
+    public Dictionary<JsonNode, List<Media>> Resolve(JsonArray messages, string protocol, bool includeData = true)
     {
         var remaining = Budget(protocol);
         var result = new Dictionary<JsonNode, List<Media>>(ReferenceEqualityComparer.Instance);
@@ -73,6 +75,7 @@ internal sealed class MessageAttachments(string root)
             var media = new List<Media>();
             foreach (var file in files)
             {
+                if (IsConvertedText(file)) continue;
                 var mime = file.GetString("mime");
                 if (!Supports(protocol, mime))
                 {
@@ -84,7 +87,8 @@ internal sealed class MessageAttachments(string root)
                     continue;
                 }
                 remaining -= (int)source.Length;
-                media.Add(new(file.GetString("name"), mime, Format(mime), Convert.ToBase64String(File.ReadAllBytes(source.FullName))));
+                media.Add(new(file.GetString("name"), mime, Format(mime),
+                    includeData ? Convert.ToBase64String(File.ReadAllBytes(source.FullName)) : ""));
             }
             result[message] = media;
         }

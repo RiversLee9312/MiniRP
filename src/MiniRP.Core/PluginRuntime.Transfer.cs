@@ -24,7 +24,7 @@ internal sealed partial class PluginRuntime
         bool LegacyOwner(PluginPackage package)
         {
             if (config.GetObject(LegacyOwners).GetString(package.Id) == package.Signer) return true;
-            var deployment = Path.Combine(workspace, "preset_sessions", preset, "plugin_agents",
+            var deployment = Path.Combine(SessionFiles.PluginDirectory(workspace, preset),
                 package.Id[6..], "deployment.json");
             if (!File.Exists(deployment)) return false;
             try

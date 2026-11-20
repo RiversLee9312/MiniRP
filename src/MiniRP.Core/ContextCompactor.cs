@@ -1,68 +1,93 @@
 using System.Globalization;
-using System.IO.Hashing;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace MiniRP.Core;
 
-internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string agent,
-    Func<string, string, string> archive, Action<JsonObject> emit) : IDisposable
+internal sealed class ContextCompactor(MemoryDb db, string agent,
+    Func<string, string, string> archive, Action<JsonObject> emit,
+    Func<ModelClient, JsonArray, Action<string, string>, CancellationToken, Task<JsonObject>> completeCheckpoint) : IDisposable
 {
     private const string PreparedKey = "_context/prepared-compaction";
     private readonly object gate = new();
     private JsonObject? prepared = ReadPrepared(db);
+    private JsonObject? failedPreparation;
+    private (string Route, string Baseline, int Tokens)? failedForeground;
     private (JsonObject Edit, CancellationTokenSource Cancellation, Task<JsonObject?> Task)? pending;
 
-    public async Task<string?> Compact(JsonArray history, string summary, int fixedCharacters,
-        JsonObject input, JsonObject request, JsonObject? interruption, CancellationToken cancellationToken, bool prepareOnly = false)
+    public async Task<string> Compact(ModelClient selected, JsonArray history, string summary, ContextBudget budget,
+        Func<JsonArray, string, bool, int> measure, Func<JsonObject, int> messageCost,
+        JsonObject input, JsonObject request, JsonObject? interruption, Func<JsonObject, bool> isCommitted,
+        Action<string, bool> applied, CancellationToken cancellationToken, bool prepareOnly = false, int? initialTokens = null)
     {
-        var provider = model.SelectedProvider;
-        var selected = model.Bind(provider);
-        var hard = selected.CompactionCharacterLimit;
-        var soft = ModelClient.CompactionCharacters(provider, provider.ContextWindow * (long)provider.BackgroundCompactAtPercent / 100);
-        var background = provider.BackgroundCompaction && soft < hard;
-        if (prepareOnly && !background) return null;
-        var limit = Math.Max(2048, hard - fixedCharacters);
+        var provider = selected.SelectedProvider;
+        if (prepareOnly && !budget.Background) return summary;
+        var used = initialTokens ?? measure(history, summary, true);
+        if (used < (budget.Background ? budget.Soft : budget.Hard)) return summary;
         var full = JsonValues.Serialize(history);
-        var length = (long)full.Length + summary.Length;
-        if (length < (background ? Math.Max(1024, soft - fixedCharacters) : limit)) return null;
-
-        var route = Fingerprint(JsonValues.Serialize(new JsonArray(provider.Id, provider.Protocol, provider.Url,
-            provider.Model, provider.Thinking, provider.ReasoningEffort, provider.ContextWindow, provider.MaxOutput, soft, hard)));
-        var baseline = Fingerprint(summary);
+        const int version = 2;
+        var route = ContextUsage.Route(provider) + $"/{budget.Soft}/{budget.Hard}";
+        var baseline = ContextUsage.Fingerprint(summary);
         JsonObject? ready;
         Task<JsonObject?>? preparation;
         bool Matches(JsonObject edit)
         {
             var count = edit.GetInt32("count", -1);
-            if (count < 0 || count > history.Count || edit.GetString("route") != route || edit.GetString("baseline") != baseline)
+            if (edit.GetInt32("version") != version || count < 0 || count > history.Count ||
+                edit.GetString("route") != route || edit.GetString("baseline") != baseline)
                 return false;
             var prefix = count == history.Count ? full : JsonValues.Serialize(CopyPrefix(history, count));
-            return Fingerprint(prefix) == edit.GetString("prefix");
+            return ContextUsage.Fingerprint(prefix) == edit.GetString("prefix");
         }
+        bool failed;
         lock (gate)
         {
-            ready = background && prepared is not null && Matches(prepared) ? prepared : null;
-            if (pending is { } job && (!background || !Matches(job.Edit))) CancelPending();
+            ready = budget.Background && prepared is not null && Matches(prepared) ? prepared : null;
+            if (pending is { } job && (!budget.Background || !Matches(job.Edit))) CancelPending();
             preparation = pending?.Task;
+            failed = failedPreparation is not null && Matches(failedPreparation);
         }
 
-        if (prepareOnly || length < limit)
+        var summaryLimit = Math.Min(provider.MaxOutput, Math.Clamp(budget.Hard / 8, 128, 4096));
+        // Leave a gap below the next trigger even after adding the checkpoint itself.
+        var minSavings = Math.Clamp(budget.Hard / 32, 96, 768);
+        var fixedTokens = measure(new(), "", false);
+        if (fixedTokens > budget.Capacity)
         {
-            if (ready is null && preparation is null)
+            if (!prepareOnly) EnsureFits(used, budget.Capacity);
+            return summary;
+        }
+        (JsonObject Edit, JsonObject[] Removed) MakePlan(bool mustFit)
+        {
+            var raw = measure(history, summary, false);
+            var scale = Math.Min(1, (double)raw / Math.Max(1, used));
+            var target = Math.Max(0, (int)(budget.Hard * .75 * scale) - fixedTokens - summaryLimit - 48);
+            var (edit, removed) = Plan(history, input, request, interruption, target, messageCost, mustFit);
+            edit["count"] = history.Count;
+            if (removed.Length == 0) return (edit, removed);
+            var remaining = Preview(history, edit);
+            var newCost = measure(remaining, "", false);
+            // Use the projected request on both sides so an expired usage anchor
+            // cannot make a summary of a few short messages look like progress.
+            return mustFit || raw - newCost >= summaryLimit + minSavings ? (edit, removed) : (edit, []);
+        }
+
+        if (prepareOnly || used < budget.Hard)
+        {
+            if (ready is null && preparation is null && !failed)
             {
-                var (edit, removed) = Plan(history, input, request, interruption, limit);
+                var (edit, removed) = MakePlan(mustFit: false);
                 if (removed.Length > 0)
                 {
-                    edit["count"] = history.Count;
-                    edit["prefix"] = Fingerprint(full);
+                    edit["version"] = version;
+                    edit["prefix"] = ContextUsage.Fingerprint(full);
                     edit["route"] = route;
                     edit["baseline"] = baseline;
-                    StartPreparation(edit, removed, summary, selected, limit / 4, cancellationToken);
+                    StartPreparation(edit, removed, summary, selected, summaryLimit, cancellationToken);
                 }
             }
-            return null;
+            return summary;
         }
 
         if (ready is null && preparation is not null)
@@ -70,28 +95,52 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
         cancellationToken.ThrowIfCancellationRequested();
         if (ready is not null)
         {
-            summary = Apply(history, summary, ready, preparedInBackground: true);
-            full = JsonValues.Serialize(history);
-            if ((long)full.Length + summary.Length + fixedCharacters < selected.InputCharacterLimit) return summary;
+            var next = ready.GetString("summary");
+            var after = measure(Preview(history, ready), Checkpoint(next, "_archive/public/history/000000000000"), false);
+            if (after < measure(history, summary, false))
+            {
+                summary = Apply(history, summary, ready, isCommitted, applied, preparedInBackground: true);
+                Invalidate();
+                used = after;
+                if (used < budget.Hard) return summary;
+            }
         }
 
-        var (foreground, dropped) = Plan(history, input, request, interruption, limit);
-        foreground["count"] = history.Count;
+        if (used <= budget.Capacity && failedForeground is { } attempt &&
+            attempt.Route == route && attempt.Baseline == baseline && used - attempt.Tokens < minSavings)
+            return summary;
+
+        var (foreground, dropped) = MakePlan(used > budget.Capacity);
         if (dropped.Length == 0)
         {
-            var stripped = StripFrames(history);
-            return ready is not null || stripped ? summary : null;
+            EnsureFits(used, budget.Capacity);
+            return summary;
         }
 
         var block = StartTrace();
         var status = "Context compaction did not complete. Original history retained.";
         try
         {
-            foreground["summary"] = await Summarize(selected, dropped, summary, limit / 4, block, cancellationToken);
+            foreground["summary"] = await Summarize(selected, dropped, summary, summaryLimit, block, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            var result = Apply(history, summary, foreground, false);
+            var next = foreground.GetString("summary");
+            var after = measure(Preview(history, foreground), Checkpoint(next, "_archive/public/history/000000000000"), false);
+            if (after >= measure(history, summary, false))
+            {
+                EnsureFits(used, budget.Capacity);
+                failedForeground = (route, baseline, used);
+                return summary;
+            }
+            EnsureFits(after, budget.Capacity);
+            var result = Apply(history, summary, foreground, isCommitted, applied, false);
+            Invalidate();
             status = "Full history retained at " + foreground.GetString("archive");
             return result;
+        }
+        catch (IOException) when (used <= budget.Capacity && !cancellationToken.IsCancellationRequested)
+        {
+            failedForeground = (route, baseline, used);
+            return summary;
         }
         finally
         {
@@ -99,31 +148,36 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
         }
     }
 
+    private static void EnsureFits(int used, int capacity)
+    {
+        if (used > capacity)
+            throw new InvalidOperationException($"The current prompt, tools and active input exceed the model's input budget (about {used} tokens, {capacity} available). Reduce the input or select a model with a larger context window.");
+    }
+
     private static (JsonObject Edit, JsonObject[] Removed) Plan(JsonArray history, JsonObject input,
-        JsonObject request, JsonObject? interruption, int limit)
+        JsonObject request, JsonObject? interruption, int budget, Func<JsonObject, int> messageCost, bool mustFit)
     {
         var indices = Enumerable.Range(0, history.Count)
             .Where(index => history[index] is JsonObject && !SessionInstructions.IsFrame(history[index])).ToArray();
         var messages = indices.Select(index => (JsonObject)history[index]!).ToArray();
-        var sizes = messages.Select(message => JsonValues.Serialize(message).Length + 1).ToArray();
+        var sizes = messages.Select(messageCost).ToArray();
         var keep = new bool[messages.Length];
         var pinned = new HashSet<JsonObject>(ReferenceEqualityComparer.Instance) { input, request };
         if (interruption is not null) pinned.Add(interruption);
-        var budget = limit / 2;
-        var inputBudget = Math.Max(256, budget / pinned.Count);
+        var inputBudget = Math.Max(128, budget / pinned.Count);
         var edits = new JsonObject();
         for (var i = 0; i < messages.Length; i++)
         {
             var message = messages[i];
             if (!pinned.Contains(message)) continue;
             keep[i] = true;
-            if (sizes[i] > inputBudget)
+            if (mustFit && sizes[i] > inputBudget)
             {
                 var preview = ShortenInput(message, inputBudget);
                 if (preview is not null)
                 {
                     edits[Index(indices[i])] = preview;
-                    sizes[i] = JsonValues.Serialize(preview).Length + 1;
+                    sizes[i] = messageCost(preview);
                 }
             }
             budget -= sizes[i];
@@ -138,9 +192,9 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
             var size = 0;
             for (var i = start; i < end; i++)
                 if (!keep[i]) size += sizes[i];
-            var room = start == newestToolStep ? budget + limit / 4 : budget;
+            var room = Math.Max(0, budget);
             if (size > room && start == newestToolStep &&
-                FitToolResults(messages, sizes, indices, edits, start, end, size, room) is { } fitted)
+                FitToolResults(messages, sizes, indices, edits, start, end, size, room, messageCost) is { } fitted)
                 size = fitted;
             if (size > Math.Max(0, room)) break;
             Array.Fill(keep, true, start, end - start);
@@ -159,13 +213,13 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
     }
 
     private static int? FitToolResults(JsonObject[] messages, int[] sizes, int[] indices, JsonObject edits,
-        int start, int end, int size, int room)
+        int start, int end, int size, int room, Func<JsonObject, int> messageCost)
     {
         var outputs = Enumerable.Range(start, end - start).Where(i => messages[i].GetString("role") == "tool").ToArray();
         if (outputs.Length == 0) return null;
         size -= outputs.Sum(i => sizes[i]);
         var perOutput = (room - size) / outputs.Length;
-        if (perOutput < 256) return null;
+        if (perOutput < 128) return null;
 
         var previews = new JsonObject();
         foreach (var i in outputs)
@@ -177,8 +231,8 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
             }
             var message = messages[i];
             var preview = (JsonObject)message.DeepClone();
-            preview["content"] = Excerpt(message.GetString("content"), perOutput / 2, ArchiveExcerpt);
-            size += JsonValues.Serialize(preview).Length + 1;
+            preview["content"] = FitText(message.GetString("content"), perOutput - 32, ArchiveExcerpt);
+            size += messageCost(preview);
             previews[Index(indices[i])] = preview;
         }
         if (size > room) return null;
@@ -186,7 +240,8 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
         return size;
     }
 
-    private string Apply(JsonArray history, string previousSummary, JsonObject edit, bool preparedInBackground)
+    private string Apply(JsonArray history, string previousSummary, JsonObject edit, Func<JsonObject, bool> isCommitted,
+        Action<string, bool> applied, bool preparedInBackground)
     {
         var count = edit.GetInt32("count");
         var key = archive(JsonValues.Serialize(new JsonObject
@@ -194,9 +249,11 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
             ["history"] = CopyPrefix(history, count), ["previous_summary"] = previousSummary
         }), "history");
         var changes = edit.GetObject("edits");
+        var committedOnly = true;
         for (var i = count - 1; i >= 0; i--)
         {
             if (!changes.TryGetPropertyValue(Index(i), out var change)) continue;
+            committedOnly &= isCommitted((JsonObject)history[i]!);
             if (change is not JsonObject preview)
             {
                 history.RemoveAt(i);
@@ -206,13 +263,17 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
             message["content"] = JsonValues.Clone(preview["content"]);
             if (preview.ContainsKey("attachments")) message["attachments"] = JsonValues.Clone(preview["attachments"]);
         }
-        StripFrames(history);
+        var summary = Checkpoint(edit.GetString("summary"), key);
+        applied(summary, committedOnly);
         if (!preparedInBackground) edit["archive"] = key;
         var block = preparedInBackground ? StartTrace() : null;
         emit(new() { ["kind"] = "compacted", ["agent"] = agent, ["key"] = key });
         if (block is not null) EndTrace(block, "Used the background checkpoint. Full history retained at " + key);
-        return edit.GetString("summary") + "\nFull archive: " + key + ". Read previous_summary in this archive for the preceding checkpoint.";
+        return summary;
     }
+
+    private static string Checkpoint(string text, string key) => text + "\nFull archive: " + key +
+        ". Read previous_summary in this archive for the preceding checkpoint.";
 
     private void StartPreparation(JsonObject edit, JsonObject[] removed, string summary, ModelClient selected,
         int outputBudget, CancellationToken cancellationToken)
@@ -239,7 +300,19 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
                 catch (Exception error) when (error is not OutOfMemoryException)
                 {
                     // The foreground path can retry using the latest complete history.
+                    lock (gate)
+                        if (!token.IsCancellationRequested && ReferenceEquals(pending?.Edit, edit))
+                            failedPreparation = edit;
                     return null;
+                }
+                finally
+                {
+                    lock (gate)
+                        if (ReferenceEquals(pending?.Edit, edit))
+                        {
+                            pending = null;
+                            source.Dispose();
+                        }
                 }
             });
             pending = (edit, source, task);
@@ -263,6 +336,8 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
             CancelPending();
             if (prepared is not null) db.Write(PreparedKey, "{}", internalWrite: true);
             prepared = null;
+            failedPreparation = null;
+            failedForeground = null;
         }
     }
 
@@ -279,20 +354,19 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
         lock (gate) CancelPending();
     }
 
-    private static string Fingerprint(string text) => Convert.ToHexString(XxHash128.Hash(Encoding.UTF8.GetBytes(text)));
     private static string Index(int index) => index.ToString(CultureInfo.InvariantCulture);
     private static JsonArray CopyPrefix(JsonArray history, int count) => new(history.Take(count).Select(JsonValues.Clone).ToArray());
 
-    private static bool StripFrames(JsonArray history)
+    private static JsonArray Preview(JsonArray history, JsonObject edit)
     {
-        var changed = false;
-        for (var i = history.Count - 1; i >= 0; i--)
+        var result = new JsonArray();
+        var changes = edit.GetObject("edits");
+        for (var i = 0; i < history.Count; i++)
         {
-            if (!SessionInstructions.IsFrame(history[i])) continue;
-            history.RemoveAt(i);
-            changed = true;
+            if (!changes.TryGetPropertyValue(Index(i), out var change)) result.AddNode(JsonValues.Clone(history[i]));
+            else if (change is not null) result.AddNode(change.DeepClone());
         }
-        return changed;
+        return result;
     }
 
     private string StartTrace()
@@ -321,14 +395,13 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
     {
         var text = message.GetString("content");
         var attachments = message.GetArray("attachments");
-        if (text.Length + attachments.Sum(file => (long)file.GetString("text").Length) <= budget / 2) return null;
+        if (ContextBudget.Text(MessageAttachments.Text(message)) <= budget) return null;
 
         var preview = (JsonObject)message.DeepClone();
-        var perPart = Math.Max(64, budget / 2 / (1 + attachments.Count(file => file.GetString("text").Length > 0)));
-        string Shorten(string value) => value.Length <= perPart ? value : Excerpt(value, perPart, ArchiveExcerpt);
-        preview["content"] = Shorten(text);
+        var perPart = Math.Max(64, (budget - 32) / (1 + attachments.Count(file => file.GetString("text").Length > 0)));
+        preview["content"] = FitText(text, perPart, ArchiveExcerpt);
         foreach (var file in preview.GetArray("attachments").OfType<JsonObject>())
-            if (file.GetString("text") is { Length: > 0 } value) file["text"] = Shorten(value);
+            if (file.GetString("text") is { Length: > 0 } value) file["text"] = FitText(value, perPart, ArchiveExcerpt);
         return JsonNode.DeepEquals(preview, message) ? null : preview;
     }
 
@@ -342,26 +415,31 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
             Record completed tool actions and outcomes so they are not repeated. Keep exact DB keys, candidate refs,
             URLs, names, dates and values needed to continue. Keep requests, confirmed facts and plans distinct.
             """;
-        prompt += $"\nUse concise sections in at most {outputBudget} characters. The original records are available in the session archive.";
-        // Reserve room for the preceding checkpoint, the prompt and JSON framing.
-        var budget = Math.Max(512, selected.InputCharacterLimit - prompt.Length - Math.Max(summary.Length, outputBudget) - 256);
+        var provider = selected.SelectedProvider;
+        outputBudget = Math.Min(outputBudget, provider.MaxOutput);
+        selected = selected.Bind(provider with { MaxOutput = outputBudget });
+        prompt += $"\nUse concise sections in at most {outputBudget} tokens. The original records are available in the session archive.";
+        var budget = Math.Max(128, new ContextBudget(selected.SelectedProvider).Capacity - ContextBudget.Text(prompt) -
+            Math.Max(ContextBudget.Text(summary), outputBudget) - 128);
         var batch = new StringBuilder();
+        var batchTokens = 0;
 
         async Task Update()
         {
             var messages = new JsonArray(
                 new JsonObject { ["role"] = "system", ["content"] = prompt },
                 new JsonObject { ["role"] = "user", ["content"] = $"Previous checkpoint:\n{summary}\n\nAdditional transcript records in order:\n{batch}" });
-            var result = await selected.Complete(messages, new(), (type, text) =>
+            var result = await completeCheckpoint(selected, messages, (type, text) =>
             {
                 if (block is not null && type == "reasoning")
                     emit(new() { ["kind"] = "delta", ["agent"] = agent, ["block"] = block, ["type"] = type, ["text"] = text });
-            }, cancellationToken, requireComplete: true);
+            }, cancellationToken);
             var next = result.GetString("content").Trim();
-            if (next.Length == 0 || next.Length > outputBudget || result.GetArray("tool_calls").Count > 0)
+            if (next.Length == 0 || ContextBudget.Text(next) > outputBudget || result.GetArray("tool_calls").Count > 0)
                 throw new IOException("Context compaction returned an unusable checkpoint; original history is retained.");
             summary = next;
             batch.Clear();
+            batchTokens = 0;
         }
 
         foreach (var message in removed)
@@ -370,14 +448,27 @@ internal sealed class ContextCompactor(ModelClient model, MemoryDb db, string ag
             var record = new JsonObject { ["role"] = message.GetString("role"), ["content"] = MessageAttachments.Text(message) };
             foreach (var field in new[] { "name", "tool_call_id", "tool_calls" })
                 if (message[field] is { } value) record[field] = value.DeepClone();
-            var line = JsonValues.Serialize(record);
-            if (line.Length >= budget)
-                line = Excerpt(line, budget - 1, "\n[Middle of this record retained in the archive.]\n");
-            if (batch.Length + line.Length + 1 > budget) await Update();
+            var line = FitText(JsonValues.Serialize(record), budget - 1, "\n[Middle of this record retained in the archive.]\n");
+            var tokens = ContextBudget.Text(line) + 1;
+            if (batchTokens + tokens > budget) await Update();
             batch.AppendLine(line);
+            batchTokens += tokens;
         }
         await Update();
         return summary;
+    }
+
+    internal static string FitText(string text, int budget, string marker)
+    {
+        if (ContextBudget.Text(text) <= budget) return text;
+        var limit = Math.Min(text.Length, budget * 3);
+        var preview = Excerpt(text, limit, marker);
+        while (ContextBudget.Text(preview) > budget && limit > marker.Length + 4)
+        {
+            limit = Math.Max(marker.Length + 4, limit * 3 / 4);
+            preview = Excerpt(text, limit, marker);
+        }
+        return preview;
     }
 
     private static string Excerpt(string text, int limit, string marker)

@@ -2,7 +2,7 @@ using System.Text.Json.Nodes;
 
 namespace MiniRP.Core;
 
-public sealed class AgentSession : IDisposable
+public sealed partial class AgentSession : IDisposable
 {
     private const string MemoryInstructions = """
         Use your session memory proactively. Save durable information that will help later, such as important state, user preferences, agreements, decisions, unresolved tasks, or useful references. These are examples; record whatever you judge worth remembering. Write concise entries under memorable keys. Check and update an existing note when facts change. Avoid storing secrets or copying the entire conversation into notes.
@@ -17,10 +17,9 @@ public sealed class AgentSession : IDisposable
     {
         get;
     }
-    public JsonArray History
-    {
-        get; private set;
-    }
+    private JsonArray history;
+    public JsonArray History => (JsonArray)history.DeepClone();
+    internal bool HasHistory => history.Count > 0;
     public string Summary
     {
         get; private set;
@@ -29,36 +28,49 @@ public sealed class AgentSession : IDisposable
     readonly Action<JsonObject> emit;
     private readonly SessionHistory transcript;
     private readonly ContextCompactor compactor;
+    private readonly ContextUsage usage;
+    private readonly Profile profile;
+    private readonly Bindings bindings;
     private JsonObject instructionState;
     private bool delegatedSearch;
-    internal Func<IEnumerable<AgentSkill>>? AdditionalSkills { get; set; }
-    internal Func<string, JsonObject?>? ReadStateProjection { get; set; }
-    internal AgentAssets? Assets { get; set; }
-    internal Func<string>? OpenUiInstructions { get; set; }
     internal TurnInbox? Inbox { get; set; }
-    public AgentSession(string name, string path, ModelClient model, Action<JsonObject> emit)
+    private AgentSession(Profile profile, string path, ModelClient model, Action<JsonObject> emit,
+        TurnInbox? inbox, Func<AgentSession, Bindings> bind)
     {
-        Name = name;
+        this.profile = profile;
+        Name = profile.Name;
+        Inbox = inbox;
         Db = new(path);
         this.model = model;
         this.emit = emit;
-        History = JsonNode.Parse(Db.Get("_context/history") ?? "[]") as JsonArray ?? new();
+        history = ReadHistory(Db);
         Summary = Db.Get("_context/summary") ?? "";
         instructionState = JsonValues.ParseObject(Db.Get("_context/instructions") ?? "{}");
-        transcript = new(Db, name);
-        transcript.Backfill(History);
-        compactor = new(model, Db, Name, Archive, emit);
+        transcript = new(Db, Name);
+        transcript.Backfill(history);
+        compactor = new(Db, Name, Archive, emit, (selected, messages, delta, ct) =>
+            Complete(selected, messages, new(), delta, ct, requireComplete: true));
+        usage = new(Db);
+        bindings = bind(this);
     }
     public void Save()
     {
-        Save(History, Summary, instructionState);
+        Save(history, Summary, instructionState);
     }
 
-    private void Save(JsonArray history, string summary, JsonObject instructions) =>
+    private const string HistoryKey = "_context/history";
+
+    internal static JsonArray ReadHistory(MemoryDb db) =>
+        JsonNode.Parse(db.Get(HistoryKey) ?? "[]") as JsonArray ?? new();
+
+    private void Save(JsonArray history, string summary, JsonObject instructions, IEnumerable<string>? deliveries = null) =>
         Db.WriteInternal(
-            ("_context/history", JsonValues.Serialize(history)),
-            ("_context/summary", summary),
-            ("_context/instructions", JsonValues.Serialize(instructions)));
+            [(HistoryKey, JsonValues.Serialize(history)),
+                ("_context/summary", summary),
+                ("_context/instructions", JsonValues.Serialize(instructions)),
+                usage.Record(),
+                .. (deliveries ?? []).Where(id => id.Length > 0).Distinct(StringComparer.Ordinal)
+                    .Select(id => ("_inbox/" + id, "1"))]);
 
     internal void ConfigureWorldMode(bool? delegated)
     {
@@ -67,15 +79,16 @@ public sealed class AgentSession : IDisposable
         var mode = delegated.Value ? "delegated" : "direct";
         if (Db.Get("_context/search-mode") == mode) return;
         compactor.Invalidate();
+        usage.Invalidate();
         if (delegated.Value)
         {
             // Older summaries were generated without a world boundary. Keep archives on disk,
             // but do not place those summaries or prior tool exchanges in a delegated request.
             Summary = "";
             instructionState = new();
-            if (History.Count > 0)
-                Db.Write("_archive/history/mode-" + JsonValues.NewId(), JsonValues.Serialize(History), internalWrite: true);
-            History = new JsonArray(History.Where(message => !SessionInstructions.IsFrame(message) &&
+            if (history.Count > 0)
+                Db.Write("_archive/history/mode-" + JsonValues.NewId(), JsonValues.Serialize(history), internalWrite: true);
+            history = new JsonArray(history.Where(message => !SessionInstructions.IsFrame(message) &&
                 (message.GetString("role") is "user" or "system" ||
                 (message.GetString("role") == "assistant" && message.GetArray("tool_calls").Count == 0)))
                 .Select(JsonValues.Clone).ToArray());
@@ -86,9 +99,10 @@ public sealed class AgentSession : IDisposable
     public void Restore(JsonArray history, string? summary = null)
     {
         compactor.Invalidate();
-        History = (JsonArray)history.DeepClone();
+        usage.Invalidate();
+        this.history = (JsonArray)history.DeepClone();
         instructionState = new();
-        transcript.Import(History);
+        transcript.Import(this.history);
         if (summary is not null)
         {
             Summary = summary;
@@ -102,38 +116,48 @@ public sealed class AgentSession : IDisposable
         Db.Write(key, text, internalWrite: true);
         return key;
     }
-    public string ToolText(JsonNode? value)
+    public string ToolText(JsonNode? value) => ToolText(value, new ContextBudget(model.SelectedProvider));
+
+    private string ToolText(JsonNode? value, ContextBudget budget)
     {
         var text = value is JsonValue ? value.ToString() : JsonValues.Serialize(value);
-        var limit = Math.Min(22000, Math.Max(512, model.CompactionCharacterLimit / 8));
-        if (text.Length <= limit)
+        var limit = Math.Clamp(budget.Hard / 8, 128, 7333);
+        if (ContextBudget.Text(text) <= limit)
         {
             return text;
         }
 
-        return JsonValues.Serialize(new JsonObject { ["content_key"] = Archive(text), ["total_chars"] = text.Length, ["preview"] = text[..(limit / 2)], ["instruction"] = "Full result retained. Use db_read in pages to read remaining content." });
+        return JsonValues.Serialize(new JsonObject { ["content_key"] = Archive(text), ["total_chars"] = text.Length,
+            ["preview"] = ContextCompactor.FitText(text, limit / 2, "\n[More in the archived result.]\n"),
+            ["instruction"] = "Full result retained. Use db_read in pages to read remaining content." });
     }
-    internal void Insert(string text, string role)
+    internal void Insert(string text, string role) => Insert(new JsonObject { ["role"] = role, ["content"] = text });
+
+    private void Insert(JsonObject message)
     {
-        History.AddNode(new JsonObject { ["role"] = role, ["content"] = text });
-        transcript.Record(role, text);
-        Save();
+        history.AddNode(message);
+        Save(history, Summary, instructionState, [message.GetString("_inbox_id")]);
+        transcript.Record(message.GetString("role"), message.GetString("content"));
     }
 
     internal void Receive(string id, string text)
     {
         var key = "_inbox/" + id;
         if (Db.Get(key) is not null) return;
-        if (!History.Any(message => message.GetString("_inbox_id") == id))
-        {
-            History.AddNode(new JsonObject { ["role"] = "system", ["content"] = text, ["_inbox_id"] = id });
-            Save();
-            transcript.Record("system", text);
-        }
-        Db.Write(key, "1", internalWrite: true);
+        if (history.Any(message => message.GetString("_inbox_id") == id))
+            Db.Write(key, "1", internalWrite: true);
+        else
+            Insert(new JsonObject { ["role"] = "system", ["content"] = text, ["_inbox_id"] = id });
     }
 
-    internal void ShowCard(JsonObject card)
+    internal void CompleteInbox()
+    {
+        var pending = Inbox;
+        Inbox = null;
+        pending?.Complete(Insert);
+    }
+
+    private void ShowCard(JsonObject card)
     {
         card["kind"] = "open_ui_card";
         card["agent"] = Name;
@@ -145,25 +169,42 @@ public sealed class AgentSession : IDisposable
         Run(system, input, new AgentSkill("session-task", "Tools required for this agent's task.", tools, execute, Required: true),
             ct, submitted, maxRounds, terminalTools, attachments, historyInput, historySubmission);
 
-    public async Task<JsonObject> Run(string system, string input, AgentSkill skill, CancellationToken ct, Func<bool>? submitted = null, int maxRounds = 40, IReadOnlySet<string>? terminalTools = null, JsonArray? attachments = null, string? historyInput = null, Func<string?>? historySubmission = null, string inputRole = "user", string? reference = null, bool privateInput = false)
+    public Task<JsonObject> Run(string system, string input, AgentSkill skill, CancellationToken ct, Func<bool>? submitted = null, int maxRounds = 40, IReadOnlySet<string>? terminalTools = null, JsonArray? attachments = null, string? historyInput = null, Func<string?>? historySubmission = null, string inputRole = "user", string? reference = null, bool privateInput = false) =>
+        RunTurn(system, input, [skill], ct, submitted, maxRounds, terminalTools, attachments, historyInput, historySubmission,
+            inputRole, reference, privateInput);
+
+    internal Task<JsonObject> Run(string system, string input, CancellationToken ct, int maxRounds = 40, bool privateInput = false) =>
+        RunTurn(system, input, [], ct, null, maxRounds, null, null, null, null, "user", null, privateInput);
+
+    private async Task<JsonObject> RunTurn(string system, string input, IReadOnlyList<AgentSkill> taskSkills, CancellationToken ct,
+        Func<bool>? submitted, int maxRounds, IReadOnlySet<string>? terminalTools, JsonArray? attachments,
+        string? historyInput, Func<string?>? historySubmission, string inputRole, string? reference, bool privateInput)
     {
-        var working = (JsonArray)History.DeepClone();
+        var working = (JsonArray)history.DeepClone();
+        var committed = working.OfType<JsonObject>().ToHashSet(ReferenceEqualityComparer.Instance);
         var summary = Summary;
+        var summaryCommitted = true;
+        var turnModel = model.Bind(model.SelectedProvider);
+        var budget = new ContextBudget(turnModel.SelectedProvider);
         var instructions = new SessionInstructions(instructionState);
         var replies = new List<string>();
-        var interruptions = new List<JsonObject>();
+        var interruptions = new List<(JsonObject Input, JsonObject Original)>();
+        var historyCommitted = false;
+        IEnumerable<string> Deliveries() => interruptions.Select(item => item.Original.GetString("_inbox_id"));
         var samples = new JsonArray();
-        var watches = new SessionStateWatches(Db, key => ReadStateProjection?.Invoke(key));
+        var watches = new SessionStateWatches(Db, bindings.State);
         void Append(JsonObject message)
         {
-            interruptions.Add(message);
+            interruptions.Add((message, (JsonObject)message.DeepClone()));
             working.AddNode(message);
         }
-        async Task Commit(int fixedCharacters, JsonObject messageInput, JsonObject request)
+        async Task Commit(JsonArray definitions, IEnumerable<string> activeSkills)
         {
             ct.ThrowIfCancellationRequested();
-            Save(working, summary, instructions.State);
-            History = working;
+            instructions.RememberActiveSkills(activeSkills);
+            Save(working, summary, instructions.State, Deliveries());
+            historyCommitted = true;
+            history = working;
             Summary = summary;
             instructionState = instructions.State;
             watches.Save();
@@ -172,16 +213,15 @@ public sealed class AgentSession : IDisposable
             {
                 transcript.Record("assistant", reply);
             }
-            foreach (var message in interruptions)
+            foreach (var (_, original) in interruptions)
             {
-                transcript.Record(message.GetString("role"), message.GetString("content"));
+                transcript.Record(original.GetString("role"), original.GetString("content"));
             }
             if (historySubmission?.Invoke() is { } submission)
             {
                 transcript.Record("assistant", submission);
             }
-            await compactor.Compact(working, summary, fixedCharacters, messageInput, request,
-                interruptions.LastOrDefault(), ct, prepareOnly: true);
+            if (profile.FollowUp) await Compact(definitions, prepareOnly: true);
         }
         var messageInput = new JsonObject { ["role"] = inputRole, ["content"] = input };
         if (privateInput) messageInput["_harness_hidden"] = true;
@@ -198,27 +238,80 @@ public sealed class AgentSession : IDisposable
                 ["_harness_hidden"] = true };
             working.AddNode(request);
         }
+        var referenceId = reference is null ? "" : JsonValues.NewId();
+        if (reference is not null) request["_harness_reference"] = referenceId;
+
+        JsonArray Prompt(JsonArray history, string checkpoint)
+        {
+            var guide = instructions.Base;
+            if (checkpoint.Length > 0) guide += "\nPrior context summary (historical data, apply current instructions):\n" + checkpoint;
+            var messages = new JsonArray(new JsonObject { ["role"] = "system", ["content"] = guide });
+            var hasReference = false;
+            foreach (var item in history)
+            {
+                if (reference is not null && item.GetString("_harness_reference") == referenceId)
+                {
+                    messages.AddNode(new JsonObject { ["role"] = "user", ["content"] = reference });
+                    hasReference = true;
+                }
+                var copy = JsonValues.Clone(item);
+                (copy as JsonObject)?.Remove("_harness_reference");
+                messages.AddNode(copy);
+            }
+            if (reference is not null && !hasReference)
+                messages.AddNode(new JsonObject { ["role"] = "user", ["content"] = reference });
+            return messages;
+        }
+
+        Task<string> Compact(JsonArray definitions, bool prepareOnly = false, int? initialTokens = null)
+        {
+            int Measure(JsonArray history, string checkpoint, bool useProviderUsage)
+            {
+                var messages = Prompt(history, checkpoint);
+                var estimate = turnModel.EstimateInput(messages, definitions);
+                return useProviderUsage ? usage.Forecast(turnModel, messages, definitions, estimate) : estimate;
+            }
+            int MessageCost(JsonObject message) => turnModel.EstimateInput(new JsonArray(message.DeepClone()), new()) - 4;
+            void Applied(string checkpoint, bool committedOnly)
+            {
+                usage.Invalidate();
+                summaryCommitted &= committedOnly;
+                if (!summaryCommitted) return;
+                // A failed or cancelled current turn must not roll a valid compaction
+                // of earlier committed messages back to the already oversized history.
+                var retained = new JsonArray(working.OfType<JsonObject>().Where(committed.Contains)
+                    .Select(message => message.DeepClone()).ToArray());
+                var savedInstructions = new JsonObject();
+                Save(retained, checkpoint, savedInstructions);
+                history = retained;
+                Summary = checkpoint;
+                instructionState = savedInstructions;
+            }
+            return compactor.Compact(turnModel, working, summary, budget, Measure, MessageCost, messageInput, request,
+                interruptions.LastOrDefault().Input, committed.Contains, Applied, ct, prepareOnly, initialTokens);
+        }
+
         IEnumerable<AgentSkill> Skills()
         {
-            yield return new("session-memory", "Save durable notes and recall earlier messages.", Tools.Memory(), MemoryTool,
-                Required: true, Instructions: MemoryInstructions);
-            yield return skill;
-            if (AdditionalSkills is not null)
-                foreach (var extra in AdditionalSkills()) yield return extra;
-            if (Assets is not null)
+            if (profile.Memory)
+                yield return new("session-memory", "Save durable notes and recall earlier messages.", Tools.Memory(), MemoryTool,
+                    Required: true, Instructions: MemoryInstructions);
+            foreach (var skill in taskSkills) yield return skill;
+            foreach (var extra in bindings.Skills()) yield return extra;
+            if (bindings.Assets is not null)
                 yield return new("assets", "Inspect Asset URLs returned by plugin tools. Read text in pages or sample supported media.",
                     new JsonArray(Tools.Define("read_asset", "Inspect an asset. Choose inspect, text, image, pdf_page, video_frame, or audio_clip. Media samples require a compatible multimodal model.", new()
                     {
                         ["url"] = Tools.String(), ["mode"] = Tools.String(), ["offset"] = Tools.Integer(), ["length"] = Tools.Integer(),
                         ["page"] = Tools.Integer(), ["start_ms"] = Tools.Integer(), ["duration_ms"] = Tools.Integer()
                     }, "url")), ReadAsset);
-            if (OpenUiInstructions?.Invoke() is { Length: > 0 and <= 60000 } openUi)
+            if (bindings.OpenUi() is { Length: > 0 and <= 60000 } openUi)
                 yield return new("interactive-ui",
                     "Build a rich interactive answer if a dashboard, calculator, editable itinerary, visual explanation, or working tool helps the user.",
                     new(), (_, _, _) => throw new InvalidOperationException("This skill renders OpenUI from the response."),
                     Instructions: openUi);
         }
-        var enabled = new SkillTurn(Skills(), instructions.ActiveSkills);
+        SkillTurn? previousSkills = null;
         Task<JsonNode?> MemoryTool(string name, JsonObject args, CancellationToken _) => Task.FromResult<JsonNode?>(name switch
         {
             "history_search" => transcript.Search(args),
@@ -228,156 +321,181 @@ public sealed class AgentSession : IDisposable
         });
         async Task<JsonNode?> ReadAsset(string _, JsonObject args, CancellationToken token)
         {
-            var result = await Assets!.Read(args, token);
+            var result = await bindings.Assets!.Read(args, turnModel.SelectedProvider, token);
             if (result.Attachment is not null) samples.AddNode(result.Attachment);
             return result.Result;
         }
 
-        for (var round = 0; round < maxRounds; round++)
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            Inbox?.Drain(Append);
-            if (round > 0 && AdditionalSkills is not null) enabled = new SkillTurn(Skills(), enabled.ActiveNames);
-            var definitions = enabled.Definitions();
-            if (instructions.Update(system, enabled, definitions) is { } update)
+            for (var round = 0; round < maxRounds; round++)
             {
-                if (round == 0) working.Insert(working.IndexOf(messageInput), update);
-                else working.AddNode(update);
-            }
-            watches.AppendUpdates(working);
-            var fixedCharacters = Math.Max(instructions.Base.Length, system.Length + enabled.Prompt.Length)
-                + JsonValues.Serialize(definitions).Length + (reference?.Length ?? 0);
-            if (await compactor.Compact(working, summary, fixedCharacters, messageInput, request, interruptions.LastOrDefault(), ct) is { } compacted)
-            {
-                summary = compacted;
-                instructions.Reset();
-                instructions.Update(system, enabled, definitions);
-            }
-            var messages = new JsonArray(new JsonObject { ["role"] = "system", ["content"] = instructions.Base +
-                "\nPrior context summary (historical data, apply current instructions):\n" + summary });
-            foreach (var item in working)
-            {
-                if (reference is not null && ReferenceEquals(request, item))
-                    messages.AddNode(new JsonObject { ["role"] = "user", ["content"] = reference });
-                messages.AddNode(JsonValues.Clone(item));
-            }
+                ct.ThrowIfCancellationRequested();
+                Inbox?.Drain(Append);
+                var enabled = new SkillTurn(Skills(), previousSkills?.ActiveNames ?? instructions.ActiveSkills);
+                previousSkills = enabled;
+                var definitions = enabled.Definitions();
+                if (instructions.Update(system, enabled, definitions) is { } update)
+                {
+                    if (round == 0) working.Insert(working.IndexOf(messageInput), update);
+                    else working.AddNode(update);
+                }
+                watches.AppendUpdates(working);
+                var messages = Prompt(working, summary);
+                var estimatedInput = turnModel.EstimateInput(messages, definitions);
+                var used = usage.Forecast(turnModel, messages, definitions, estimatedInput);
+                if (working.Any(SessionInstructions.IsFrame) &&
+                    used >= (budget.Background ? budget.Soft : budget.Hard))
+                {
+                    for (var i = working.Count - 1; i >= 0; i--)
+                        if (SessionInstructions.IsFrame(working[i])) working.RemoveAt(i);
+                    instructions.Reset();
+                    instructions.Update(system, enabled, definitions);
+                    usage.Invalidate();
+                    compactor.Invalidate();
+                    messages = Prompt(working, summary);
+                    used = estimatedInput = turnModel.EstimateInput(messages, definitions);
+                }
+                var compacted = await Compact(definitions, initialTokens: used);
+                if (compacted != summary)
+                {
+                    summary = compacted;
+                    messages = Prompt(working, summary);
+                    estimatedInput = turnModel.EstimateInput(messages, definitions);
+                }
 
-            var block = JsonValues.NewId();
-            enabled.Broadcast("turn.started", new() { ["name"] = "turn.started", ["block"] = block });
-            emit(new()
-            {
-                ["kind"] = "turn_start",
-                ["agent"] = Name,
-                ["block"] = block
-            });
-            JsonObject? message = null;
-            var generation = Inbox?.BeginGeneration(ct);
-            var partial = new System.Text.StringBuilder();
-            var openUiStream = enabled.IsActive("interactive-ui") ? new OpenUiStream(Name, block, emit) : null;
-            try
-            {
-                message = await model.Complete(messages, definitions, (type, value) =>
-                {
-                    if (type == "content")
-                    {
-                        partial.Append(value);
-                        if (openUiStream is not null)
-                        {
-                            openUiStream.Append(value);
-                            return;
-                        }
-                    }
-                    emit(new() { ["kind"] = "delta", ["agent"] = Name, ["block"] = block, ["type"] = type, ["text"] = value });
-                }, generation?.Token ?? ct);
-            }
-            catch (OperationCanceledException) when (generation?.IsCancellationRequested == true && !ct.IsCancellationRequested)
-            {
-                if (partial.Length > 0)
-                {
-                    var text = partial.ToString();
-                    working.AddNode(new JsonObject { ["role"] = "assistant", ["content"] = text });
-                    replies.Add(text);
-                }
-            }
-            finally
-            {
-                Inbox?.EndGeneration();
-                enabled.Broadcast("turn.finished", new() { ["name"] = "turn.finished", ["block"] = block, ["interrupted"] = message is null });
-                if (openUiStream is not null) openUiStream.Finish(message is null);
-                else emit(new() { ["kind"] = "turn_end", ["agent"] = Name, ["block"] = block, ["interrupted"] = message is null });
-            }
-            if (message is null) continue;
-            working.AddNode(message);
-            var replyText = message.GetString("content");
-            if (!string.IsNullOrWhiteSpace(replyText))
-            {
-                replies.Add(replyText);
-            }
-            var calls = message.GetArray("tool_calls");
-            if (calls.Count == 0)
-            {
-                if (submitted is not null && !submitted())
-                {
-                    working.AddNode(new JsonObject { ["role"] = "user", ["content"] = "No result submitted. Complete with a submission tool or fail_request." });
-                    continue;
-                }
-                if (Inbox?.Drain(Append, finish: true) == true) continue;
-                await Commit(fixedCharacters, messageInput, request);
-                return message;
-            }
-            for (var callIndex = 0; callIndex < calls.Count; callIndex++)
-            {
-                var call = calls[callIndex];
-                var name = call.GetObject("function").GetString("name");
-                JsonNode? result;
-                var id = call.GetString("id");
+                var block = JsonValues.NewId();
+                enabled.Broadcast("turn.started", new() { ["name"] = "turn.started", ["block"] = block });
                 emit(new()
                 {
-                    ["kind"] = "tool_start",
+                    ["kind"] = "turn_start",
                     ["agent"] = Name,
-                    ["block"] = id,
-                    ["name"] = name,
-                    ["arguments"] = call.GetObject("function").GetString("arguments")
+                    ["block"] = block
                 });
+                JsonObject? message = null;
+                var generation = Inbox?.BeginGeneration(ct);
+                var partial = new System.Text.StringBuilder();
+                var openUiStream = enabled.IsActive("interactive-ui") ? new OpenUiStream(Name, block, emit) : null;
                 try
                 {
-                    var args = JsonValues.ParseObject(call.GetObject("function").GetString("arguments", "{}"));
-                    if (terminalTools?.Contains(name) == true && callIndex != calls.Count - 1)
+                    message = await Complete(turnModel, messages, definitions, (type, value) =>
                     {
-                        throw new InvalidOperationException("A submission must be the final tool in its batch. No changes submitted.");
-                    }
-                    if (submitted?.Invoke() == true)
-                    {
-                        throw new InvalidOperationException("Submission must be the final tool in a batch.");
-                    }
-
-                    result = await enabled.Invoke(name, args, ct);
+                        if (type == "content")
+                        {
+                            partial.Append(value);
+                            if (openUiStream is not null)
+                            {
+                                openUiStream.Append(value);
+                                return;
+                            }
+                        }
+                        emit(new() { ["kind"] = "delta", ["agent"] = Name, ["block"] = block, ["type"] = type, ["text"] = value });
+                    }, generation?.Token ?? ct, requireComplete: false,
+                        inputUsage: tokens => usage.Observe(turnModel, messages, definitions, estimatedInput, tokens));
                 }
-                catch (Exception error) when (error is not OperationCanceledException) { result = JsonValues.Error(error.Message); }
-                var text = name is "db_read" or "history_recall" or "read_asset" ? JsonValues.Serialize(result) : ToolText(result);
-                emit(new()
+                catch (OperationCanceledException) when (generation?.IsCancellationRequested == true && !ct.IsCancellationRequested)
                 {
-                    ["kind"] = "tool_end",
-                    ["agent"] = Name,
-                    ["block"] = id,
-                    ["name"] = name,
-                    ["text"] = text
-                });
-                working.AddNode(new JsonObject { ["role"] = "tool", ["tool_call_id"] = id, ["name"] = name, ["content"] = text });
+                    if (partial.Length > 0)
+                    {
+                        var text = partial.ToString();
+                        working.AddNode(new JsonObject { ["role"] = "assistant", ["content"] = text });
+                        replies.Add(text);
+                    }
+                }
+                finally
+                {
+                    Inbox?.EndGeneration();
+                    enabled.Broadcast("turn.finished", new() { ["name"] = "turn.finished", ["block"] = block, ["interrupted"] = message is null });
+                    if (openUiStream is not null) openUiStream.Finish(message is null);
+                    else emit(new() { ["kind"] = "turn_end", ["agent"] = Name, ["block"] = block, ["interrupted"] = message is null });
+                }
+                if (message is null) continue;
+                working.AddNode(message);
+                var replyText = message.GetString("content");
+                if (!string.IsNullOrWhiteSpace(replyText))
+                {
+                    replies.Add(replyText);
+                }
+                var calls = message.GetArray("tool_calls");
+                if (calls.Count == 0)
+                {
+                    if (submitted is not null && !submitted())
+                    {
+                        working.AddNode(new JsonObject { ["role"] = "user", ["content"] = SessionHistory.RetrySubmission,
+                            ["_harness_hidden"] = true });
+                        continue;
+                    }
+                    if (Inbox?.Drain(Append, finish: true) == true) continue;
+                    await Commit(definitions, enabled.ActiveNames);
+                    return message;
+                }
+                for (var callIndex = 0; callIndex < calls.Count; callIndex++)
+                {
+                    var call = calls[callIndex];
+                    var name = call.GetObject("function").GetString("name");
+                    JsonNode? result;
+                    var id = call.GetString("id");
+                    emit(new()
+                    {
+                        ["kind"] = "tool_start",
+                        ["agent"] = Name,
+                        ["block"] = id,
+                        ["name"] = name,
+                        ["arguments"] = call.GetObject("function").GetString("arguments")
+                    });
+                    try
+                    {
+                        var args = JsonValues.ParseObject(call.GetObject("function").GetString("arguments", "{}"));
+                        if (terminalTools?.Contains(name) == true && callIndex != calls.Count - 1)
+                        {
+                            throw new InvalidOperationException("A submission must be the final tool in its batch. No changes submitted.");
+                        }
+                        if (submitted?.Invoke() == true)
+                        {
+                            throw new InvalidOperationException("Submission must be the final tool in a batch.");
+                        }
+
+                        result = await enabled.Invoke(name, args, ct);
+                    }
+                    catch (Exception error) when (error is not OperationCanceledException) { result = JsonValues.Error(error.Message); }
+                    var text = name is "db_read" or "history_recall" or "read_asset" ? JsonValues.Serialize(result) : ToolText(result, budget);
+                    emit(new()
+                    {
+                        ["kind"] = "tool_end",
+                        ["agent"] = Name,
+                        ["block"] = id,
+                        ["name"] = name,
+                        ["text"] = text
+                    });
+                    working.AddNode(new JsonObject { ["role"] = "tool", ["tool_call_id"] = id, ["name"] = name, ["content"] = text });
+                }
+                if (samples.Count > 0)
+                {
+                    working.AddNode(new JsonObject { ["role"] = "user", ["_harness_asset"] = true,
+                        ["content"] = "Media samples requested by read_asset, in tool call order.", ["attachments"] = samples });
+                    samples = new();
+                }
+                if (submitted?.Invoke() == true)
+                {
+                    await Commit(definitions, enabled.ActiveNames);
+                    return message;
+                }
             }
-            if (samples.Count > 0)
+            throw new InvalidOperationException($"{Name} reached its tool round limit. Changes were not committed.");
+        }
+        finally
+        {
+            if (!historyCommitted && interruptions.Count > 0)
             {
-                working.AddNode(new JsonObject { ["role"] = "user", ["_harness_asset"] = true,
-                    ["content"] = "Media samples requested by read_asset, in tool call order.", ["attachments"] = samples });
-                samples = new();
-            }
-            if (submitted?.Invoke() == true)
-            {
-                await Commit(fixedCharacters, messageInput, request);
-                return message;
+                // A steer has already been accepted by the host when it leaves the inbox.
+                // Keep that input without committing the failed model or tool batch.
+                foreach (var (_, original) in interruptions)
+                    history.AddNode(original);
+                Save(history, Summary, instructionState, Deliveries());
+                foreach (var (_, original) in interruptions)
+                    transcript.Record(original.GetString("role"), original.GetString("content"));
             }
         }
-        throw new InvalidOperationException($"{Name} reached its tool round limit. Changes were not committed.");
     }
 
     private JsonObject CallMemory(string name, JsonObject args)
@@ -386,7 +504,7 @@ public sealed class AgentSession : IDisposable
         if (requestedKey.StartsWith(PluginRuntime.StateProjectionPrefix, StringComparison.Ordinal))
         {
             if (name != "db_read") throw new UnauthorizedAccessException("Plugin state is read-only. Use the plugin's tool to update it.");
-            var state = ReadStateProjection?.Invoke(requestedKey) ?? throw new ArgumentException("The plugin state entry is unavailable.");
+            var state = bindings.State(requestedKey) ?? throw new ArgumentException("The plugin state entry is unavailable.");
             return SessionStateWatches.ReadProjection(state, requestedKey, args);
         }
         if (delegatedSearch)

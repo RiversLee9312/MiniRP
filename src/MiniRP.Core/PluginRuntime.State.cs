@@ -143,7 +143,7 @@ internal sealed partial class PluginRuntime
         return Card(package, reference.GetString("id"), context);
     }
 
-    private void AddStateTools(PluginPackage package, JsonNode? declaration, JsonArray tools, string stateTool, string cardTool)
+    private void AddStateTools(PluginPackage package, JsonNode? declaration, JsonArray tools, string stateTool, string? cardTool)
     {
         if (declaration.GetArray("stateEntries") is { Count: > 0 } entries)
         {
@@ -154,7 +154,7 @@ internal sealed partial class PluginRuntime
                 ["key"] = new JsonObject { ["type"] = "string", ["enum"] = entries.DeepClone() },
             }, "key"));
         }
-        if (declaration.GetArray("cards") is { Count: > 0 } cards)
+        if (cardTool is not null && declaration.GetArray("cards") is { Count: > 0 } cards)
             tools.AddNode(Tools.Define(cardTool, "Show a reusable OpenUI card from this plugin in your reply. The card uses the current stored state.",
                 new() { ["id"] = new JsonObject { ["type"] = "string", ["enum"] = cards.DeepClone() } }, "id"));
     }

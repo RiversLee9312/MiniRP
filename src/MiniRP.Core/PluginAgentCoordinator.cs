@@ -2,7 +2,7 @@ using System.Text.Json.Nodes;
 
 namespace MiniRP.Core;
 
-internal sealed class PluginAgentCoordinator(string root, HostPort port, PluginRuntime runtime,
+internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory sessions, PluginRuntime runtime,
     Func<Provider> provider, Action<JsonObject> emit, Action pluginsChanged, CancellationToken lifetime)
 {
     private readonly object gate = new();
@@ -107,7 +107,7 @@ internal sealed class PluginAgentCoordinator(string root, HostPort port, PluginR
     private void Start(string preset, string id, JsonObject state, string instruction, CancellationToken parent)
     {
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime, parent);
-        var worker = new Worker(cancellation, new TurnInbox("", "plugin", _ => { }));
+        var worker = new Worker(cancellation, new TurnInbox("", "plugin", _ => null));
         state["status"] = "running";
         state["task"] = instruction;
         state.Remove("result");
@@ -124,22 +124,24 @@ internal sealed class PluginAgentCoordinator(string root, HostPort port, PluginR
         try
         {
             var context = new JsonObject { ["agent"] = "plugin", ["preset"] = preset, ["session"] = id };
-            using var session = new AgentSession("PluginAgent", Path.Combine(WorkerPath(preset, id), "session.sqlite"),
-                new ModelClient(port, () => model), item =>
+            using var session = sessions.Open("plugin", Path.Combine(WorkerPath(preset, id), "session.sqlite"),
+                () => model, () => context, item =>
                 {
                     item["preset"] = preset;
                     item["plugin_agent"] = id;
                     if (item.GetString("block") is { Length: > 0 } block) item["block"] = id + "-" + block;
                     emit(item);
-                });
-            session.AdditionalSkills = () => runtime.Skills("plugin", context, builtInOnly: true);
-            session.Inbox = worker.Inbox;
-            var reply = await new PluginAgent(name, session).Run(instruction, worker.Cancellation.Token);
-            result = reply.GetString("content");
+                }, inbox: worker.Inbox);
+            try
+            {
+                var reply = await new PluginAgent(name, session).Run(instruction, worker.Cancellation.Token);
+                result = reply.GetString("content");
+            }
+            finally { session.CompleteInbox(); }
         }
         catch (OperationCanceledException) { status = "cancelled"; result = "PluginAgent was cancelled."; }
         catch (Exception error) { status = "failed"; result = error.Message; }
-        finally { worker.Inbox.Close(); }
+        finally { worker.Inbox.Complete(); }
         lock (gate)
         {
             running.Remove((preset, id));
@@ -174,7 +176,7 @@ internal sealed class PluginAgentCoordinator(string root, HostPort port, PluginR
     private static string Instruction(JsonObject args) => args.GetString("message").Trim() is { Length: > 0 and <= 32000 } value
         ? value : throw new ArgumentException("Provide a task or follow-up message up to 32,000 characters.");
 
-    private string PresetPath(string preset) => Path.Combine(root, "preset_sessions", preset, "plugin_agents");
+    private string PresetPath(string preset) => SessionFiles.PluginDirectory(root, preset);
     private string WorkerPath(string preset, string id) => Path.Combine(PresetPath(preset), id);
     private PluginDevelopmentProject Project(string preset, string id) => new(WorkerPath(preset, id), id, preset, runtime, pluginsChanged);
     private void Write(string preset, string id, JsonObject state) => AtomicFile.Write(Path.Combine(WorkerPath(preset, id), "worker.json"), JsonValues.Serialize(state));

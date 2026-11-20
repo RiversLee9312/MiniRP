@@ -45,6 +45,8 @@ public sealed partial class MemoryDb : IDisposable
 
     internal static MemoryDb ReadOnly(string path) => new(path, readOnly: true);
 
+    internal bool HasEntriesTable() => Query("SELECT name FROM sqlite_master WHERE type='table' AND name='entries'").Count > 0;
+
     public void Execute(string sql, params object?[] values)
     {
         lock (_gate)

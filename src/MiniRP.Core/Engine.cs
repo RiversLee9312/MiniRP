@@ -33,6 +33,7 @@ public sealed partial class Engine : IAsyncDisposable
     private EnvAgent? environment;
     private PresetAgent? presets;
     private PresetConversation? presetConversation;
+    private readonly AgentSession.Factory agentSessions;
     private readonly PluginAgentCoordinator pluginAgents;
 
     public Workspace Workspace
@@ -63,13 +64,14 @@ public sealed partial class Engine : IAsyncDisposable
         Port = new(Emit);
         plugins = new(Workspace.Root, Port, Emit, PluginApi, stateChanged: change =>
             Dispatch(new() { ["op"] = "_plugin_state_changed", ["change"] = change.DeepClone() }), clock: clock);
-        pluginAgents = new(Workspace.Root, Port, plugins, () => Volatile.Read(ref routing).For("preset"), events.Enqueue,
+        turnRouting = routing;
+        agentSessions = new(Port, plugins, attachmentRoot, () => turnRouting.Settings.GetString("android_open_ui"));
+        pluginAgents = new(Workspace.Root, agentSessions, plugins, () => Volatile.Read(ref routing).For("preset"), events.Enqueue,
             () =>
             {
                 Emit(new() { ["kind"] = "plugins", ["items"] = plugins.List() });
                 EmitPluginSettings();
             }, lifetime.Token);
-        turnRouting = routing;
         Model = new(Port, () => Volatile.Read(ref routing).Default);
         worker = Task.Run(ProcessCommands);
         Dispatch(new() { ["op"] = "plugins_start" });
@@ -373,11 +375,11 @@ public sealed partial class Engine : IAsyncDisposable
         var nextSessions = new Dictionary<string, AgentSession>(StringComparer.Ordinal);
         try
         {
-            foreach (var (role, name) in new[] { ("chat", "ChatAgent"), ("search", "SearchAgent"), ("env", "EnvAgent"), ("preset", "PresetAgent") })
+            foreach (var role in new[] { "chat", "search", "env", "preset" })
             {
-                var database = role == "preset" ? nextPreset.Database : Path.Combine(nextWorkspace.ChatRoot, "agents", role + ".sqlite");
+                var database = role == "preset" ? nextPreset.Database : SessionFiles.Conversation(nextWorkspace.ChatRoot, role);
                 var previous = role == "preset" ? nextPreset.LegacySession : nextWorkspace.Chat.GetObject(role);
-                nextSessions[role] = CreateSession(role, name, database, previous, nextWorkspace);
+                nextSessions[role] = CreateWorkspaceSession(role, database, previous, nextWorkspace);
             }
         }
         catch
@@ -405,17 +407,17 @@ public sealed partial class Engine : IAsyncDisposable
             sessions[session.Key] = session.Value;
         }
 
-        var fetchModel = new ModelClient(Port, () => turnRouting.For("fetch"), attachmentRoot);
-        var fetch = new FetchAgent(Port, fetchModel, Record, Workspace.ChatRoot)
+        var fetch = new FetchAgent(Port, job =>
         {
-            Prompt = () => Workspace.AgentPrompt("fetch"),
-            ConfigureSession = (session, job) =>
-            {
-                var context = PluginEnvironment("fetch");
-                context["session"] = "fetch-" + job;
-                ConfigureSkillAccess(session, "fetch", fetchModel, () => context);
-            }
-        };
+            var context = PluginEnvironment("fetch");
+            context["session"] = "fetch-" + job;
+            return agentSessions.Open("fetch", SessionFiles.Fetch(Workspace.ChatRoot, job),
+                () => turnRouting.For("fetch"), () => context, item =>
+                {
+                    item["session"] = "fetch-" + job;
+                    Record(item);
+                });
+        }, () => Workspace.AgentPrompt("fetch"));
         ensembleWeb = new PageSource(Port, fetch, () => turnRouting.Settings);
         search = new(Workspace, sessions["search"], ensembleWeb);
         chat = new(Workspace, sessions["chat"], search);
@@ -442,18 +444,14 @@ public sealed partial class Engine : IAsyncDisposable
         });
     }
 
-    private AgentSession CreateSession(string role, string name, string database, JsonObject? previous, Workspace workspace)
+    private AgentSession CreateWorkspaceSession(string role, string database, JsonObject? previous, Workspace workspace)
     {
-        var model = new ModelClient(Port, () => turnRouting.For(role), attachmentRoot);
-        var session = new AgentSession(name, database, model, Record);
+        var session = agentSessions.Open(role, database, () => turnRouting.For(role), () => PluginEnvironment(role), Record,
+            () => ModeSkills(role, workspace),
+            role == "env" ? target => ensemble?.List().Any(chat => chat.GetString("id") == target) == true : null);
         try
         {
-            ConfigureSkillAccess(session, role, model, () => PluginEnvironment(role),
-                role == "env" ? target => ensemble?.List().Any(chat => chat.GetString("id") == target) == true : null);
-            var extensionSkills = session.AdditionalSkills!;
-            session.AdditionalSkills = () => extensionSkills().Concat(ModeSkills(role, workspace));
-            if (role == "chat") session.OpenUiInstructions = () => turnRouting.Settings.GetString("android_open_ui");
-            if (session.History.Count == 0 && previous?["history"] is JsonArray legacy)
+            if (!session.HasHistory && previous?["history"] is JsonArray legacy)
                 session.Restore(legacy, previous.GetString("summary"));
             session.ConfigureWorldMode(role == "chat" ? workspace.AgenticSearch : null);
             return session;
@@ -465,22 +463,13 @@ public sealed partial class Engine : IAsyncDisposable
         }
     }
 
-    private void ConfigureSkillAccess(AgentSession session, string role, ModelClient model, Func<JsonObject> context,
-        Func<string, bool>? canReadChat = null)
-    {
-        session.Assets = new(plugins, Port, session.Db, attachmentRoot, model, context);
-        session.ReadStateProjection = key => plugins.ReadStateProjection(role, context(), key, canReadChat);
-        session.AdditionalSkills = () => plugins.Skills(role, context(), assets: session.Assets,
-            showCard: role is "chat" or "env" or "preset" ? session.ShowCard : null);
-    }
-
     private void EnsurePresetSession()
     {
         if (presetConversation is not null) return;
         EnsurePresetSelected();
         var conversation = new PresetConversation(Workspace);
         conversation.Load(Workspace);
-        var session = CreateSession("preset", "PresetAgent", conversation.Database, conversation.LegacySession, Workspace);
+        var session = CreateWorkspaceSession("preset", conversation.Database, conversation.LegacySession, Workspace);
         sessions.Add("preset", session);
         presetConversation = conversation;
         presets = new(Workspace, session);
@@ -758,15 +747,16 @@ public sealed partial class Engine : IAsyncDisposable
             if (data.Count > 0)
                 modelInput += "\n\nData from the user's interactive reply (JSON):\n" + serialized;
         }
-        if (attachments.OfType<JsonObject>().Any(item => item.GetString("type").Length > 0))
-            attachments = await plugins.ProcessAttachments(attachments, PluginEnvironment(role), token);
-        new MessageAttachments(attachmentRoot).Validate(attachments, turnRouting.For(role));
+        attachments = await PrepareAttachments(attachments, role, PluginEnvironment(role), token);
         var session = sessions[role];
         if (role == "chat") session.ConfigureWorldMode(Workspace.AgenticSearch);
-        var turn = new TurnInbox(Workspace.ChatId, role, message => RecordInput(role, message.GetString("text"), message.GetString("role", "user"), new(), false));
+        var turn = new TurnInbox(Workspace.ChatId, role, message =>
+        {
+            RecordInput(role, message.GetString("text"), message.GetString("role", "user"), new(), false);
+            return null;
+        });
         session.Inbox = turn;
-        Volatile.Write(ref inbox, turn);
-        Emit(new() { ["kind"] = "generating", ["agent"] = role, ["value"] = true, ["editor_turn"] = editorTurn });
+        BeginInteractiveTurn(turn, editorTurn);
         var turnStart = Workspace.Chat.GetArray("blocks").Count;
         string answer;
         try
@@ -806,13 +796,37 @@ public sealed partial class Engine : IAsyncDisposable
         }
         finally
         {
-            turn.Close();
-            turn.Drain(message => session.Insert(message.GetString("content"), message.GetString("role")));
-            Volatile.Write(ref inbox, null);
-            session.Inbox = null;
-            Emit(new() { ["kind"] = "generating", ["agent"] = role, ["value"] = false });
+            EndInteractiveTurn(turn, session);
         }
         if (role == "chat") RecordReplyEnd(turnStart, answer);
+    }
+
+    private async Task<JsonArray> PrepareAttachments(JsonArray files, string role, JsonObject context, CancellationToken ct)
+    {
+        if (files.OfType<JsonObject>().Any(item => item.GetString("type").Length > 0))
+            files = await plugins.ProcessAttachments(files, context, ct);
+        new MessageAttachments(attachmentRoot).Validate(files, turnRouting.For(role));
+        return files;
+    }
+
+    private void BeginInteractiveTurn(TurnInbox turn, bool editorTurn = false)
+    {
+        Volatile.Write(ref inbox, turn);
+        Emit(new() { ["kind"] = "generating", ["agent"] = turn.Agent, ["value"] = true, ["editor_turn"] = editorTurn });
+    }
+
+    private void EndInteractiveTurn(TurnInbox turn, AgentSession? session = null)
+    {
+        try
+        {
+            if (session is null) turn.Complete();
+            else session.CompleteInbox();
+        }
+        finally
+        {
+            Volatile.Write(ref inbox, null);
+            Emit(new() { ["kind"] = "generating", ["agent"] = turn.Agent, ["value"] = false });
+        }
     }
 
     private void RecordReplyEnd(int turnStart, string answer)
@@ -938,7 +952,9 @@ public sealed partial class Engine : IAsyncDisposable
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             timeout.CancelAfter(TimeSpan.FromSeconds(45));
-            result["title"] = await ConversationTitle.Generate(new(Port, () => selected), transcript, timeout.Token, instructions);
+            using var session = agentSessions.Open("title", ":memory:", () => selected,
+                () => new() { ["preset"] = preset, ["room"] = id }, _ => { });
+            result["title"] = await ConversationTitle.Generate(session, transcript, timeout.Token, instructions);
         }
         catch (OperationCanceledException) { }
         catch (Exception error)

@@ -3,25 +3,18 @@ using System.Text.Json.Nodes;
 
 namespace MiniRP.Core;
 
-/// <summary>OpenAI Responses wire format, including stateless replay of encrypted reasoning items.</summary>
-internal static class ResponsesProtocol
+public sealed partial class AgentSession
 {
-    public static async Task<JsonObject> Complete(HostPort port, Provider provider, JsonArray messages, JsonArray tools, Action<string, string> delta, CancellationToken cancellationToken, Dictionary<JsonNode, List<MessageAttachments.Media>> media,
-        bool requireComplete)
+    /// <summary>Streams OpenAI Responses and preserves encrypted reasoning for stateless replay.</summary>
+    private static async Task<JsonObject> CompleteResponses(HostPort port, JsonObject request,
+        Action<string, string> delta, CancellationToken cancellationToken, bool requireComplete, Action<int>? inputUsage)
     {
-        var request = new JsonObject
-        {
-            ["url"] = provider.Url + "/responses",
-            ["method"] = "POST",
-            ["stream"] = true,
-            ["headers"] = new JsonObject { ["Authorization"] = "Bearer " + provider.Key, ["Content-Type"] = "application/json" },
-            ["body"] = JsonValues.Serialize(Build(provider, messages, tools, media))
-        };
         var content = new StringBuilder();
         var reasoning = new StringBuilder();
         var calls = new SortedDictionary<int, JsonObject>();
         var output = new SortedDictionary<int, JsonObject>();
         var parts = new Dictionary<(string Kind, int Output, int Part), StringBuilder>();
+        var promptTokens = 0;
 
         void Feed(string kind, string text)
         {
@@ -111,8 +104,9 @@ internal static class ResponsesProtocol
                     break;
                 case "response.completed":
                 case "response.incomplete":
-                    if (requireComplete && type == "response.incomplete") throw ModelClient.IncompleteCheckpoint();
+                    if (requireComplete && type == "response.incomplete") throw IncompleteCheckpoint();
                     var response = item.GetObject("response");
+                    promptTokens = response.GetObject("usage").GetInt32("input_tokens", promptTokens);
                     var position = 0;
                     foreach (var completed in response.GetArray("output").OfType<JsonObject>())
                         CompleteItem(completed, position++);
@@ -121,12 +115,14 @@ internal static class ResponsesProtocol
             // Some compatible providers ignore stream=true and return a complete response.
             if ((type == "response" || item.GetString("object") == "response") && item["output"] is JsonArray complete)
             {
-                if (requireComplete && item.GetString("status") == "incomplete") throw ModelClient.IncompleteCheckpoint();
+                if (requireComplete && item.GetString("status") == "incomplete") throw IncompleteCheckpoint();
+                promptTokens = item.GetObject("usage").GetInt32("input_tokens", promptTokens);
                 var position = 0;
                 foreach (var completed in complete.OfType<JsonObject>())
                     CompleteItem(completed, position++);
             }
         }
+        if (promptTokens > 0) inputUsage?.Invoke(promptTokens);
         var result = new JsonObject { ["role"] = "assistant", ["content"] = content.ToString() };
         if (reasoning.Length > 0)
         {
@@ -161,7 +157,7 @@ internal static class ResponsesProtocol
         ["function"] = new JsonObject { ["name"] = item.GetString("name"), ["arguments"] = item.GetString("arguments") }
     };
 
-    private static JsonObject Build(Provider provider, JsonArray messages, JsonArray tools, Dictionary<JsonNode, List<MessageAttachments.Media>> media)
+    internal static JsonObject BuildResponses(Provider provider, JsonArray messages, JsonArray tools, Dictionary<JsonNode, List<MessageAttachments.Media>> media)
     {
         var input = new JsonArray();
         var instructions = new StringBuilder();

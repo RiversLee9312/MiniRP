@@ -24,6 +24,71 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class NativeCoreTest {
     @Test
+    fun longPresetSessionAppliesOneCheckpointAndSendsOnlyTheRetainedContext() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = File(app.cacheDir, "preset-compaction-${System.nanoTime()}").apply { mkdirs() }
+        val context = object : ContextWrapper(app) {
+            override fun getFilesDir() = directory
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        MockWebServer().use { server ->
+            server.start()
+            fun reply(text: String, promptTokens: Int = 0) {
+                val event = JSONObject().put("choices", JSONArray().put(
+                    JSONObject().put("delta", JSONObject().put("content", text))
+                ))
+                if (promptTokens > 0) event.put("usage", JSONObject().put("prompt_tokens", promptTokens))
+                server.enqueue(MockResponse.Builder().setHeader("Content-Type", "text/event-stream")
+                    .body("data: $event\n\ndata: [DONE]\n\n").build())
+            }
+            reply("已记录。", promptTokens = 16_400)
+            reply("接续状态：保留绿色灯笼。")
+            reply("继续编辑。")
+            reply("完成。")
+            val core = CoreClient(context, scope)
+            try {
+                val preset = core.query(JSONObject().put("op", "create_preset").put("open", true)
+                    .put("interview", false).put("name", "长预设回归")).getString("preset")
+                core.send(JSONObject().put("op", "configure").put("provider", JSONObject()
+                    .put("id", "fixture").put("protocol", "openai").put("url", server.url("/v1").toString())
+                    .put("model", "fixture").put("context_window", 20_000).put("max_output", 2_000)
+                    .put("compact_at_percent", 80).put("background_compaction", false)))
+                val original = "绿色灯笼原始记录 " + "长".repeat(5_000)
+                suspend fun turn(text: String, answer: String) {
+                    core.send(JSONObject().put("op", "message").put("agent", "preset")
+                        .put("preset", preset).put("text", text))
+                    val completed = withTimeout(15_000) {
+                        core.events.first { event ->
+                            check(event.optString("kind") != "error") { event.toString() }
+                            event.optString("kind") == "completed" && event.optString("agent") == "preset"
+                        }
+                    }
+                    assertEquals(answer, completed.getString("text"))
+                }
+                turn(original, "已记录。")
+                turn("继续编辑预设", "继续编辑。")
+                turn("再改一处", "完成。")
+                assertEquals(4, server.requestCount)
+                val requests = List(4) {
+                    JSONObject(checkNotNull(server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS))
+                        .body!!.utf8()).getJSONArray("messages")
+                }
+                assertEquals(original, requests[0].getJSONObject(requests[0].length() - 1).getString("content"))
+                assertTrue(requests[1].getJSONObject(0).getString("content").startsWith("Write a continuation checkpoint"))
+                for (messages in requests.drop(2)) {
+                    assertTrue(messages.getJSONObject(0).getString("content").contains("保留绿色灯笼"))
+                    assertFalse(messages.toString().contains(original))
+                }
+                assertEquals("再改一处", requests.last().getJSONObject(requests.last().length() - 1).getString("content"))
+            } finally {
+                core.close()
+                scope.cancel()
+                directory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
     fun nativeCoreRestoresPresetAndRoomFromPortableFiles() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
         val directory = File(app.cacheDir, "archive-probe-${System.nanoTime()}").apply { mkdirs() }

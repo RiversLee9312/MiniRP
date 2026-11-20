@@ -399,11 +399,13 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                 var tools = new JsonArray();
                 foreach (var tool in declaration.GetArray("tools"))
                 {
+                    var returnsAsset = tool.GetString("returnType") == "asset-url";
+                    if (returnsAsset && assets is null) continue;
                     // Provider tool names have a 64-character limit.
                     var qualified = "plugin_" + package.Id + "_" + tool.GetString("name");
                     if (qualified.Length > 64) throw new InvalidDataException("Plugin tool name is too long.");
                     handlers.Add(qualified, package.Bind(tool.GetString("handler")));
-                    if (tool.GetString("returnType") == "asset-url") assetTools.Add(qualified);
+                    if (returnsAsset) assetTools.Add(qualified);
                     tools.AddNode(new JsonObject { ["type"] = "function", ["function"] = new JsonObject
                     {
                         ["name"] = qualified,
@@ -413,7 +415,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                 }
                 var stateTool = "plugin_" + package.Id + "_" + declaration.GetString("name") + "-state";
                 var cardTool = "plugin_" + package.Id + "_" + declaration.GetString("name") + "-card";
-                AddStateTools(package, declaration, tools, stateTool, cardTool);
+                AddStateTools(package, declaration, tools, stateTool, showCard is null ? null : cardTool);
                 yield return new AgentSkill(key, declaration.GetString("description"), tools,
                     async (name, args, ct) =>
                     {
@@ -430,7 +432,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                             var id = args.GetString("id");
                             if (showCard is null || !declaration.GetArray("cards").Any(card => JsonValues.GetText(card) == id))
                                 throw new UnauthorizedAccessException("This skill cannot show that card in the current session.");
-                            var card = Card(package, id, environment);
+                            var card = WhileCurrent(package, environment.GetString("preset"), () => Card(package, id, environment));
                             card["plugin_card"] = new JsonObject { ["package"] = package.PackageName, ["signer"] = package.Signer,
                                 ["id"] = id, ["environment"] = environment.DeepClone() };
                             showCard(card);

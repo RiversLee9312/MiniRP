@@ -282,11 +282,10 @@ public sealed partial class Engine
         if (op == "generate")
         {
             var provider = Volatile.Read(ref routing).For("chat") with { MaxOutput = 384, Thinking = false, ReasoningEffort = "" };
-            var model = new ModelClient(Port, () => provider);
             var instructions = args.GetString("system");
             if (instructions.Length > 8192) throw new ArgumentException("Instructions are too long.");
-            var reply = await model.Complete(new JsonArray(new JsonObject { ["role"] = "system", ["content"] = instructions },
-                new JsonObject { ["role"] = "user", ["content"] = RequireText(args) }), new(), (_, _) => { }, ct);
+            using var session = agentSessions.Open("plugin-generation", ":memory:", () => provider, () => context, _ => { });
+            var reply = await session.Run(instructions, RequireText(args), ct, maxRounds: 1, privateInput: true);
             return new JsonObject { ["text"] = reply.GetString("content") };
         }
         if (op == "listPresets")
@@ -314,8 +313,8 @@ public sealed partial class Engine
             var preset = PluginPreset(package, context, args);
             var file = SessionFile(role, preset, args, context);
             if (!File.Exists(file)) return new JsonArray();
-            using var db = new MemoryDb(file);
-            return PageMessages(JsonNode.Parse(db.Get("_context/history") ?? "[]") as JsonArray ?? new(), args);
+            using var db = MemoryDb.ReadOnly(file);
+            return db.HasEntriesTable() ? PageMessages(AgentSession.ReadHistory(db), args) : new JsonArray();
         }
         if (op is "createTemporarySession" or "runTemporary" or "closeTemporary")
         {
@@ -323,11 +322,9 @@ public sealed partial class Engine
             {
                 if (temporary.Count >= 16) throw new InvalidOperationException("Too many temporary sessions.");
                 var key = JsonValues.NewId();
-                var provider = Volatile.Read(ref routing).For("chat");
-                var model = new ModelClient(Port, () => provider, attachmentRoot);
-                var session = new AgentSession("TemporaryAgent", ":memory:", model, _ => { });
                 var temporaryContext = new JsonObject { ["session"] = key, ["agent"] = "temporary", ["preset"] = JsonValues.Clone(context["preset"]) };
-                ConfigureSkillAccess(session, "temporary", model, () => temporaryContext);
+                var session = agentSessions.Open("temporary", ":memory:", () => Volatile.Read(ref routing).For("chat"),
+                    () => temporaryContext, _ => { });
                 temporary[key] = new(package.StorageKey, context.GetString("preset"), session, new(1));
                 return new JsonObject { ["id"] = key };
             }
@@ -362,9 +359,6 @@ public sealed partial class Engine
         else if (op is not ("createChat" or "createRoom" or "createPreset" or "setPrompt"))
             throw new ArgumentException("This operation needs a room or a regular chat.");
         var conversation = grouped ? PluginChat(args, context, targetPreset, target) : "";
-        if (!grouped && args.GetString("room") is { Length: > 0 } explicitRoom &&
-            args.GetString("chat", explicitRoom) != explicitRoom)
-            throw new ArgumentException("In a regular conversation the Chat and Room IDs are the same.");
         if (grouped && op == "createChat")
             throw new InvalidOperationException("Use createRoom for an ensemble room. EnvAgent creates and assigns the chats inside it.");
         if (op == "createRoom" && !grouped)
@@ -428,20 +422,25 @@ public sealed partial class Engine
 
     private string SessionFile(string role, string preset, JsonObject args, JsonObject context)
     {
-        if (role == "preset") return Path.Combine(Workspace.Root, "preset_sessions", preset, "agent.sqlite");
+        if (role == "preset") return SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(Workspace.Root, preset));
         var grouped = IsEnsemblePreset(preset);
         var room = WorkspaceIds.Require(PluginRoom(args, context, preset, grouped));
         var root = Path.Combine(Workspace.Root, "conversations", preset, room);
         var participant = args.GetString("participant", room == context.GetString("room") && preset == context.GetString("preset")
             ? context.GetString("participant") : "");
-        if (role is "chat" or "search" && participant.Length > 0)
-            return Path.Combine(root, "ensemble", PresetDesign.Id(participant), role + ".sqlite");
-        if (role is "chat" or "search" && grouped)
-            throw new ArgumentException("Choose a character in this room.");
+        if (role is "chat" or "search")
+        {
+            if (grouped)
+                return participant.Length > 0 ? SessionFiles.Ensemble(root, participant, role)
+                    : throw new ArgumentException("Choose a character in this room.");
+            if (participant.Length > 0) throw new ArgumentException("A regular conversation has no character sessions.");
+        }
         if (role == "fetch")
-            return Path.Combine(root, "fetch", Workspace.Safe(args.GetString("id", context.GetString("session"))
-                .Replace("fetch-", "", StringComparison.Ordinal)) + ".sqlite");
-        return Path.Combine(root, "agents", role + ".sqlite");
+        {
+            var job = args.GetString("id", context.GetString("session"));
+            return SessionFiles.Fetch(root, job.StartsWith("fetch-", StringComparison.Ordinal) ? job[6..] : job);
+        }
+        return SessionFiles.Conversation(root, role);
     }
 
     private void PluginWorkspace(JsonObject request)
@@ -479,7 +478,7 @@ public sealed partial class Engine
         text : throw new ArgumentException("Provide between 1 and 64,000 characters.");
 
     private static JsonArray PageMessages(JsonArray messages, JsonObject args) =>
-        new(messages.Where(item => !item.GetBoolean("_harness_hidden") && item.GetString("role") is "user" or "assistant" or "system")
+        new(messages.Where(SessionHistory.IsVisible)
             .Skip(Math.Max(0, args.GetInt32("offset"))).Take(Math.Clamp(args.GetInt32("limit", 30), 1, 100))
             .Select(item => (JsonNode?)new JsonObject { ["role"] = item.GetString("role"), ["agent"] = item.GetString("agent"),
                 ["participant"] = JsonValues.Clone(item?["participant"]), ["speaker"] = JsonValues.Clone(item?["speaker"]),

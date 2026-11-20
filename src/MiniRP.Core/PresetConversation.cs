@@ -4,9 +4,9 @@ namespace MiniRP.Core;
 
 internal sealed class PresetConversation(Workspace workspace)
 {
-    private readonly string root = Path.Combine(workspace.Root, "preset_sessions", workspace.PresetId);
+    private readonly string root = SessionFiles.PresetDirectory(workspace.Root, workspace.PresetId);
 
-    public string Database => Path.Combine(root, "agent.sqlite");
+    public string Database => SessionFiles.PresetDatabase(root);
     private string Transcript => Path.Combine(root, "blocks.json");
     public JsonArray Blocks { get; private set; } = new();
     public JsonObject? LegacySession { get; private set; }
@@ -25,7 +25,7 @@ internal sealed class PresetConversation(Workspace workspace)
             if (File.Exists(seed.Database))
             {
                 Directory.CreateDirectory(root);
-                using var legacy = new MemoryDb(seed.Database);
+                using var legacy = MemoryDb.ReadOnly(seed.Database);
                 legacy.Snapshot(Database);
             }
         }
@@ -47,7 +47,7 @@ internal sealed class PresetConversation(Workspace workspace)
             try
             {
                 var chat = JsonValues.ParseObject(File.ReadAllText(file.FullName));
-                var database = Path.Combine(parent, Path.GetFileNameWithoutExtension(file.Name), "agents", "preset.sqlite");
+                var database = SessionFiles.Conversation(Path.Combine(parent, Path.GetFileNameWithoutExtension(file.Name)), "preset");
                 if (chat.ContainsKey("chat") && !chat.ContainsKey("blocks"))
                 {
                     LegacyImporter.ImportChat(chat);
@@ -58,8 +58,9 @@ internal sealed class PresetConversation(Workspace workspace)
                 }
                 if (File.Exists(database))
                 {
-                    using var probe = new MemoryDb(database);
-                    if (probe.Call("db_list", new() { ["notes_only"] = true, ["limit"] = 1 }).GetArray("entries").Count != 0)
+                    using var probe = MemoryDb.ReadOnly(database);
+                    if (probe.HasEntriesTable() &&
+                        probe.Call("db_list", new() { ["notes_only"] = true, ["limit"] = 1 }).GetArray("entries").Count != 0)
                     {
                         return (chat, database);
                     }

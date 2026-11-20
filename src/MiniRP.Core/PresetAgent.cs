@@ -125,8 +125,9 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
         }
         var guidance = "You are PresetAgent. Edit the preset with precise tool calls. Keep unrelated settings. Give new presets a short descriptive name. Set a tailored chat_agent.system_prompt and search_agent.system_prompt. Chat instructions support {date}. Use an empty prompt to restore defaults. " +
             "If the user wants an opening scene or a welcome, set chat_agent.greeting_system_message to private instructions for ChatAgent to generate it when a new conversation begins. Put scene and voice details there. Leave it empty for conversations that should wait for the user's first message. Explain changes briefly in the user's language.\n" +
+            "Use inspect_preset to read the current staged preset before relying on existing settings. It reflects changes made by tools during this turn.\n" +
             PresetDesign.Practice + "\n" + (config.GetString("setup_status") == "draft" ? PresetDesign.Interview + "\n" : "") +
-            JsonValues.Serialize(config) + "\n" + world.AgentPrompt("preset");
+            world.AgentPrompt("preset");
         var answer = await session.Run(guidance, input,
             new AgentSkill("preset-editing", "Inspect and edit the staged preset.", tools, Apply, Required: true), ct,
             attachments: attachments, inputRole: inputRole, privateInput: privateInput);

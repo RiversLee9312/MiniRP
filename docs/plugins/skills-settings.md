@@ -10,6 +10,8 @@ Agent 先看到技能说明，通过 `activate_skill` 激活后才看到技能�
 
 Agent 激活 `assets` 后可调用 `read_asset({url, mode?, offset?, length?, page?, start_ms?, duration_ms?})`。每次可检查一个 URL 中的一页、一个帧或一个片段。
 
+宿主按会话能力公开工具。返回 Asset URL 的工具出现在有 Asset 读取权限的会话中。生成卡片的工具出现在可显示卡片的 Chat、Env 和 Preset 会话中，调用时会重新核对插件是否仍然安装并对当前预设可用。
+
 - `inspect` 默认返回 MIME 类型和已知长度。
 - `text` 分页读取文本。默认 6,000 个字符，每页最多 16,000 个。用 `next_offset` 继续读。
 - `image` 读取图片。 `pdf_page` 渲染 `page` 指定的单页，页号从 1 开始。 `video_frame` 采样 `start_ms` 对应的帧。 `audio_clip` 读取音频或视频音轨，默认从 0 开始取 10 秒，单次最多 30 秒。

@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 namespace MiniRP.Core;
 
 /// <summary>Messages addressed to the active turn. Only the model stream is interrupted.</summary>
-internal sealed class TurnInbox(string chat, string session, Action<JsonObject> accept, bool keepOpen = false,
+internal sealed class TurnInbox(string chat, string session, Func<JsonObject, string?> accept, bool keepOpen = false,
     string conversation = "")
 {
     public string Agent => session;
@@ -42,8 +42,10 @@ internal sealed class TurnInbox(string chat, string session, Action<JsonObject> 
         }
         foreach (var message in messages)
         {
-            accept(message);
-            append(new JsonObject { ["role"] = message.GetString("role", "user"), ["content"] = message.GetString("text") });
+            var delivery = accept(message);
+            var input = new JsonObject { ["role"] = message.GetString("role", "user"), ["content"] = message.GetString("text") };
+            if (delivery is not null) input["_inbox_id"] = delivery;
+            append(input);
         }
         return true;
     }
@@ -70,8 +72,9 @@ internal sealed class TurnInbox(string chat, string session, Action<JsonObject> 
         }
     }
 
-    public void Close()
+    public void Complete(Action<JsonObject>? append = null)
     {
         lock (gate) sealedInbox = true;
+        Drain(append ?? (_ => { }));
     }
 }

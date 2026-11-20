@@ -78,8 +78,9 @@ public sealed class AgentTests
             });
         });
         var model = new ModelClient(port, () => Model);
-        using var session = new AgentSession("SearchAgent", Path.Combine(root, "search.sqlite"), model, _ => { });
-        var fetch = new FetchAgent(port, model, _ => { }, root);
+        using var session = TestAgentSession.Open("search", Path.Combine(root, "search.sqlite"), model, _ => { });
+        var fetch = new FetchAgent(port, job => TestAgentSession.Open("fetch",
+            Path.Combine(root, "fetch", job + ".sqlite"), model, _ => { }));
         var search = new SearchAgent(workspace, session, new PageSource(port, fetch, () => new()));
         var result = await search.Run("search", "世界", CancellationToken.None);
         Assert.AreEqual(20, result.GetArray("results").Count);

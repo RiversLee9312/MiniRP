@@ -34,7 +34,7 @@ internal static class ConversationVersions
         var root = VersionRoot(workspace, version);
         var id = WorkspaceIds.New();
         var parent = Path.Combine(workspace.Root, "conversations", workspace.PresetId);
-        var target = Path.Combine(parent, id, "agents");
+        var target = SessionFiles.ConversationDirectory(Path.Combine(parent, id));
         Directory.CreateDirectory(target);
         foreach (var role in roles)
         {
