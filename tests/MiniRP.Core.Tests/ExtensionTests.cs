@@ -934,15 +934,22 @@ public sealed class ExtensionTests
     }
 
     [TestMethod]
-    public async Task BaseSearchCachesTheEditedResultAsset()
+    [DataRow("deepseek")]
+    [DataRow("mwmbl")]
+    [DataRow("browser-cn")]
+    [DataRow("browser-us")]
+    public async Task BaseSearchCachesTheEditedResultAsset(string source)
     {
         const string url = "https://fixture.invalid/result";
+        var configuredSearch = source is "deepseek" or "browser-us";
+        var browserFallback = source.StartsWith("browser-", StringComparison.Ordinal);
         await using var engine = new Engine(NewRoot());
         using var scripts = new PluginScripts();
         engine.Dispatch(new() { ["op"] = "configure", ["provider"] = new JsonObject
         {
             ["url"] = "http://fixture.invalid/v1", ["model"] = "fixture"
-        }, ["settings"] = new JsonObject { ["search_key"] = "test", ["search_url"] = "http://web.fixture.invalid" } });
+        }, ["settings"] = new JsonObject { ["search_key"] = configuredSearch ? "test" : "",
+            ["search_url"] = "http://web.fixture.invalid", ["search_region"] = source == "browser-cn" ? "CN" : "US" } });
         engine.Dispatch(new() { ["op"] = "message", ["text"] = "Find the source." });
 
         static JsonObject LastResult(JsonObject request) => JsonValues.ParseObject(JsonValues.ParseObject(request.GetString("body"))
@@ -952,14 +959,56 @@ public sealed class ExtensionTests
         ReplyTool(engine, await NextModel(engine, scripts), "search", new() { ["query"] = "fixture terms" });
         ReplyTool(engine, await NextModel(engine, scripts), "real_search", new() { ["query"] = "fixture terms", ["limit"] = 55 });
         var request = await NextModel(engine, scripts);
-        Assert.AreEqual("http://web.fixture.invalid/v1/tools/search", request.GetString("url"));
-        Assert.AreEqual(50, JsonValues.ParseObject(request.GetString("body")).GetInt32("count"));
-        engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = request.GetString("id"), ["done"] = true,
-            ["data"] = JsonValues.Serialize(new JsonObject { ["results"] = new JsonArray(new JsonObject
+        if (configuredSearch)
+        {
+            Assert.AreEqual("http://web.fixture.invalid/v1/tools/search", request.GetString("url"));
+            Assert.AreEqual(50, JsonValues.ParseObject(request.GetString("body")).GetInt32("count"));
+            if (browserFallback)
             {
-                ["url"] = url, ["title"] = "Fixture result", ["snippet"] = "Original snippet"
-            }) }) });
-        var search = await NextModel(engine, scripts);
+                engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = request.GetString("id"), ["status"] = 429, ["done"] = true });
+                request = await NextModel(engine, scripts);
+            }
+        }
+        if (source != "deepseek")
+        {
+            Assert.AreEqual("https://api.mwmbl.org/api/v2/search/?q=fixture%20terms", request.GetString("url"));
+            Assert.AreEqual("GET", request.GetString("method"));
+            Assert.IsFalse(request.GetObject("headers").ContainsKey("Authorization"));
+        }
+        JsonObject Result(string snippetField) => new() { ["results"] = new JsonArray(new JsonObject
+            { ["url"] = url, ["title"] = "Fixture result", [snippetField] = "Original snippet" }) };
+
+        engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = request.GetString("id"), ["done"] = true,
+            ["data"] = browserFallback ? """{"results":[]}""" : JsonValues.Serialize(Result(configuredSearch ? "snippet" : "content")) });
+        var browserUrls = new List<string>();
+        var closedJobs = new HashSet<string>();
+        void ObserveBrowser(JsonObject item)
+        {
+            if (item.GetString("kind") != "browser_request") return;
+            var tool = item.GetString("tool");
+            if (tool == "browser_navigate") browserUrls.Add(item.GetObject("arguments").GetString("url"));
+            if (tool == "browser_close") Assert.IsTrue(closedJobs.Add(item.GetString("job")));
+            engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = item.GetString("id"),
+                ["result"] = new JsonObject { ["snapshot"] = "Fixture search results" } });
+        }
+        string[] engines = source == "browser-cn"
+            ? ["https://www.baidu.com/s?wd=", "https://cn.bing.com/search?q="]
+            : ["https://www.google.com/search?q=", "https://duckduckgo.com/?q=", "https://www.bing.com/search?q="];
+        for (var i = 0; browserFallback && i < engines.Length; i++)
+        {
+            var fetch = await NextModel(engine, scripts, ObserveBrowser);
+            StringAssert.Contains(fetch.GetString("body"), engines[i] + "fixture%20terms");
+            ReplyTool(engine, fetch, "browser_navigate", new() { ["url"] = engines[i] + "fixture%20terms" });
+            var snapshot = await NextModel(engine, scripts, ObserveBrowser);
+            ReplyTool(engine, snapshot, i == engines.Length - 1 ? "finish_search" : "fail_request",
+                i == engines.Length - 1 ? Result("snippet") : new() { ["message"] = "Search page unavailable." });
+        }
+        var search = await NextModel(engine, scripts, ObserveBrowser);
+        if (browserFallback)
+        {
+            CollectionAssert.AreEqual(engines.Select(engineUrl => engineUrl + "fixture%20terms").ToArray(), browserUrls);
+            Assert.AreEqual(engines.Length, closedJobs.Count);
+        }
         var item = LastResult(search).GetArray("results").Single();
         var asset = item.GetString("asset_url");
         Assert.IsTrue(ResearchAssets.IsUrl(asset));

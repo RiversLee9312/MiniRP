@@ -20,6 +20,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 @Composable
 internal fun ProvidersScreen(state: ChatState, model: ChatViewModel, modifier: Modifier) {
     var editor by remember { mutableStateOf<ProviderConfig?>(null) }
+    var help by remember { mutableStateOf(false) }
     LazyColumn(modifier, contentPadding = PaddingValues(horizontal = 16.dp)) {
         items(state.providers, key = { it.id }) { provider ->
             ListItem(
@@ -36,6 +37,9 @@ internal fun ProvidersScreen(state: ChatState, model: ChatViewModel, modifier: M
                 Symbol("add")
                 Text(stringResource(R.string.add_provider))
             }
+        }
+        item {
+            TextButton(onClick = { help = true }) { Text(stringResource(R.string.setup_help_title)) }
         }
     }
     editor?.let { provider ->
@@ -56,10 +60,11 @@ internal fun ProvidersScreen(state: ChatState, model: ChatViewModel, modifier: M
             onDismiss = { editor = null },
         )
     }
+    if (help) SetupHelpDialog { help = false }
 }
 
 @Composable
-private fun ProviderEditor(
+internal fun ProviderEditor(
     initial: ProviderConfig,
     templates: List<ProviderConfig>,
     onSave: (ProviderConfig) -> Unit,
@@ -78,7 +83,7 @@ private fun ProviderEditor(
             "ollama" to "Ollama",
         )
     FullSheet(
-        stringResource(if (onDelete == null) R.string.add_provider else R.string.edit_provider),
+        stringResource(if (initial.name.isBlank()) R.string.add_provider else R.string.edit_provider),
         onDismiss,
     ) {
         LazyColumn(

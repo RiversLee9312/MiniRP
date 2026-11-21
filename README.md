@@ -61,6 +61,8 @@ Android 的世界、预设和记忆面板打开即全屏。对话页支持流式
 
 ChatAgent 可按需激活 `interactive-ui` 技能，在 Markdown 中插入流式交互界面。支持图表、表格、表单、本地计算、筛选、图片和地图。可以试试「做一个可以调整人数和天数的旅行预算计算器」。界面随对话保存，单次运行期间的输入会在滚动和展开时保留。详见 [Android 生成式 UI](docs/android/generated-ui.md)。
 
+首次打开 Android 版时，引导会带你添加提供商、获取模型列表并选好默认模型。点「我不懂」可复制模型服务或搜索与网页抓取的求助提示词，请助手查找当地可用的服务、核对订阅和 API 的费用，再按官方文档指导接入。
+
 在「提供商」设置名称、协议、地址和 API 密钥；在「模型」自动获取可用模型、保存常用模型、为 Agent 和标题指定模型。对话输入框下也可切换该页相关的 Agent 模型。提供商配置存入 DataStore，密钥用 Android Keystore AES-GCM 加密。附件可选图片、音频、PDF 和视频，能否发送取决于当前协议及模型。对话抽屉使用 Paging 3 按预设分页，默认打开聊天列表，收起预设列表。
 
 UI 文案使用 Android 字符串资源，支持英文及另外 29 种语言；语言列表由 AGP 自动生成，使用系统按应用语言设置，低版本通过 AppCompat 适配。支持 RTL，方向图标会镜像。图标使用 Google Fonts Material Symbols 官方子集；应用图标由 GPT-image 生成，前景安全区和来源记录保存在 `assets/branding`。
@@ -74,6 +76,8 @@ UI 文案使用 Android 字符串资源，支持英文及另外 29 种语言；�
 兼容程度取决于服务实际支持的模型、工具调用和思考参数。协议回归使用本地夹具验证，没有逐个使用真实服务密钥联调。平台专有的云账号登录和签名认证不在当前密钥配置范围内。
 
 主模型使用其他服务时，桌面可单独填写 `MINIRP_SEARCH_API_KEY`；Android 从已配置的 DeepSeek 提供商读取搜索密钥。
+
+搜索和网页抓取密钥可选。`real_search` 在 DeepSeek 搜索未配置、失败或没有结果时尝试 [Mwmbl 的免密钥搜索 API](https://developer.mwmbl.org/)。Mwmbl 也没有可用结果时，FetchAgent 用现有的本地浏览器顺序尝试搜索网站。中国大陆尝试百度和 Bing，其他地区尝试 Google、DuckDuckGo 和 Bing。所有来源沿用相同的搜索结果格式。默认网页抓取策略也会在 API 不可用时使用本地浏览器 Fetch。
 
 ## 网页工作流
 

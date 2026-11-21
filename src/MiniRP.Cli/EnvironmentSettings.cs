@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Nodes;
 using MiniRP.Protocol;
 
@@ -105,6 +106,7 @@ internal sealed class EnvironmentSettings(string root)
         ["settings"] = new JsonObject
         {
             ["fetch_backend"] = this["MINIRP_FETCH_BACKEND"].Length > 0 ? this["MINIRP_FETCH_BACKEND"] : "api_then_local",
+            ["search_region"] = RegionInfo.CurrentRegion.TwoLetterISORegionName,
             ["search_url"] = "https://api.deepseek.com",
             ["search_key"] = this["MINIRP_SEARCH_API_KEY"].Length > 0 ? this["MINIRP_SEARCH_API_KEY"]
                 : (this["DEEPSEEK_BASE_URL"].Length == 0 || this["DEEPSEEK_BASE_URL"].Contains("deepseek", StringComparison.OrdinalIgnoreCase)) ? this["DEEPSEEK_API_KEY"] : ""

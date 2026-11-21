@@ -47,7 +47,7 @@ class CoreClient(
             .build()
     private val streamingHttp = http.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
     private val calls = ConcurrentHashMap<String, Call>()
-    private val pluginJobs = ConcurrentHashMap<String, Job>()
+    private val platformJobs = ConcurrentHashMap<String, Job>()
     private val scripts = PluginScripts()
     private val container = ContainerHost(context, workspace)
     private val curl = CurlHost(context, workspace)
@@ -97,7 +97,7 @@ class CoreClient(
                     when (event.optString("kind")) {
                         "http_request" -> launch { request(event) }
                         "browser_request" ->
-                            launch {
+                            startPlatformJob(event.getString("id")) {
                                 val reply =
                                     JSONObject()
                                         .put("op", "io_reply")
@@ -139,19 +139,13 @@ class CoreClient(
                                         }
                                     }
                                 } else null
-                            val job =
-                                clientScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
-                                    pluginRequest(event, script)
-                                }
-                            pluginJobs[id] = job
-                            job.invokeOnCompletion { pluginJobs.remove(id, job) }
-                            job.start()
+                            startPlatformJob(id) { pluginRequest(event, script) }
                         }
                         "plugin_isolate_close" -> retireIsolate(event.getString("isolate"))
                         "cancel_io" -> {
                             val id = event.optString("id")
                             calls.remove(id)?.cancel()
-                            pluginJobs.remove(id)?.cancel()
+                            platformJobs.remove(id)?.cancel()
                         }
                         else -> {
                             val reply = replies.remove(event.optString("request"))
@@ -162,6 +156,13 @@ class CoreClient(
                 delay(16)
             }
         }
+    }
+
+    private fun startPlatformJob(id: String, work: suspend () -> Unit) {
+        val job = clientScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) { work() }
+        platformJobs[id] = job
+        job.invokeOnCompletion { platformJobs.remove(id, job) }
+        job.start()
     }
 
     @OptIn(DelicateCoroutinesApi::class, ExperimentalCoroutinesApi::class)

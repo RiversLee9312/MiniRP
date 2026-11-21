@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Welcome to MiniRP</string>
+    <string name="setup_welcome_detail">Connect an AI service, then choose the model MiniRP will use for chats and preset setup.</string>
+    <string name="setup_begin">Get started</string>
+    <string name="setup_connect_provider">Connect an AI service</string>
+    <string name="setup_provider_detail">A provider is the service that runs your model. Choose its template to fill in the connection details. If the service needs an API key, get it from the provider’s website.</string>
+    <string name="setup_unsure">I don’t know</string>
+    <string name="setup_choose_model">Choose a model</string>
+    <string name="setup_model_detail">Pick a model from %1$s to use for your first conversations.</string>
+    <string name="setup_model_fallback">Check the API address and key, then try again. If your provider doesn’t list models, enter the exact model ID from its website.</string>
+    <string name="setup_use_model">Use this model</string>
+    <string name="setup_help_title">Get help configuring MiniRP</string>
+    <string name="setup_help_detail">Copy this prompt into %1$s, then follow the steps it gives you.</string>
+    <string name="setup_assistants_china">DeepSeek or Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok, or Claude</string>
+    <string name="setup_unknown_region">unknown</string>
+    <string name="setup_copy_prompt">Copy prompt</string>
+    <string name="setup_help_web">Search and webpage fetching</string>
+    <string name="setup_help_intro">I’m new to MiniRP for Android. Please reply in %1$s. My device region is %2$s. First read the official MiniRP guide at %3$s. Let me know if you can’t open it.</string>
+    <string name="setup_help_model_prompt">Help me choose and connect a model provider. Ask where I’ll use it, what I want to do, and my budget. Explain how to create an account and find an API key. Give me the exact MiniRP values for provider template or name, protocol, API address (Base URL), and a starter model ID. MiniRP supports OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, Google Gemini, and Ollama. Walk me through Add provider, Save, and choosing a model.</string>
+    <string name="setup_help_web_prompt">Help me decide whether to set up a Web Search API (real_search) and a Web Fetch API (real_fetch). Compare the two uses separately. Without a research key, MiniRP uses Mwmbl’s free search, followed by search websites in the built-in browser if needed. The same browser can fetch webpages. Check whether those defaults suit me. For the built-in keyed APIs, MiniRP for Android reads the key from a saved DeepSeek provider. Verify availability and access for my account and region in the latest official docs. Explain how to add that provider without switching my chat model, and which Page fetching setting to choose. If you compare other services, say whether they work in MiniRP or need a plugin. Show how to test search and fetching on a public page.</string>
+    <string name="setup_help_research">Use live web searches for every recommendation, and ask me to enable browsing if you can’t access the web. Compare one or two suitable services using current official pricing, subscriptions, and API integration docs, plus recent first-hand experiences from developers who actually integrated them. Consider well-reviewed coding plans, agent plans, and AI subscriptions that include direct API access. Check which options are available in my region. For any such plan you recommend, check whether its terms allow API access from a third-party client such as MiniRP, whether its endpoints support the feature I’m setting up, and what usage limits and overage charges apply. Distinguish official terms from user reports. Explain free and paid options, regional availability, any API credits included in a subscription, and separate pay-as-you-go charges. Link the official sources and developer discussions you checked and give their dates. Give the steps in plain language, one at a time.</string>
+    <string name="setup_help_privacy">Ask me to enter secrets only in the provider’s website or in MiniRP. Never ask me to send you API keys, verification codes, or payment details.</string>
+</resources>

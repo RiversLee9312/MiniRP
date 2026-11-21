@@ -25,7 +25,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
-import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
@@ -62,6 +61,10 @@ fun MiniRP(model: ChatViewModel) {
     }
     val background = rememberPresetBackground(model, state)
     MiniRPTheme(seedColor = state.appearance.themeColor?.let(::Color) ?: background?.seedColor) {
+        if (state.showOnboarding) {
+            FirstRunGuide(state, model)
+            return@MiniRPTheme
+        }
         val navigation = rememberNavController()
         val destination by navigation.currentBackStackEntryAsState()
         val active = destination?.destination
@@ -168,7 +171,7 @@ fun MiniRP(model: ChatViewModel) {
                     startDestination = AppRoute.Chat,
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    composable<AppRoute.Settings> { entry ->
+                    page<AppRoute.Settings> { entry ->
                         SettingsPage(stringResource(R.string.settings), back, snackbars) {
                             DeclaredSettingsScreen(
                                 state.pluginSettings,
@@ -183,19 +186,19 @@ fun MiniRP(model: ChatViewModel) {
                             )
                         }
                     }
-                    composable<AppRoute.Providers> {
+                    page<AppRoute.Providers> {
                         SettingsPage(stringResource(R.string.providers), back, snackbars) {
                             ProvidersScreen(state, model, Modifier.fillMaxSize())
                         }
                     }
-                    composable<AppRoute.Plugins> {
+                    page<AppRoute.Plugins> {
                         SettingsPage(stringResource(R.string.plugins), back, snackbars) {
                             PluginsScreen(state, model, Modifier.fillMaxSize()) { plugin ->
                                 navigation.navigate(AppRoute.PluginDetails(plugin.id)) { launchSingleTop = true }
                             }
                         }
                     }
-                    composable<AppRoute.PluginDetails> { entry ->
+                    page<AppRoute.PluginDetails> { entry ->
                         val id = entry.toRoute<AppRoute.PluginDetails>().id
                         val plugin = state.installedPlugins.firstOrNull { it.id == id }
                         val loaded = state.installedPlugins.isNotEmpty()
@@ -208,7 +211,7 @@ fun MiniRP(model: ChatViewModel) {
                             }
                         }
                     }
-                    composable<AppRoute.PluginPage> { entry ->
+                    page<AppRoute.PluginPage> { entry ->
                         val (plugin, key) = entry.toRoute<AppRoute.PluginPage>()
                         val setting by
                             produceState(
@@ -245,7 +248,7 @@ fun MiniRP(model: ChatViewModel) {
                             }
                         }
                     }
-                    composable<AppRoute.Models> {
+                    page<AppRoute.Models> {
                         SettingsPage(stringResource(R.string.models), back, snackbars) {
                             ModelsScreen(
                                 state,
@@ -256,7 +259,7 @@ fun MiniRP(model: ChatViewModel) {
                             )
                         }
                     }
-                    composable<AppRoute.Chat> {
+                    page<AppRoute.Chat> {
                         val focus = LocalFocusManager.current
                         PageScaffold(
                             topBar = {
@@ -368,7 +371,7 @@ fun MiniRP(model: ChatViewModel) {
                                 }
                         }
                     }
-                    composable<AppRoute.EnsembleChat> { entry ->
+                    page<AppRoute.EnsembleChat> { entry ->
                         val (room, conversation) = entry.toRoute<AppRoute.EnsembleChat>()
                         val info = state.ensembleChats?.firstOrNull { it.id == conversation }
                         LaunchedEffect(room, conversation) {

@@ -13,7 +13,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.minirp.app.R
 import kotlinx.coroutines.CancellationException
@@ -142,11 +141,11 @@ internal fun MemoryScreen(
             Text(message, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
         }
         PageNavHost(navigation, startDestination = MemoryRoute.Notes, modifier = Modifier.weight(1f)) {
-            composable<MemoryRoute.Editor> {
+            page<MemoryRoute.Editor> {
                 val current = note
                 if (current == null) {
                     LaunchedEffect(navigation) { closeEditor() }
-                    return@composable
+                    return@page
                 }
                 Surface(
                     color = BottomSheetDefaults.ContainerColor,
@@ -222,7 +221,7 @@ internal fun MemoryScreen(
                     }
                 }
             }
-            composable<MemoryRoute.Notes> {
+            page<MemoryRoute.Notes> {
                 Surface(
                     color = BottomSheetDefaults.ContainerColor,
                     modifier = Modifier.fillMaxSize(),

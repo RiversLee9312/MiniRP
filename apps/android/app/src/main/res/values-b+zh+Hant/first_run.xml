@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">歡迎使用 MiniRP</string>
+    <string name="setup_welcome_detail">先連接一個 AI 服務，再選擇模型。有了模型就可以聊天和建立預設。</string>
+    <string name="setup_begin">開始設定</string>
+    <string name="setup_connect_provider">連接 AI 服務</string>
+    <string name="setup_provider_detail">供應商就是執行模型的服務。選擇對應的範本會自動填好連線資訊。如果服務需要 API 金鑰，可以從它的官網取得。</string>
+    <string name="setup_unsure">我不懂</string>
+    <string name="setup_choose_model">選擇模型</string>
+    <string name="setup_model_detail">從 %1$s 選擇一個模型，作為聊天時預設使用的模型。</string>
+    <string name="setup_model_fallback">檢查 API 位址和金鑰後重試。若服務沒有提供模型清單，可以輸入官網給出的完整模型 ID。</string>
+    <string name="setup_use_model">使用這個模型</string>
+    <string name="setup_help_title">請 AI 協助設定</string>
+    <string name="setup_help_detail">將下方這段提示詞複製給%1$s，再跟著它一步一步操作。</string>
+    <string name="setup_assistants_china">DeepSeek 或千問</string>
+    <string name="setup_assistants_global">ChatGPT、Grok 或 Claude</string>
+    <string name="setup_unknown_region">未識別</string>
+    <string name="setup_copy_prompt">複製提示詞</string>
+    <string name="setup_help_web">搜尋與網頁擷取</string>
+    <string name="setup_help_intro">我是 MiniRP Android 版的新手。請以 %1$s 回覆。裝置地區是 %2$s。請先閱讀 MiniRP 的官方說明 %3$s。如果無法開啟，請告訴我。</string>
+    <string name="setup_help_model_prompt">請協助我選擇和串接模型供應商。先詢問我實際使用的地區、用途和預算。告訴我在哪裡註冊、如何建立 API 金鑰，以及在 MiniRP 應選哪個供應商範本，填寫什麼名稱、通訊協定、API 位址（Base URL）和入門模型 ID。MiniRP 支援 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Google Gemini 和 Ollama。帶我完成新增供應商、儲存和選擇模型。</string>
+    <string name="setup_help_web_prompt">請協助我決定是否設定網頁搜尋 API（real_search）和網頁擷取 API（real_fetch），分別說明兩者用途。沒有研究金鑰時，MiniRP 使用 Mwmbl 的免費免金鑰搜尋，必要時用內建瀏覽器查詢搜尋網站。也可以用這個本機瀏覽器擷取網頁。先確認預設方案是否夠用。Android 版內建的金鑰 API 從已儲存的 DeepSeek 供應商讀取金鑰。請查最新官方文件，確認我的帳號和地區能否使用，教我新增供應商並保留目前的聊天模型，再說明網頁擷取該選哪一項。若比較其他服務，請說明 MiniRP 能否直接串接，或是否需要外掛。最後用公開網頁示範如何驗證搜尋與擷取。</string>
+    <string name="setup_help_research">所有推薦都必須來自即時網路搜尋。如果無法上網，請先讓我啟用連網功能，請勿用內建知識代替查證。查閱最新的官方定價、訂閱說明與 API 串接文件，也請閱讀近期開發者親自串接後的真實評價，再比較一兩家適合我的服務。把我所在地區可用、開發者評價良好的 Coding Plan、Agent Plan，以及可直接呼叫 API 的 AI 訂閱也納入比較。推薦這類方案前，先確認條款是否允許 MiniRP 這類第三方應用程式呼叫 API、方案提供的介面是否支援我正在設定的功能，並說明用量限制和超額後的計費方式。區分官方條款與個人經驗，說明地區限制、免費與付費方案、訂閱是否包含 API 額度和 API 是否另外按用量收費。附上實際查閱的官方文件與開發者討論連結及日期。請用簡單的方式，每次只教我做一步。</string>
+    <string name="setup_help_privacy">金鑰等隱私資訊只讓我在服務官網或 MiniRP 內填寫。請不要要求我傳送金鑰、驗證碼或付款資訊。</string>
+</resources>

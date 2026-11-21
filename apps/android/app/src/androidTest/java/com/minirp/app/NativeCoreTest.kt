@@ -688,6 +688,8 @@ class NativeCoreTest {
             browser.execute(
                 request("browser_navigate", JSONObject().put("url", server.url("/").toString()))
             )
+            val snapshot = browser.execute(request("browser_snapshot")).getString("snapshot")
+            assertTrue(snapshot.contains("FINALMARKER — " + server.url("/end")))
             val page = browser.execute(request("capture_page"))
             assertTrue(page.getString("content").length > 150_000)
             assertTrue(page.getString("content").contains("FINALMARKER"))

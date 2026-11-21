@@ -288,18 +288,33 @@ class NavigationTest {
         compose.runOnIdle {
             compose.activity.navigationEventDispatcher.addInput(input)
         }
-        fun startGesture(edge: Int) {
+        fun drag(edge: Int, progress: Float) {
+            compose.runOnIdle { input.backProgressed(NavigationEvent(progress = progress, swipeEdge = edge)) }
+        }
+        fun startGesture(edge: Int, progress: Float = 0.35f) {
             compose.runOnIdle {
                 input.backStarted(NavigationEvent(swipeEdge = edge))
-                input.backProgressed(NavigationEvent(progress = 0.35f, swipeEdge = edge))
+                input.backProgressed(NavigationEvent(progress = progress, swipeEdge = edge))
             }
         }
         try {
-            startGesture(NavigationEvent.EDGE_LEFT)
+            startGesture(NavigationEvent.EDGE_LEFT, 0.2f)
             compose.waitUntil(5_000) { gear.isDisplayed() }
             toolbar.assertIsDisplayed()
             assertTrue(toolbar.xInRoot() > original.left)
             assertTrue(gear.xInRoot() < chatX)
+            val outgoingWhileHeld = mutableListOf(toolbar.xInRoot())
+            val incomingWhileHeld = mutableListOf(gear.xInRoot())
+            for (progress in listOf(0.4f, 0.6f)) {
+                drag(NavigationEvent.EDGE_LEFT, progress)
+                outgoingWhileHeld += toolbar.xInRoot()
+                incomingWhileHeld += gear.xInRoot()
+            }
+            for (positions in listOf(outgoingWhileHeld, incomingWhileHeld)) {
+                val travel = positions.zipWithNext { first, next -> next - first }
+                assertTrue("Equal gesture increments should travel equal distances: $positions",
+                    travel[0] > 0 && kotlin.math.abs(travel[1] - travel[0]) <= 2f)
+            }
             compose.runOnIdle { input.backCancelled() }
             compose.onNodeWithText(providers).assertIsDisplayed()
             assertEquals(original, toolbar.fetchSemanticsNode().boundsInRoot)
@@ -326,7 +341,7 @@ class NavigationTest {
             val enterTravel = incoming.zipWithNext { first, next -> next - first }
             assertTrue("Outgoing page reversed after release: $outgoing", exitTravel.all { it >= 0 })
             assertTrue("Incoming page reversed after release: $incoming", enterTravel.all { it >= 0 })
-            assertTrue("Outgoing page should speed up: $exitTravel", exitTravel[2] > exitTravel[1])
+            assertTrue("Outgoing page should speed up: $outgoing ($exitTravel)", exitTravel[2] > exitTravel[1])
             assertTrue("Incoming page should slow down: $enterTravel", enterTravel[1] > enterTravel[2] && enterTravel[2] > 0)
             compose.mainClock.autoAdvance = true
             gear.assertIsDisplayed()

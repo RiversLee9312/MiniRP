@@ -149,7 +149,12 @@ internal constructor(
                 client.events.collect { event ->
                     when (event.optString("kind")) {
                         "ready" -> {
-                            receive(event)
+                            val showOnboarding = !options.optBoolean(
+                                "onboarding_complete",
+                                providers.isNotEmpty() || savedPreset.isNotBlank() ||
+                                    event.optString("preset").isNotBlank(),
+                            )
+                            receiveReady(event, showOnboarding)
                             if (
                                 savedPreset.isNotBlank() && savedPreset != event.optString("preset")
                             ) {
@@ -215,35 +220,29 @@ internal constructor(
         return LibraryFeed(preset, factory, viewModelScope)
     }
 
+    private fun receiveReady(event: JSONObject, showOnboarding: Boolean) {
+        val initial = event.optString("preset")
+        val config = event.optJSONObject("config")
+        selectLibraryPreset(initial)
+        mutableState.update {
+            it.copy(
+                ready = true,
+                showOnboarding = showOnboarding,
+                preset = initial,
+                presetName = event.optString("preset_name", initial),
+                appearance = config.presetAppearance(),
+                chatMode = config?.optString("chat_mode", "character") ?: "character",
+                chatGreeting = config.hasChatGreeting(),
+                agenticSearch = config?.optBoolean("agentic_search", true) ?: true,
+                catalog = event.optJSONArray("catalog")?.objects()?.map(::decodeProvider).orEmpty(),
+            )
+        }
+        command("plugins_list")
+        command("plugin_settings")
+    }
+
     private fun receive(event: JSONObject, loadedBlocks: List<TraceBlock>? = null) {
         when (event.optString("kind")) {
-            "ready" -> {
-                val initial = event.optString("preset")
-                selectLibraryPreset(initial)
-                mutableState.update {
-                    it.copy(
-                        ready = true,
-                        preset = initial,
-                        presetName = event.optString("preset_name", initial),
-                        appearance = event.optJSONObject("config").presetAppearance(),
-                        chatMode =
-                            event.optJSONObject("config")?.optString("chat_mode", "character")
-                                ?: "character",
-                        chatGreeting = event.optJSONObject("config").hasChatGreeting(),
-                        agenticSearch =
-                            event.optJSONObject("config")?.optBoolean("agentic_search", true)
-                                ?: true,
-                        catalog =
-                            event
-                                .optJSONArray("catalog")
-                                ?.objects()
-                                ?.map(::decodeProvider)
-                                .orEmpty(),
-                    )
-                }
-                command("plugins_list")
-                command("plugin_settings")
-            }
             "library_changed" -> {
                 val preset = event.optString("preset")
                 if (preset.isBlank() || event.optBoolean("presets_changed"))
@@ -1116,6 +1115,20 @@ internal constructor(
         refreshModels(config)
     }
 
+    fun finishOnboarding(model: SavedModel) {
+        mutableState.update {
+            if (!it.showOnboarding || model.choice.id.isBlank() || it.providers.none { provider -> provider.id == model.provider }) {
+                it
+            } else {
+                it.withSavedModel(model, enabled = true).copy(
+                    assignments = it.assignments + (AgentRole.Chat to model),
+                    showOnboarding = false,
+                )
+            }
+        }
+        persist()
+    }
+
     fun deleteProvider(id: String) {
         mutableState.update {
             it.copy(
@@ -1129,18 +1142,19 @@ internal constructor(
     }
 
     fun enableModel(model: SavedModel, enabled: Boolean) {
-        mutableState.update {
-            val models = it.savedModels.filterNot { candidate -> candidate.sameModel(model) }
-            it.copy(
-                savedModels = if (enabled) models + model else models,
-                assignments =
-                    if (enabled && AgentRole.Chat !in it.assignments)
-                        it.assignments + (AgentRole.Chat to model)
-                    else if (enabled) it.assignments
-                    else it.assignments.filterValues { candidate -> !candidate.sameModel(model) },
-            )
-        }
+        mutableState.update { it.withSavedModel(model, enabled) }
         persist()
+    }
+
+    private fun ChatState.withSavedModel(model: SavedModel, enabled: Boolean): ChatState {
+        val models = savedModels.filterNot { it.sameModel(model) }
+        return copy(
+            savedModels = if (enabled) models + model else models,
+            assignments =
+                if (enabled && AgentRole.Chat !in assignments) assignments + (AgentRole.Chat to model)
+                else if (enabled) assignments
+                else assignments.filterValues { !it.sameModel(model) },
+        )
     }
 
     fun setCompaction(model: SavedModel, settings: CompactionSettings) {
@@ -1210,6 +1224,7 @@ internal constructor(
         current.assignments.forEach { (role, model) ->
             configuration(model)?.let { assignments.put(role.id, it) }
         }
+        val mainlandChina = usesMainlandChina(workspace.resources.configuration.locales[0], workspace.deviceLocale())
         command("configure") {
             put(
                 "provider",
@@ -1221,6 +1236,7 @@ internal constructor(
                 "settings",
                 JSONObject()
                     .put("fetch_backend", current.fetchMode)
+                    .put("search_region", if (mainlandChina) "CN" else "")
                     .put("android_open_ui", openUiInstructions)
                     .put(
                         "search_key",
@@ -1249,6 +1265,7 @@ internal constructor(
                             .put("preset", current.preset)
                             .put("chat", current.chatId)
                             .put("cot", current.expandThoughts)
+                            .put("onboarding_complete", !current.showOnboarding)
                             .put("fetch", current.fetchMode),
                     )
                 } catch (cancelled: CancellationException) {

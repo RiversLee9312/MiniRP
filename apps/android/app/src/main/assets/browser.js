@@ -9,7 +9,8 @@
       let ref = el.dataset.minirpRef;
       if (!ref) { ref = 'e' + ++counter; el.dataset.minirpRef = ref; elements.set(ref, el); }
       const label = (el.innerText || el.getAttribute('aria-label') || el.placeholder || '').trim();
-      if (label) lines.push(`[${ref}] ${el.tagName.toLowerCase()} ${label}`);
+      const href = el.tagName === 'A' && /^https?:\/\//i.test(el.href) ? ` — ${el.href}` : '';
+      if (label) lines.push(`[${ref}] ${el.tagName.toLowerCase()} ${label}${href}`);
     }
     return {url:location.href,title:document.title,snapshot:lines.join('\n')};
   }

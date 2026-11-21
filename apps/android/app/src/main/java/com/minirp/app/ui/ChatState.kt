@@ -115,6 +115,7 @@ data class ChatState(
     val busy: Boolean = false,
     val generating: AgentRole? = null,
     val ready: Boolean = false,
+    val showOnboarding: Boolean = false,
     val submitting: Boolean = false,
     val preset: String = "",
     val chatName: String = "",
