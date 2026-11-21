@@ -1,20 +1,37 @@
 # MiniRP
 
-.NET 10 / C# 对话 Harness。桌面使用 Terminal.Gui，Android 使用 Kotlin + Jetpack Compose Material 3 Expressive；两端通过 UTF-8 C ABI 调用同一个 NativeAOT 核心。
+**原生 Agentic 角色扮演。用一句话交代你想玩什么。**
 
-安装包见 [GitHub Releases](https://github.com/RiversLee9312/MiniRP/releases)。从旧版升级时，Android 可直接覆盖安装。桌面解压后运行 `minirp.exe <旧工作区路径>`，继续使用已有对话、预设和模型配置。旧的 `MINICHAT_*` 配置键仍可读取，新配置建议使用 `MINIRP_*`。
+在 MiniRP 里，你可以把设定文档或角色卡发进对话，也可以直接描述脑海里的世界。Agent 会读取资料、搭建预设、操作工具并保存结果。遇到需要你决定的玩法，它会在对话里问你。
 
-## Agent
+[下载 Android 和 Windows 版](https://github.com/RiversLee9312/MiniRP/releases) · [预设玩法](docs/presets/workflows.md) · [插件开发](docs/plugins/getting-started.md)
+
+## 从一句话开始
+
+- **把设定变成可玩的预设。**「把这张角色卡和我的设定文档导进去，开场让我在码头收到一封匿名信。」PresetAgent 读取附件，整理角色、世界规则和故事开场。
+- **让剧情有资料可依。**「查一下灯塔守夜人以前是怎么值班的，用查到的细节来写今晚的巡查。」ChatAgent 可以让 SearchAgent 查找来源，必要时由 FetchAgent 打开网页读取正文。
+- **把剧情变化记进世界。**「港口停电了，把这条事实记下来，推进到下一班岗。」在世界面板发给 EnvAgent，它会更新当前世界的状态。
+- **当场做出能用的界面。**「做一张补给计算卡，改人数和天数时马上算出要带多少食物。」Android 对话里可以生成可直接操作的 OpenUI 卡片。
+- **给预设加一项长期玩法。**「给这个预设做一个线索板，把找到的线索保存下来。」PresetAgent 可以委派 PluginAgent 开发和调试，并按你的要求为该预设部署。
+
+展开工具轨迹就能看到 Agent 查了哪些来源、用了哪些工具。你可以随时取消当前任务。想尝试另一条剧情时，可以从已有对话分支，带上当时的世界和 Agent 状态一起继续。
+
+## 安装
+
+Android ARM64 下载 `MiniRP.apk`，可直接覆盖升级。Windows x64 解压 `MiniRP-Windows-x64.zip` 后运行 `minirp.exe`，也可以传入旧工作区路径，继续使用已有对话、预设和模型配置。旧的 `MINICHAT_*` 配置键仍可读取，新配置建议使用 `MINIRP_*`。
+
+## Agent 如何分工
 
 - **ChatAgent**：主对话，调用 agentic 搜索和网页工具；system prompt 可按预设配置，支持 `{date}`。
 - **EnvAgent**：编辑事实、世界状态和剧情日期。修改暂存，完成后提交。
 - **PresetAgent**：用精确工具编辑预设，也能读取设定文档和角色卡，整理角色、世界规则和开场。Android 在预设对话中用文件选择器发送，桌面打开预设面板后用 `/attach`。未完成的预设打开时会继续进入 PresetAgent，直到它调用工具完成设置。
 - **SearchAgent**：每轮完成一次搜索或网页请求，自主决定是否搜索、搜索多少轮、抓取哪些页面，以及召回、编辑和缓存哪些材料。最终结果数量不设上限。
 - **FetchAgent**：临时浏览器 Agent，操作网页、采集全文、在 DB 中精修 Markdown，再提交正文和单独的摘要。
+- **PluginAgent**：接手 PresetAgent 委派的插件开发，编写、调试、签名和部署属于该预设的插件。
 
 Agent 共用 `AgentSession` 的流式事件、工具循环、取消、上下文压缩和记忆工具。UI 展开/折叠只影响展示，不修改模型请求中的思考设置。
 
-ChatAgent 可激活 `container` 技能运行 x86-64 Alpine 中的命令，并在会话 Asset 和客户机文件间传递数据。Android 和 Windows x64 随包提供运行时和镜像，工作目录随分支和存档迁移。构建前准备同一份 [Agent 容器镜像和两端运行时](docs/project/agent-container.md)。
+ChatAgent 和 PresetAgent 可激活 `container` 技能运行 x86-64 Alpine 中的命令，并在会话 Asset 和客户机文件间传递数据。Android 和 Windows x64 随包提供运行时和镜像，工作目录随分支和存档迁移。构建前准备同一份 [Agent 容器镜像和两端运行时](docs/project/agent-container.md)。
 
 ## 运行桌面版
 
@@ -129,6 +146,8 @@ Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己�
 [开发、签名与安装](docs/plugins/getting-started.md) · [完整 API 参考](docs/plugins/README.md) · [插件 SDK](sdk/javascript/) · [示例插件](examples/stream-assets/plugin/) · [MIT 许可证](LICENSE)
 
 ## 代码与验证
+
+MiniRP 的核心使用 .NET 10 和 C#。桌面使用 Terminal.Gui，Android 使用 Kotlin 和 Jetpack Compose Material 3 Expressive，两端通过 UTF-8 C ABI 调用同一个 NativeAOT 核心。
 
 [项目结构](docs/project/README.md)列出 HarnessCore、桌面、Android、测试、SDK 和构建入口。
 
