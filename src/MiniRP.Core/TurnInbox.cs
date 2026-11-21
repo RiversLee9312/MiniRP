@@ -4,13 +4,14 @@ namespace MiniRP.Core;
 
 /// <summary>Messages addressed to the active turn. Only the model stream is interrupted.</summary>
 internal sealed class TurnInbox(string chat, string session, Func<JsonObject, string?> accept, bool keepOpen = false,
-    string conversation = "")
+    string conversation = "", string preset = "")
 {
     public string Agent => session;
     private readonly object gate = new();
     private readonly Queue<JsonObject> queue = new();
     private CancellationTokenSource? generation;
     private bool sealedInbox;
+    private bool systemMessagesChanged;
 
     public bool TryPost(string targetChat, string role, JsonObject message, string targetConversation = "")
     {
@@ -50,12 +51,27 @@ internal sealed class TurnInbox(string chat, string session, Func<JsonObject, st
         return true;
     }
 
+    public void SteerSystemMessages(string owner)
+    {
+        lock (gate)
+        {
+            if (sealedInbox || session != "preset" || preset != owner) return;
+            systemMessagesChanged = true;
+            generation?.Cancel();
+        }
+    }
+
+    public void ClearSystemMessageSignal()
+    {
+        lock (gate) systemMessagesChanged = false;
+    }
+
     public CancellationTokenSource BeginGeneration(CancellationToken token)
     {
         lock (gate)
         {
             generation = CancellationTokenSource.CreateLinkedTokenSource(token);
-            if (queue.Count > 0)
+            if (queue.Count > 0 || systemMessagesChanged)
             {
                 generation.Cancel();
             }

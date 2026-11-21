@@ -70,6 +70,12 @@
     <string name="thinking">Tenking</string>
     <string name="thinking_off">Av</string>
     <string name="thinking_on">På</string>
+    <string name="model_settings">Modellinnstillinger</string>
+    <string name="thinking_effort">Tenkeinnsats</string>
+    <string name="thinking_effort_default">Standard</string>
+    <string name="thinking_effort_unavailable">Leverandøren rapporterer ikke tenkenivåer for denne modellen.</string>
+    <string name="thinking_effort_loading">Laster inn tenkenivåer…</string>
+    <string name="thinking_effort_load_failed">Kunne ikke laste inn tenkenivåer.</string>
     <string name="context_size">Kontekststørrelse</string>
     <string name="max_output">Maksimal utdata</string>
     <string name="no_provider_configured">Legg til en tilbyder for å velge en modell.</string>
@@ -168,4 +174,18 @@
     <string name="export_preset">Eksporter forhåndsinnstilling</string>
     <string name="export_save">Eksporter lagring</string>
     <string name="import_save">Importer lagring</string>
+    <string name="plugin_agent">Programtilleggsagent</string>
+    <string name="plugin_agent_activity">Aktivitet for programtilleggsagenten</string>
+    <string name="use_preset_model">Bruk forhåndsinnstillingens modell</string>
+    <string name="plugin_run">Kjøring %1$d</string>
+    <string name="plugin_run_finished">Fullført</string>
+    <string name="plugin_run_failed">Mislyktes</string>
+    <string name="plugin_run_cancelled">Avbrutt</string>
+    <string name="plugin_run_interrupted">Ble avbrutt</string>
+    <string name="plugin_run_archived">Arkivert</string>
+    <string name="preset_home_hint">Trykk på navnet på forhåndsinnstillingen for å åpne agenten.</string>
+    <string name="preset_chat_hint">Åpne Flere alternativer og velg Forhåndsinnstilling for å snakke med agenten.</string>
+    <string name="research_apis">Søke- og hente-API-er</string>
+    <string name="research_search_provider">API for nettsøk</string>
+    <string name="research_fetch_provider">API for sidehenting</string>
 </resources>

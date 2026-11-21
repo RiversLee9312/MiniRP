@@ -7,16 +7,23 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
@@ -32,6 +39,7 @@ import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.printToString
+import androidx.compose.ui.test.swipeDown
 import androidx.core.app.ActivityOptionsCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -39,6 +47,7 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.test.platform.app.InstrumentationRegistry
 import com.minirp.app.data.Preferences
 import com.minirp.app.core.CoreClient
 import com.minirp.app.ui.ChatViewModel
@@ -46,6 +55,8 @@ import com.minirp.app.ui.MiniRP
 import java.io.File
 import java.security.MessageDigest
 import java.util.Base64
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipFile
@@ -70,14 +81,19 @@ class PlatformToolFlowTest {
     @get:Rule val temporary = TemporaryFolder()
 
     @Test
-    fun newPresetDelegatesFirstSigningDebuggingAndPublishingThenRollsDice() {
+    fun newPresetDelegatesFirstSigningDebuggingAndPublishingThenRollsDice() = checkPluginFlow(steer = false)
+
+    @Test
+    fun pluginResultSteersPresetAfterTheFinalWait() = checkPluginFlow(steer = true)
+
+    private fun checkPluginFlow(steer: Boolean) {
         val app = compose.activity.application
         val directory = temporary.newFolder()
         val context = object : ContextWrapper(app) {
             override fun getFilesDir(): File = directory
         }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        val fixture = ToolModel(directory.resolve("workspace"))
+        val fixture = ToolModel(directory.resolve("workspace"), steer)
         MockWebServer().use { server ->
             server.dispatcher = fixture
             server.start()
@@ -96,7 +112,9 @@ class PlatformToolFlowTest {
                             "model" to "fixture",
                             "url" to server.url("/v1").toString(),
                         )),
-                        JSONObject(),
+                        json("models" to JSONArray()
+                            .put(json("provider" to "fixture", "id" to "fixture", "name" to "Parent model"))
+                            .put(json("provider" to "fixture", "id" to "plugin-fixture", "name" to "Worker model"))),
                     )
                 }
                 val model = compose.runOnIdle {
@@ -152,10 +170,83 @@ class PlatformToolFlowTest {
                 }
                 val savedPreset = directory.resolve("workspace/presets/${model.state.value.preset}.json")
                 assertEquals("real", JSONObject(savedPreset.readText()).getString("date_mode"))
+                fun pressedBack() = InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+                fun sheetIcon(id: Int) = compose.onNode(hasContentDescription(label(id)) and hasAnyAncestor(isDialog()))
+                val sheetHandle = compose.onNodeWithTag("sheet-drag-handle", useUnmergedTree = true)
+                if (!steer) {
+                    sheetIcon(R.string.close).assertDoesNotExist()
+                    sheetHandle.assertDoesNotExist()
+                    compose.onNode(hasTestTag("transcript") and hasAnyAncestor(isDialog()))
+                        .performTouchInput { swipeDown() }
+                    assertTrue(model.state.value.presetEditorOpen)
+                    pressedBack()
+                    waitFor { sheetIcon(R.string.settings).isDisplayed() }
+                    assertTrue(model.state.value.presetEditorOpen)
+                    sheetIcon(R.string.settings).performClick()
+                    val settingsTitle = compose.onNodeWithText(label(R.string.settings))
+                    waitFor { settingsTitle.isDisplayed() }
+                    assertTrue(model.state.value.presetSetupPending && model.state.value.presetEditorOpen)
+                    compose.onNodeWithContentDescription(label(R.string.back)).performClick()
+                    waitFor { sheetIcon(R.string.open_menu).isDisplayed() }
+                    sheetIcon(R.string.open_menu).performClick()
+                    val presetLibrary = compose.onNode(hasTestTag("library-presets") and hasAnyAncestor(isDialog()))
+                    waitFor { presetLibrary.isDisplayed() }
+                    pressedBack()
+                    waitFor { !presetLibrary.isDisplayed() }
+                    assertTrue(model.state.value.presetEditorOpen)
+                }
+                val activity = compose.onNodeWithTag("plugin-agent-activity")
+                activity.assertDoesNotExist()
+                val pluginModels = compose.onNodeWithTag("agent-model:plugin")
+                pluginModels.assertTextContains("Parent model").performClick()
+                compose.onNodeWithText("Worker model").performClick()
+                waitFor { pluginModels.isDisplayed() }
+                pluginModels.assertTextContains("Worker model")
                 send(SetupRequest, inPresetEditor = true)
+                waitFor { activity.isDisplayed() }
+                activity.assertTextContains(label(R.string.running)).performClick()
+                val running = model.state.value.blocks.single { it.pluginStatus == "running" }
+                assertTrue(running.pluginAgentId.isNotBlank())
+                val workerRow = compose.onNodeWithTag("plugin-agent:${running.pluginAgentId}")
+                waitFor { workerRow.isDisplayed() }
+                workerRow.assertTextContains(ProjectName)
+                    .assertTextContains(label(R.string.running)).performClick()
+                val trace = compose.onNodeWithTag("plugin-agent-trace")
+                waitFor { trace.isDisplayed() }
+                waitFor {
+                    if (steer) fixture.parentAnswerStarted.count == 0L && model.state.value.generating?.id == "preset"
+                    else !model.state.value.busy && model.state.value.blocks.any { it.content == WaitingForWorker }
+                }
+                fixture.continueWorker.countDown()
                 waitFor {
                     !model.state.value.busy && model.state.value.blocks.any { it.content == SetupReply } &&
                         model.state.value.installedPlugins.any { it.name == ProjectName }
+                }
+                if (steer) assertFalse(model.state.value.blocks.any { it.content == WaitingForWorker })
+                waitFor {
+                    compose.onNodeWithText("Plugin published.").isDisplayed() &&
+                        compose.onNodeWithText(label(R.string.plugin_run_finished)).isDisplayed()
+                }
+                pressedBack()
+                try {
+                    compose.waitUntil(5_000) { workerRow.isDisplayed() }
+                } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+                    throw AssertionError(
+                        "Back from worker trace. Editor open=${model.state.value.presetEditorOpen}, " +
+                            "trace visible=${trace.isDisplayed()}, setup pending=${model.state.value.presetSetupPending}",
+                        failure,
+                    )
+                }
+                workerRow.assertTextContains(label(R.string.plugin_run_finished))
+                sheetIcon(R.string.back).performClick()
+                try {
+                    compose.waitUntil(5_000) { activity.isDisplayed() }
+                } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+                    throw AssertionError(
+                        "Back from the worker list. Editor open=${model.state.value.presetEditorOpen}, " +
+                            "list visible=${workerRow.isDisplayed()}, close visible=${sheetIcon(R.string.close).isDisplayed()}",
+                        failure,
+                    )
                 }
                 val calendar = JSONObject(savedPreset.readText())
                 assertEquals("plugin", calendar.getString("date_mode"))
@@ -163,11 +254,55 @@ class PlatformToolFlowTest {
                 val worker = model.state.value.blocks.single { it.pluginStatus == "finished" }
                 assertEquals(ProjectName, worker.pluginAgentName)
                 assertTrue(model.state.value.blocks.any { it.pluginRun == worker.pluginRun && it.content == "Plugin published." })
-                compose.onNodeWithContentDescription(label(R.string.close)).performClick()
+                waitFor { sheetIcon(R.string.close).isDisplayed() }
+                sheetHandle.assertIsDisplayed()
+                sheetIcon(R.string.open_menu).assertDoesNotExist()
+                sheetIcon(R.string.settings).assertDoesNotExist()
+                sheetIcon(R.string.close).performClick()
                 waitFor { !model.state.value.presetEditorOpen }
+                if (!steer) {
+                    waitFor { compose.onNodeWithText(label(R.string.preset_home_hint)).isDisplayed() }
+                    compose.onNode(
+                        hasText(model.state.value.presetName) and hasClickAction() and
+                            SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)
+                    ).performClick()
+                    waitFor { sheetIcon(R.string.close).isDisplayed() }
+                    sheetIcon(R.string.close).performClick()
+                    waitFor { !model.state.value.presetEditorOpen }
+                    assertTrue(model.state.value.presetHomeHintSeen)
+
+                    val finishedPreset = model.state.value.preset
+                    compose.onNodeWithContentDescription(label(R.string.open_menu)).performClick()
+                    val library = compose.onNodeWithTag("library-presets")
+                    waitFor { library.isDisplayed() }
+                    library.performClick()
+                    val createDraft = compose.onNodeWithContentDescription(label(R.string.create_preset))
+                    waitFor { createDraft.isDisplayed() }
+                    createDraft.performClick()
+                    waitFor {
+                        model.state.value.preset != finishedPreset && model.state.value.presetSetupPending &&
+                            model.state.value.presetEditorOpen && !model.state.value.busy
+                    }
+                    sheetIcon(R.string.open_menu).performClick()
+                    val previousPreset = compose.onNode(
+                        hasText(FinishedPresetName) and hasAnyAncestor(isDialog()) and hasClickAction()
+                    )
+                    waitFor { previousPreset.isDisplayed() }
+                    previousPreset.performClick()
+                    waitFor { model.state.value.preset == finishedPreset && !model.state.value.presetEditorOpen }
+                }
                 send(DiceRequest)
                 waitFor {
                     !model.state.value.busy && model.state.value.blocks.any { it.content == DiceReply }
+                }
+                if (!steer) {
+                    waitFor { compose.onNodeWithText(label(R.string.preset_chat_hint)).isDisplayed() }
+                    compose.onNodeWithContentDescription(label(R.string.more_options)).performClick()
+                    compose.onNodeWithText(label(R.string.preset)).performClick()
+                    waitFor { sheetIcon(R.string.close).isDisplayed() }
+                    sheetIcon(R.string.close).performClick()
+                    waitFor { !model.state.value.presetEditorOpen }
+                    assertTrue(model.state.value.presetChatHintSeen)
                 }
                 val pdf = directory.resolve("asset-probe.pdf")
                 val fixturePdf = PdfDocument()
@@ -296,13 +431,18 @@ class PlatformToolFlowTest {
                 }
                 assertNull(fixture.failure.get())
             } finally {
+                fixture.continueWorker.countDown()
+                fixture.releaseParentAnswer.countDown()
                 scope.cancel()
             }
         }
     }
 
-    private class ToolModel(private val workspace: File) : Dispatcher() {
+    private class ToolModel(private val workspace: File, private val steer: Boolean) : Dispatcher() {
         val failure = AtomicReference<Throwable>()
+        val continueWorker = CountDownLatch(1)
+        val parentAnswerStarted = CountDownLatch(1)
+        val releaseParentAnswer = CountDownLatch(1)
         private val presetRound = AtomicInteger()
         private val workerRound = AtomicInteger()
         private val diceRound = AtomicInteger()
@@ -321,11 +461,19 @@ class PlatformToolFlowTest {
             val history = (0 until messages.length()).map(messages::getJSONObject)
             val result = history.lastOrNull { it.optString("role") == "tool" }?.optString("content").orEmpty()
             val delta = when {
-                system.startsWith("You are PluginAgent working on") -> workerReply(result, history)
+                system.startsWith("You are PluginAgent working on") -> {
+                    assertEquals("plugin-fixture", body.getString("model"))
+                    if (workerRound.get() == 0)
+                        assertTrue("The PluginAgent trace did not open", continueWorker.await(30, TimeUnit.SECONDS))
+                    workerReply(result, history)
+                }
                 !body.has("tools") -> json("content" to "Tabletop test")
                 history.any { it.optString("content").startsWith(AssetRequest) } -> assetReply(result, history)
                 history.any { it.optString("content") == DiceRequest } -> diceReply(result)
-                history.any { it.optString("content") == SetupRequest } -> presetReply(result)
+                history.any { it.optString("content") == SetupRequest } -> {
+                    assertEquals("fixture", body.getString("model"))
+                    presetReply(result, history)
+                }
                 else -> json("content" to Interview)
             }
             val data = json("choices" to JSONArray().put(json("delta" to delta)))
@@ -336,7 +484,7 @@ class PlatformToolFlowTest {
             MockResponse.Builder().code(500).body("Unexpected tool flow").build()
         }
 
-        private fun presetReply(result: String): JSONObject = when (presetRound.getAndIncrement()) {
+        private fun presetReply(result: String, history: List<JSONObject>): JSONObject = when (presetRound.getAndIncrement()) {
             0 -> tools(tool("configure_experience", "mode" to "tabletop", "agentic_search" to false))
             1 -> tools(tool("configure_date", "mode" to "plugin", "initial_date" to "2032-02-29"))
             2 -> {
@@ -344,14 +492,27 @@ class PlatformToolFlowTest {
                 tools(tool("activate_skill", "name" to "base-plugin-development"))
             }
             3 -> tools(tool("plugin_base_plugin_spawn", "name" to ProjectName, "message" to "Debug the draft, iterate on its card, then publish it."))
-            4 -> tools(tool("plugin_base_plugin_wait", "ids" to JSONArray().put(JSONObject(result).getString("id")), "seconds" to 20))
+            4 -> tools(tool("plugin_base_plugin_wait", "ids" to JSONArray().put(JSONObject(result).getString("id")), "seconds" to 1))
             5 -> {
                 val child = JSONArray(result).getJSONObject(0)
-                assertEquals(child.optString("result"), "finished", child.getString("status"))
-                assertEquals("Plugin published.", child.getString("result"))
-                tools(tool("finish_preset_setup"))
+                assertEquals("running", child.getString("status"))
+                if (steer) {
+                    parentAnswerStarted.countDown()
+                    assertTrue("The waiting preset request was never steered",
+                        releaseParentAnswer.await(30, TimeUnit.SECONDS))
+                }
+                json("content" to WaitingForWorker)
             }
             6 -> {
+                val notice = history.single { it.optString("content").startsWith("PluginAgent task status update.") }
+                assertEquals("system", notice.getString("role"))
+                val child = JSONObject(notice.getString("content").substringAfter('\n'))
+                assertEquals("finished", child.getString("status"))
+                assertEquals("Plugin published.", child.getString("result"))
+                releaseParentAnswer.countDown()
+                tools(tool("set_value", "path" to "name", "value" to FinishedPresetName), tool("finish_preset_setup"))
+            }
+            7 -> {
                 assertTrue(JSONObject(result).getBoolean("completed"))
                 json("content" to SetupReply)
             }
@@ -641,7 +802,9 @@ class PlatformToolFlowTest {
     private companion object {
         const val Interview = "What should your tabletop preset do?"
         const val ProjectName = "Signing flow fixture"
+        const val FinishedPresetName = "Fixture tabletop"
         const val SetupRequest = "Create a tabletop preset whose plugin-managed calendar starts on 2032-02-29. Delegate, debug, and publish a small plugin."
+        const val WaitingForWorker = "The plugin is still being built."
         const val SetupReply = "The tabletop preset and plugin are ready."
         const val DiceRequest = "Roll thirty dice with a modifier of minus seven."
         const val DiceReply = "The dice results were checked."

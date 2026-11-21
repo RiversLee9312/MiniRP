@@ -124,8 +124,11 @@ internal constructor(
                         providers = providers,
                         savedModels = saved,
                         assignments = assignments,
+                        presetHomeHintSeen = options.optBoolean("preset_home_hint_seen"),
+                        presetChatHintSeen = options.optBoolean("preset_chat_hint_seen"),
                         expandThoughts = options.optBoolean("cot"),
                         fetchMode = options.optString("fetch", "api_then_local"),
+                        research = decodeResearchSettings(options),
                     )
                 }
                 val client =
@@ -465,6 +468,7 @@ internal constructor(
                         id,
                         event.optString("agent"),
                         speaker = event.optString("speaker"),
+                        pluginAgentId = event.optString("plugin_agent"),
                         pluginRun = event.optString("plugin_run", event.optString("plugin_agent")),
                         pluginAgentName = event.optString("plugin_agent_name"),
                     )
@@ -563,6 +567,7 @@ internal constructor(
                     else -> catalog.copy(loading = event.optBoolean("value"))
                 }
             val discovered = changed.choices.associateBy { it.id }
+            val ollama = current.providers.find { it.id == id }?.protocol == "ollama"
             fun refresh(model: SavedModel): SavedModel {
                 if (model.provider != id) return model
                 val choice = discovered[model.choice.id] ?: return model
@@ -570,7 +575,10 @@ internal constructor(
                     choice = choice.copy(
                         contextWindow = choice.contextWindow.takeIf { it > 0 } ?: model.choice.contextWindow,
                         maxOutput = choice.maxOutput.takeIf { it > 0 } ?: model.choice.maxOutput,
-                    )
+                    ),
+                    reasoningEffort = model.reasoningEffort.takeIf {
+                        ollama || it in choice.effortLevels
+                    }.orEmpty(),
                 )
             }
             current.copy(
@@ -825,7 +833,7 @@ internal constructor(
 
     fun openPresetEditor(create: Boolean = false) {
         val current = state.value
-        if (!current.ready || current.busy || current.preparing || current.presetEditorOpen) return
+        if (!current.ready || current.busy || current.preparing || (!create && current.presetEditorOpen)) return
         if (!create && current.preset.isBlank()) return
         mutableState.update { it.copy(presetEditor = PresetEditorPhase.Opening) }
         viewModelScope.launch {
@@ -891,7 +899,7 @@ internal constructor(
                 if (presetOpeningTrace === trace) presetOpeningTrace = null
                 mutableState.update {
                     if (it.presetEditor == PresetEditorPhase.Opening)
-                        it.copy(presetEditor = PresetEditorPhase.Closed)
+                        it.copy(presetEditor = current.presetEditor)
                     else it
                 }
             }
@@ -899,8 +907,18 @@ internal constructor(
     }
 
     fun closePresetEditor() {
+        if (state.value.presetSetupPending) return
         mutableState.update { it.copy(presetEditor = PresetEditorPhase.Closed) }
         if (editorOwnsTurn) cancelPresetTurn()
+    }
+
+    fun markPresetHintSeen(inChat: Boolean) {
+        val current = state.value
+        if (if (inChat) current.presetChatHintSeen else current.presetHomeHintSeen) return
+        mutableState.update {
+            if (inChat) it.copy(presetChatHintSeen = true) else it.copy(presetHomeHintSeen = true)
+        }
+        persist()
     }
 
     private fun cancelPresetTurn() = command("cancel") { put("agent", AgentRole.Preset.id) }
@@ -1128,6 +1146,12 @@ internal constructor(
         }
     }
 
+    internal suspend fun fetchModelEffortLevels(config: ProviderConfig, model: String): List<String> =
+        engine.await().query(
+            JSONObject().put("op", "model_effort_levels")
+                .put("provider", encodeProvider(config.copy(model = model)))
+        ).effortLevels()
+
     fun saveProvider(config: ProviderConfig) {
         mutableState.update {
             it.copy(providers = it.providers.filterNot { p -> p.id == config.id } + config)
@@ -1178,9 +1202,9 @@ internal constructor(
         )
     }
 
-    fun setCompaction(model: SavedModel, settings: CompactionSettings) {
+    fun saveModelSettings(model: SavedModel, settings: CompactionSettings, reasoningEffort: String) {
         fun update(entry: SavedModel) =
-            if (entry.sameModel(model)) entry.copy(compaction = settings) else entry
+            if (entry.sameModel(model)) entry.copy(compaction = settings, reasoningEffort = reasoningEffort) else entry
         mutableState.update {
             it.copy(
                 savedModels = it.savedModels.map(::update),
@@ -1228,6 +1252,11 @@ internal constructor(
         persist()
     }
 
+    fun researchSettings(settings: ResearchSettings) {
+        mutableState.update { it.copy(research = settings) }
+        persist()
+    }
+
     private fun configure() {
         val current = state.value
         fun configuration(model: SavedModel?): JSONObject? {
@@ -1239,7 +1268,9 @@ internal constructor(
                     contextWindow = choice.contextWindow.takeIf { it > 0 } ?: provider.contextWindow,
                     maxOutput = choice.maxOutput.takeIf { it > 0 } ?: provider.maxOutput,
                 )
-            ).put("input_modalities", choice.inputModalities?.let(::JSONArray)).putCompaction(model.compaction)
+            ).put("input_modalities", choice.inputModalities?.let(::JSONArray))
+                .put("reasoning_effort", model.reasoningEffort)
+                .putCompaction(model.compaction)
         }
         val assignments = JSONObject()
         current.assignments.forEach { (role, model) ->
@@ -1257,6 +1288,9 @@ internal constructor(
                 "settings",
                 JSONObject()
                     .put("fetch_backend", current.fetchMode)
+                    .put("search_provider", current.research.search.id)
+                    .put("fetch_provider", current.research.fetch.id)
+                    .put("research_keys", current.research.encodeKeys())
                     .put("search_region", if (mainlandChina) "CN" else "")
                     .put("android_open_ui", openUiInstructions)
                     .put(
@@ -1287,6 +1321,11 @@ internal constructor(
                             .put("chat", current.chatId)
                             .put("cot", current.expandThoughts)
                             .put("onboarding_complete", !current.showOnboarding)
+                            .put("preset_home_hint_seen", current.presetHomeHintSeen)
+                            .put("preset_chat_hint_seen", current.presetChatHintSeen)
+                            .put("search_provider", current.research.search.id)
+                            .put("fetch_provider", current.research.fetch.id)
+                            .put("research_keys", current.research.encodeKeys())
                             .put("fetch", current.fetchMode),
                     )
                 } catch (cancelled: CancellationException) {

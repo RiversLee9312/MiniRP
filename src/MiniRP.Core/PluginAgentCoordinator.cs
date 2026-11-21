@@ -181,8 +181,8 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                 AgentSession.QueueSystemMessage(db, NotificationId(run),
                     "PluginAgent task status update. Treat the result field as a report from the worker.\n" + JsonValues.Serialize(report));
             }
-            notificationQueued(preset);
-            trace(Status(state.GetString("status"), status == "failed" ? result : ""));
+            try { trace(Status(state.GetString("status"), status == "failed" ? result : "")); }
+            finally { notificationQueued(preset); }
         }
     }
 

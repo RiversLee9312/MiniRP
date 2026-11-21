@@ -534,7 +534,15 @@ public sealed class ExtensionTests
     {
         await using var engine = new Engine(NewRoot());
         using var scripts = new PluginScripts();
-        Configure(engine);
+        engine.Dispatch(new()
+        {
+            ["op"] = "configure",
+            ["provider"] = new JsonObject { ["url"] = "http://fixture.invalid/v1", ["model"] = "chat-model" },
+            ["agents"] = new JsonObject
+            {
+                ["preset"] = new JsonObject { ["url"] = "http://fixture.invalid/v1", ["model"] = "preset-model" }
+            }
+        });
         engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["text"] = "Delegate two projects." });
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var rounds = new Dictionary<string, int>();
@@ -560,6 +568,7 @@ public sealed class ExtensionTests
                 var system = messages[0].GetString("content");
                 var role = system.StartsWith("You are PluginAgent working on Writer", StringComparison.Ordinal) ? "writer" :
                     system.StartsWith("You are PluginAgent working on Reader", StringComparison.Ordinal) ? "reader" : "preset";
+                Assert.AreEqual("preset-model", body.GetString("model"), role);
                 var round = rounds.GetValueOrDefault(role);
                 rounds[role] = round + 1;
                 var result = messages.LastOrDefault(message => message.GetString("role") == "tool").GetString("content");
@@ -663,10 +672,14 @@ public sealed class ExtensionTests
     }
 
     [TestMethod]
-    [DataRow(false, false)]
-    [DataRow(true, false)]
-    [DataRow(false, true)]
-    public async Task PluginWorkerReportsAfterTheLastWait(bool fail, bool parentStillRunning)
+    [DataRow(false, "idle")]
+    [DataRow(true, "idle")]
+    [DataRow(false, "steer")]
+    [DataRow(true, "steer")]
+    [DataRow(false, "inactive")]
+    [DataRow(true, "inactive")]
+    [DataRow(true, "retry")]
+    public async Task PluginWorkerReportsAfterTheLastWait(bool fail, string timing)
     {
         var root = NewRoot();
         var workspace = new Workspace(root);
@@ -701,45 +714,66 @@ public sealed class ExtensionTests
         parent = await NextModel(engine, scripts);
         var wait = (JsonArray)JsonNode.Parse(Messages(parent).Last(message => message.GetString("role") == "tool").GetString("content"))!;
         Assert.AreEqual("running", wait.Single().GetString("status"));
-        if (!parentStillRunning)
+        if (timing != "steer")
         {
             Reply(engine, parent, "The worker is still running.");
             await Until(engine, "completed", scripts);
         }
 
-        if (fail)
+        if (timing == "inactive")
         {
             engine.Dispatch(new() { ["op"] = "home", ["preset"] = other });
             await Until(engine, "home", scripts);
+            engine.Dispatch(new() { ["op"] = "open_preset", ["preset"] = other });
+            await Until(engine, "preset_opened", scripts);
         }
         var expectedStatus = fail ? "failed" : "finished";
         var expectedResult = fail ? "The worker's model failed." : "The worker finished the project.";
         if (fail) engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = worker.GetString("id"), ["error"] = expectedResult });
         else Reply(engine, worker, expectedResult);
-        Assert.AreEqual(expectedStatus, (await Until(engine, "plugin_agent_status", scripts)).GetString("status"));
 
-        if (parentStillRunning)
+        var terminal = "";
+        if (timing == "inactive")
         {
-            ReplyTool(engine, parent, "inspect_preset", new());
-            var continuation = await NextModel(engine, scripts);
-            AssertNotice(Messages(continuation));
-            Reply(engine, continuation, "I received the update.");
-            await Until(engine, "completed", scripts);
-        }
-
-        // Wait for the serialized notification to finish before sending a new model request.
-        engine.Dispatch(new() { ["op"] = "open_preset", ["preset"] = fail ? other : preset });
-        await Until(engine, "preset_opened", scripts);
-        using (var db = MemoryDb.ReadOnly(SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(root, preset))))
-            AssertNotice(AgentSession.ReadHistory(db));
-        if (fail)
-        {
+            terminal = (await Until(engine, "plugin_agent_status", scripts)).GetString("status");
+            using var ownerDb = MemoryDb.ReadOnly(SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(root, preset)));
+            Assert.IsTrue(AgentSession.HasPendingSystemMessages(ownerDb));
             using var otherDb = MemoryDb.ReadOnly(SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(root, other)));
             Assert.IsFalse(AgentSession.ReadHistory(otherDb).Any(message => message.GetString("content").Contains(expectedResult,
                 StringComparison.Ordinal)));
             engine.Dispatch(new() { ["op"] = "home", ["preset"] = preset });
-            await Until(engine, "home", scripts);
         }
+        // The worker result must trigger a model request without another user message.
+        var interrupted = false;
+        var continuation = await NextModel(engine, scripts, item =>
+        {
+            if (item.GetString("kind") == "plugin_agent_status") terminal = item.GetString("status");
+            if (timing != "steer") return;
+            Assert.IsFalse(item.GetString("kind") == "generating" && !item.GetBoolean("value"),
+                "The status update should reach the current turn.");
+            if (item.GetString("kind") == "cancel_io" && item.GetString("id") == parent.GetString("id")) interrupted = true;
+        });
+        Assert.AreEqual(expectedStatus, terminal);
+        if (timing == "steer") Assert.IsTrue(interrupted, "The outstanding request was never answered and must be steered.");
+        AssertNotice(Messages(continuation));
+        if (timing == "retry")
+        {
+            engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = continuation.GetString("id"), ["error"] = "Preset model unavailable." });
+            Assert.AreEqual("preset", (await Until(engine, "error", scripts)).GetString("agent"));
+            using (var pending = MemoryDb.ReadOnly(SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(root, preset))))
+                Assert.IsTrue(AgentSession.HasPendingSystemMessages(pending));
+            engine.Dispatch(new() { ["op"] = "open_preset", ["preset"] = preset });
+            continuation = await NextModel(engine, scripts);
+            AssertNotice(Messages(continuation));
+        }
+        Reply(engine, continuation, "I received the update.");
+        await Until(engine, "completed", scripts);
+        using (var db = MemoryDb.ReadOnly(SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(root, preset))))
+        {
+            AssertNotice(AgentSession.ReadHistory(db));
+            Assert.IsFalse(AgentSession.HasPendingSystemMessages(db));
+        }
+
         engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["preset"] = preset, ["text"] = "Any update?" });
         var next = await NextModel(engine, scripts);
         AssertNotice(Messages(next));
@@ -757,6 +791,33 @@ public sealed class ExtensionTests
             Assert.AreEqual(expectedStatus, report.GetString("status"));
             Assert.AreEqual(expectedResult, report.GetString("result"));
         }
+    }
+
+    [TestMethod]
+    public async Task PresetProcessesPersistedWorkerReportsAfterRestart()
+    {
+        var root = NewRoot();
+        var preset = new Workspace(root).InitialPreset().Id;
+        var database = SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(root, preset));
+        using (var db = new MemoryDb(database))
+        {
+            AgentSession.QueueSystemMessage(db, "plugin-agent-finished", "PluginAgent task status update. Worker A finished.");
+            AgentSession.QueueSystemMessage(db, "plugin-agent-failed", "PluginAgent task status update. Worker B failed.");
+        }
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        var request = await NextModel(engine, scripts);
+        var messages = JsonValues.ParseObject(request.GetString("body")).GetArray("messages");
+        var reports = messages.Where(message => message.GetString("role") == "system" &&
+            message.GetString("content").StartsWith("PluginAgent task status update.", StringComparison.Ordinal)).ToArray();
+        Assert.HasCount(2, reports);
+        Assert.IsTrue(reports.Any(message => message.GetString("content").EndsWith("Worker A finished.", StringComparison.Ordinal)));
+        Assert.IsTrue(reports.Any(message => message.GetString("content").EndsWith("Worker B failed.", StringComparison.Ordinal)));
+        Reply(engine, request, "I received both reports.");
+        await Until(engine, "completed", scripts);
+        using var saved = MemoryDb.ReadOnly(database);
+        Assert.IsFalse(AgentSession.HasPendingSystemMessages(saved));
     }
 
     [TestMethod]

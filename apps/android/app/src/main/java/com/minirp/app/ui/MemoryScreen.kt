@@ -243,7 +243,8 @@ internal fun MemoryScreen(
                                 DropdownMenu(roles, { roles = false }) {
                                     AgentRole.entries
                                         .filter {
-                                            it != AgentRole.Fetch &&
+                                            it != AgentRole.Plugin &&
+                                                it != AgentRole.Fetch &&
                                                 it != AgentRole.Title &&
                                                 (agenticSearch || it != AgentRole.Search)
                                         }

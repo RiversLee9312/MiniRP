@@ -14,7 +14,7 @@ Android 和 Windows x64 的安装包包含同一份 x86-64 Alpine 镜像和各�
 
 每个 Room 的来宾内存上限为 2 GiB。QEMU 使用按需分配的内存后端。来宾支持 cgroup v2 内存控制时，可用 `memory_mib` 为单条命令及其子进程设置更低的上限。镜像重建与 Alpine 包对应的 musl，将默认 pthread 栈设为 8 MiB。Android ARM64 使用 microVM 和 TCG。Windows x64 优先使用可用的 WHPX，并可使用 TCG。
 
-Linux user-mode 的 `-R` 参数预留来宾虚拟地址区间。x86-64 的高地址 vsyscall 页超出 `-R 4G` 的范围。Android ARM64 真机 上的 PRoot 原型使用这个参数时会在启动阶段失败。 [QEMU user-mode 参数](https://www.qemu.org/docs/master/user/main.html) · [x86-64 装载器源码](https://gitlab.com/qemu-project/qemu/-/blob/v11.1.3/linux-user/x86_64/elfload.c)
+Linux user-mode 的 `-R` 参数预留来宾虚拟地址区间。x86-64 的高地址 vsyscall 页超出 `-R 4G` 的范围，Android ARM64 上的 PRoot 原型会因此在启动阶段失败。 [QEMU user-mode 参数](https://www.qemu.org/docs/master/user/main.html) · [x86-64 装载器源码](https://gitlab.com/qemu-project/qemu/-/blob/v11.1.3/linux-user/x86_64/elfload.c)
 
 检查点包含按内容哈希保存的压缩磁盘块，完整存档携带预设会话、各聊天及其历史分支引用的块。导入校验块大小和 SHA‑256。用预设的「导出存档」和「导入存档」在 Android 与 Windows 间继续使用工作目录。同一会话从历史消息分支时恢复该消息对应的磁盘检查点。
 

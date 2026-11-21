@@ -26,6 +26,7 @@ class Preferences internal constructor(private val store: DataStore<StoredPrefer
 
     private val providersKey = stringPreferencesKey("providers_encrypted")
     private val optionsKey = stringPreferencesKey("options")
+    private val researchKeys = stringPreferencesKey("research_keys_encrypted")
 
     private val secretKey: SecretKey by lazy {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -61,14 +62,21 @@ class Preferences internal constructor(private val store: DataStore<StoredPrefer
     suspend fun load(): Pair<JSONArray, JSONObject> {
         val stored = store.data.first()
         val providers = stored[providersKey]?.let { JSONArray(decrypt(it)) } ?: JSONArray()
-        return providers to JSONObject(stored[optionsKey] ?: "{}")
+        val options = JSONObject(stored[optionsKey] ?: "{}")
+        stored[researchKeys]?.let { options.put("research_keys", JSONObject(decrypt(it))) }
+        return providers to options
     }
 
     suspend fun save(providers: JSONArray, options: JSONObject) {
         val encrypted = encrypt(providers.toString())
+        val credentials = options.optJSONObject("research_keys")
+            ?.takeIf { it.length() > 0 }
+            ?.let { encrypt(it.toString()) }
+        val public = JSONObject(options.toString()).apply { remove("research_keys") }
         store.edit {
             it[providersKey] = encrypted
-            it[optionsKey] = options.toString()
+            it[optionsKey] = public.toString()
+            if (credentials == null) it.remove(researchKeys) else it[researchKeys] = credentials
         }
     }
 }

@@ -70,6 +70,12 @@
     <string name="thinking">Denken</string>
     <string name="thinking_off">Uit</string>
     <string name="thinking_on">Aan</string>
+    <string name="model_settings">Modelinstellingen</string>
+    <string name="thinking_effort">Denkintensiteit</string>
+    <string name="thinking_effort_default">Standaard</string>
+    <string name="thinking_effort_unavailable">De provider rapporteert geen denkniveaus voor dit model.</string>
+    <string name="thinking_effort_loading">Denkniveaus laden…</string>
+    <string name="thinking_effort_load_failed">Denkniveaus kunnen niet worden geladen.</string>
     <string name="context_size">Contextgrootte</string>
     <string name="max_output">Maximale uitvoer</string>
     <string name="no_provider_configured">Voeg een provider toe om een model te kiezen.</string>
@@ -168,4 +174,18 @@
     <string name="export_preset">Voorinstelling exporteren</string>
     <string name="export_save">Opgeslagen gegevens exporteren</string>
     <string name="import_save">Opgeslagen gegevens importeren</string>
+    <string name="plugin_agent">Plug-inagent</string>
+    <string name="plugin_agent_activity">Activiteit van de plug-inagent</string>
+    <string name="use_preset_model">Model van de voorinstelling gebruiken</string>
+    <string name="plugin_run">Uitvoering %1$d</string>
+    <string name="plugin_run_finished">Voltooid</string>
+    <string name="plugin_run_failed">Mislukt</string>
+    <string name="plugin_run_cancelled">Geannuleerd</string>
+    <string name="plugin_run_interrupted">Onderbroken</string>
+    <string name="plugin_run_archived">Gearchiveerd</string>
+    <string name="preset_home_hint">Tik op de presetnaam om de bijbehorende agent te openen.</string>
+    <string name="preset_chat_hint">Open Meer opties en kies Preset om met de bijbehorende agent te praten.</string>
+    <string name="research_apis">APIs voor zoeken en ophalen</string>
+    <string name="research_search_provider">Webzoek-API</string>
+    <string name="research_fetch_provider">Pagina-ophaal-API</string>
 </resources>

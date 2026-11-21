@@ -70,6 +70,12 @@
     <string name="thinking">تفکر</string>
     <string name="thinking_off">خاموش</string>
     <string name="thinking_on">روشن</string>
+    <string name="model_settings">تنظیمات مدل</string>
+    <string name="thinking_effort">میزان تفکر</string>
+    <string name="thinking_effort_default">پیش‌فرض</string>
+    <string name="thinking_effort_unavailable">ارائه‌دهنده سطوح تفکر را برای این مدل گزارش نمی‌کند.</string>
+    <string name="thinking_effort_loading">در حال بارگیری سطوح تفکر…</string>
+    <string name="thinking_effort_load_failed">بارگیری سطوح تفکر ممکن نیست.</string>
     <string name="context_size">اندازه زمینه</string>
     <string name="max_output">حداکثر خروجی</string>
     <string name="no_provider_configured">برای انتخاب مدل، ارائه‌دهنده‌ای اضافه کنید.</string>
@@ -168,4 +174,18 @@
     <string name="export_preset">صادر کردن پیش‌تنظیم</string>
     <string name="export_save">صادر کردن ذخیره</string>
     <string name="import_save">وارد کردن ذخیره</string>
+    <string name="plugin_agent">عامل افزونه</string>
+    <string name="plugin_agent_activity">فعالیت عامل افزونه</string>
+    <string name="use_preset_model">استفاده از مدل پیش‌تنظیم</string>
+    <string name="plugin_run">اجرای %1$d</string>
+    <string name="plugin_run_finished">تکمیل شد</string>
+    <string name="plugin_run_failed">ناموفق بود</string>
+    <string name="plugin_run_cancelled">لغو شد</string>
+    <string name="plugin_run_interrupted">متوقف شد</string>
+    <string name="plugin_run_archived">بایگانی شد</string>
+    <string name="preset_home_hint">برای باز کردن عامل قالب، روی نام آن بزنید.</string>
+    <string name="preset_chat_hint">گزینه‌های بیشتر را باز کنید و برای گفتگو با عامل قالب، قالب را انتخاب کنید.</string>
+    <string name="research_apis">APIهای جستجو و دریافت</string>
+    <string name="research_search_provider">API جستجوی وب</string>
+    <string name="research_fetch_provider">API دریافت صفحه</string>
 </resources>

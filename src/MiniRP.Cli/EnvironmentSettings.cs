@@ -106,6 +106,14 @@ internal sealed class EnvironmentSettings(string root)
         ["settings"] = new JsonObject
         {
             ["fetch_backend"] = this["MINIRP_FETCH_BACKEND"].Length > 0 ? this["MINIRP_FETCH_BACKEND"] : "api_then_local",
+            ["search_provider"] = this["MINIRP_SEARCH_PROVIDER"].Length > 0 ? this["MINIRP_SEARCH_PROVIDER"].Trim().ToLowerInvariant() : "deepseek",
+            ["fetch_provider"] = this["MINIRP_FETCH_PROVIDER"].Length > 0 ? this["MINIRP_FETCH_PROVIDER"].Trim().ToLowerInvariant() : "deepseek",
+            ["research_keys"] = new JsonObject
+            {
+                ["tavily"] = this["MINIRP_TAVILY_API_KEY"],
+                ["exa"] = this["MINIRP_EXA_API_KEY"],
+                ["brave"] = this["MINIRP_BRAVE_SEARCH_API_KEY"]
+            },
             ["search_region"] = RegionInfo.CurrentRegion.TwoLetterISORegionName,
             ["search_url"] = "https://api.deepseek.com",
             ["search_key"] = this["MINIRP_SEARCH_API_KEY"].Length > 0 ? this["MINIRP_SEARCH_API_KEY"]

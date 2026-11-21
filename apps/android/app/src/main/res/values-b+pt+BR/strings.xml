@@ -70,6 +70,12 @@
     <string name="thinking">Raciocínio</string>
     <string name="thinking_off">Desativado</string>
     <string name="thinking_on">Ativado</string>
+    <string name="model_settings">Configurações do modelo</string>
+    <string name="thinking_effort">Esforço de raciocínio</string>
+    <string name="thinking_effort_default">Padrão</string>
+    <string name="thinking_effort_unavailable">O provedor não informa os níveis de raciocínio deste modelu.</string>
+    <string name="thinking_effort_loading">Carregando os níveis de raciocínio…</string>
+    <string name="thinking_effort_load_failed">Não foi possível carregar os níveis de raciocínio.</string>
     <string name="context_size">Tamanho do contexto</string>
     <string name="max_output">Saída máxima</string>
     <string name="no_provider_configured">Adicione um provedor para escolher um modelo.</string>
@@ -168,4 +174,18 @@
     <string name="export_preset">Exportar predefinição</string>
     <string name="export_save">Exportar dados salvos</string>
     <string name="import_save">Importar dados salvos</string>
+    <string name="plugin_agent">Agente de plugins</string>
+    <string name="plugin_agent_activity">Atividade do agente de plugins</string>
+    <string name="use_preset_model">Usar o modelo da predefinição</string>
+    <string name="plugin_run">Execução %1$d</string>
+    <string name="plugin_run_finished">Concluída</string>
+    <string name="plugin_run_failed">Falhou</string>
+    <string name="plugin_run_cancelled">Cancelada</string>
+    <string name="plugin_run_interrupted">Interrompida</string>
+    <string name="plugin_run_archived">Arquivada</string>
+    <string name="preset_home_hint">Toque no nome da predefinição para abrir o agente dela.</string>
+    <string name="preset_chat_hint">Abra Mais opções e escolha Predefinição para conversar com o agente dela.</string>
+    <string name="research_apis">APIs de pesquisa e busca</string>
+    <string name="research_search_provider">API de pesquisa na Web</string>
+    <string name="research_fetch_provider">API de busca de páginas</string>
 </resources>

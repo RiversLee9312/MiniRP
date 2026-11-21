@@ -174,7 +174,7 @@ public sealed partial class MemoryDb : IDisposable
         }
     }
 
-    internal void WriteInternal(params (string Key, string Content)[] entries)
+    internal void WriteInternal(params (string Key, string? Content)[] entries)
     {
         lock (_gate)
         {
@@ -184,6 +184,11 @@ public sealed partial class MemoryDb : IDisposable
                 foreach (var (key, content) in entries)
                 {
                     ValidateKey(key, true);
+                    if (content is null)
+                    {
+                        Execute("DELETE FROM entries WHERE key=?", key);
+                        continue;
+                    }
                     var old = Query("SELECT revision FROM entries WHERE key=?", key).FirstOrDefault();
                     Upsert(key, content, old is null ? 0 : int.Parse(old["revision"]));
                 }

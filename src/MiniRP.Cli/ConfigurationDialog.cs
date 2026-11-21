@@ -11,7 +11,6 @@ internal sealed class ConfigurationDialog : Dialog
         ("MINIRP_PROVIDER_PROTOCOL", "协议：openai / responses / anthropic / gemini / ollama"),
         ("DEEPSEEK_BASE_URL", "API 地址"),
         ("DEEPSEEK_API_KEY", "API Key"),
-        ("MINIRP_SEARCH_API_KEY", "搜索 API Key（DeepSeek，可选）"),
         ("DEEPSEEK_MODEL", "模型 ID"),
         ("DEEPSEEK_THINKING", "思考：enabled / disabled"),
         ("DEEPSEEK_REASONING_EFFORT", "思考强度（可选）"),
@@ -21,7 +20,13 @@ internal sealed class ConfigurationDialog : Dialog
         ("DEEPSEEK_BACKGROUND_COMPACTION", "异步压缩：enabled / disabled（默认启用）"),
         ("DEEPSEEK_BACKGROUND_COMPACT_AT_PERCENT", "异步压缩触发点（%，默认 70）"),
         ("DEEPSEEK_COMPACT_AT", "压缩阈值（token，可选）"),
-        ("MINIRP_FETCH_BACKEND", "网页抓取：api / local / api_then_local")
+        ("MINIRP_SEARCH_PROVIDER", "网页搜索：deepseek / tavily / exa / brave"),
+        ("MINIRP_FETCH_PROVIDER", "网页抓取 API：deepseek / tavily / exa"),
+        ("MINIRP_FETCH_BACKEND", "网页抓取策略：api / local / api_then_local"),
+        ("MINIRP_SEARCH_API_KEY", "DeepSeek 搜索和抓取 API Key（可选）"),
+        ("MINIRP_TAVILY_API_KEY", "Tavily API Key（可选）"),
+        ("MINIRP_EXA_API_KEY", "Exa API Key（可选）"),
+        ("MINIRP_BRAVE_SEARCH_API_KEY", "Brave Search API Key（可选）")
     ];
 
     public ConfigurationDialog(EnvironmentSettings settings, Action save)

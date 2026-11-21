@@ -18,7 +18,7 @@ internal sealed class ContextCompactor(MemoryDb db, string agent,
 
     public async Task<string> Compact(ModelClient selected, JsonArray history, string summary, ContextBudget budget,
         Func<JsonArray, string, bool, int> measure, Func<JsonObject, int> messageCost,
-        JsonObject input, JsonObject request, JsonObject? interruption, Func<JsonObject, bool> isCommitted,
+        JsonObject input, JsonObject request, IEnumerable<JsonObject> interruptions, Func<JsonObject, bool> isCommitted,
         Action<string, bool> applied, CancellationToken cancellationToken, bool prepareOnly = false, int? initialTokens = null)
     {
         var provider = selected.SelectedProvider;
@@ -63,7 +63,7 @@ internal sealed class ContextCompactor(MemoryDb db, string agent,
             var raw = measure(history, summary, false);
             var scale = Math.Min(1, (double)raw / Math.Max(1, used));
             var target = Math.Max(0, (int)(budget.Hard * .75 * scale) - fixedTokens - summaryLimit - 48);
-            var (edit, removed) = Plan(history, input, request, interruption, target, messageCost, mustFit);
+            var (edit, removed) = Plan(history, input, request, interruptions, target, messageCost, mustFit);
             edit["count"] = history.Count;
             if (removed.Length == 0) return (edit, removed);
             var remaining = Preview(history, edit);
@@ -155,7 +155,7 @@ internal sealed class ContextCompactor(MemoryDb db, string agent,
     }
 
     private static (JsonObject Edit, JsonObject[] Removed) Plan(JsonArray history, JsonObject input,
-        JsonObject request, JsonObject? interruption, int budget, Func<JsonObject, int> messageCost, bool mustFit)
+        JsonObject request, IEnumerable<JsonObject> interruptions, int budget, Func<JsonObject, int> messageCost, bool mustFit)
     {
         var indices = Enumerable.Range(0, history.Count)
             .Where(index => history[index] is JsonObject && !SessionInstructions.IsFrame(history[index])).ToArray();
@@ -163,7 +163,7 @@ internal sealed class ContextCompactor(MemoryDb db, string agent,
         var sizes = messages.Select(messageCost).ToArray();
         var keep = new bool[messages.Length];
         var pinned = new HashSet<JsonObject>(ReferenceEqualityComparer.Instance) { input, request };
-        if (interruption is not null) pinned.Add(interruption);
+        pinned.UnionWith(interruptions);
         var inputBudget = Math.Max(128, budget / pinned.Count);
         var edits = new JsonObject();
         for (var i = 0; i < messages.Length; i++)

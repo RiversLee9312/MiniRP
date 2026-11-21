@@ -1,11 +1,19 @@
 package com.minirp.app.ui
 
 import android.widget.FrameLayout
+import android.os.Build
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,9 +28,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -42,6 +54,8 @@ internal sealed interface AppRoute {
     @Serializable data object Providers : AppRoute
 
     @Serializable data object Models : AppRoute
+
+    @Serializable data object Research : AppRoute
 
     @Serializable data object Plugins : AppRoute
 
@@ -70,7 +84,8 @@ fun MiniRP(model: ChatViewModel) {
         val active = destination?.destination
         val isChat = active?.hasRoute<AppRoute.Chat>() != false
         var panel by rememberSaveable { mutableStateOf("") }
-        val activePanel = if (state.presetEditorOpen) "preset" else panel
+        val isConversation = isChat || active.hasRoute<AppRoute.EnsembleChat>()
+        val activePanel = if (state.presetEditorOpen && isConversation) "preset" else panel
         fun closePanel() {
             if (state.presetEditorOpen) model.closePresetEditor()
             panel = ""
@@ -80,6 +95,15 @@ fun MiniRP(model: ChatViewModel) {
         var language by rememberSaveable { mutableStateOf(false) }
         val screens = rememberSaveableStateHolder()
         val drawer = rememberDrawerState(DrawerValue.Closed)
+        val showPresetHints = state.ready && state.preset.isNotBlank() && !state.presetSetupPending &&
+            !state.busy && !state.preparing && activePanel.isBlank() && drawer.isClosed &&
+            modelPicker == null && !editTitle
+        val homeHint: (() -> Unit)? =
+            if (showPresetHints && isChat && state.chatId.isBlank() && !state.presetHomeHintSeen)
+                ({ model.markPresetHintSeen(inChat = false) }) else null
+        val chatHint: (() -> Unit)? =
+            if (showPresetHints && isConversation && state.chatId.isNotBlank() && !state.presetChatHintSeen)
+                ({ model.markPresetHintSeen(inChat = true) }) else null
         val scope = rememberCoroutineScope()
         val snackbars = remember { SnackbarHostState() }
         fun open(route: AppRoute) {
@@ -122,47 +146,49 @@ fun MiniRP(model: ChatViewModel) {
                 model.clearArchiveSaved()
             }
         }
+        val library: @Composable (DrawerState, Boolean) -> Unit = { sheet, presetsFirst ->
+            ConversationDrawer(
+                state,
+                model,
+                sheet,
+                sheet.currentValue == DrawerValue.Open,
+                onSelect = { preset, id ->
+                    model.chooseChat(preset, id)
+                    scope.launch { sheet.close() }
+                },
+                onSelectPreset = { preset ->
+                    model.selectPreset(preset)
+                    scope.launch { sheet.close() }
+                },
+                onCreateConversation = { preset, ensemble ->
+                    if (ensemble) model.createEnsembleRoom(preset) else model.createChat(preset)
+                    scope.launch { sheet.close() }
+                },
+                onCreatePreset = {
+                    scope.launch {
+                        sheet.close()
+                        model.openPresetEditor(create = true)
+                    }
+                },
+                onArchiveExport = { type, name, preset, id ->
+                    scope.launch {
+                        sheet.close()
+                        archives.export(type, name, preset, id)
+                    }
+                },
+                onArchiveImport = { type ->
+                    scope.launch {
+                        sheet.close()
+                        archives.importArchive(type)
+                    }
+                },
+                presetsFirst = presetsFirst,
+            )
+        }
         ModalNavigationDrawer(
             drawerState = drawer,
-            gesturesEnabled = isChat,
-            drawerContent = {
-                ConversationDrawer(
-                    state,
-                    model,
-                    drawer,
-                    drawer.currentValue == DrawerValue.Open,
-                    onSelect = { preset, id ->
-                        model.chooseChat(preset, id)
-                        scope.launch { drawer.close() }
-                    },
-                    onSelectPreset = { preset ->
-                        model.selectPreset(preset)
-                        scope.launch { drawer.close() }
-                    },
-                    onCreateConversation = { preset, ensemble ->
-                        if (ensemble) model.createEnsembleRoom(preset) else model.createChat(preset)
-                        scope.launch { drawer.close() }
-                    },
-                    onCreatePreset = {
-                        scope.launch {
-                            drawer.close()
-                            model.openPresetEditor(create = true)
-                        }
-                    },
-                    onArchiveExport = { type, name, preset, id ->
-                        scope.launch {
-                            drawer.close()
-                            archives.export(type, name, preset, id)
-                        }
-                    },
-                    onArchiveImport = { type ->
-                        scope.launch {
-                            drawer.close()
-                            archives.importArchive(type)
-                        }
-                    },
-                )
-            },
+            gesturesEnabled = isChat && activePanel.isBlank(),
+            drawerContent = { library(drawer, false) },
         ) {
             Surface(Modifier.fillMaxSize()) {
                 val back: () -> Unit = { navigation.popBackStack() }
@@ -183,12 +209,23 @@ fun MiniRP(model: ChatViewModel) {
                                 onLink = {
                                     if (navigation.currentBackStackEntry == entry) openLink(it)
                                 },
+                                onResearch = {
+                                    if (navigation.currentBackStackEntry == entry) open(AppRoute.Research)
+                                },
                             )
                         }
                     }
                     page<AppRoute.Providers> {
                         SettingsPage(stringResource(R.string.providers), back, snackbars) {
                             ProvidersScreen(state, model, Modifier.fillMaxSize())
+                        }
+                    }
+                    page<AppRoute.Research> {
+                        SettingsPage(stringResource(R.string.research_apis), back, snackbars) {
+                            ResearchSettingsScreen(state.research) {
+                                model.researchSettings(it)
+                                back()
+                            }
                         }
                     }
                     page<AppRoute.Plugins> {
@@ -274,6 +311,7 @@ fun MiniRP(model: ChatViewModel) {
                                     onPanel = {
                                         if (it == "preset") model.openPresetEditor() else panel = it
                                     },
+                                    onPresetHintSeen = chatHint.takeIf { isChat },
                                 )
                             },
                             snackbarHost = { if (activePanel.isBlank()) SnackbarHost(snackbars) },
@@ -311,6 +349,7 @@ fun MiniRP(model: ChatViewModel) {
                                             { model.openPresetEditor() },
                                             enabled = state.ready && !state.busy && !state.preparing,
                                             onBackground = background != null,
+                                            onHintSeen = homeHint,
                                         )
                                         Button(
                                             onClick = {
@@ -349,6 +388,7 @@ fun MiniRP(model: ChatViewModel) {
                                         onBranchReply = { model.branch(it, afterReply = true) },
                                         loadThumbnail = { model.thumbnail(AgentRole.Chat, it) },
                                         onOpenPreset = { model.openPresetEditor() },
+                                        onPresetHintSeen = homeHint,
                                         onCreatePreset = { model.openPresetEditor(create = true) },
                                         background = background,
                                         displayAssets = remember(model, assetDownloader, state.preset, state.chatId) {
@@ -400,6 +440,7 @@ fun MiniRP(model: ChatViewModel) {
                                     onPanel = {
                                         if (it == "preset") model.openPresetEditor() else panel = it
                                     },
+                                    onPresetHintSeen = chatHint.takeUnless { isChat },
                                 )
                             },
                             snackbarHost = { if (activePanel.isBlank()) SnackbarHost(snackbars) },
@@ -475,36 +516,57 @@ fun MiniRP(model: ChatViewModel) {
             }
         } else if (activePanel.isNotEmpty()) {
             val role = if (activePanel == "env") AgentRole.World else AgentRole.Preset
-            FullSheet(stringResource(role.label), ::closePanel) {
-                var stage by rememberSaveable { mutableStateOf(false) }
-                if (role == AgentRole.World)
+            var stage by rememberSaveable { mutableStateOf(false) }
+            val session = if (role == AgentRole.Preset) state.preset else state.chatId
+            val assets = remember(model, assetDownloader, state.preset, state.chatId, role) {
+                DisplayAssets(model, assetDownloader, state.preset, if (role == AgentRole.Preset) "" else state.chatId)
+            }
+            val conversation: @Composable (Modifier) -> Unit = { modifier ->
+                screens.SaveableStateProvider("${role.id}:$session") {
+                    AgentConversation(
+                        state,
+                        role,
+                        modifier,
+                        model::cancel,
+                        { text, files, system, type ->
+                            if (!system && text.trim() == "/close" && files.isEmpty()) {
+                                if (role == AgentRole.Preset && state.presetSetupPending) false
+                                else {
+                                    closePanel()
+                                    true
+                                }
+                            } else model.send(text, files, role, stage, system, type)
+                        },
+                        { modelPicker = it },
+                        loadThumbnail = { model.thumbnail(role, it) },
+                        displayAssets = assets,
+                    )
+                }
+            }
+            if (role == AgentRole.Preset) {
+                key(session) {
+                    PresetPluginPanel(
+                        state.blocks,
+                        assets,
+                        ::closePanel,
+                        locked = state.presetSetupPending,
+                        onSettings = { open(AppRoute.Settings) },
+                        library = { library(it, true) },
+                        snackbarHost = { SnackbarHost(snackbars) },
+                        conversation = conversation,
+                    )
+                }
+            } else {
+                FullSheet(stringResource(role.label), ::closePanel) {
                     FilterChip(
                         stage,
                         { stage = !stage },
                         label = { Text(stringResource(R.string.advance_story)) },
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
-                val session = if (role == AgentRole.Preset) state.preset else state.chatId
-                screens.SaveableStateProvider("${role.id}:$session") {
-                    AgentConversation(
-                        state,
-                        role,
-                        Modifier.weight(1f).fillMaxWidth(),
-                        model::cancel,
-                        { text, files, system, type ->
-                            if (!system && text.trim() == "/close" && files.isEmpty()) {
-                                closePanel()
-                                true
-                            } else model.send(text, files, role, stage, system, type)
-                        },
-                        { modelPicker = it },
-                        loadThumbnail = { model.thumbnail(role, it) },
-                        displayAssets = remember(model, assetDownloader, state.preset, state.chatId, role) {
-                            DisplayAssets(model, assetDownloader, state.preset, if (role == AgentRole.Preset) "" else state.chatId)
-                        },
-                    )
+                    conversation(Modifier.weight(1f).fillMaxWidth())
+                    SnackbarHost(snackbars)
                 }
-                SnackbarHost(snackbars)
             }
         }
         modelPicker?.let { role ->
@@ -564,6 +626,7 @@ internal fun ChatToolbar(
     onPanel: (String) -> Unit,
     onBack: (() -> Unit)? = null,
     conversationTitle: String? = null,
+    onPresetHintSeen: (() -> Unit)? = null,
 ) {
     val hasChat = state.chatId.isNotEmpty()
     val motion = MaterialTheme.motionScheme
@@ -608,7 +671,7 @@ internal fun ChatToolbar(
                     shrinkHorizontally(motion.fastSpatialSpec(), shrinkTowards = Alignment.End) +
                         fadeOut(motion.fastEffectsSpec()),
             ) {
-                ConversationActions(hasChat, open = onPanel)
+                ConversationActions(hasChat, open = onPanel, onPresetHintSeen = onPresetHintSeen)
             }
         },
     )
@@ -662,11 +725,19 @@ private fun List<PluginSetting>.findSetting(plugin: String, key: String): Plugin
 }
 
 @Composable
-private fun ConversationActions(enabled: Boolean, open: (String) -> Unit) {
+private fun ConversationActions(enabled: Boolean, open: (String) -> Unit, onPresetHintSeen: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     LaunchedEffect(enabled) { if (!enabled) menu = false }
-    IconButton(onClick = { menu = true }, enabled = enabled) {
-        Symbol("more_horiz", stringResource(R.string.more_options))
+    PresetEntryHint(stringResource(R.string.preset_chat_hint), onPresetHintSeen.takeUnless { menu }) {
+        IconButton(
+            onClick = {
+                onPresetHintSeen?.invoke()
+                menu = true
+            },
+            enabled = enabled,
+        ) {
+            Symbol("more_horiz", stringResource(R.string.more_options))
+        }
     }
     DropdownMenu(menu && enabled, { menu = false }) {
         listOf("env" to R.string.world, "preset" to R.string.preset, "memory" to R.string.memory)
@@ -732,8 +803,11 @@ private fun TitleDialog(
 internal fun FullSheet(
     title: String,
     onDismiss: () -> Unit,
+    onBack: (() -> Unit)? = null,
+    draftControls: DraftPresetControls? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val locked = draftControls?.locked == true
     val state =
         rememberBottomSheetState(
             initialValue = SheetValue.Hidden,
@@ -742,34 +816,121 @@ internal fun FullSheet(
     val scope = rememberCoroutineScope()
     val dismiss by rememberUpdatedState(onDismiss)
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!locked) onDismiss() },
         sheetState = state,
+        sheetGesturesEnabled = !locked,
+        properties = ModalBottomSheetProperties(
+            shouldDismissOnBackPress = !locked && onBack == null,
+            shouldDismissOnClickOutside = !locked,
+        ),
+        dragHandle = if (draftControls == null) ({ BottomSheetDefaults.DragHandle() }) else null,
         contentWindowInsets = { WindowInsets.safeDrawing },
     ) {
-        Column(Modifier.fillMaxSize()) {
-            Row(
-                Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp),
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            ) {
-                Text(
-                    title,
-                    Modifier.weight(1f),
-                    style = MaterialTheme.typography.headlineSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                IconButton(
-                    onClick = {
-                        scope.launch {
-                            state.hide()
-                            dismiss()
+        val body: @Composable () -> Unit = {
+            BackHandler(locked && onBack == null && draftControls.drawer.isClosed) {}
+            if (onBack != null) SheetPageBackHandler(onBack)
+            Column(Modifier.fillMaxSize()) {
+                if (draftControls != null) {
+                    AnimatedVisibility(
+                        visible = !locked,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut(),
+                    ) {
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            BottomSheetDefaults.DragHandle(Modifier.testTag("sheet-drag-handle"))
                         }
                     }
-                ) {
-                    Symbol("close", stringResource(R.string.close))
+                }
+                SheetHeading(title, onBack, draftControls) {
+                    scope.launch {
+                        state.hide()
+                        dismiss()
+                    }
+                }
+                content()
+            }
+        }
+        if (draftControls == null) body()
+        else ModalNavigationDrawer(
+            drawerState = draftControls.drawer,
+            gesturesEnabled = locked,
+            drawerContent = draftControls.library,
+            content = body,
+        )
+    }
+}
+
+@Composable
+private fun SheetPageBackHandler(onBack: () -> Unit) {
+    val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+    if (Build.VERSION.SDK_INT < 33 || window == null) {
+        BackHandler(onBack = onBack)
+        return
+    }
+    val back by rememberUpdatedState(onBack)
+    // Handle the page inside the sheet's own window while sheet dismissal is disabled.
+    DisposableEffect(window) {
+        val dispatcher = window.onBackInvokedDispatcher
+        val callback = OnBackInvokedCallback { back() }
+        dispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
+        onDispose { dispatcher.unregisterOnBackInvokedCallback(callback) }
+    }
+}
+
+internal data class DraftPresetControls(
+    val locked: Boolean,
+    val drawer: DrawerState,
+    val library: @Composable () -> Unit,
+    val openDrawer: () -> Unit,
+    val settings: () -> Unit,
+)
+
+@Composable
+private fun SheetHeading(
+    title: String,
+    onBack: (() -> Unit)?,
+    draftControls: DraftPresetControls?,
+    close: () -> Unit,
+) {
+    val locked = draftControls?.locked == true
+    val motion = MaterialTheme.motionScheme
+    Row(
+        Modifier.fillMaxWidth().padding(start = if (onBack == null) 12.dp else 4.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (onBack != null) {
+            IconButton(onClick = onBack) {
+                Symbol("arrow_back", stringResource(R.string.back))
+            }
+        } else {
+            AnimatedVisibility(
+                visible = locked,
+                enter = expandHorizontally(motion.fastSpatialSpec()) + fadeIn(motion.fastEffectsSpec()),
+                exit = shrinkHorizontally(motion.fastSpatialSpec()) + fadeOut(motion.fastEffectsSpec()),
+            ) {
+                IconButton(onClick = { draftControls?.openDrawer?.invoke() }) {
+                    Symbol("menu", stringResource(R.string.open_menu))
                 }
             }
-            content()
+        }
+        Text(
+            title,
+            Modifier.weight(1f).padding(start = if (onBack == null) 8.dp else 0.dp).semantics { heading() },
+            style = MaterialTheme.typography.headlineSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (onBack == null) {
+            IconButton(onClick = if (locked) checkNotNull(draftControls).settings else close) {
+                AnimatedContent(
+                    locked,
+                    transitionSpec = { fadeIn(motion.fastEffectsSpec()) togetherWith fadeOut(motion.fastEffectsSpec()) },
+                    label = "Preset editor action",
+                ) { showSettings ->
+                    if (showSettings) Symbol("settings", stringResource(R.string.settings))
+                    else Symbol("close", stringResource(R.string.close))
+                }
+            }
         }
     }
 }

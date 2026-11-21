@@ -70,6 +70,12 @@
     <string name="thinking">思考</string>
     <string name="thinking_off">オフ</string>
     <string name="thinking_on">オン</string>
+    <string name="model_settings">モデル設定</string>
+    <string name="thinking_effort">思考の強度</string>
+    <string name="thinking_effort_default">デフォルト</string>
+    <string name="thinking_effort_unavailable">プロバイダーはこのモデルの思考レベルを報告していません。</string>
+    <string name="thinking_effort_loading">思考レベルを読み込んでいます…</string>
+    <string name="thinking_effort_load_failed">思考レベルを読み込めませんでした。</string>
     <string name="context_size">コンテキストサイズ</string>
     <string name="max_output">最大出力</string>
     <string name="no_provider_configured">プロバイダーを追加してモデルを選択します。</string>
@@ -166,4 +172,18 @@
     <string name="export_preset">プリセットをエクスポート</string>
     <string name="export_save">セーブをエクスポート</string>
     <string name="import_save">セーブをインポート</string>
+    <string name="plugin_agent">プラグインエージェント</string>
+    <string name="plugin_agent_activity">プラグインエージェントのアクティビティ</string>
+    <string name="use_preset_model">プリセットのモデルを使用</string>
+    <string name="plugin_run">実行 %1$d</string>
+    <string name="plugin_run_finished">完了</string>
+    <string name="plugin_run_failed">失敗</string>
+    <string name="plugin_run_cancelled">キャンセル済み</string>
+    <string name="plugin_run_interrupted">中断</string>
+    <string name="plugin_run_archived">アーカイブ済み</string>
+    <string name="preset_home_hint">プリセット名をタップして、そのエージェントを開きます。</string>
+    <string name="preset_chat_hint">その他のオプションを開き、プリセットを選ぶと、そのエージェントと会話できます。</string>
+    <string name="research_apis">検索・取得 API</string>
+    <string name="research_search_provider">ウェブ検索 API</string>
+    <string name="research_fetch_provider">ページ取得 API</string>
 </resources>

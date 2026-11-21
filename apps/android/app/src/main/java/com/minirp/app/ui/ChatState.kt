@@ -36,6 +36,7 @@ data class TraceBlock(
     val openUiState: String? = null,
     val openUiRevision: Int = 0,
     val compaction: Boolean = false,
+    val pluginAgentId: String = "",
     val pluginRun: String = "",
     val pluginAgentName: String = "",
     val pluginStatus: String = "",
@@ -56,6 +57,7 @@ data class Choice(
     val maxOutput: Int = 0,
     val ensemble: Boolean = false,
     val inputModalities: List<String>? = null,
+    val effortLevels: List<String> = emptyList(),
 )
 
 data class ProviderConfig(
@@ -75,6 +77,7 @@ enum class AgentRole(val id: String, val agentName: String, val label: Int) {
     Search("search", "SearchAgent", com.minirp.app.R.string.search_agent),
     World("env", "EnvAgent", com.minirp.app.R.string.world),
     Preset("preset", "PresetAgent", com.minirp.app.R.string.preset),
+    Plugin("plugin", "PluginAgent", com.minirp.app.R.string.plugin_agent),
     Fetch("fetch", "FetchAgent", com.minirp.app.R.string.fetch_agent),
     Title("title", "TitleAgent", com.minirp.app.R.string.title_model),
 }
@@ -92,6 +95,7 @@ data class SavedModel(
     val provider: String,
     val choice: Choice,
     val compaction: CompactionSettings = CompactionSettings(),
+    val reasoningEffort: String = "",
 )
 
 data class ModelCatalog(
@@ -119,6 +123,8 @@ data class ChatState(
     val submitting: Boolean = false,
     val preset: String = "",
     val presetSetupPending: Boolean = false,
+    val presetHomeHintSeen: Boolean = false,
+    val presetChatHintSeen: Boolean = false,
     val chatName: String = "",
     val chatId: String = "",
     val conversationViewKey: String = "home",
@@ -140,6 +146,7 @@ data class ChatState(
     val branchDraft: BranchDraft? = null,
     val expandThoughts: Boolean = false,
     val fetchMode: String = "api_then_local",
+    val research: ResearchSettings = ResearchSettings(),
     val agenticSearch: Boolean = true,
     val error: String? = null,
     val replyError: ReplyError? = null,
@@ -154,5 +161,8 @@ data class ChatState(
     val presetEditorOpen
         get() = presetEditor == PresetEditorPhase.Open
 
-    fun assigned(role: AgentRole): SavedModel? = assignments[role] ?: assignments[AgentRole.Chat]
+    fun assigned(role: AgentRole): SavedModel? =
+        assignments[role]
+            ?: assignments[AgentRole.Preset].takeIf { role == AgentRole.Plugin }
+            ?: assignments[AgentRole.Chat]
 }

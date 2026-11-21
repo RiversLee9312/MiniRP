@@ -271,6 +271,7 @@ public sealed partial class Engine
         ensembleWeb = null;
         activeEnsembleChat = "";
         if (notify) EmitHome();
+        QueuePresetNotifications(preset);
     }
 
     private async Task Remove(JsonObject command)
@@ -305,19 +306,44 @@ public sealed partial class Engine
         Dispatch(new() { ["op"] = "_maintain_storage" });
     }
 
-    private void DeliverPluginAgentNotifications(string preset)
-    {
-        if (Workspace.PresetId == preset && sessions.TryGetValue("preset", out var current))
-        {
-            current.DeliverSystemMessages();
-            return;
-        }
+    private static (string Protocol, string Url, string Model, string Key) PresetConnection(Provider provider) =>
+        (provider.Protocol, provider.Url, provider.Model, provider.Key);
 
+    private void PluginAgentCompleted(string preset)
+    {
+        // The outbox was written by the worker. Interrupt only the matching model stream;
+        // the turn reads the durable system message at its next safe request boundary.
+        try { Volatile.Read(ref inbox)?.SteerSystemMessages(preset); }
+        finally { QueuePresetNotifications(preset); }
+    }
+
+    private void QueuePresetNotifications(string preset) =>
+        commands.Writer.TryWrite(new() { ["op"] = "_preset_plugin_notifications", ["preset"] = preset, ["agent"] = "preset" });
+
+    private async Task RunPresetNotifications(string requestedPreset, CancellationToken token)
+    {
+        var preset = Workspace.PresetId;
+        if (preset.Length == 0 || requestedPreset.Length > 0 && requestedPreset != preset) return;
+        var provider = turnRouting.For("preset");
+        if (provider.Model.Length == 0 || provider.Url.Length == 0) return;
         var database = SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(Workspace.Root, preset));
         if (!File.Exists(database)) return;
-        using var session = agentSessions.Open("preset", database, () => turnRouting.For("preset"),
-            () => new() { ["agent"] = "preset", ["preset"] = preset }, _ => { });
-        session.DeliverSystemMessages();
+        using (var db = MemoryDb.ReadOnly(database))
+            if (!db.HasEntriesTable() || !AgentSession.HasPendingSystemMessages(db)) return;
+
+        EnsurePresetSession();
+        Emit(new() { ["kind"] = "busy", ["value"] = true });
+        try
+        {
+            await RunMessage("preset",
+                "Respond to the PluginAgent status updates above. Continue the user's outstanding request when appropriate and tell the user what completed or what needs attention.",
+                false, new(), token, inputRole: "system", hiddenInput: true);
+        }
+        finally
+        {
+            try { SavePresetTrace(); }
+            finally { Emit(new() { ["kind"] = "busy", ["value"] = false }); }
+        }
     }
 
     private async Task<JsonNode?> PluginApi(PluginPackage package, JsonObject context, string op, JsonObject args, CancellationToken ct)

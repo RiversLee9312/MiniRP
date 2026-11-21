@@ -68,6 +68,7 @@ internal fun AgentConversation(
     onCreatePreset: (() -> Unit)? = null,
     background: PresetBackground? = null,
     displayAssets: DisplayAssets? = null,
+    onPresetHintSeen: (() -> Unit)? = null,
 ) {
     val home = state.chatId.isBlank() && agent == AgentRole.Chat
     if (home && state.preset.isBlank()) {
@@ -102,6 +103,7 @@ internal fun AgentConversation(
                     onOpenPreset,
                     enabled = state.ready && !state.busy && !state.preparing,
                     onBackground = background != null,
+                    onHintSeen = onPresetHintSeen,
                 )
             } else
                 TraceLog(
@@ -134,16 +136,22 @@ internal fun AgentConversation(
             documentTypes = if (agent == AgentRole.Preset) arrayOf("*/*")
                 else com.minirp.app.data.AttachmentStore.documentTypes,
         )
+        val presetModels = agent == AgentRole.Preset
+        val modelsLayout =
+            if (presetModels) Modifier else Modifier.horizontalScroll(rememberScrollState())
         Row(
             Modifier.fillMaxWidth()
                 .testTag("agent-models")
-                .horizontalScroll(rememberScrollState())
+                .then(modelsLayout)
                 .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             val roles =
-                if (agent == AgentRole.Chat && state.agenticSearch) listOf(agent, AgentRole.Search)
-                else listOf(agent)
+                when {
+                    presetModels -> listOf(agent, AgentRole.Plugin)
+                    agent == AgentRole.Chat && state.agenticSearch -> listOf(agent, AgentRole.Search)
+                    else -> listOf(agent)
+                }
             roles.forEach { role ->
                 val label = stringResource(role.label)
                 val name =
@@ -152,10 +160,24 @@ internal fun AgentConversation(
                     onClick = { onModels(role) },
                     enabled = !state.preparing,
                     label = {
-                        Text("$label · $name", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (presetModels) {
+                            Column(Modifier.padding(vertical = 4.dp)) {
+                                Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        } else {
+                            Text("$label · $name", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     },
                     trailingIcon = { Symbol("expand_more", size = 16) },
-                    modifier = Modifier.widthIn(max = 290.dp),
+                    modifier = (if (presetModels) Modifier.weight(1f) else Modifier.widthIn(max = 290.dp))
+                        .testTag("agent-model:${role.id}"),
                 )
             }
         }
@@ -169,6 +191,7 @@ internal fun HomeGreeting(
     onPresetAction: (() -> Unit)?,
     enabled: Boolean,
     onBackground: Boolean = false,
+    onHintSeen: (() -> Unit)? = null,
 ) {
     val hasPreset = presetName.isNotBlank()
     val dark = LocalMiniRPDarkTheme.current
@@ -187,31 +210,35 @@ internal fun HomeGreeting(
                 style = MaterialTheme.typography.headlineSmall.copy(shadow = shadow),
                 textAlign = TextAlign.Center,
             )
-            Text(
-                if (hasPreset) presetName else stringResource(R.string.create_preset),
-                modifier =
-                    Modifier.semantics { heading() }
-                        .then(
-                            if (onPresetAction == null) Modifier
-                            else
-                                Modifier.clickable(
-                                        enabled = enabled,
-                                        onClickLabel =
-                                            if (hasPreset) stringResource(R.string.edit_preset)
-                                            else null,
-                                        role = Role.Button,
-                                        onClick = onPresetAction,
-                                    )
-                                    .heightIn(min = 48.dp)
-                                    .wrapContentHeight(Alignment.CenterVertically)
-                        ),
-                color = foreground,
-                style = MaterialTheme.typography.headlineMedium.copy(shadow = shadow),
-                textDecoration = TextDecoration.Underline,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            PresetEntryHint(stringResource(R.string.preset_home_hint), onHintSeen) {
+                Text(
+                    if (hasPreset) presetName else stringResource(R.string.create_preset),
+                    modifier =
+                        Modifier.semantics { heading() }
+                            .then(
+                                if (onPresetAction == null) Modifier
+                                else
+                                    Modifier.clickable(
+                                            enabled = enabled,
+                                            onClickLabel =
+                                                if (hasPreset) stringResource(R.string.edit_preset)
+                                                else null,
+                                            role = Role.Button,
+                                        ) {
+                                            onHintSeen?.invoke()
+                                            onPresetAction()
+                                        }
+                                        .heightIn(min = 48.dp)
+                                        .wrapContentHeight(Alignment.CenterVertically)
+                            ),
+                    color = foreground,
+                    style = MaterialTheme.typography.headlineMedium.copy(shadow = shadow),
+                    textDecoration = TextDecoration.Underline,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -291,9 +318,11 @@ private fun timeline(
     streamed: Map<String, MarkdownParts>,
     defaultExpanded: Boolean,
     expansion: Map<String, Boolean>,
+    standalonePluginTrace: Boolean,
 ): List<TimelineItem> = buildList {
     val activity = mutableListOf<TraceBlock>()
-    val pluginRuns = blocks.filter { it.pluginRun.isNotBlank() }.groupBy { it.pluginRun }
+    val pluginRuns = if (standalonePluginTrace) emptyMap()
+        else blocks.filter { it.pluginRun.isNotBlank() }.groupBy { it.pluginRun }
     val seenRuns = mutableSetOf<String>()
     fun flush() {
         if (activity.isEmpty()) return
@@ -310,7 +339,7 @@ private fun timeline(
                 },
                 expanded =
                     expansion[id]
-                        ?: (defaultExpanded && activity.any { step ->
+                        ?: (standalonePluginTrace || defaultExpanded && activity.any { step ->
                             step.reasoning.isNotBlank() ||
                                 pluginRuns[step.pluginRun]?.any { it.reasoning.isNotBlank() } == true
                         }),
@@ -361,7 +390,7 @@ private fun timeline(
             add(TimelineItem.ReplyActions(block, it.text))
             return@forEach
         }
-        if (block.pluginRun.isNotBlank()) {
+        if (block.pluginRun in pluginRuns) {
             if (seenRuns.add(block.pluginRun)) activity += block
             return@forEach
         }
@@ -413,6 +442,7 @@ internal fun TraceLog(
     openUi: OpenUiInteractions? = null,
     displayAssets: DisplayAssets? = null,
     onBranchReply: ((String) -> Unit)? = null,
+    standalonePluginTrace: Boolean = false,
 ) {
     val streamed = buildMap {
         blocks.forEach { block ->
@@ -438,8 +468,8 @@ internal fun TraceLog(
         }
     val expanded = expansion.toMap()
     val entries =
-        remember(blocks, streamed, expandThoughts, expanded) {
-            timeline(blocks, streamed, expandThoughts, expanded)
+        remember(blocks, streamed, expandThoughts, expanded, standalonePluginTrace) {
+            timeline(blocks, streamed, expandThoughts, expanded, standalonePluginTrace)
         }
     val itemsByKey = remember(entries) { entries.associateBy { it.id } }
     val pinned by
@@ -469,7 +499,7 @@ internal fun TraceLog(
     fun toggleTrace(header: TraceHeader, pinnedHeader: Boolean = false) {
         if (pinnedHeader && list.canScrollBackward) {
             val remaining =
-                timeline(blocks, streamed, expandThoughts, expanded + (header.id to false))
+                timeline(blocks, streamed, expandThoughts, expanded + (header.id to false), standalonePluginTrace)
             val index = remaining.indexOfFirst { it.id == header.id }
             if (index >= 0) list.requestScrollToItem(index + 1)
         }

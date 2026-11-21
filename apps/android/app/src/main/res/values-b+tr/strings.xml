@@ -70,6 +70,12 @@
     <string name="thinking">Akıl yürütme</string>
     <string name="thinking_off">Kapalı</string>
     <string name="thinking_on">Açık</string>
+    <string name="model_settings">Model ayarları</string>
+    <string name="thinking_effort">Düşünme düzeyi</string>
+    <string name="thinking_effort_default">Varsayılan</string>
+    <string name="thinking_effort_unavailable">Sağlayıcı bu model için düşünme düzeylerini bildirmiyor.</string>
+    <string name="thinking_effort_loading">Düşünme düzeyleri yükleniyor…</string>
+    <string name="thinking_effort_load_failed">Düşünme düzeyleri yüklenemedi.</string>
     <string name="context_size">Bağlam boyutu</string>
     <string name="max_output">Maksimum çıktı</string>
     <string name="no_provider_configured">Model seçmek için bir sağlayıcı ekleyin.</string>
@@ -166,4 +172,18 @@
     <string name="export_preset">Ön ayarı dışa aktar</string>
     <string name="export_save">Kaydı dışa aktar</string>
     <string name="import_save">Kaydı içe aktar</string>
+    <string name="plugin_agent">Eklenti aracısı</string>
+    <string name="plugin_agent_activity">Eklenti aracısı etkinliği</string>
+    <string name="use_preset_model">Ön ayarın modelini kullan</string>
+    <string name="plugin_run">Çalıştırma %1$d</string>
+    <string name="plugin_run_finished">Tamamlandı</string>
+    <string name="plugin_run_failed">Başarısız oldu</string>
+    <string name="plugin_run_cancelled">İptal edildi</string>
+    <string name="plugin_run_interrupted">Kesintiye uğradı</string>
+    <string name="plugin_run_archived">Arşivlendi</string>
+    <string name="preset_home_hint">Ajanını açmak için hazır ayar adına dokunun.</string>
+    <string name="preset_chat_hint">Diğer seçenekleri açıp ajanıyla konuşmak için Hazır ayarı seçin.</string>
+    <string name="research_apis">Arama ve getirme API leri</string>
+    <string name="research_search_provider">Web arama API si</string>
+    <string name="research_fetch_provider">Sayfa getirme API si</string>
 </resources>

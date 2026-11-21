@@ -61,14 +61,30 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
                 {
                     var metadata = (JsonObject)model!.DeepClone();
                     metadata["id"] = id;
-                    metadata["name"] = model.GetString("displayName", id);
+                    metadata["name"] = model.GetString("displayName", model.GetString("display_name", model.GetString("name", id)));
                     result.AddNode(metadata);
                 }
             }
             var next = response.GetString("nextPageToken");
-            url = next.Length > 0 ? p.Url + suffix + "?pageToken=" + Uri.EscapeDataString(next) : "";
+            url = next.Length > 0 ? p.Url + suffix + "?pageToken=" + Uri.EscapeDataString(next) :
+                p.Protocol == "anthropic" && response.GetBoolean("has_more") && response.GetString("last_id") is { Length: > 0 } cursor
+                    ? p.Url + suffix + "?after_id=" + Uri.EscapeDataString(cursor) : "";
         } while (url.Length > 0);
         return result;
+    }
+
+    internal async Task<JsonArray> EffortLevels(Provider p, CancellationToken ct)
+    {
+        if (p.Protocol != "ollama") return new();
+        var response = await port.Request(new()
+        {
+            ["url"] = p.Url + "/api/show",
+            ["method"] = "POST",
+            ["headers"] = Headers(p),
+            ["body"] = JsonValues.Serialize(new JsonObject { ["model"] = p.Model }),
+            ["stream"] = false
+        }, ct);
+        return (JsonArray)response.GetObject("thinking").GetArray("values").DeepClone();
     }
     internal HostPort Port => port;
 
@@ -157,6 +173,8 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
                 var manual = p.Model.Contains("4-5", StringComparison.Ordinal) || p.Model.Contains("4-1", StringComparison.Ordinal) || p.Model.Contains("4-20", StringComparison.Ordinal) || p.Model.Contains("3-7", StringComparison.Ordinal);
                 body["thinking"] = manual ? new JsonObject { ["type"] = "enabled", ["budget_tokens"] = Math.Max(1024, Math.Min(2048, p.MaxOutput - 1)) } : new JsonObject { ["type"] = "adaptive" };
             }
+            if (p.ReasoningEffort.Length > 0)
+                body["output_config"] = new JsonObject { ["effort"] = p.ReasoningEffort };
             return ("/messages", body);
         }
         if (p.Protocol == "gemini")
@@ -231,9 +249,12 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
                 body["tools"] = new JsonArray(new JsonObject { ["functionDeclarations"] = declarations });
             }
 
-            if (p.Thinking)
+            if (p.Thinking || p.ReasoningEffort.Length > 0)
             {
-                body.GetObject("generationConfig")["thinkingConfig"] = new JsonObject { ["includeThoughts"] = true };
+                var thinking = new JsonObject { ["includeThoughts"] = true };
+                if (p.ReasoningEffort.Length > 0)
+                    thinking["thinkingLevel"] = p.ReasoningEffort.ToUpperInvariant();
+                body.GetObject("generationConfig")["thinkingConfig"] = thinking;
             }
 
             return ($"/models/{Uri.EscapeDataString(p.Model)}:streamGenerateContent?alt=sse", body);
@@ -287,18 +308,23 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
 
         if (p.Protocol == "ollama")
         {
-            open["think"] = p.Thinking;
+            open["think"] = p.ReasoningEffort.Length > 0 ? JsonValue.Create(p.ReasoningEffort) : JsonValue.Create(p.Thinking);
             open["options"] = new JsonObject { ["num_ctx"] = p.ContextWindow, ["num_predict"] = p.MaxOutput };
 
             return ("/api/chat", open);
         }
+        var effort = p.ReasoningEffort;
         if (p.Url.Contains("deepseek", StringComparison.OrdinalIgnoreCase))
         {
-            open["thinking"] = new JsonObject { ["type"] = p.Thinking ? "enabled" : "disabled" };
-            if (p.Thinking && p.ReasoningEffort.Length > 0)
-            {
-                open["reasoning_effort"] = p.ReasoningEffort;
-            }
+            var thinking = effort.Length == 0 ? p.Thinking : effort != "none";
+            open["thinking"] = new JsonObject { ["type"] = thinking ? "enabled" : "disabled" };
+        }
+        if (effort.Length > 0)
+        {
+            if (Uri.TryCreate(p.Url, UriKind.Absolute, out var reasoningEndpoint) && reasoningEndpoint.Host == "openrouter.ai")
+                open["reasoning"] = new JsonObject { ["effort"] = effort };
+            else
+                open["reasoning_effort"] = effort;
         }
         var modernOpenAi = p.Model.StartsWith("gpt-5", StringComparison.Ordinal) || (p.Model.Length > 1 && p.Model[0] == 'o' && char.IsAsciiDigit(p.Model[1]));
         open[modernOpenAi ? "max_completion_tokens" : "max_tokens"] = p.MaxOutput;

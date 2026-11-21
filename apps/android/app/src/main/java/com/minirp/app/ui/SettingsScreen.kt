@@ -31,8 +31,16 @@ internal fun DeclaredSettingsScreen(
     modifier: Modifier = Modifier,
     onPage: (AppRoute.PluginPage) -> Unit,
     onLink: (PluginSetting) -> Unit,
+    onResearch: (() -> Unit)? = null,
 ) {
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
+        if (onResearch != null) item("research-apis") {
+            ListItem(
+                content = { Text(stringResource(R.string.research_apis)) },
+                trailingContent = { Symbol("chevron_right") },
+                modifier = Modifier.clickable(onClick = onResearch),
+            )
+        }
         fun androidx.compose.foundation.lazy.LazyListScope.rows(
             nodes: List<PluginSetting>,
             nested: Boolean,

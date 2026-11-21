@@ -70,6 +70,12 @@
     <string name="thinking">Myślenie</string>
     <string name="thinking_off">Wyłączone</string>
     <string name="thinking_on">Włączone</string>
+    <string name="model_settings">Ustawienia modelu</string>
+    <string name="thinking_effort">Wysiłek myślenia</string>
+    <string name="thinking_effort_default">Domyślne</string>
+    <string name="thinking_effort_unavailable">Dostawca nie zgłasza poziomów myślenia dla tego modelu.</string>
+    <string name="thinking_effort_loading">Wczytywanie poziomów myślenia…</string>
+    <string name="thinking_effort_load_failed">Nie udało się wczytać poziomów myślenia.</string>
     <string name="context_size">Rozmiar kontekstu</string>
     <string name="max_output">Maksymalna długość odpowiedzi</string>
     <string name="no_provider_configured">Dodaj dostawcę, aby wybrać model.</string>
@@ -172,4 +178,18 @@
     <string name="export_preset">Eksportuj ustawienie</string>
     <string name="export_save">Eksportuj zapis</string>
     <string name="import_save">Importuj zapis</string>
+    <string name="plugin_agent">Agent wtyczek</string>
+    <string name="plugin_agent_activity">Aktywność agenta wtyczek</string>
+    <string name="use_preset_model">Użyj modelu ustawienia wstępnego</string>
+    <string name="plugin_run">Uruchomienie %1$d</string>
+    <string name="plugin_run_finished">Ukończono</string>
+    <string name="plugin_run_failed">Niepowodzenie</string>
+    <string name="plugin_run_cancelled">Anulowano</string>
+    <string name="plugin_run_interrupted">Przerwano</string>
+    <string name="plugin_run_archived">Zarchiwizowano</string>
+    <string name="preset_home_hint">Dotknij nazwy presetu, aby otworzyć jego agenta.</string>
+    <string name="preset_chat_hint">Otwórz Więcej opcji i wybierz Preset, aby porozmawiać z jego agentem.</string>
+    <string name="research_apis">API wyszukiwania i pobierania</string>
+    <string name="research_search_provider">API wyszukiwania w sieci</string>
+    <string name="research_fetch_provider">API pobierania stron</string>
 </resources>

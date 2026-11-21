@@ -213,9 +213,14 @@ public sealed partial class AgentSession
             body["tools"] = definitions;
         }
 
-        if (provider.Thinking)
+        if (provider.Thinking || provider.ReasoningEffort.Length > 0)
         {
-            body["reasoning"] = new JsonObject { ["effort"] = provider.ReasoningEffort.Length > 0 ? provider.ReasoningEffort : "medium", ["summary"] = "auto" };
+            var reasoning = new JsonObject();
+            if (provider.ReasoningEffort.Length > 0)
+                reasoning["effort"] = provider.ReasoningEffort;
+            if (!provider.Url.Contains("deepseek", StringComparison.OrdinalIgnoreCase) && provider.ReasoningEffort != "none")
+                reasoning["summary"] = "auto";
+            body["reasoning"] = reasoning;
         }
 
         return body;

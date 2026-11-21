@@ -149,12 +149,16 @@ class PresetImportDeviceTest {
 
                 val presetId = model.state.value.preset
                 val close = compose.onNode(hasContentDescription(label(R.string.close)) and inEditor)
-                close.performClick()
-                waitFor { !model.state.value.presetEditorOpen }
-                compose.onNodeWithTag("composer").assertDoesNotExist()
+                close.assertDoesNotExist()
+                compose.runOnIdle { model.openPresetEditor(create = true) }
+                waitFor {
+                    model.state.value.preset != presetId && model.state.value.presetEditorOpen &&
+                        !model.state.value.busy && model.state.value.blocks.any { it.content == Welcome }
+                }
                 compose.runOnIdle { model.selectPreset(presetId) }
                 waitFor {
-                    model.state.value.presetEditorOpen && model.state.value.presetSetupPending &&
+                    model.state.value.preset == presetId && model.state.value.presetEditorOpen &&
+                        model.state.value.presetSetupPending &&
                         model.state.value.blocks.any { it.content == CardDone }
                 }
                 compose.onNode(hasTestTag("composer") and inEditor).performTextReplacement(CompleteSetup)

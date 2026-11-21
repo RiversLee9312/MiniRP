@@ -8,6 +8,42 @@ namespace MiniRP.Core.Tests;
 public sealed class ProviderTests
 {
     [TestMethod]
+    [DataRow("openai", "https://api.deepseek.com", "max", "reasoning_effort", "max")]
+    [DataRow("openai", "https://fixture.invalid/v1", "fixture-deliberate", "reasoning_effort", "fixture-deliberate")]
+    [DataRow("openai", "https://openrouter.ai/api/v1", "low", "reasoning.effort", "low")]
+    [DataRow("responses", "https://fixture.invalid/v1", "none", "reasoning.effort", "none")]
+    [DataRow("anthropic", "https://fixture.invalid/v1", "medium", "output_config.effort", "medium")]
+    [DataRow("gemini", "https://fixture.invalid/v1beta", "low", "generationConfig.thinkingConfig.thinkingLevel", "LOW")]
+    [DataRow("ollama", "https://fixture.invalid", "high", "think", "high")]
+    public void ModelEffortUsesTheProtocolField(string protocol, string url, string effort, string field, string expected)
+    {
+        var provider = new Provider("fixture", "Fixture", protocol, url, "", "fixture", ReasoningEffort: effort);
+        var model = new ModelClient(new HostPort(_ => { }), () => provider);
+        var body = JsonValues.ParseObject(model.Request(provider, new(), null).GetString("body"));
+        Assert.AreEqual(expected, field.Split('.').Aggregate((JsonNode?)body, (node, key) => node?[key])?.GetValue<string>());
+        if (url.Contains("deepseek")) Assert.AreEqual("enabled", body["thinking"].GetString("type"));
+
+        var defaultBody = JsonValues.ParseObject(model.Request(provider with { ReasoningEffort = "" }, new(), null).GetString("body"));
+        Assert.AreEqual(protocol == "ollama" ? "false" : null,
+            field.Split('.').Aggregate((JsonNode?)defaultBody, (node, key) => node?[key])?.ToString());
+    }
+
+    [TestMethod]
+    public async Task OllamaModelDetailsReturnOnlyAdvertisedEffortValues()
+    {
+        var model = Fixture("ollama", (request, _) =>
+        {
+            Assert.EndsWith("/api/show", request.GetString("url"));
+            Assert.AreEqual("POST", request.GetString("method"));
+            Assert.AreEqual("fixture", JsonValues.ParseObject(request.GetString("body")).GetString("model"));
+            return """{"thinking":{"values":["low","high"],"default":"low"}}""";
+        });
+        var provider = new Provider("fixture", "Fixture", "ollama", "http://fixture.invalid", "", "fixture");
+        var levels = await model.EffortLevels(provider, CancellationToken.None);
+        CollectionAssert.AreEqual(new[] { "low", "high" }, levels.Select(level => level!.GetValue<string>()).ToArray());
+    }
+
+    [TestMethod]
     public async Task Utf8SurvivesEveryPossibleByteBoundary()
     {
         var expected = "中文🙂é مرحبا";

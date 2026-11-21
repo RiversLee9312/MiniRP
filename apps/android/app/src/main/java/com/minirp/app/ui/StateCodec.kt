@@ -58,7 +58,22 @@ internal fun decodeChoice(value: JSONObject) =
         inputModalities =
             (value.optJSONArray("input_modalities") ?: value.optJSONObject("architecture")?.optJSONArray("input_modalities"))
                 ?.let { (0 until it.length()).map(it::getString) },
+        effortLevels = value.effortLevels(),
     )
+
+internal fun JSONObject.effortLevels(): List<String> {
+    val levels = optJSONArray("effort_levels")
+        ?: optJSONObject("effort")?.optJSONArray("supported_levels")
+        ?: optJSONObject("thinking")?.optJSONArray("values")
+    if (levels != null) {
+        return (0 until levels.length()).mapNotNull { levels.opt(it) as? String }
+            .filter(String::isNotBlank)
+            .distinct()
+    }
+    val effort = optJSONObject("capabilities")?.optJSONObject("effort") ?: return emptyList()
+    if (!effort.optBoolean("supported")) return emptyList()
+    return effort.keys().asSequence().filter { effort.optJSONObject(it)?.optBoolean("supported") == true }.toList()
+}
 
 internal fun decodeModel(value: JSONObject) =
     SavedModel(
@@ -69,6 +84,7 @@ internal fun decodeModel(value: JSONObject) =
             background = value.optBoolean("background_compaction", true),
             backgroundThreshold = value.optInt("background_compact_at_percent", DEFAULT_BACKGROUND_COMPACTION_PERCENT).coerceIn(1, 99),
         ),
+        reasoningEffort = value.optString("reasoning_effort"),
     )
 
 internal fun encodeModel(value: SavedModel) =
@@ -79,6 +95,8 @@ internal fun encodeModel(value: SavedModel) =
         .put("context_length", value.choice.contextWindow)
         .put("max_output_tokens", value.choice.maxOutput)
         .put("input_modalities", value.choice.inputModalities?.let(::JSONArray))
+        .put("effort_levels", JSONArray(value.choice.effortLevels))
+        .put("reasoning_effort", value.reasoningEffort)
         .putCompaction(value.compaction)
 
 internal fun JSONObject.putCompaction(value: CompactionSettings): JSONObject =
@@ -113,6 +131,7 @@ internal fun decodeBlock(value: JSONObject) =
         openUiState = value.optJSONObject("open_ui_state")?.toString(),
         openUiRevision = value.optInt("open_ui_revision"),
         compaction = value.optBoolean("compaction") || value.optString("tool") == "compact_context",
+        pluginAgentId = value.optString("plugin_agent"),
         pluginRun = value.optString("plugin_run", value.optString("plugin_agent")),
         pluginAgentName = value.optString("plugin_agent_name"),
         pluginStatus = value.optString("plugin_status"),

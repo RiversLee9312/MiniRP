@@ -70,6 +70,12 @@
     <string name="thinking">思考</string>
     <string name="thinking_off">關閉</string>
     <string name="thinking_on">開啟</string>
+    <string name="model_settings">模型設定</string>
+    <string name="thinking_effort">思考程度</string>
+    <string name="thinking_effort_default">預設</string>
+    <string name="thinking_effort_unavailable">提供者未回報此模型的思考層級。</string>
+    <string name="thinking_effort_loading">正在載入思考層級…</string>
+    <string name="thinking_effort_load_failed">無法載入思考層級。</string>
     <string name="context_size">上下文大小</string>
     <string name="compaction_threshold">上下文壓縮</string>
     <string name="compaction_context_percentage">壓縮門檻（占上下文視窗）</string>
@@ -166,4 +172,18 @@
     <string name="export_preset">匯出預設</string>
     <string name="export_save">匯出存檔</string>
     <string name="import_save">匯入存檔</string>
+    <string name="plugin_agent">外掛子代理</string>
+    <string name="plugin_agent_activity">外掛子代理活動</string>
+    <string name="use_preset_model">使用預設代理的模型</string>
+    <string name="plugin_run">第 %1$d 次執行</string>
+    <string name="plugin_run_finished">已完成</string>
+    <string name="plugin_run_failed">失敗</string>
+    <string name="plugin_run_cancelled">已取消</string>
+    <string name="plugin_run_interrupted">已中斷</string>
+    <string name="plugin_run_archived">已封存</string>
+    <string name="preset_home_hint">點按預設名稱，開啟預設智能體對話。</string>
+    <string name="preset_chat_hint">點按更多選項，再選「預設」開啟智能體對話。</string>
+    <string name="research_apis">搜尋與擷取 API</string>
+    <string name="research_search_provider">網頁搜尋 API</string>
+    <string name="research_fetch_provider">頁面擷取 API</string>
 </resources>

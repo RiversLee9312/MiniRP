@@ -17,6 +17,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.minirp.app.R
+import kotlinx.coroutines.CancellationException
 
 @Composable
 internal fun ModelsScreen(
@@ -43,7 +44,7 @@ internal fun ModelsScreen(
         }
     LazyColumn(modifier.testTag("models-list"), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
         item { SectionLabel(R.string.agent_models) }
-        items(AgentRole.entries, key = { "assignment:${it.id}" }) { role ->
+        items(AgentRole.entries.filterNot { it == AgentRole.Plugin }, key = { "assignment:${it.id}" }) { role ->
             val selection = state.assigned(role)
             ListItem(
                 content = { Text(stringResource(role.label)) },
@@ -125,7 +126,7 @@ internal fun ModelsScreen(
                         Row {
                             if (checked) {
                                 IconButton(onClick = { editingModel = choice.id }) {
-                                    Symbol("settings", description = stringResource(R.string.compaction_threshold))
+                                    Symbol("settings", description = stringResource(R.string.model_settings))
                                 }
                             }
                             Switch(checked, { model.enableModel(saved, it) })
@@ -138,12 +139,14 @@ internal fun ModelsScreen(
     }
     val selected = state.savedModels.find { it.provider == provider?.id && it.choice.id == editingModel }
     if (selected != null && provider != null) {
-        CompactionThresholdDialog(
+        ModelSettingsDialog(
             selected,
             provider,
+            catalog.loading,
+            fetchEffortLevels = { model.fetchModelEffortLevels(provider, selected.choice.id) },
             onDismiss = { editingModel = null },
-            onSave = {
-                model.setCompaction(selected, it)
+            onSave = { compaction, effort ->
+                model.saveModelSettings(selected, compaction, effort)
                 editingModel = null
             },
         )
@@ -151,11 +154,13 @@ internal fun ModelsScreen(
 }
 
 @Composable
-private fun CompactionThresholdDialog(
+private fun ModelSettingsDialog(
     model: SavedModel,
     provider: ProviderConfig,
+    catalogLoading: Boolean,
+    fetchEffortLevels: suspend () -> List<String>,
     onDismiss: () -> Unit,
-    onSave: (CompactionSettings) -> Unit,
+    onSave: (CompactionSettings, String) -> Unit,
 ) {
     var value by rememberSaveable(model.provider, model.choice.id) {
         mutableStateOf(model.compaction.threshold.toString())
@@ -166,15 +171,38 @@ private fun CompactionThresholdDialog(
     var startValue by rememberSaveable(model.provider, model.choice.id) {
         mutableStateOf(model.compaction.backgroundThreshold.toString())
     }
+    var requestedEffort by rememberSaveable(model.provider, model.choice.id) { mutableStateOf(model.reasoningEffort) }
+    val fetchDetails = provider.protocol == "ollama" && model.choice.effortLevels.isEmpty()
+    var fetchedLevels by remember(provider, model.choice.id) { mutableStateOf<List<String>?>(null) }
+    var loadFailed by remember(provider, model.choice.id) { mutableStateOf(false) }
+    LaunchedEffect(provider, model.choice.id, fetchDetails) {
+        if (fetchDetails) {
+            try {
+                fetchedLevels = fetchEffortLevels()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                loadFailed = true
+            }
+        }
+    }
+    val effortLevels = when {
+        fetchDetails -> fetchedLevels
+        catalogLoading && model.choice.effortLevels.isEmpty() -> null
+        else -> model.choice.effortLevels
+    }
+    val effort = requestedEffort.takeIf { effortLevels == null || it in effortLevels }.orEmpty()
     val percent = value.toIntOrNull()?.takeIf { it in 1..100 }
     val start = startValue.toIntOrNull()?.takeIf { it in 1..99 && percent != null && it < percent }
     val context = model.choice.contextWindow
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.compaction_threshold)) },
+        title = { Text(stringResource(R.string.model_settings)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(model.choice.name, style = MaterialTheme.typography.titleSmall)
+                ThinkingEffortField(effortLevels, effort, loadFailed) { requestedEffort = it }
+                Text(stringResource(R.string.compaction_threshold), style = MaterialTheme.typography.titleSmall)
                 Text(
                     if (context > 0) stringResource(R.string.compaction_model_context, context)
                     else stringResource(R.string.compaction_fallback_context, provider.contextWindow)
@@ -214,7 +242,7 @@ private fun CompactionThresholdDialog(
             TextButton(
                 onClick = {
                     if (percent != null) {
-                        onSave(CompactionSettings(percent, background, start ?: model.compaction.backgroundThreshold))
+                        onSave(CompactionSettings(percent, background, start ?: model.compaction.backgroundThreshold), effort)
                     }
                 },
                 enabled = percent != null && (!background || start != null),
@@ -224,6 +252,55 @@ private fun CompactionThresholdDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThinkingEffortField(
+    levels: List<String>?,
+    effort: String,
+    loadFailed: Boolean,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val label = stringResource(R.string.thinking_effort)
+    val default = stringResource(R.string.thinking_effort_default)
+    if (levels.isNullOrEmpty()) {
+        Text(label, style = MaterialTheme.typography.titleSmall)
+        Text(
+            stringResource(
+                when {
+                    loadFailed -> R.string.thinking_effort_load_failed
+                    levels == null -> R.string.thinking_effort_loading
+                    else -> R.string.thinking_effort_unavailable
+                }
+            ),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        return
+    }
+    ExposedDropdownMenuBox(expanded, { expanded = it }) {
+        OutlinedTextField(
+            value = effort.ifEmpty { default },
+            onValueChange = {},
+            modifier = Modifier.fillMaxWidth().testTag("model-thinking-effort")
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+        )
+        ExposedDropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            (listOf("") + levels).forEach { value ->
+                DropdownMenuItem(
+                    text = { Text(value.ifEmpty { default }) },
+                    onClick = {
+                        onSelect(value)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -274,7 +351,11 @@ internal fun AssignmentSheet(
             if (role != AgentRole.Chat)
                 item {
                     ListItem(
-                        content = { Text(stringResource(R.string.use_chat_model)) },
+                        content = {
+                            Text(stringResource(
+                                if (role == AgentRole.Plugin) R.string.use_preset_model else R.string.use_chat_model
+                            ))
+                        },
                         trailingContent = {
                             RadioButton(role !in state.assignments, onClick = null)
                         },

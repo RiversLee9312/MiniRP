@@ -20,7 +20,9 @@ public sealed partial class Engine : IAsyncDisposable
     private string operationEnsembleChat = "";
     private sealed record Routing(Provider Default, JsonObject Agents, JsonObject Settings)
     {
-        public Provider For(string role) => Agents[role] is JsonObject value ? Provider.From(value) : Default;
+        public Provider For(string role) => Agents[role] is JsonObject value
+            ? Provider.From(value)
+            : role == "plugin" ? For("preset") : Default;
     }
 
     private readonly Task<WorkspaceCatalog> catalog;
@@ -73,12 +75,12 @@ public sealed partial class Engine : IAsyncDisposable
         presetContainers = new(Port, Workspace.Root);
         agentSessions = new(Port, plugins, attachmentRoot, () => turnRouting.Settings.GetString("android_open_ui"), () => Workspace, containers,
             () => curlAvailable, presetContainers);
-        pluginAgents = new(Workspace.Root, agentSessions, plugins, () => Volatile.Read(ref routing).For("preset"),
+        pluginAgents = new(Workspace.Root, agentSessions, plugins, () => Volatile.Read(ref routing).For("plugin"),
             () =>
             {
                 Emit(new() { ["kind"] = "plugins", ["items"] = plugins.List() });
                 EmitPluginSettings();
-            }, preset => commands.Writer.TryWrite(new() { ["op"] = "_plugin_agent_completed", ["preset"] = preset }),
+            }, PluginAgentCompleted,
             lifetime.Token);
         Model = new(Port, () => Volatile.Read(ref routing).Default);
         worker = Task.Run(ProcessCommands);
@@ -126,10 +128,16 @@ public sealed partial class Engine : IAsyncDisposable
                 plugins.OpenUrl(command.GetString("url"), PluginEnvironment());
                 break;
             case "configure":
-                Volatile.Write(ref routing, new(Provider.From(command.GetObject("provider")), command.GetObject("agents"), command.GetObject("settings")));
+                var updated = new Routing(Provider.From(command.GetObject("provider")), command.GetObject("agents"), command.GetObject("settings"));
+                var previous = Interlocked.Exchange(ref routing, updated);
+                if (PresetConnection(previous.For("preset")) != PresetConnection(updated.For("preset")))
+                    QueuePresetNotifications("");
                 break;
             case "models":
                 _ = DiscoverModels(Provider.From(command.GetObject("provider")), command.GetString("request"));
+                break;
+            case "model_effort_levels":
+                _ = DiscoverModelEffortLevels(Provider.From(command.GetObject("provider")), command.GetString("request"));
                 break;
             case "library_page":
                 _ = Task.Run(() => LibraryPage(command));
@@ -323,7 +331,7 @@ public sealed partial class Engine : IAsyncDisposable
                 {
                     ["kind"] = "error",
                     ["request"] = command.GetString("request"),
-                    ["model_turn"] = op is "message" or "_preset_interview" or "start_chat" or "greet_chat",
+                    ["model_turn"] = op is "message" or "_preset_interview" or "_preset_plugin_notifications" or "start_chat" or "greet_chat",
                     ["agent"] = command.GetString("agent", "chat"),
                     ["message"] = error.Message
                 });
@@ -407,6 +415,18 @@ public sealed partial class Engine : IAsyncDisposable
         {
             Emit(new() { ["kind"] = "models_loading", ["provider"] = requestedProvider.Id, ["request"] = request, ["value"] = false });
         }
+    }
+
+    private async Task DiscoverModelEffortLevels(Provider provider, string request)
+    {
+        var reply = new JsonObject { ["kind"] = "model_effort_levels", ["request"] = request };
+        try
+        {
+            reply["effort_levels"] = await Model.EffortLevels(provider, lifetime.Token);
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception error) { reply["error"] = error.Message; }
+        Emit(reply);
     }
 
     private void FinishPendingTrace(string message)
@@ -500,6 +520,7 @@ public sealed partial class Engine : IAsyncDisposable
                 ["config"] = Workspace.Config.DeepClone()
             });
         }
+        QueuePresetNotifications(preset);
     }
 
     private PageSource CreatePageSource(Workspace workspace, string sessionRoot, bool forPreset = false)
@@ -548,7 +569,6 @@ public sealed partial class Engine : IAsyncDisposable
         {
             if (!session.HasHistory && previous?["history"] is JsonArray legacy)
                 session.Restore(legacy, previous.GetString("summary"));
-            if (role == "preset") session.DeliverSystemMessages();
             session.ConfigureWorldMode(role == "chat" ? workspace.AgenticSearch : null);
             return session;
         }
@@ -616,8 +636,8 @@ public sealed partial class Engine : IAsyncDisposable
             case "_curl_available":
                 curlAvailable = true;
                 return;
-            case "_plugin_agent_completed":
-                DeliverPluginAgentNotifications(WorkspaceIds.Require(command.GetString("preset")));
+            case "_preset_plugin_notifications":
+                await RunPresetNotifications(command.GetString("preset"), token);
                 return;
             case "list_chats":
                 var listedPreset = command.GetString("preset");
@@ -688,6 +708,7 @@ public sealed partial class Engine : IAsyncDisposable
                 RequirePreset(command);
                 OpenPresetEditor(command.GetString("request"));
                 QueuePresetInterview(command);
+                QueuePresetNotifications(Workspace.PresetId);
                 return;
             case "_preset_interview":
                 if (command.GetString("preset") != Workspace.PresetId || !Workspace.SetupPending)
@@ -881,13 +902,12 @@ public sealed partial class Engine : IAsyncDisposable
         }
         attachments = await PrepareAttachments(attachments, PluginEnvironment(role), token);
         var session = sessions[role];
-        if (role == "preset") session.DeliverSystemMessages();
         if (role == "chat") session.ConfigureWorldMode(Workspace.AgenticSearch);
         var turn = new TurnInbox(Workspace.ChatId, role, message =>
         {
             RecordInput(role, message.GetString("text"), message.GetString("role", "user"), new(), false);
             return null;
-        });
+        }, preset: Workspace.PresetId);
         session.Inbox = turn;
         BeginInteractiveTurn(turn, editorTurn);
         var turnStart = Workspace.Chat.GetArray("blocks").Count;

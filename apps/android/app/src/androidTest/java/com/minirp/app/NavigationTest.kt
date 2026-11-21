@@ -25,6 +25,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
@@ -50,6 +51,7 @@ import com.minirp.app.ui.SavedModel
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +69,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -202,14 +205,50 @@ class NavigationTest {
     }
 
     @Test
-    fun savedModelUsesDiscoveredWindowAndEditableCompactionDefaults() {
+    fun webResearchChoosesIndependentServicesAndEncryptsTheirKeys() {
+        fun label(resource: Int) = compose.activity.getString(resource)
+        fun text(resource: Int) = compose.onNodeWithText(label(resource))
+        compose.onNodeWithContentDescription(label(R.string.settings)).performClick()
+        compose.waitUntil(10_000) { text(R.string.research_apis).isDisplayed() }
+        text(R.string.research_apis).performClick()
+        text(R.string.research_search_provider).performClick()
+        compose.onNodeWithText("Brave Search").performClick()
+        text(R.string.research_fetch_provider).performClick()
+        compose.onNodeWithText("Exa").performClick()
+        compose.onNodeWithText("Brave Search · ${label(R.string.api_key)}").performTextInput("mock-brave-key")
+        compose.onNodeWithText("Exa · ${label(R.string.api_key)}").performTextInput("mock-exa-key")
+        text(R.string.save).performClick()
+        compose.waitUntil(5_000) {
+            val options = runBlocking { preferences.load().second }
+            options.optString("search_provider") == "brave" && options.optString("fetch_provider") == "exa" &&
+                options.optJSONObject("research_keys")?.optString("exa") == "mock-exa-key"
+        }
+        val stored = presetFile.parentFile!!.parentFile!!.parentFile!!
+            .resolve("preferences.preferences_pb").readBytes().toString(Charsets.ISO_8859_1)
+        assertFalse(stored.contains("mock-brave-key"))
+        assertFalse(stored.contains("mock-exa-key"))
+    }
+
+    @Test
+    fun savedModelUsesDiscoveredWindowAndEffortLevels() {
         MockWebServer().use { server ->
-            server.enqueue(
-                MockResponse.Builder()
-                    .setHeader("Content-Type", "application/json")
-                    .body("""{"data":[{"id":"fixture","name":"Fixture model","context_length":65536}]}""")
-                    .build()
-            )
+            val selectedEffort = "fixture-deliberate"
+            val chatRequest = LinkedBlockingQueue<JSONObject>()
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.url.encodedPath == "/v1/models") {
+                        return MockResponse.Builder()
+                            .setHeader("Content-Type", "application/json")
+                            .body("""{"data":[{"id":"fixture","name":"Fixture model","context_length":65536,"effort":{"supported_levels":["fixture-quick","$selectedEffort"]}}]}""")
+                            .build()
+                    }
+                    val body = JSONObject(checkNotNull(request.body).utf8())
+                    if (body.toString().contains("Verify my model effort")) chatRequest.offer(body)
+                    return MockResponse.Builder().setHeader("Content-Type", "text/event-stream")
+                        .body("data: {\"choices\":[{\"delta\":{\"content\":\"Model fixture reply\"}}]}\n\ndata: [DONE]\n\n")
+                        .build()
+                }
+            }
             server.start()
             val provider = ProviderConfig(id = "fixture", name = "Fixture", url = server.url("/v1").toString())
             compose.runOnIdle {
@@ -220,14 +259,18 @@ class NavigationTest {
             fun label(resource: Int) = compose.activity.getString(resource)
             compose.onNodeWithContentDescription(label(R.string.settings)).performClick()
             compose.onNodeWithText(label(R.string.models)).performClick()
-            fun openCompactionSettings() {
+            fun openModelSettings() {
                 compose.onNodeWithTag("models-list").performScrollToKey("model:fixture:fixture")
-                compose.onNodeWithContentDescription(label(R.string.compaction_threshold)).performClick()
+                compose.onNodeWithContentDescription(label(R.string.model_settings)).performClick()
             }
-            openCompactionSettings()
+            openModelSettings()
+            compose.onNodeWithTag("model-thinking-effort").performClick()
+            compose.onNodeWithText("fixture-quick").assertIsDisplayed()
+            compose.onNodeWithText("high").assertDoesNotExist()
+            compose.onNodeWithText(selectedEffort).performClick()
             compose.onNodeWithText(compose.activity.getString(R.string.compaction_model_context, 65536)).assertIsDisplayed()
             compose.onNodeWithText("80").assertIsDisplayed()
-            compose.onNodeWithText("70").assertIsDisplayed()
+            compose.onNodeWithText("70").performScrollTo().assertIsDisplayed()
             compose.onNodeWithText(label(R.string.compaction_context_percentage)).performTextReplacement("85")
             compose.onNodeWithText(label(R.string.background_compaction_threshold)).performTextReplacement("75")
             compose.onNodeWithText(label(R.string.save)).performClick()
@@ -237,14 +280,23 @@ class NavigationTest {
             assertEquals(75, updated.backgroundThreshold)
             runBlocking {
                 withTimeout(5_000) {
-                    while (preferences.load().second.optJSONArray("models")?.optJSONObject(0)
-                            ?.optInt("compact_at_percent") != 85
-                    ) delay(10)
+                    while (true) {
+                        val saved = preferences.load().second.optJSONArray("models")?.optJSONObject(0)
+                        if (saved?.optInt("compact_at_percent") == 85 &&
+                            saved.optString("reasoning_effort") == selectedEffort) break
+                        delay(10)
+                    }
                 }
             }
-            openCompactionSettings()
+            openModelSettings()
             compose.onNodeWithText("85").assertIsDisplayed()
-            compose.onNodeWithText("75").assertIsDisplayed()
+            compose.onNodeWithText("75").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("model-thinking-effort").performScrollTo().assertTextContains(selectedEffort)
+            compose.onNodeWithText(label(R.string.cancel)).performClick()
+            compose.runOnIdle {
+                model.viewModelScope.launch { model.send("Verify my model effort", emptyList(), AgentRole.Chat) }
+            }
+            assertEquals(selectedEffort, chatRequest.poll(10, TimeUnit.SECONDS)?.optString("reasoning_effort"))
         }
     }
 
@@ -319,7 +371,7 @@ class NavigationTest {
             compose.onNodeWithText(providers).assertIsDisplayed()
             assertEquals(original, toolbar.fetchSemanticsNode().boundsInRoot)
             gear.assertDoesNotExist()
-            startGesture(NavigationEvent.EDGE_RIGHT)
+            startGesture(NavigationEvent.EDGE_RIGHT, 0.2f)
             compose.waitUntil(5_000) { gear.isDisplayed() }
             toolbar.assertIsDisplayed()
             val outgoingAtRelease = toolbar.xInRoot()
@@ -333,7 +385,7 @@ class NavigationTest {
             val outgoing = listOf(outgoingAtRelease, toolbar.xInRoot()).toMutableList()
             val incoming = listOf(incomingAtRelease, gear.xInRoot()).toMutableList()
             repeat(2) {
-                compose.mainClock.advanceTimeBy(48)
+                compose.mainClock.advanceTimeByFrame()
                 outgoing += toolbar.xInRoot()
                 incoming += gear.xInRoot()
             }
@@ -341,8 +393,12 @@ class NavigationTest {
             val enterTravel = incoming.zipWithNext { first, next -> next - first }
             assertTrue("Outgoing page reversed after release: $outgoing", exitTravel.all { it >= 0 })
             assertTrue("Incoming page reversed after release: $incoming", enterTravel.all { it >= 0 })
+            assertTrue("The release should already be moving on its first interval: $outgoing",
+                exitTravel[1] > (outgoingAtRelease - original.left) * 0.15f)
             assertTrue("Outgoing page should speed up: $outgoing ($exitTravel)", exitTravel[2] > exitTravel[1])
             assertTrue("Incoming page should slow down: $enterTravel", enterTravel[1] > enterTravel[2] && enterTravel[2] > 0)
+            compose.mainClock.advanceTimeBy(112)
+            assertEquals(chatX, gear.xInRoot(), 1f)
             compose.mainClock.autoAdvance = true
             gear.assertIsDisplayed()
             toolbar.assertDoesNotExist()
@@ -405,7 +461,10 @@ class NavigationTest {
             compose.onNode(
                 SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading) and hasClickAction()
             )
-        val presetTitle = compose.onNodeWithText(compose.activity.getString(R.string.preset))
+        val presetTitle = compose.onNode(
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading) and
+                hasText(compose.activity.getString(R.string.preset))
+        )
         val chatMenu =
             compose.onNodeWithContentDescription(compose.activity.getString(R.string.more_options))
         compose.waitUntil(10_000) { heading.isDisplayed() }

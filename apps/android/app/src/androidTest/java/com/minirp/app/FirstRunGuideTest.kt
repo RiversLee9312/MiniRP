@@ -112,6 +112,7 @@ class FirstRunGuideTest {
                 compose.runOnIdle {
                     assertTrue(copied.contains("real_search") && copied.contains("real_fetch"))
                     assertTrue(copied.contains("Mwmbl") && copied.contains("DeepSeek"))
+                    assertTrue(listOf("Tavily", "Exa", "Brave Search").all(copied::contains))
                     assertSubscriptionGuidance()
                 }
                 text(R.string.close).performClick()

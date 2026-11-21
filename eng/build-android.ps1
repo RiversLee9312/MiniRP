@@ -1,9 +1,10 @@
-param([switch]$Install, [switch]$Optimized, [string]$Device = '<ADB device serial>', [string]$ContainerRuntime, [string]$ContainerImage, [string]$CurlRuntime)
+param([switch]$Install, [switch]$Optimized, [string]$Device, [string]$ContainerRuntime, [string]$ContainerImage, [string]$CurlRuntime)
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent $PSScriptRoot
 & (Join-Path $PSScriptRoot 'build-native.ps1') -Runtime linux-bionic-arm64
-if (!$env:JAVA_HOME) { $env:JAVA_HOME = '<JDK 21 installation directory>' }
-if (!$env:ANDROID_HOME) { $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
+if (!$env:ANDROID_HOME) {
+    $env:ANDROID_HOME = if ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
+}
 $container = if ($ContainerRuntime) { (Resolve-Path -LiteralPath $ContainerRuntime).Path }
     elseif (Test-Path (Join-Path $workspace 'artifacts/container-runtime/android/jniLibs/arm64-v8a/libminirp_qemu.so')) {
         Join-Path $workspace 'artifacts/container-runtime/android'
@@ -17,4 +18,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Android build failed.' }
 $apk = Join-Path $workspace 'apps/android/app/build/outputs/apk/debug/app-debug.apk'
 $destination = Join-Path $workspace 'artifacts/MiniRP.apk'
 Copy-Item -LiteralPath $apk -Destination $destination
-if ($Install) { & (Join-Path $env:ANDROID_HOME 'platform-tools/adb.exe') -s $Device install -r $destination }
+if ($Install) {
+    $target = if ($Device) { @('-s', $Device) } else { @() }
+    & (Join-Path $env:ANDROID_HOME 'platform-tools/adb.exe') @target install -r $destination
+    if ($LASTEXITCODE -ne 0) { throw 'Android installation failed. Use adb devices to check the connection and -Device to select a target.' }
+}

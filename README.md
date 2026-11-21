@@ -62,13 +62,13 @@ Enter 发送，Alt+Enter 换行。输入框随换行和软换行增高，最多�
 
 ## Android
 
-当前提供 ARM64 构建，已在连接的Android ARM64 真机 上验证。需要 Android Studio/JDK 21、SDK 37、NDK 28.2.13676358 和 Node.js 24。Gradle 根据锁文件构建随 APK 分发的 OpenUI 资源。
+当前提供 Android ARM64 构建。需要 Android Studio 或 JDK 21、SDK 37、NDK 28.2.13676358 和 Node.js 24。通过 `JAVA_HOME` 或 PATH 选择 JDK，通过 `ANDROID_HOME` 指定 Android SDK。Gradle 根据锁文件构建随 APK 分发的 OpenUI 资源。
 
 ```powershell
-pwsh -File eng/build-android.ps1 -Install -Device '<ADB device serial>'
+pwsh -File eng/build-android.ps1 -Install
 ```
 
-加上 `-Optimized` 可生成使用调试签名、启用发布版代码和资源裁剪的 APK，便于覆盖安装验证。
+连接多个设备时，先用 `adb devices` 查看序列号，再用 `-Device` 选择目标。加上 `-Optimized` 可生成使用调试签名、启用发布版代码和资源裁剪的 APK，便于覆盖安装验证。
 
 输出 `artifacts/MiniRP.apk`。也可用 Android Studio 打开 `apps/android`；先运行 `eng/build-native.ps1 -Runtime linux-bionic-arm64` 生成本地库。
 
@@ -84,7 +84,7 @@ ChatAgent 可按需激活 `interactive-ui` 技能，在 Markdown 中插入流式
 
 UI 文案使用 Android 字符串资源，支持英文及另外 29 种语言；语言列表由 AGP 自动生成，使用系统按应用语言设置，低版本通过 AppCompat 适配。支持 RTL，方向图标会镜像。图标使用 Google Fonts Material Symbols 官方子集；应用图标由 GPT-image 生成，前景安全区和来源记录保存在 `assets/branding`。
 
-.NET 的 Android/bionic NativeAOT 目前仍是实验支持。核心不依赖该平台缺失的 TLS 栈：网络和浏览器由 Kotlin/OkHttp/WebView 或桌面平台适配层执行，Agent 编排、协议转换和存储仍在 C# 中。Windows 和Android ARM64 真机 已实际构建测试；Linux/macOS 核心可在对应系统使用标准 NativeAOT 工具链构建，尚未在本项目逐个平台实测。
+.NET 的 Android/bionic NativeAOT 目前仍是实验支持。Android 与桌面的网络和浏览器请求由各平台适配层执行，Agent 编排、协议转换和存储由 C# 核心处理。项目已验证 Windows 和 Android ARM64 构建。Linux 与 macOS 可使用各自的标准 NativeAOT 工具链构建核心。
 
 ## 提供商
 
@@ -92,9 +92,11 @@ UI 文案使用 Android 字符串资源，支持英文及另外 29 种语言；�
 
 兼容程度取决于服务实际支持的模型、工具调用和思考参数。协议回归使用本地夹具验证，没有逐个使用真实服务密钥联调。平台专有的云账号登录和签名认证不在当前密钥配置范围内。
 
-主模型使用其他服务时，桌面可单独填写 `MINIRP_SEARCH_API_KEY`；Android 从已配置的 DeepSeek 提供商读取搜索密钥。
+网页搜索支持 DeepSeek、Tavily、Exa 和 Brave Search。网页抓取支持 DeepSeek、Tavily 和 Exa。Android 可在「设置 → 搜索和抓取 API」分别选择两项服务并填写密钥。同一服务的密钥可用于搜索和抓取。DeepSeek 默认沿用已保存模型提供商的密钥。
 
-搜索和网页抓取密钥可选。`real_search` 在 DeepSeek 搜索未配置、失败或没有结果时尝试 [Mwmbl 的免密钥搜索 API](https://developer.mwmbl.org/)。Mwmbl 也没有可用结果时，FetchAgent 用现有的本地浏览器顺序尝试搜索网站。中国大陆尝试百度和 Bing，其他地区尝试 Google、DuckDuckGo 和 Bing。所有来源沿用相同的搜索结果格式。默认网页抓取策略也会在 API 不可用时使用本地浏览器 Fetch。
+桌面可在「模型与 API」设置中填写服务和密钥，也可用 `MINIRP_SEARCH_PROVIDER` 与 `MINIRP_FETCH_PROVIDER` 选择服务。密钥分别使用 `MINIRP_SEARCH_API_KEY`（DeepSeek）、`MINIRP_TAVILY_API_KEY`、`MINIRP_EXA_API_KEY` 或 `MINIRP_BRAVE_SEARCH_API_KEY`。
+
+搜索和网页抓取密钥可选。`real_search` 在所选服务未配置、失败或没有结果时尝试 [Mwmbl 的免密钥搜索 API](https://developer.mwmbl.org/)。Mwmbl 也没有可用结果时，FetchAgent 用现有的本地浏览器顺序尝试搜索网站。中国大陆尝试百度和 Bing，其他地区尝试 Google、DuckDuckGo 和 Bing。所有来源沿用相同的搜索结果格式。默认网页抓取策略会在 API 不可用时使用本地浏览器 Fetch。
 
 ## 网页工作流
 
@@ -102,7 +104,7 @@ UI 文案使用 Android 字符串资源，支持英文及另外 29 种语言；�
 
 `real_fetch(url, backend)` 保持同一工具接口：
 
-- `api`：调用 DeepSeek Fetch API。
+- `api`：只调用所选网页抓取 API。
 - `local`：显式使用临时 FetchAgent；可用于重抓疑似截断的页面。
 - `api_then_local`：API 出错、超时或返回空正文时使用本地浏览器。
 - `auto`：采用配置的默认策略。
@@ -155,8 +157,5 @@ NativeAOT 核心通过 `LibraryImport` 生成 P/Invoke，JSON 使用 source gene
 
 ```powershell
 dotnet run --project tests/MiniRP.Core.Tests
-$env:JAVA_HOME = '<JDK 21 installation directory>'
 .\apps\android\gradlew.bat -p apps/android :app:connectedDebugAndroidTest
 ```
-
-提供商交互参考了 [Agora](https://github.com/newo-ether/Agora) 的配置和模型发现流程，协议边界参考了 [opencode](https://github.com/anomalyco/opencode)。没有复制 Agora 的 GPL 实现。平台依据：[NativeAOT](https://learn.microsoft.com/dotnet/core/deploying/native-aot/)、[Android/bionic 状态](https://github.com/dotnet/runtime/blob/main/src/coreclr/nativeaot/docs/android-bionic.md)、[Android 应用语言](https://developer.android.com/guide/topics/resources/app-languages)、[Compose Material 3](https://developer.android.com/develop/ui/compose/designsystems/material3)、[自适应图标](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive)、[Apple UI 写作](https://developer.apple.com/design/human-interface-guidelines/writing)。

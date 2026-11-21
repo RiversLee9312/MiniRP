@@ -68,14 +68,17 @@ public sealed partial class AgentSession : IDisposable
     internal static JsonArray ReadHistory(MemoryDb db) =>
         JsonNode.Parse(db.Get(HistoryKey) ?? "[]") as JsonArray ?? new();
 
-    private void Save(JsonArray history, string summary, JsonObject instructions, IEnumerable<string>? deliveries = null) =>
+    private void Save(JsonArray history, string summary, JsonObject instructions, IEnumerable<string>? deliveries = null)
+    {
+        var delivered = (deliveries ?? []).Where(id => id.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
         Db.WriteInternal(
             [(HistoryKey, JsonValues.Serialize(history)),
                 ("_context/summary", summary),
                 ("_context/instructions", JsonValues.Serialize(instructions)),
                 usage.Record(),
-                .. (deliveries ?? []).Where(id => id.Length > 0).Distinct(StringComparer.Ordinal)
-                    .Select(id => ("_inbox/" + id, "1"))]);
+                .. delivered.Select(id => ("_inbox/" + id, "1")),
+                .. delivered.Select(id => (PendingSystemPrefix + id, (string?)null))]);
+    }
 
     internal void ConfigureWorldMode(bool? delegated)
     {
@@ -171,18 +174,12 @@ public sealed partial class AgentSession : IDisposable
 
     internal void AcknowledgeSystemMessageOnCommit(string id) => acknowledgedMessages?.Add(id);
 
-    private IEnumerable<(string Id, string Text)> PendingSystemMessages() =>
-        Db.Query("SELECT key,content FROM entries WHERE key GLOB ? ORDER BY updated_at,key", PendingSystemPrefix + "*")
-            .Select(row => (row["key"][PendingSystemPrefix.Length..], row["content"]));
+    private static IEnumerable<(string Id, string Text)> PendingSystemMessages(MemoryDb db) =>
+        db.Query("SELECT key,content FROM entries WHERE key GLOB ? ORDER BY updated_at,key", PendingSystemPrefix + "*")
+            .Select(row => (Id: row["key"][PendingSystemPrefix.Length..], Text: row["content"]))
+            .Where(message => db.Get("_inbox/" + message.Id) is null);
 
-    internal void DeliverSystemMessages()
-    {
-        foreach (var (id, text) in PendingSystemMessages())
-        {
-            Receive(id, text);
-            Db.Execute("DELETE FROM entries WHERE key=?", PendingSystemPrefix + id);
-        }
-    }
+    internal static bool HasPendingSystemMessages(MemoryDb db) => PendingSystemMessages(db).Any();
 
     internal void CompleteInbox()
     {
@@ -229,6 +226,7 @@ public sealed partial class AgentSession : IDisposable
         var instructions = new SessionInstructions(instructionState);
         var replies = new List<string>();
         var interruptions = new List<(JsonObject Input, JsonObject Original)>();
+        var notifications = new List<JsonObject>();
         var historyCommitted = false;
         IEnumerable<string> Deliveries() => interruptions.Select(item => item.Original.GetString("_inbox_id"));
         var samples = new JsonArray();
@@ -244,6 +242,21 @@ public sealed partial class AgentSession : IDisposable
             bindings.Assets?.RegisterMessage(message);
             interruptions.Add((message, (JsonObject)message.DeepClone()));
             working.AddNode(message);
+        }
+        bool AppendPendingSystemMessages(bool beforeInput = false)
+        {
+            if (acknowledgedMessages is not { } seen) return false;
+            var added = false;
+            foreach (var (id, text) in PendingSystemMessages(Db))
+            {
+                if (!seen.Add(id)) continue;
+                var message = SystemMessage(id, text);
+                notifications.Add(message);
+                if (beforeInput) working.Insert(working.IndexOf(messageInput), message);
+                else working.AddNode(message);
+                added = true;
+            }
+            return added;
         }
         async Task Commit(JsonArray definitions, IEnumerable<string> activeSkills)
         {
@@ -265,6 +278,8 @@ public sealed partial class AgentSession : IDisposable
             {
                 transcript.Record(original.GetString("role"), MessageAttachments.Text(original));
             }
+            foreach (var notification in notifications)
+                transcript.Record("system", notification.GetString("content"));
             if (historySubmission?.Invoke() is { } submission)
             {
                 transcript.Record("assistant", submission);
@@ -309,6 +324,8 @@ public sealed partial class AgentSession : IDisposable
             }
             if (reference is not null && !hasReference)
                 messages.AddNode(new JsonObject { ["role"] = "user", ["content"] = reference });
+            if (notifications.Count > 0 && messages.LastOrDefault().GetString("role") == "system")
+                messages.AddNode(new JsonObject { ["role"] = "user", ["content"] = "Continue with the PluginAgent status update." });
             return messages;
         }
 
@@ -338,7 +355,8 @@ public sealed partial class AgentSession : IDisposable
                 instructionState = savedInstructions;
             }
             return compactor.Compact(turnModel, working, summary, budget, Measure, MessageCost, messageInput, request,
-                interruptions.LastOrDefault().Input, committed.Contains, Applied, ct, prepareOnly, initialTokens);
+                notifications.Concat(interruptions.TakeLast(1).Select(item => item.Input)),
+                committed.Contains, Applied, ct, prepareOnly, initialTokens);
         }
 
         IEnumerable<AgentSkill> Skills()
@@ -370,10 +388,9 @@ public sealed partial class AgentSession : IDisposable
             {
                 ct.ThrowIfCancellationRequested();
                 Inbox?.Drain(Append);
-                if (acknowledgedMessages is { } seen)
-                    foreach (var (id, text) in PendingSystemMessages())
-                        if (seen.Add(id) && Db.Get("_inbox/" + id) is null) Append(SystemMessage(id, text));
                 var firstRequest = previousSkills is null;
+                if (profile.BackgroundMessages) Inbox?.ClearSystemMessageSignal();
+                AppendPendingSystemMessages(beforeInput: firstRequest);
                 var enabled = new AgentSkill.Turn(Skills(), previousSkills?.ActiveNames ?? instructions.ActiveSkills);
                 previousSkills = enabled;
                 var definitions = enabled.Definitions();
@@ -492,7 +509,7 @@ public sealed partial class AgentSession : IDisposable
                             ["_harness_hidden"] = true });
                         continue;
                     }
-                    if (Inbox?.Drain(Append, finish: true) == true) continue;
+                    if (AppendPendingSystemMessages() || Inbox?.Drain(Append, finish: true) == true) continue;
                     await Commit(definitions, enabled.ActiveNames);
                     return message;
                 }

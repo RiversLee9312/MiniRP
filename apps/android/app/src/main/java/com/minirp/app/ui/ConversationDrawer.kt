@@ -46,6 +46,7 @@ internal fun ConversationDrawer(
     onCreatePreset: () -> Unit,
     onArchiveExport: (ArchiveType, String, String, String) -> Unit,
     onArchiveImport: (ArchiveType) -> Unit,
+    presetsFirst: Boolean = false,
 ) {
     val library by model.chatLibrary.collectAsStateWithLifecycle()
     val preset = library.preset
@@ -59,7 +60,7 @@ internal fun ConversationDrawer(
     var picking by rememberSaveable { mutableStateOf(false) }
     var deletion by remember { mutableStateOf<Pair<Choice, Boolean>?>(null) }
     LaunchedEffect(open) {
-        if (!open) picking = false
+        picking = open && presetsFirst
     }
     ModalDrawerSheet(drawerState = drawer, modifier = Modifier.widthIn(max = 360.dp)) {
         Row(

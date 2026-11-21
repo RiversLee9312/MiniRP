@@ -70,6 +70,12 @@
     <string name="thinking">Tänkande</string>
     <string name="thinking_off">Av</string>
     <string name="thinking_on">På</string>
+    <string name="model_settings">Modellinställningar</string>
+    <string name="thinking_effort">Tankeansträngning</string>
+    <string name="thinking_effort_default">Standard</string>
+    <string name="thinking_effort_unavailable">Leverantören rapporterar inga tänkenivåer för den här modellen.</string>
+    <string name="thinking_effort_loading">Läser in tänkenivåer…</string>
+    <string name="thinking_effort_load_failed">Det gick inte att läsa in tänkenivåer.</string>
     <string name="context_size">Kontextstorlek</string>
     <string name="max_output">Maximal utdata</string>
     <string name="no_provider_configured">Lägg till en leverantör för att välja en modell.</string>
@@ -168,4 +174,18 @@
     <string name="export_preset">Exportera förinställning</string>
     <string name="export_save">Exportera sparfil</string>
     <string name="import_save">Importera sparfil</string>
+    <string name="plugin_agent">Pluginagent</string>
+    <string name="plugin_agent_activity">Pluginagentens aktivitet</string>
+    <string name="use_preset_model">Använd förinställningens modell</string>
+    <string name="plugin_run">Körning %1$d</string>
+    <string name="plugin_run_finished">Slutförd</string>
+    <string name="plugin_run_failed">Misslyckades</string>
+    <string name="plugin_run_cancelled">Avbruten</string>
+    <string name="plugin_run_interrupted">Stoppad</string>
+    <string name="plugin_run_archived">Arkiverad</string>
+    <string name="preset_home_hint">Tryck på namnet på förinställningen för att öppna dess agent.</string>
+    <string name="preset_chat_hint">Öppna Fler alternativ och välj Förinställning för att prata med dess agent.</string>
+    <string name="research_apis">API:er för sökning och hämtning</string>
+    <string name="research_search_provider">API för webbsökning</string>
+    <string name="research_fetch_provider">API för hämtning av sidor</string>
 </resources>
