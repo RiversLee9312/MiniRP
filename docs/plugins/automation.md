@@ -38,7 +38,7 @@ PluginAgent 激活 `base-plugin-project` 后，可以在 Android 上独立完成
 3. 添加 `handler` 和 `event`，可以先执行草稿自己的 Action 并用测试数据填充绑定状态。普通会话使用相同的虚拟 Chat 和 Room ID，`ensemble: true` 使用不同的 ID。每次预览从独立的临时存储开始。
 4. 从预览结果取控件标签，用 `steps` 重放最多六个步骤。省略 `value` 时点击控件，支持直接赋值的原生输入也可传入 `value`。逐项核对交互结果、渲染内容和状态。提交表单或打开链接时，预览记录操作和参数，以便检查实际载荷。
 5. 支持图像输入的模型可以传 `screenshot: true`。宿主截取交互结束后的卡片，把 PNG 作为下一次模型请求的图片附件。长卡片截取首屏，结果包含 `cropped`。
-6. 用 `project_edit` 修正源码，重跑同一组预览。按委派要求调用 `project_publish` 发布已验证的草稿。
+6. 用 `project_assets` 取得源码的 Asset URL，通过 `edit_asset` 修正源码并重跑同一组预览。按委派要求调用 `project_publish` 发布已验证的草稿。
 
 预览复用聊天中的 Android WebView 和 OpenUI 组件。它在离线环境中返回结构化结果，远程图片和地图底图依赖正式使用时的网络加载。Windows 终端会返回 `available: false`。
 

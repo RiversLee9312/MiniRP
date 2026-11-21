@@ -47,7 +47,7 @@ internal sealed class EnsembleConversation
         item.GetString("id") == chat && item.GetObject("members").ContainsKey(member));
 
     public JsonObject Post(string chatId, string participant, string role, string text, JsonArray? attachments = null,
-        Action<JsonObject, string>? publish = null)
+        Action<JsonObject, string>? publish = null, string? blockId = null)
     {
         var chat = Chat(chatId);
         if (participant.Length > 0 && !chat.GetObject("members").ContainsKey(participant))
@@ -56,7 +56,7 @@ internal sealed class EnsembleConversation
         data["sequence"] = sequence;
         var item = new JsonObject
         {
-            ["id"] = JsonValues.NewId(), ["sequence"] = sequence, ["role"] = role,
+            ["id"] = blockId ?? JsonValues.NewId(), ["sequence"] = sequence, ["role"] = role,
             ["agent"] = "chat", ["participant"] = participant.Length == 0 ? null : participant,
             ["speaker"] = participant.Length == 0 ? null : Agent(participant).GetString("name"),
             ["content"] = text,

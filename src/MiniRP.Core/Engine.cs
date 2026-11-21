@@ -903,9 +903,10 @@ public sealed partial class Engine : IAsyncDisposable
         if (role == "chat") session.ConfigureWorldMode(Workspace.AgenticSearch);
         var turn = new TurnInbox(Workspace.ChatId, role, message =>
         {
-            RecordInput(role, message.GetString("text"), message.GetString("role", "user"), new(), false);
+            RecordInput(role, message.GetString("text"), message.GetString("role", "user"), new(), false,
+                blockId: message[TurnInbox.QueuedBlockId]?.GetValue<string>());
             return null;
-        }, preset: Workspace.PresetId);
+        }, preset: Workspace.PresetId, queued: message => PreviewSteer(role, message));
         session.Inbox = turn;
         BeginInteractiveTurn(turn, editorTurn);
         var turnStart = Workspace.Chat.GetArray("blocks").Count;
@@ -1042,13 +1043,24 @@ public sealed partial class Engine : IAsyncDisposable
         else RequireActiveChat(command);
     }
 
+    private void PreviewSteer(string agent, JsonObject message, string conversation = "") => events.Enqueue(new()
+    {
+        ["kind"] = "steer_queued", ["chat"] = Workspace.ChatId, ["preset"] = Workspace.PresetId,
+        ["conversation"] = conversation,
+        ["item"] = new JsonObject
+        {
+            ["id"] = message.GetString(TurnInbox.QueuedBlockId), ["kind"] = message.GetString("role", "user"),
+            ["agent"] = agent, ["content"] = message.GetString("text")
+        }
+    });
+
     private void RecordInput(string agent, string input, string role, JsonArray attachments, bool checkpoint,
-        JsonObject? openUiAction = null, bool consumeDraft = false)
+        JsonObject? openUiAction = null, bool consumeDraft = false, string? blockId = null)
     {
         Workspace.Chat["messages"] ??= new JsonArray();
         Workspace.Chat["blocks"] ??= new JsonArray();
         var messages = Workspace.Chat.GetArray("messages");
-        var block = new JsonObject { ["id"] = JsonValues.NewId(), ["kind"] = role, ["agent"] = agent, ["content"] = input };
+        var block = new JsonObject { ["id"] = blockId ?? JsonValues.NewId(), ["kind"] = role, ["agent"] = agent, ["content"] = input };
         if (agent == "chat" && checkpoint)
         {
             block["version"] = ConversationVersions.Capture(Workspace, sessions);

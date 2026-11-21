@@ -6,67 +6,23 @@ namespace MiniRP.Core;
 internal sealed class PluginDevelopmentProject(string root, string id, string preset, PluginRuntime runtime, Action changed)
 {
     private static readonly UTF8Encoding Utf8 = new(false, true);
-    private const int MaxTextBytes = 2 * 1024 * 1024;
-    private string Source => Path.Combine(root, "source");
+    private const int MaxManifestBytes = 2 * 1024 * 1024;
     private string PackageId => "draft-" + id;
     private string PackageName => "local.minirp.p" + id;
 
-    public void Create(string name)
-    {
-        Directory.CreateDirectory(Source);
-        AtomicFile.Write(FilePath("manifest.json"), JsonValues.Serialize(new JsonObject
-        {
-            ["id"] = PackageId, ["packageName"] = PackageName, ["name"] = name,
-            ["presetId"] = preset,
-            ["apiVersion"] = 2, ["entry"] = "index.js", ["actions"] = new JsonObject { ["handlers"] = new JsonObject() }
-        }));
-        AtomicFile.Write(FilePath("index.js"), "globalThis.handlers = {};\n");
-    }
-
-    public async Task<JsonNode?> Execute(string action, JsonObject args, CancellationToken ct, string imageOutput = "")
+    public async Task<JsonNode?> Execute(PluginProjectAssets draft, string action, JsonObject args, CancellationToken ct, string imageOutput = "")
     {
         ct.ThrowIfCancellationRequested();
         switch (action)
         {
-            case "project_files":
-                var options = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint };
-                return new JsonArray(Directory.EnumerateFiles(Source, "*", options)
-                    .Select(file => (JsonNode?)JsonValue.Create(Path.GetRelativePath(Source, file).Replace('\\', '/')))
-                    .OrderBy(value => value!.ToString(), StringComparer.Ordinal).ToArray());
-            case "project_read":
-                var name = args.GetString("path");
-                var source = Read(FilePath(name));
-                var start = Math.Clamp(args.GetInt32("offset"), 0, source.Length);
-                var end = Math.Min(source.Length, start + Math.Clamp(args.GetInt32("length", 8000), 1, 16000));
-                if (end < source.Length && char.IsHighSurrogate(source[end - 1])) end++;
-                return new JsonObject { ["path"] = name, ["text"] = source[start..end],
-                    ["next_offset"] = end == source.Length ? null : JsonValue.Create(end), ["total_chars"] = source.Length };
-            case "project_write":
-                var target = FilePath(args.GetString("path"));
-                if (File.Exists(target) && !args.GetBoolean("overwrite"))
-                    throw new InvalidOperationException("File exists. Use project_edit or explicitly request overwrite.");
-                Write(target, args.GetString("text"));
-                return new JsonObject { ["written"] = true };
-            case "project_edit":
-                var path = FilePath(args.GetString("path"));
-                var previous = Read(path);
-                var before = args.GetString("before");
-                var first = previous.IndexOf(before, StringComparison.Ordinal);
-                if (before.Length == 0 || first < 0 || previous.IndexOf(before, first + before.Length, StringComparison.Ordinal) >= 0)
-                    throw new ArgumentException("The text to replace must match exactly once.");
-                Write(path, previous[..first] + args.GetString("after") + previous[(first + before.Length)..]);
-                return new JsonObject { ["edited"] = true };
-            case "project_delete":
-                File.Delete(FilePath(args.GetString("path")));
-                return new JsonObject { ["deleted"] = true };
             case "project_debug":
             case "project_publish":
-                return await Build(action == "project_publish", args, ct);
+                return await Build(draft, action == "project_publish", args, ct);
             case "project_card_catalog":
                 return await runtime.OpenUiCatalog(args, ct);
             case "project_card_preview":
                 var card = PluginPackage.Identifier(args.GetString("id"));
-                return await Build(false, args, ct, card, imageOutput);
+                return await Build(draft, false, args, ct, card, imageOutput);
             case "project_remove":
                 var deployment = Path.Combine(root, "deployment.json");
                 if (!File.Exists(deployment)) throw new InvalidOperationException("This project has no deployment.");
@@ -74,29 +30,35 @@ internal sealed class PluginDevelopmentProject(string root, string id, string pr
                 changed();
                 return new JsonObject { ["removed"] = true, ["id"] = PackageId };
             default:
-                throw new ArgumentException("Unknown plugin file or deployment command.");
+                throw new ArgumentException("Unknown plugin development command.");
         }
     }
 
-    private async Task<JsonNode?> Build(bool publish, JsonObject args, CancellationToken ct, string? card = null, string imageOutput = "")
+    private async Task<JsonNode?> Build(PluginProjectAssets draft, bool publish, JsonObject args, CancellationToken ct,
+        string? card = null, string imageOutput = "")
     {
-        var manifestPath = FilePath("manifest.json");
-        var manifest = JsonValues.ParseObject(Read(manifestPath));
-        var packageName = manifest.GetString("packageName");
-        if (manifest.GetString("id") != PackageId || packageName != PackageName && packageName != "local.minichat.p" + id)
-            throw new InvalidDataException("Keep the draft's assigned id and packageName.");
-        if (!manifest.ContainsKey("presetId"))
-        {
-            manifest["presetId"] = preset;
-            Write(manifestPath, JsonValues.Serialize(manifest));
-        }
-        if (manifest.GetString("presetId") != preset)
-            throw new InvalidDataException("Keep the draft's assigned presetId.");
-        var artifact = Path.Combine(root, JsonValues.NewId() + ".plugin");
+        var build = Path.Combine(root, ".build-" + WorkspaceIds.New());
+        var source = Path.Combine(build, "source");
+        var artifact = Path.Combine(build, "draft.plugin");
         var preview = card is null ? Path.Combine(root, "preview") : Path.ChangeExtension(artifact, ".preview");
         try
         {
-            var fingerprint = await runtime.PackDevelopment(Source, artifact, Path.Combine(root, "signer.json"), ct);
+            await draft.Stage(source, ct);
+            var manifestPath = Path.Combine(source, "manifest.json");
+            if (!File.Exists(manifestPath)) throw new InvalidDataException("Associate a manifest Asset with the path manifest.json.");
+            if (new FileInfo(manifestPath).Length > MaxManifestBytes) throw new IOException("The draft manifest is too large.");
+            var manifest = JsonValues.ParseObject(await File.ReadAllTextAsync(manifestPath, Utf8, ct));
+            var packageName = manifest.GetString("packageName");
+            if (manifest.GetString("id") != PackageId || packageName != PackageName && packageName != "local.minichat.p" + id)
+                throw new InvalidDataException("Keep the draft's assigned id and packageName.");
+            if (!manifest.ContainsKey("presetId"))
+            {
+                manifest["presetId"] = preset;
+                AtomicFile.Write(manifestPath, JsonValues.Serialize(manifest));
+            }
+            if (manifest.GetString("presetId") != preset)
+                throw new InvalidDataException("Keep the draft's assigned presetId.");
+            var fingerprint = await runtime.PackDevelopment(source, artifact, Path.Combine(root, "signer.json"), ct);
             var url = publish ? "" : args.GetString("handler");
             var tested = await runtime.Debug(artifact, preview, preset, url, args.GetObject("event"), ct, card, args, imageOutput);
             if (card is not null) return tested;
@@ -109,41 +71,7 @@ internal sealed class PluginDevelopmentProject(string root, string id, string pr
         }
         finally
         {
-            File.Delete(artifact);
-            if (card is not null && Directory.Exists(preview)) Directory.Delete(preview, recursive: true);
-        }
-    }
-
-    private static string Read(string path)
-    {
-        if (new FileInfo(path).Length > MaxTextBytes) throw new IOException("This file exceeds the text editor limit.");
-        return File.ReadAllText(path, Utf8);
-    }
-
-    private static void Write(string path, string text)
-    {
-        if (Utf8.GetByteCount(text) > MaxTextBytes) throw new ArgumentException("File exceeds the plugin editor limit.");
-        AtomicFile.Write(path, text);
-    }
-
-    private string FilePath(string name)
-    {
-        if (!PluginPackage.SafePath(name) || name.Equals(PluginSignature.EntryName, StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("Use a relative path inside the plugin source directory.");
-        var path = Source;
-        CheckPath(path);
-        foreach (var component in name.Split('/'))
-        {
-            path = Path.Combine(path, component);
-            CheckPath(path);
-        }
-        return path;
-
-        static void CheckPath(string path)
-        {
-            var attributes = new FileInfo(path).Attributes;
-            if (attributes != (FileAttributes)(-1) && (attributes & FileAttributes.ReparsePoint) != 0)
-                throw new UnauthorizedAccessException("Links are unavailable in plugin projects.");
+            if (Directory.Exists(build)) Directory.Delete(build, recursive: true);
         }
     }
 }

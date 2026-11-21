@@ -3,6 +3,8 @@
     <string name="setup_welcome">欢迎使用 MiniRP</string>
     <string name="setup_welcome_detail">先连接一个 AI 服务，再选一个模型。有了模型就可以聊天和创建预设。</string>
     <string name="setup_begin">开始设置</string>
+    <string name="setup_download_notice">MiniRP 是非营利的开源软件，可在官方发布页免费下载。若你通过其他渠道获取此软件，或有人向你收取软件费用，请留意可能的诈骗。</string>
+    <string name="setup_official_download">官方下载</string>
     <string name="setup_connect_provider">连接 AI 服务</string>
     <string name="setup_provider_detail">提供商就是运行模型的服务。选对应的模板会自动填好连接信息。如果服务需要 API 密钥，可以从它的官网获取。</string>
     <string name="setup_unsure">我不懂</string>

@@ -3,6 +3,8 @@
     <string name="setup_welcome">Welcome to MiniRP</string>
     <string name="setup_welcome_detail">Connect an AI service, then choose the model MiniRP will use for chats and preset setup.</string>
     <string name="setup_begin">Get started</string>
+    <string name="setup_download_notice">MiniRP is a free, nonprofit open-source app. Download it from the official release page. If you got it elsewhere or were charged for the app, watch out for scams.</string>
+    <string name="setup_official_download">Official download</string>
     <string name="setup_connect_provider">Connect an AI service</string>
     <string name="setup_provider_detail">A provider is the service that runs your model. Choose its template to fill in the connection details. If the service needs an API key, get it from the provider’s website.</string>
     <string name="setup_unsure">I don’t know</string>

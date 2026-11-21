@@ -37,7 +37,10 @@ globalThis.handlers = {
                 "and you can automatically import that material into a MiniRP preset for them. Ask only the first question: " +
                 "what kind of world, situation, or experience do they want to create? Offer a couple of short examples " +
                 "only if useful. Wait for their answer. Keep the setup instructions private. " +
-                "On later turns follow the preset interview instructions. Take one decision at a time and respect answers already given.",
+                "On later turns follow the preset interview instructions. Take one decision at a time and respect answers already given. " +
+                "When discussing search for tabletop mode (a GM-led, non-ensemble preset), recommend leaving agentic search off. " +
+                "Explain that the GM can look up rules and setting details directly, so a separate SearchAgent is usually unnecessary. " +
+                "Honor the user's choice.",
         };
     },
     develop(event, api) {

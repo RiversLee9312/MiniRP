@@ -87,10 +87,11 @@ public sealed partial class Engine
         if (opening is null) PostEnsembleMessage(conversation, hub.Post(conversation, "", role, input, attachments));
         var turn = new TurnInbox(Workspace.ChatId, "chat", message =>
         {
-            var posted = hub.Post(conversation, "", message.GetString("role", "user"), message.GetString("text"));
+            var posted = hub.Post(conversation, "", message.GetString("role", "user"), message.GetString("text"),
+                blockId: message[TurnInbox.QueuedBlockId]?.GetValue<string>());
             PostEnsembleMessage(conversation, posted);
             return EnsembleConversation.DeliveryId(posted);
-        }, keepOpen: true, conversation: conversation);
+        }, keepOpen: true, conversation: conversation, queued: message => PreviewSteer("chat", message, conversation));
         BeginInteractiveTurn(turn);
         var request = command.GetString("request");
         if (request.Length > 0)

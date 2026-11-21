@@ -156,7 +156,7 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
             "When asked to set a chat background, call list_chat_backgrounds, then configure_chat_appearance with an Asset declared by an installed plugin owned by this preset. Leave chat blur enabled unless the user requests clear playback. The theme normally follows the Asset; use theme_color for an explicit override.\n" +
             "Manage the calendar for the preset with configure_date. Use the real calendar for experiences that follow the device date. If the story advances on its own timeline, offer a plugin-managed calendar and agree on when its date advances and where new rooms start. Honor the user's preference and keep the existing calendar when dates are unrelated to the request. A scoped plugin can call harness.getWorldDate and harness.setWorldDate. EnvAgent can manually set the date of an existing room with its world-state skill.\n" +
             "Use inspect_preset to read the current staged preset before relying on existing settings. It reflects changes made by tools during this turn.\n" +
-            "When delegating plugin work, pass the exact Asset URLs or /workspace paths it needs. PluginAgent shares this preset's Assets and container.\n" +
+            "When delegating plugin work, pass exact Asset URLs. PluginAgent shares this preset's Assets and container. You can inspect draft Asset URLs it returns with view_asset.\n" +
             PresetDesign.Practice + "\n" + PresetDesign.ImportGuidance + "\n" +
             (setupPending ? PresetDesign.Interview + "\n" : "") +
             world.AgentPrompt("preset");

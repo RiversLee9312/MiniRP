@@ -119,7 +119,7 @@ internal fun decodeBlock(value: JSONObject) =
     TraceBlock(
         value.getString("id"),
         value.optString("agent"),
-        value.optString("kind") in setOf("user", "system"),
+        value.optString("kind", value.optString("role")) in setOf("user", "system"),
         value.optString("content"),
         value.optString("reasoning"),
         value.optString("tool").takeUnless { it == "compact_context" }.orEmpty(),
@@ -127,7 +127,7 @@ internal fun decodeBlock(value: JSONObject) =
         value.optString("result"),
         version = value.optString("version"),
         attachmentNames = value.attachmentNames(),
-        system = value.optString("kind") == "system",
+        system = value.optString("kind", value.optString("role")) == "system",
         thumbnails = value.thumbnails(),
         openUi = value.optString("open_ui").takeIf(String::isNotBlank),
         replyEnd =

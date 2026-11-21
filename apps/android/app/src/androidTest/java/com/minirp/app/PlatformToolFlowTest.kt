@@ -525,6 +525,8 @@ class PlatformToolFlowTest {
         private val callId = AtomicInteger()
         private lateinit var draft: File
         private lateinit var manifest: JSONObject
+        private lateinit var manifestUrl: String
+        private lateinit var indexUrl: String
         private lateinit var signer: String
         private lateinit var fixtureHandler: String
 
@@ -618,10 +620,27 @@ class PlatformToolFlowTest {
         }
 
         private fun workerReply(result: String, history: List<JSONObject>): JSONObject = when (workerRound.getAndIncrement()) {
-            0 -> tools(tool("activate_skill", "name" to "base-plugin-project"))
-            1 -> tools(tool("plugin_base_project_read", "path" to "manifest.json"))
+            0 -> tools(tool("activate_skill", "name" to "project_assets"))
+            1 -> tools(tool("project_asset_list"))
             2 -> {
-                manifest = JSONObject(JSONObject(result).getString("text"))
+                val listed = JSONObject(result).getJSONArray("files")
+                val urls = (0 until listed.length()).map(listed::getJSONObject).associate {
+                    it.getString("path") to it.getString("url")
+                }
+                manifestUrl = urls.getValue("manifest.json")
+                indexUrl = urls.getValue("index.js")
+                assertTrue(manifestUrl.startsWith("minirp://assets/minirp.agent/"))
+                tools(
+                    tool("activate_skill", "name" to "view_asset"),
+                    tool("activate_skill", "name" to "edit_asset"),
+                    tool("activate_skill", "name" to "asset_storage"),
+                    tool("activate_skill", "name" to "base-plugin-project"),
+                )
+            }
+            3 -> tools(tool("plugin_base_grep", "url" to manifestUrl, "pattern" to "^", "limit" to 1))
+            4 -> {
+                val original = JSONObject(result).getJSONArray("lines").getJSONObject(0).getString("text")
+                manifest = JSONObject(original)
                 fixtureHandler = "minirp://actions/${manifest.getString("packageName")}/hooks/probe"
                 manifest.put("actions", json("handlers" to json("probe" to "probe")))
                     .put("permissions", (manifest.optJSONArray("permissions") ?: JSONArray()).put("harness.read"))
@@ -647,10 +666,9 @@ class PlatformToolFlowTest {
                         "program" to CardProgram.replace("Title(", "WrongTitle("),
                     )))
                 tools(
-                    tool("plugin_base_project_write", "path" to "manifest.json", "overwrite" to true, "text" to manifest.toString()),
-                    tool("plugin_base_project_write", "path" to "notes.txt", "text" to "Intro\n中文 TOKEN-42\nClosing\n"),
-                    tool("plugin_base_project_write", "path" to "index.js", "overwrite" to true,
-                        "text" to """
+                    tool("plugin_base_text_edit", "url" to manifestUrl, "old_string" to original, "new_string" to manifest.toString()),
+                    tool("plugin_base_text_edit", "url" to indexUrl, "old_string" to "globalThis.handlers = {};",
+                        "new_string" to """
                             globalThis.handlers = { probe: async (event, api) => {
                                 if (event.tool?.endsWith("_notes")) return api.assets.url("notes");
                                 if (event.name === "skill.tool") return api.harness.getSessionInfo();
@@ -662,16 +680,21 @@ class PlatformToolFlowTest {
                                 return { echoed: event.message };
                             } };
                         """.trimIndent()),
+                    tool("create_asset", "name" to "notes.txt", "text" to "Intro\n中文 TOKEN-42\nClosing\n"),
                 )
             }
-            3 -> {
-                assertTrue(JSONObject(result).getBoolean("written"))
+            5 -> {
+                val notes = JSONObject(result).getString("url")
+                tools(tool("project_asset_add", "path" to "notes.txt", "url" to notes))
+            }
+            6 -> {
+                assertEquals("notes.txt", JSONObject(result).getString("path"))
                 draft = workspace.resolve("preset_sessions").listFiles()!!.single()
                     .resolve("plugin_agents").listFiles()!!.single()
                 assertFalse(draft.resolve("signer.json").exists())
                 tools(tool("plugin_base_project_debug", "handler" to fixtureHandler, "event" to json("message" to "debug fixture")))
             }
-            4 -> {
+            7 -> {
                 val debug = JSONObject(result)
                 assertTrue(result, debug.getBoolean("ok"))
                 assertEquals("debug fixture", debug.getJSONObject("result").getString("echoed"))
@@ -680,13 +703,13 @@ class PlatformToolFlowTest {
                     .joinToString("") { "%02X".format(it) }
                 tools(tool("plugin_base_project_card_catalog", "query" to "Button(label:", "length" to 800))
             }
-            5 -> {
+            8 -> {
                 val catalog = JSONObject(result)
                 assertTrue(catalog.getBoolean("available"))
                 assertTrue(result, catalog.getString("text").contains("Button(label:"))
                 tools(tool("plugin_base_project_card_preview", "id" to "gate"))
             }
-            6 -> {
+            9 -> {
                 val invalid = JSONObject(result)
                 assertTrue(result, invalid.getBoolean("available"))
                 assertFalse(result, invalid.getBoolean("ok"))
@@ -695,10 +718,10 @@ class PlatformToolFlowTest {
                     it.getString("code") == "unknown-component" && it.getString("component") == "WrongTitle"
                 })
                 assertFalse(workspace.resolve("plugins/${manifest.getString("id")}.plugin").exists())
-                tools(tool("plugin_base_project_edit", "path" to "manifest.json", "before" to "WrongTitle(", "after" to "Title("))
+                tools(tool("plugin_base_text_edit", "url" to manifestUrl, "old_string" to "WrongTitle(", "new_string" to "Title("))
             }
-            7 -> {
-                assertTrue(result, JSONObject(result).getBoolean("edited"))
+            10 -> {
+                assertEquals(result, 1, JSONObject(result).getInt("changes"))
                 tools(tool("plugin_base_project_card_preview",
                     "id" to "gate", "handler" to fixtureHandler, "ensemble" to true, "screenshot" to true,
                     "event" to json("message" to "room fixture", "line" to "Gate closed."), "width" to 320,
@@ -706,7 +729,7 @@ class PlatformToolFlowTest {
                         .put(json("control" to "Add step")).put(json("control" to "Inspect gate"))
                         .put(json("control" to "Manual"))))
             }
-            8 -> {
+            11 -> {
                 val preview = JSONObject(result)
                 assertTrue(result, preview.getBoolean("ok"))
                 assertEquals("room fixture", preview.getJSONObject("handler_result").getString("echoed"))
@@ -743,7 +766,7 @@ class PlatformToolFlowTest {
                 tools(tool("plugin_base_project_card_preview", "id" to "gate", "ensemble" to true,
                     "viewport" to json("x" to 0, "y" to 0, "width" to 128, "height" to 80)))
             }
-            9 -> {
+            12 -> {
                 val clean = JSONObject(result)
                 assertTrue(result, clean.getBoolean("ok"))
                 val text = clean.getJSONObject("view").getString("text")
@@ -753,10 +776,10 @@ class PlatformToolFlowTest {
                 assertTrue(result, screenshot.getBoolean("captured") && screenshot.getBoolean("cropped"))
                 assertEquals(128, screenshot.getInt("width"))
                 assertEquals(80, screenshot.getInt("height"))
-                assertTrue(draft.listFiles()!!.none { it.extension == "preview" })
+                assertTrue(draft.listFiles()!!.none { it.name.startsWith(".build-") })
                 tools(tool("plugin_base_project_publish"))
             }
-            10 -> {
+            13 -> {
                 val published = JSONObject(result)
                 assertEquals(result, manifest.getString("id"), published.getString("id"))
                 assertEquals(signer, published.getString("signer"))

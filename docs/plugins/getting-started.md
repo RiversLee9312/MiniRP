@@ -40,8 +40,10 @@
 
 `plugin_wait` 返回当时的状态。如果 PluginAgent 之后才完成或失败，结果或错误会作为系统消息交给所属预设的 PresetAgent。回合仍在进行时，通知会通过 steer 打断正在生成的模型请求，并在同一回合继续。回合已结束时，当前预设会自动开启后续回合。切换到其他预设期间，通知会保留到原预设再次打开。已经由 `plugin_wait` 带回并处理的结果会去重。
 
-PluginAgent 可以列出、读写或修改自己项目的文件，调用已声明的 Actions 处理器以测试事件，以及签名、部署或卸载自己的插件。预览使用单独的 V8 环境和调试数据。首次部署的作用域仅包含当前预设，更新会沿用配置过的作用域。调试时可以使用本地设置、数据库、资源和项目内 Actions。
+PluginAgent 激活 `project_assets` 后，用 `project_asset_list` 查看草稿的包内路径和 Asset URL，用 `project_asset_add` 将已有 Asset URL 加到包内路径，用 `project_asset_remove` 解除关联。解除关联会保留原 Asset。用 `asset_storage` 创建或复制文件，用 `view_asset` 查看和搜索，用 `edit_asset` 修改文本或字节。调试和发布会读取关联 Asset 的当前内容。临时 Asset 可先用 `create_asset` 复制为可长期使用的文件。
 
-同一预设中的 PresetAgent 和 PluginAgent 可以双向传递 Asset URL，并在同一个容器的 `/workspace` 中交换文件。委派任务或回报结果时可以直接附上相应的 URL 或路径。PluginAgent 可用宿主 `curl` 技能将下载保存为 Asset，也可通过 `research` 技能调用 `real_search` 和 `real_fetch`，使用应用配置的搜索、抓取服务和本地浏览器回退。
+同一预设中的 PresetAgent 和 PluginAgent 可以传递 Asset URL，共用容器 `/workspace`。预设 Agent 可以查看收到的草稿 Asset，项目关联由所属 PluginAgent 管理。PluginAgent 可用宿主 `curl` 技能将下载保存为 Asset，也可通过 `research` 技能调用 `real_search` 和 `real_fetch`，使用应用配置的搜索、抓取服务和本地浏览器回退。
+
+激活 `base-plugin-project` 可调试草稿并签名、部署或卸载自己的插件。预览使用单独的 V8 环境和调试数据。首次部署的作用域仅包含当前预设，更新会沿用配置过的作用域。调试时可以使用本地设置、数据库、资源和项目内 Actions。
 
 PresetAgent 和 PluginAgent 都能激活 `base-plugin-docs`，按页查询 `development`、`api`、`schema`、`preset` 和 `automation`，也可传 `query` 查找具体字段。 `preset` 解释对话分工与智能体搜索。 `automation` 提供从技能触发事件、更新世界、持久化状态到渲染卡片的完整流程。

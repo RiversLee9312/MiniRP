@@ -171,6 +171,16 @@ internal sealed partial class MainWindow : Runnable
             case "generating":
                 generating = item.GetBoolean("value") ? item.GetString("agent") : "";
                 break;
+            case "steer_queued":
+                if (item.GetString("chat") != chatId || item.GetString("preset") != presetId) break;
+                var queuedConversation = item.GetString("conversation");
+                if (queuedConversation.Length > 0 && queuedConversation != ensembleChatId) break;
+                var queued = item.GetObject("item");
+                var queuedText = queued.GetString("content");
+                if (queuedConversation.Length == 0 && queued.GetString("kind") == "system") queuedText = "System: " + queuedText;
+                GetAgentPane(Route(queued.GetString("agent"))).Receive(new() { ["kind"] = "user", ["block"] = queued.GetString("id"),
+                    ["agent"] = queued.GetString("agent"), ["text"] = queuedText });
+                break;
             case "system":
                 GetAgentPane(Route(item.GetString("agent"))).Receive(new() { ["kind"] = "user", ["block"] = item.GetString("block"),
                     ["agent"] = item.GetString("agent"), ["text"] = "System: " + item.GetString("text") });

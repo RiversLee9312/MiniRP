@@ -552,6 +552,7 @@ public sealed class ExtensionTests
         var rounds = new Dictionary<string, int>();
         string[] children = [];
         string deployed = "";
+        string draftAsset = "";
         var completed = false;
         while (!completed)
         {
@@ -578,7 +579,7 @@ public sealed class ExtensionTests
                 var result = messages.LastOrDefault(message => message.GetString("role") == "tool").GetString("content");
                 if (role == "preset")
                 {
-                    Assert.IsFalse(body.GetArray("tools").Any(tool => tool.GetObject("function").GetString("name").Contains("project_write")));
+                    Assert.IsFalse(body.GetArray("tools").Any(tool => tool.GetObject("function").GetString("name").StartsWith("project_asset_", StringComparison.Ordinal)));
                     switch (round)
                     {
                         case 0: Tool(item, "activate_skill", new() { ["name"] = "base-plugin-development" }); break;
@@ -594,11 +595,18 @@ public sealed class ExtensionTests
                         case 4:
                             Assert.IsInstanceOfType<JsonArray>(JsonNode.Parse(result), result);
                             var statuses = (JsonArray)JsonNode.Parse(result)!;
-                            CollectionAssert.AreEquivalent(new[] { "Published.", "Schema read." },
+                            CollectionAssert.AreEquivalent(new[] { "Published: " + draftAsset, "Schema read." },
                                 statuses.Select(child => child.GetString("result")).ToArray(), result);
-                            Tool(item, "plugin_base_plugin_archive", new() { ["id"] = children[0] });
+                            Tool(item, "activate_skill", new() { ["name"] = "view_asset" });
                             break;
                         case 5:
+                            Tool(item, "plugin_base_grep", new() { ["url"] = draftAsset, ["pattern"] = "Updated documentation", ["literal"] = true });
+                            break;
+                        case 6:
+                            Assert.AreEqual(1, JsonValues.ParseObject(result).GetInt32("match_count"), result);
+                            Tool(item, "plugin_base_plugin_archive", new() { ["id"] = children[0] });
+                            break;
+                        case 7:
                             Assert.IsTrue(JsonValues.ParseObject(result).GetBoolean("archived"));
                             Reply(engine, item, "Both projects finished.");
                             break;
@@ -622,22 +630,69 @@ public sealed class ExtensionTests
                 {
                     switch (round)
                     {
-                        case 0: Tool(item, "activate_skill", new() { ["name"] = "base-plugin-project" }); break;
-                        case 1: Tool(item, "plugin_base_project_write", new() { ["path"] = "README.md", ["text"] = "Plugin documentation" }); break;
+                        case 0: Tool(item, "activate_skill", new() { ["name"] = "project_assets" }); break;
+                        case 1:
+                            var workers = SessionFiles.PluginDirectory(engine.Workspace.Root, engine.Workspace.PresetId);
+                            var folder = Directory.EnumerateDirectories(workers).Single(path =>
+                                JsonValues.ParseObject(File.ReadAllText(Path.Combine(path, "worker.json"))).GetString("name") == "Writer");
+                            var workerId = Path.GetFileName(folder);
+                            var source = Path.Combine(folder, "source");
+                            AtomicFile.Write(Path.Combine(source, "manifest.json"), JsonValues.Serialize(new JsonObject
+                            {
+                                ["id"] = "draft-" + workerId, ["packageName"] = "local.minichat.p" + workerId,
+                                ["name"] = "Writer", ["entry"] = "index.js", ["apiVersion"] = 2,
+                                ["actions"] = new JsonObject { ["handlers"] = new JsonObject() }
+                            }));
+                            AtomicFile.Write(Path.Combine(source, "index.js"), "globalThis.handlers = {};");
+                            AtomicFile.Write(Path.Combine(source, "legacy.txt"), "Retain this draft file.");
+                            Tool(item, "project_asset_list", new());
+                            break;
                         case 2:
-                            Assert.IsTrue(JsonValues.ParseObject(result).GetBoolean("written"));
-                            Tool(item, "plugin_base_project_debug", new());
+                            var files = JsonValues.ParseObject(result).GetArray("files");
+                            CollectionAssert.AreEqual(new[] { "index.js", "legacy.txt", "manifest.json" }, files.Select(file => file.GetString("path")).ToArray());
+                            Assert.IsTrue(files.All(file => file.GetString("url").StartsWith("minirp://assets/minirp.agent/", StringComparison.Ordinal)));
+                            Tool(item, "activate_skill", new() { ["name"] = "asset_storage" });
                             break;
                         case 3:
+                            Tool(item, "create_asset", new() { ["name"] = "README.md", ["mime"] = "text/markdown", ["text"] = "Plugin documentation" });
+                            break;
+                        case 4:
+                            draftAsset = JsonValues.ParseObject(result).GetString("url");
+                            Assert.StartsWith("minirp://assets/minirp.agent/", draftAsset);
+                            Tool(item, "project_asset_add", new() { ["path"] = "README.md", ["url"] = draftAsset });
+                            break;
+                        case 5:
+                            Assert.AreEqual(draftAsset, JsonValues.ParseObject(result).GetString("url"));
+                            Tool(item, "project_asset_add", new() { ["path"] = "linked.md", ["url"] = draftAsset });
+                            break;
+                        case 6:
+                            Tool(item, "project_asset_remove", new() { ["path"] = "linked.md", ["url"] = draftAsset });
+                            break;
+                        case 7:
+                            Assert.AreEqual(1, JsonValues.ParseObject(result).GetInt32("removed"), result);
+                            Tool(item, "activate_skill", new() { ["name"] = "edit_asset" });
+                            break;
+                        case 8:
+                            Tool(item, "plugin_base_text_edit", new() { ["url"] = draftAsset,
+                                ["old_string"] = "Plugin", ["new_string"] = "Updated" });
+                            break;
+                        case 9:
+                            Assert.AreEqual(1, JsonValues.ParseObject(result).GetInt32("changes"), result);
+                            Tool(item, "activate_skill", new() { ["name"] = "base-plugin-project" });
+                            break;
+                        case 10:
+                            Tool(item, "plugin_base_project_debug", new());
+                            break;
+                        case 11:
                             Assert.IsTrue(JsonValues.ParseObject(result).GetBoolean("ok"), result);
                             Tool(item, "plugin_base_project_publish", new());
                             break;
-                        case 4:
+                        case 12:
                             var deployment = JsonValues.ParseObject(result);
                             deployed = deployment.GetString("id");
                             Assert.AreEqual("include", deployment.GetObject("scope").GetString("mode"), result);
                             Assert.AreEqual(engine.Workspace.PresetId, JsonValues.GetText(deployment.GetObject("scope").GetArray("presets")[0]));
-                            Reply(engine, item, "Published.");
+                            Reply(engine, item, "Published: " + draftAsset);
                             break;
                         default: Assert.Fail("Unexpected writer request."); break;
                     }
@@ -646,6 +701,14 @@ public sealed class ExtensionTests
             if (!completed) await Task.Delay(8, timeout.Token);
         }
         Assert.StartsWith("draft-", deployed);
+        using (var archive = ZipFile.OpenRead(Path.Combine(engine.Workspace.Root, "plugins", deployed + ".plugin")))
+        {
+            Assert.IsNull(archive.GetEntry("linked.md"));
+            using var legacy = new StreamReader(archive.GetEntry("legacy.txt")!.Open());
+            Assert.AreEqual("Retain this draft file.", legacy.ReadToEnd());
+            using var reader = new StreamReader(archive.GetEntry("README.md")!.Open());
+            Assert.AreEqual("Updated documentation", reader.ReadToEnd());
+        }
         Assert.AreNotEqual(children[0], children[1]);
         var preset = engine.Workspace.PresetId;
         engine.Dispatch(new() { ["op"] = "home", ["preset"] = preset });
@@ -661,7 +724,7 @@ public sealed class ExtensionTests
         Assert.HasCount(2, panels);
         foreach (var (name, reply, tool) in new[]
         {
-            ("Writer", "Published.", "plugin_base_project_publish"),
+            ("Writer", "Published: " + draftAsset, "plugin_base_project_publish"),
             ("Reader", "Schema read.", "plugin_base_plugin_docs")
         })
         {
@@ -1563,6 +1626,44 @@ public sealed class ExtensionTests
         Assert.AreEqual("New instruction", messages.Last().GetString("content"));
         Reply(engine, second, "Done");
         Assert.AreEqual("Done", (await Until(engine, "completed")).GetString("text"));
+    }
+
+    [TestMethod]
+    [DataRow("user")]
+    [DataRow("system")]
+    public async Task SteerIsVisibleWhileAHostToolIsStillRunning(string role)
+    {
+        const string text = "Keep going with this direction.";
+        await using var engine = new Engine(NewRoot());
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "_curl_available" });
+        engine.Dispatch(new() { ["op"] = "message", ["text"] = "Start." });
+        ReplyTool(engine, await Until(engine, "http_request"), "activate_skill", new() { ["name"] = "curl" });
+        ReplyTool(engine, await Until(engine, "http_request"), "curl", new() { ["args"] = new JsonArray("--version") });
+        var blocked = await Until(engine, "curl_download");
+
+        engine.Dispatch(new() { ["op"] = "steer", ["chat"] = engine.Workspace.ChatId, ["role"] = role, ["text"] = text });
+        var queued = (await Until(engine, "steer_queued")).GetObject("item");
+        Assert.AreEqual(role, queued.GetString("kind"));
+        Assert.AreEqual(text, queued.GetString("content"));
+        Assert.IsFalse(engine.Workspace.Chat.GetArray("blocks").Any(block => block.GetString("content") == text));
+
+        engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = blocked.GetString("id"), ["error"] = "Fixture tool finished." });
+        JsonObject? delivered = null;
+        var continued = await NextModel(engine, scripts, item =>
+        {
+            if (item.GetString("kind") == role && item.GetString("text") == text) delivered = item;
+        });
+        Assert.IsNotNull(delivered);
+        Assert.AreEqual(queued.GetString("id"), delivered.GetString("block"));
+        var messages = JsonValues.ParseObject(continued.GetString("body")).GetArray("messages");
+        var input = messages.Single(message => message.GetString("content") == text);
+        Assert.AreEqual(role, input.GetString("role"));
+        Assert.AreEqual(queued.GetString("id"), engine.Workspace.Chat.GetArray("blocks")
+            .Single(block => block.GetString("content") == text).GetString("id"));
+        Reply(engine, continued, "Done.");
+        await Until(engine, "completed");
     }
 
     [TestMethod]

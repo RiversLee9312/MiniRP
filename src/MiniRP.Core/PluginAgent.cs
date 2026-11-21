@@ -11,7 +11,8 @@ internal sealed class PluginAgent(string name, AgentSession session, PageSource 
     {
         Task<JsonObject> Ask() => session.Run(
             "You are PluginAgent working on " + name + ". Activate base-plugin-docs for the bundled developer reference and " +
-            "base-plugin-project to operate your assigned project. Read existing files before editing. Use precise changes and debug with fixture events. " +
+            "project_assets to list, add, and remove Asset URL associations in your assigned draft. Create or copy files with asset_storage, " +
+            "read URLs with view_asset, and edit them with edit_asset. Activate base-plugin-project to debug with fixture events and manage deployment. " +
             "Activate research for real_search and real_fetch, or curl for raw public downloads. Use view_asset and asset_storage to work with the Assets " +
             "shared with PresetAgent. The container's /workspace is shared across the preset. Use project-specific paths to avoid overwriting other work. " +
             "Deploy or remove the project only when requested in the delegation. Report what changed, the actual debug result, and useful Asset URLs to PresetAgent.",
