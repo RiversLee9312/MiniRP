@@ -151,16 +151,16 @@ class PlatformToolFlowTest {
                     model.state.value.presetEditorOpen && !model.state.value.busy &&
                         model.state.value.blocks.any { it.content == Interview }
                 }
-                val real = label(R.string.preset_date_real)
-                val plugin = label(R.string.preset_date_plugin)
+                val realDateLabel = label(R.string.preset_date_real)
+                val pluginDateLabel = label(R.string.preset_date_plugin)
                 fun dateChip(option: String) = compose.onNodeWithText(
                     compose.activity.getString(R.string.preset_date_choice, option)
                 )
-                dateChip(real).performClick()
-                compose.onNodeWithText(plugin).performClick()
+                dateChip(realDateLabel).performClick()
+                compose.onNodeWithText(pluginDateLabel).performClick()
                 waitFor { model.state.value.dateMode == PresetDateMode.Plugin }
-                dateChip(plugin).performClick()
-                compose.onNodeWithText(real).performClick()
+                dateChip(pluginDateLabel).performClick()
+                compose.onNodeWithText(realDateLabel).performClick()
                 waitFor { model.state.value.dateMode == PresetDateMode.Real }
                 send(SetupRequest, inPresetEditor = true)
                 waitFor {
