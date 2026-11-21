@@ -544,6 +544,46 @@ public sealed class ExtensionTests
     }
 
     [TestMethod]
+    public async Task ScopedPluginReadsAndAdvancesTheActiveRoomCalendarThroughHarness()
+    {
+        var root = NewRoot();
+        using var signer = Certificate();
+        var archive = Pack(root, "calendar", signer, """
+            {"id":"calendar","packageName":"test.calendar","name":"Calendar","apiVersion":2,"entry":"index.js",
+             "permissions":["harness.read","harness.write"],"actions":{"handlers":{"advance":"advance"}},
+             "hooks":{"plugin.command":"minirp://actions/test.calendar/hooks/advance"}}
+            """, """
+            globalThis.handlers = {
+              async advance(_, api) {
+                const { mode, date } = await api.harness.getWorldDate();
+                if (mode !== "plugin" || date !== "2032-02-29") throw new Error("Unexpected date " + date);
+                return api.harness.setWorldDate({ date: "2032-03-01" });
+              }
+            };
+            """);
+        var world = new Workspace(root);
+        world.UsePreset(world.InitialPreset().Id);
+        var config = (JsonObject)world.Config.DeepClone();
+        config["date_mode"] = "plugin";
+        config["sim_date"] = "2032-02-29";
+        world.CommitConfig(config);
+
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        engine.Dispatch(new() { ["op"] = "plugin_install", ["path"] = archive });
+        await Until(engine, "plugin", scripts);
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = world.PresetId });
+        var loaded = await Until(engine, "loaded", scripts);
+        var room = loaded.GetObject("chat").GetString("id");
+        engine.Dispatch(new() { ["op"] = "plugin_command", ["id"] = "calendar" });
+        var changed = await Until(engine, "world_changed", scripts);
+        Assert.AreEqual("plugin", changed.GetObject("calendar").GetString("mode"));
+        Assert.AreEqual("2032-03-01", changed.GetObject("calendar").GetString("date"));
+        world.Select(world.PresetId, room);
+        Assert.AreEqual("2032-03-01", world.WorldDate);
+    }
+
+    [TestMethod]
     public async Task HarnessSessionInfoIsBoundToTheInvocationAndUsesProviderUsage()
     {
         var root = NewRoot();

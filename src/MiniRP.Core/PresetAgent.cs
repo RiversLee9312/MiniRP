@@ -35,6 +35,10 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
             ["ensemble"] = new JsonObject { ["type"] = "object", ["additionalProperties"] = true }
         }, "mode", "agentic_search"));
         tools.AddNode(Tools.Define("list_chat_backgrounds", "List image, GIF and video Asset URLs declared by installed plugins belonging to this preset."));
+        tools.AddNode(Tools.Define("configure_date", "Choose the calendar source for this preset. Real follows the device's local date. Plugin lets a plugin advance each room's date. Optionally set initial_date for new plugin-managed rooms in YYYY-MM-DD format.", new()
+        {
+            ["mode"] = WorldCalendar.ModeSchema(), ["initial_date"] = Tools.String(),
+        }, "mode"));
         tools.AddNode(Tools.Define("configure_chat_appearance", "Change the preset's chat and home appearance. Use a URL from list_chat_backgrounds. Set background_url to an empty string to remove it. Chat background blur defaults to true. Set theme_color to #RRGGBB or an empty string to use the background color. Omit fields you want to keep.", new()
         {
             ["background_url"] = Tools.String(), ["background_blur"] = Tools.Boolean(), ["theme_color"] = Tools.String(),
@@ -47,6 +51,14 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
                 return Task.FromResult<JsonNode?>(PresetDesign.SetExperience(config, a, () => world.ChatEntries(world.PresetId).Any()));
             if (name == "list_chat_backgrounds")
                 return Task.FromResult<JsonNode?>(plugins?.PresetBackgroundAssets(world.PresetId) ?? new JsonArray());
+            if (name == "configure_date")
+            {
+                var mode = a.GetString("mode");
+                var initial = a.ContainsKey("initial_date") ? WorldCalendar.RequireDate(a.GetString("initial_date")) : (DateOnly?)null;
+                WorldCalendar.Configure(config, mode, WorldCalendar.Today);
+                if (initial is { } date) config["sim_date"] = WorldCalendar.Render(date);
+                return Task.FromResult<JsonNode?>(new JsonObject { ["staged"] = true, ["mode"] = mode });
+            }
             if (name == "configure_chat_appearance")
                 return Task.FromResult<JsonNode?>(ConfigureAppearance(config, a));
             if (name == "finish_preset_setup")
@@ -86,10 +98,7 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
             var key = bits[^1];
             if (name == "set_value")
             {
-                if (path == "sim_date" && !DateOnly.TryParseExact(a.GetString("value"), "yyyy-MM-dd", out _))
-                {
-                    throw new ArgumentException("date must be YYYY-MM-DD");
-                }
+                if (path == "sim_date") _ = WorldCalendar.RequireDate(a.GetString("value"));
 
                 if (path == "agentic_search")
                 {
@@ -142,6 +151,7 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
         var guidance = "You are PresetAgent. Edit the preset with precise tool calls. Keep unrelated settings. Give new presets a short descriptive name. Set a tailored chat_agent.system_prompt and search_agent.system_prompt. Chat instructions support {date}. Use an empty prompt to restore defaults. " +
             "If the user wants an opening scene or a welcome, set chat_agent.greeting_system_message to private instructions for ChatAgent to generate it when a new conversation begins. Put scene and voice details there. Leave it empty for conversations that should wait for the user's first message. Explain changes briefly in the user's language.\n" +
             "When asked to set a chat background, call list_chat_backgrounds, then configure_chat_appearance with an Asset declared by an installed plugin owned by this preset. Leave chat blur enabled unless the user requests clear playback. The theme normally follows the Asset; use theme_color for an explicit override.\n" +
+            "Use configure_date to choose a real or plugin-managed calendar. For a plugin-managed timeline, a scoped plugin can call harness.getWorldDate and harness.setWorldDate. EnvAgent can manually set the date of an existing room with its world-state skill.\n" +
             "Use inspect_preset to read the current staged preset before relying on existing settings. It reflects changes made by tools during this turn.\n" +
             PresetDesign.Practice + "\n" + (config.GetString("setup_status") == "draft" ? PresetDesign.Interview + "\n" : "") +
             world.AgentPrompt("preset");

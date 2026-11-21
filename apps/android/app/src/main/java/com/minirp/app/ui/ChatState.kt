@@ -111,6 +111,11 @@ enum class PresetEditorPhase {
     Open,
 }
 
+enum class PresetDateMode(val id: String) {
+    Real("real"),
+    Plugin("plugin"),
+}
+
 data class ChatState(
     val busy: Boolean = false,
     val generating: AgentRole? = null,
@@ -126,6 +131,7 @@ data class ChatState(
     val participants: List<Choice> = emptyList(),
     val ensembleChatId: String = "",
     val chatMode: String = "character",
+    val dateMode: PresetDateMode = PresetDateMode.Real,
     val chatGreeting: Boolean = false,
     val providers: List<ProviderConfig> = emptyList(),
     val savedModels: List<SavedModel> = emptyList(),

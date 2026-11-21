@@ -695,6 +695,16 @@ public sealed partial class Engine : IAsyncDisposable
             EmitConfig();
             return;
         }
+        if (command.GetString("op") == "save_date_mode")
+        {
+            RequirePreset(command);
+            EnsurePresetSelected();
+            var config = (JsonObject)Workspace.Config.DeepClone();
+            WorldCalendar.Configure(config, command.GetString("mode"), WorldCalendar.Today);
+            Workspace.CommitConfig(config);
+            EmitConfig();
+            return;
+        }
         switch (command.GetString("op"))
         {
             case "message":
@@ -785,7 +795,17 @@ public sealed partial class Engine : IAsyncDisposable
                 break;
             case "reset_world":
                 RequireActiveChat(command);
-                Workspace.Commit(new JsonObject { ["sim_date"] = Workspace.Config.GetString("sim_date"), ["phase"] = Workspace.Config.GetString("phase"), ["canon"] = JsonValues.Clone(Workspace.Config["canon"]), ["pages"] = new JsonObject(), ["search_cache"] = new JsonObject() });
+                Workspace.Commit(Workspace.InitialWorld());
+                break;
+            case "set_world_date" when command.GetString("_plugin").Length > 0:
+                RequireActiveChat(command);
+                WorldCalendar.RequirePluginMode(Workspace.Config);
+                var date = WorldCalendar.RequireDate(command.GetString("date"));
+                if (WorldCalendar.Render(date) == Workspace.WorldDate) break;
+                var state = (JsonObject)Workspace.State.DeepClone();
+                WorldCalendar.Set(Workspace.Config, state, date, WorldCalendar.Today);
+                Workspace.Commit(state);
+                EmitWorldChanged(command.GetString("request"));
                 break;
             case "save":
                 break;
@@ -854,7 +874,7 @@ public sealed partial class Engine : IAsyncDisposable
             if (string.IsNullOrWhiteSpace(answer))
                 throw new IOException("The model finished without a visible reply.");
             if (!ReferenceEquals(worldBefore, Workspace.State))
-                Emit(new() { ["kind"] = "world_changed", ["agent"] = role });
+                EmitWorldChanged(request, role);
             if (role != "preset")
             {
                 Workspace.Chat.GetArray("messages").AddNode(new JsonObject { ["role"] = "assistant", ["agent"] = role, ["content"] = answer });
@@ -1007,6 +1027,12 @@ public sealed partial class Engine : IAsyncDisposable
     }
 
     private void EmitConfig() => Emit(new() { ["kind"] = "preset_config", ["config"] = Workspace.Config.DeepClone() });
+
+    private void EmitWorldChanged(string request, string agent = "") => Emit(new()
+    {
+        ["kind"] = "world_changed", ["request"] = request, ["agent"] = agent,
+        ["calendar"] = WorldCalendar.Snapshot(Workspace.Config, Workspace.State, WorldCalendar.Today)
+    });
 
     private void StartTitle(bool force)
     {

@@ -201,6 +201,8 @@ export interface MiniRPApi {
         readChat(args?: Page & ReadTarget): Promise<{ id: UUID; room: UUID; preset: UUID; name: string; messages: Message[] }>;
         listRooms(args?: Page & { preset?: UUID }): Promise<Array<{ id: UUID; name: string }>>;
         readRoom(args?: Page & RoomTarget): Promise<{ id: UUID; preset: UUID; name: string; chats: Array<{ id: UUID; name: string; members: string[] }> }>;
+        getWorldDate(args?: RoomTarget): Promise<{ mode: "real" | "plugin"; date: string }>;
+        setWorldDate(args: RoomTarget & { date: string }): Promise<Queued>;
         readSession(args?: Page & ReadTarget & { agent?: SessionAgent; id?: string; participant?: string }): Promise<Message[]>;
         createChat(args?: { preset?: UUID }): Promise<Queued>;
         createRoom(args?: { preset?: UUID }): Promise<Queued>;

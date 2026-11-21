@@ -168,4 +168,7 @@
     <string name="export_preset">Exportar preajuste</string>
     <string name="export_save">Exportar partida</string>
     <string name="import_save">Importar partida</string>
+    <string name="preset_date_choice">Fecha · %1$s</string>
+    <string name="preset_date_real">Fecha real</string>
+    <string name="preset_date_plugin">Fecha gestionada por un complemento</string>
 </resources>

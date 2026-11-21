@@ -30,7 +30,7 @@ public sealed class Workspace
             AtomicFile.Write(Path.Combine(Root, "presets", id + ".json"), JsonValues.Serialize(preset));
         }
     }
-    public static JsonObject Default() => new() { ["name"] = "Default", ["sim_date"] = DateTime.Today.ToString("yyyy-MM-dd"), ["phase"] = "", ["canon"] = new JsonArray(), ["world"] = new JsonObject { ["summary"] = "", ["rules"] = new JsonArray() }, ["chat_agent"] = new JsonObject { ["system_prompt"] = "" }, ["search_editor"] = new JsonObject(), ["page_editor"] = new JsonObject(), ["page_generator"] = new JsonObject(), ["stage"] = new JsonObject() };
+    public static JsonObject Default() => new() { ["name"] = "Default", ["date_mode"] = WorldCalendar.Real, ["phase"] = "", ["canon"] = new JsonArray(), ["world"] = new JsonObject { ["summary"] = "", ["rules"] = new JsonArray() }, ["chat_agent"] = new JsonObject { ["system_prompt"] = "" }, ["search_editor"] = new JsonObject(), ["page_editor"] = new JsonObject(), ["page_generator"] = new JsonObject(), ["stage"] = new JsonObject() };
     public (string Id, string Name) InitialPreset()
     {
         var preset = PresetEntries().FirstOrDefault();
@@ -108,7 +108,7 @@ public sealed class Workspace
         if (Chat["blocks"] is not JsonArray) Chat["blocks"] = new JsonArray();
         State = Chat["world"] as JsonObject is { } world ? (JsonObject)world.DeepClone()
             : (legacy ? LegacyImporter.World(Root, preset) : null)
-            ?? new JsonObject { ["sim_date"] = Config.GetString("sim_date", DateTime.Today.ToString("yyyy-MM-dd")), ["phase"] = Config.GetString("phase"), ["canon"] = JsonValues.Clone(Config["canon"]) ?? new JsonArray(), ["search_cache"] = new JsonObject(), ["pages"] = new JsonObject() };
+            ?? InitialWorld();
         Directory.CreateDirectory(ChatRoot);
         if (legacy) Save();
     }
@@ -178,6 +178,15 @@ public sealed class Workspace
         AtomicFile.Write(Path.Combine(Root, "presets", id + ".json"), JsonValues.Serialize(config));
         return id;
     }
+    internal JsonObject InitialWorld() => new()
+    {
+        ["sim_date"] = JsonValues.Clone(Config["sim_date"]), ["phase"] = Config.GetString("phase"),
+        ["canon"] = JsonValues.Clone(Config["canon"]) ?? new JsonArray(), ["search_cache"] = new JsonObject(),
+        ["pages"] = new JsonObject()
+    };
+
+    internal string WorldDate => WorldCalendar.Render(WorldCalendar.Date(Config, State, WorldCalendar.Today));
+
     public string WorldText => JsonValues.Serialize(new JsonObject
     {
         ["preset"] = Config.GetString("name"),
@@ -185,7 +194,8 @@ public sealed class Workspace
         ["instruction"] = "Current state overrides initial preset phase and canon. Cached documents are historical material.",
         ["current_state"] = new JsonObject
         {
-            ["sim_date"] = State.GetString("sim_date"),
+            ["sim_date"] = WorldDate,
+            ["date_mode"] = WorldCalendar.Mode(Config),
             ["phase"] = State.GetString("phase"),
             ["canon"] = JsonValues.Clone(State["canon"])
         }

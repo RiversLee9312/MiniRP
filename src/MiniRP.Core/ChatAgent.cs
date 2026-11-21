@@ -24,7 +24,7 @@ public sealed class ChatAgent(Workspace workspace, AgentSession session, SearchA
         if (identity.Length > 0) prompt += "\n" + identity;
         if (!workspace.AgenticSearch)
         {
-            prompt = prompt.Replace("{date}", workspace.State.GetString("sim_date"), StringComparison.Ordinal);
+            prompt = prompt.Replace("{date}", workspace.WorldDate, StringComparison.Ordinal);
             prompt += "\n" + workspace.WorldText;
             prompt += "\nSearchAgent is disabled for this preset. You own research, tool orchestration, and world consistency. " +
                 "Use real_search/real_fetch and virtual_search when useful. Edit candidates through their Asset URLs and select them by ref. Create clearly marked simulated pages when warranted. " +
@@ -32,7 +32,7 @@ public sealed class ChatAgent(Workspace workspace, AgentSession session, SearchA
                 "Answer the user's request after using the tools.\n" + workspace.State.GetString("chat_search_guidance");
             return await search.RunDirect(session, prompt, input, attachments, cancellationToken, inputRole, privateInput);
         }
-        prompt = prompt.Replace("{date}", DateTime.Today.ToString("yyyy-MM-dd"), StringComparison.Ordinal);
+        prompt = prompt.Replace("{date}", WorldCalendar.Render(WorldCalendar.Today), StringComparison.Ordinal);
         var tools = new JsonArray(
             Tools.Define("search", "Find relevant online sources for a query.", new()
             {

@@ -322,6 +322,15 @@ public sealed partial class Engine
             config.UsePreset(PluginPreset(package, context, args));
             return config.Config;
         }
+        if (op == "getWorldDate")
+        {
+            var preset = PluginPreset(package, context, args);
+            var workspace = new Workspace(Workspace.Root, seedDefaultPreset: false);
+            workspace.UsePreset(preset);
+            var room = PluginRoom(args, context, preset, workspace.Config.GetString("chat_mode") == "ensemble");
+            var document = await ReadRoomDocument(preset, WorkspaceIds.Require(room), ct);
+            return WorldCalendar.Snapshot(workspace.Config, document.GetObject("world"), WorldCalendar.Today);
+        }
         if (op is "readChat" or "listChats" or "listRooms" or "readRoom")
             return await QueryPluginConversations(op, package, context, args, ct);
         if (op == "readSession")
@@ -371,7 +380,7 @@ public sealed partial class Engine
             }
             finally { item.Gate.Release(); }
         }
-        var agent = args.GetString("agent", context.GetString("agent", "chat"));
+        var agent = op == "setWorldDate" ? "env" : args.GetString("agent", context.GetString("agent", "chat"));
         if (agent is not ("chat" or "env" or "preset") && !(op == "setPrompt" && agent is "search" or "fetch" or "title"))
             throw new ArgumentException("Choose a conversation agent.");
         var targetPreset = op == "createPreset" ? "" : WorkspaceIds.Require(args.GetString("preset",
@@ -409,8 +418,14 @@ public sealed partial class Engine
             plugins.WhileCurrent(package, targetPreset, () => Volatile.Read(ref inbox)?.TryPost(target, agent, new()
             { ["text"] = RequireText(args), ["role"] = "system" }) == true))
             return new JsonObject { ["accepted"] = true };
-        if (op is not ("createChat" or "createRoom" or "createPreset" or "send" or "insertSystemMessage" or "renameChat" or "renameRoom" or "generateTitle" or "setSearchMode" or "setPrompt" or "branchChat"))
+        if (op is not ("createChat" or "createRoom" or "createPreset" or "send" or "insertSystemMessage" or "renameChat" or "renameRoom" or "generateTitle" or "setSearchMode" or "setWorldDate" or "setPrompt" or "branchChat"))
             throw new ArgumentException("Unknown harness operation.");
+        if (op == "setWorldDate")
+        {
+            _ = WorldCalendar.RequireDate(args.GetString("date"));
+            if (!activePreset || target != Workspace.ChatId) throw new InvalidOperationException("Choose the active room.");
+            WorldCalendar.RequirePluginMode(Workspace.Config);
+        }
         var command = (JsonObject)args.DeepClone();
         command.Remove("_character_origin");
         if (communicates && context.GetBoolean("_ensemble") && context.GetString("participant") is { Length: > 0 } member)
@@ -478,7 +493,7 @@ public sealed partial class Engine
             "send" => "message", "insertSystemMessage" => "system_message",
             "renameChat" when ensemble is not null => "rename_ensemble_chat",
             "renameChat" or "renameRoom" => "rename",
-            "generateTitle" => "generate_title", "setSearchMode" => "save_search_mode", "setPrompt" => "save_prompt",
+            "generateTitle" => "generate_title", "setSearchMode" => "save_search_mode", "setWorldDate" => "set_world_date", "setPrompt" => "save_prompt",
             "branchChat" => "branch", _ => throw new ArgumentException("Unknown workspace operation.")
         };
         Dispatch(request);

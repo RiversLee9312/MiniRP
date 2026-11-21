@@ -43,6 +43,7 @@ import com.minirp.app.data.Preferences
 import com.minirp.app.core.CoreClient
 import com.minirp.app.ui.ChatViewModel
 import com.minirp.app.ui.MiniRP
+import com.minirp.app.ui.PresetDateMode
 import java.io.File
 import java.security.MessageDigest
 import java.util.Base64
@@ -150,6 +151,17 @@ class PlatformToolFlowTest {
                     model.state.value.presetEditorOpen && !model.state.value.busy &&
                         model.state.value.blocks.any { it.content == Interview }
                 }
+                val real = label(R.string.preset_date_real)
+                val plugin = label(R.string.preset_date_plugin)
+                fun dateChip(option: String) = compose.onNodeWithText(
+                    compose.activity.getString(R.string.preset_date_choice, option)
+                )
+                dateChip(real).performClick()
+                compose.onNodeWithText(plugin).performClick()
+                waitFor { model.state.value.dateMode == PresetDateMode.Plugin }
+                dateChip(plugin).performClick()
+                compose.onNodeWithText(real).performClick()
+                waitFor { model.state.value.dateMode == PresetDateMode.Real }
                 send(SetupRequest, inPresetEditor = true)
                 waitFor {
                     !model.state.value.busy && model.state.value.blocks.any { it.content == SetupReply } &&

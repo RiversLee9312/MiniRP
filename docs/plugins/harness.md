@@ -14,6 +14,8 @@ Preset、Room 和 Chat 都使用标准小写 UUID，例如 `7844467a-14ae-48eb-8
 | `harness.readChat` | `harness.read` | `{preset?,room?,chat?,offset?,limit?}` → `{id,room,preset,name,messages}`。群像消息可含 `participant` 与 `speaker`。 |
 | `harness.listRooms` | `harness.read` | `{preset?,offset?,limit?}` → 预设下的 Room 列表 `[{id,name}]`。普通预设的 Room 与 Chat 使用同一个 ID。 |
 | `harness.readRoom` | `harness.read` | `{preset?,room?,offset?,limit?}` → `{id,preset,name,chats}`，其中 `chats` 是该 Room 的 Chat 列表。 |
+| `harness.getWorldDate` | `harness.read` | `{preset?,room?}` → `{mode,date}`。`mode` 为 `real` 或 `plugin`，`date` 为 `YYYY-MM-DD`。 |
+| `harness.setWorldDate` | `harness.write` | `{preset?,room?,date}` → `{queued:true,request}`。目标为当前打开的 Room，预设使用 `plugin` 日期模式。 |
 | `harness.readSession` | `harness.read` | `{preset?,room?,chat?,agent?,id?,participant?,offset?,limit?}` → 指定 Agent 当前上下文中的可见消息。群像的 Chat/Search 会话以 Room 和角色 ID `participant` 定位。Fetch 和临时 Agent 可提供任务 ID，临时会话只向所有者开放。 |
 | `harness.getSessionInfo()` | `harness.read` | 当前回调绑定到模型会话时，返回 `{model,provider,contextWindow,usedTokens,remainingTokens}`。没有已计算上下文的会话时返回 `null`。 |
 | `harness.createChat` | `harness.write` | `{preset?}` → 在普通预设中新建聊天并选中。 |
@@ -36,3 +38,15 @@ Preset、Room 和 Chat 都使用标准小写 UUID，例如 `7844467a-14ae-48eb-8
 写操作通常返回 `{queued:true,request}`。该结果表示进入工作区队列，完成情况从对应宿主事件或之后的读取确认。普通消息文本上限 64,000 字符。发送系统角色消息会发起生成，空闲时插入系统消息只写入历史。
 
 `getSessionInfo()` 不接收目标参数。它返回触发回调的会话快照，例如工具调用或模型轮次的 Hook。`model` 是模型 ID，`provider` 是宿主配置的提供商 ID。`contextWindow` 是整个模型窗口，`usedTokens` 沿用上下文压缩估算，并在提供商返回输入用量时校准。`remainingTokens` 是窗口减去当前用量，下限为 0。这个数字尚未扣除为模型输出预留的空间。
+
+日期按 Room 保存。为剧情事件指定下一日期时，先读当前日期，再提交更新。可以从 `world.changed` 的 `calendar` 和 `request` 确认已生效的变更。
+
+```js
+async function finishScene({ nextDate }, api) {
+  const { mode, date } = await api.harness.getWorldDate();
+  if (mode === "plugin" && date !== nextDate) {
+    return api.harness.setWorldDate({ date: nextDate });
+  }
+  return { date };
+}
+```

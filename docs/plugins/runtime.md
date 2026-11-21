@@ -65,7 +65,7 @@ Hook 的实现以 `handlers[导出名](event, api)` 被调用，可返回 Promis
 | `tool.started` | 工具执行开始，`agent`、`block`、`name`（事件名覆盖原字段）、`arguments`。 |
 | `tool.finished` | 工具结束，`agent`、`block`、`text`。 |
 | `context.compacted` | Agent 历史完成压缩。 |
-| `world.changed` | 该回合修改了世界状态。 |
+| `world.changed` | Room 世界状态已保存，`calendar` 为 `{mode,date}`。由 Harness 日期写入触发时，`request` 与排队结果对应。 |
 | `settings.changed` | 本包设置保存，`key`、`value`。 |
 
 附件处理、技能激活和动态资源通过各自的声明投递，名称分别为 `attachment.process`、`skill.activated`、`asset.requested`。

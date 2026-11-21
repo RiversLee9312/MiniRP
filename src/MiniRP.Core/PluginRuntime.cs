@@ -822,7 +822,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         {
             var op = method[8..];
             Require(package, op == "generate" ? "model" :
-                op is "getSessionInfo" or "readSession" or "readChat" or "listRooms" or "readRoom" or "listChats" or "listPresets" or "getPreset" ? "harness.read" : "harness.write");
+                op is "getSessionInfo" or "readSession" or "readChat" or "listRooms" or "readRoom" or "listChats" or "listPresets" or "getPreset" or "getWorldDate" ? "harness.read" : "harness.write");
             if (op == "getSessionInfo")
             {
                 if (args.Count != 0) throw new ArgumentException("This API reads only the current session.");

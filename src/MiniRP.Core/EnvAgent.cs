@@ -6,7 +6,6 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
     public async Task<string> Run(string input, bool stage, CancellationToken ct, JsonArray? attachments = null, string inputRole = "user")
     {
         var state = (JsonObject)world.State.DeepClone();
-        var initial = DateOnly.Parse(state.GetString("sim_date"));
         var tools = new JsonArray(
             Tools.Define("inspect_world", "Inspect staged facts, phase and date."),
             Tools.Define("add_fact", "Add established fact.", new()
@@ -26,10 +25,10 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
             {
                 ["phase"] = Tools.String()
             }, "phase"),
-            Tools.Define("advance_date", "Story mode only, cumulative maximum three days.", new()
+            Tools.Define("set_date", "Manually set the room date when explicitly requested. Use YYYY-MM-DD. In real date mode this override lasts until the next local day.", new()
             {
-                ["days"] = Tools.Integer()
-            }, "days"));
+                ["date"] = Tools.String()
+            }, "date"));
         if (!world.AgenticSearch)
         {
             tools.AddNode(Tools.Define("set_chat_search_guidance", "Replace session-local ChatAgent search guidance for this world. Use an empty string to clear it.", new()
@@ -48,7 +47,11 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
             string Required(string key) => string.IsNullOrWhiteSpace(a.GetString(key)) ? throw new ArgumentException(key + " required") : a.GetString(key);
             if (name == "inspect_world")
             {
-                return Task.FromResult<JsonNode?>(state.DeepClone());
+                var visible = (JsonObject)state.DeepClone();
+                visible.Remove("manual_date");
+                visible["sim_date"] = WorldCalendar.Render(WorldCalendar.Date(world.Config, state, WorldCalendar.Today));
+                visible["date_mode"] = WorldCalendar.Mode(world.Config);
+                return Task.FromResult<JsonNode?>(visible);
             }
 
             if (name == "set_chat_search_guidance" && !world.AgenticSearch)
@@ -89,16 +92,11 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
             {
                 state["phase"] = Required("phase");
             }
-            else if (name == "advance_date")
+            else if (name == "set_date")
             {
-                var days = a.GetInt32("days", -1);
-                var date = DateOnly.Parse(state.GetString("sim_date")).AddDays(days);
-                if (!stage || days is < 0 or > 3 || date.DayNumber - initial.DayNumber > 3)
-                {
-                    throw new ArgumentException("date advance not allowed");
-                }
-
-                state["sim_date"] = date.ToString("yyyy-MM-dd");
+                var date = WorldCalendar.RequireDate(a.GetString("date"));
+                WorldCalendar.Set(world.Config, state, date, WorldCalendar.Today);
+                return Task.FromResult<JsonNode?>(new JsonObject { ["staged"] = true, ["date"] = WorldCalendar.Render(date) });
             }
             else
             {
@@ -107,7 +105,10 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
 
             return Task.FromResult<JsonNode?>(new JsonObject { ["staged"] = true });
         }
-        var system = "You are EnvAgent, managing story and established facts. Inspect and make minimal precise edits with tools. World rules constrain you. Speculation in chat is not established fact. Changes are staged and committed only on successful completion. Explain actual changes concisely in the user's language. " + (stage ? "Advance the story a small step; default at most one day, at most three if explicitly requested." : "Edit facts; do not advance story or date.") + "\n" + world.WorldText + "\nStage policy:\n" + JsonValues.Serialize(world.Config["stage"]);
+        var system = "You are EnvAgent, managing story and established facts. Inspect and make minimal precise edits with tools. World rules constrain you. Speculation in chat is not established fact. Changes are staged and committed only on successful completion. Explain actual changes concisely in the user's language. " +
+            (stage ? "Advance the story a small step." : "Edit facts and settings as requested.") +
+            " The room calendar follows the real date or advances through a plugin. Use set_date only for an explicit date change, including during story advancement.\n" +
+            world.WorldText + "\nStage policy:\n" + JsonValues.Serialize(world.Config["stage"]);
         if (!world.AgenticSearch)
         {
             system += "\nChatAgent handles search directly. When changes affect search, use set_chat_search_guidance to explain how ChatAgent should apply current canon, interpret real sources, use simulated pages, and keep caches consistent. Preserve unrelated guidance and the preset's base prompt.";

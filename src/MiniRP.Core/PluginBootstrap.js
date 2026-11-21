@@ -79,7 +79,7 @@
                 const info = parse(payload);
                 const api = freeze({
                     environment: freeze(info.environment),
-                    harness: bind("harness", ["getSessionInfo", "readSession", "readChat", "listPresets", "listChats", "listRooms", "readRoom", "createChat", "createRoom", "createPreset", "send", "steer", "insertSystemMessage", "createTemporarySession", "runTemporary", "closeTemporary", "renameChat", "renameRoom", "generateTitle", "getPreset", "setSearchMode", "setPrompt", "branchChat", "generate"]),
+                    harness: bind("harness", ["getSessionInfo", "readSession", "readChat", "listPresets", "listChats", "listRooms", "readRoom", "createChat", "createRoom", "createPreset", "send", "steer", "insertSystemMessage", "createTemporarySession", "runTemporary", "closeTemporary", "renameChat", "renameRoom", "generateTitle", "getPreset", "getWorldDate", "setWorldDate", "setSearchMode", "setPrompt", "branchChat", "generate"]),
                     state: bind("state", ["get", "set"]),
                     ...(info.development ? {
                         development: bind("development", ["run"]),

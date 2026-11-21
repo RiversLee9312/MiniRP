@@ -49,6 +49,56 @@ public sealed class WorkspaceAgentTests
     }
 
     [TestMethod]
+    public void WorldCalendarFollowsLocalDaysAndPreservesLegacyTimeline()
+    {
+        var today = new DateOnly(2026, 11, 21);
+        var tomorrow = today.AddDays(1);
+        var scenario = new DateOnly(2040, 2, 29);
+        var config = Workspace.Default();
+        var state = new JsonObject { ["sim_date"] = "2040-02-29" };
+
+        Assert.AreEqual(today, WorldCalendar.Date(config, state, today));
+        WorldCalendar.Set(config, state, scenario.AddDays(1), today);
+        Assert.AreEqual(scenario.AddDays(1), WorldCalendar.Date(config, state, today));
+        Assert.AreEqual(tomorrow, WorldCalendar.Date(config, state, tomorrow));
+
+        config.Remove("date_mode");
+        Assert.AreEqual(scenario, WorldCalendar.Date(config, state, tomorrow));
+        WorldCalendar.Configure(config, WorldCalendar.Plugin, today);
+        Assert.AreEqual(today, WorldCalendar.Date(config, new(), tomorrow));
+        Assert.AreEqual(scenario, WorldCalendar.Date(config, state, tomorrow));
+    }
+
+    [TestMethod]
+    public async Task PresetAndWorldSkillsConfigureAndManuallySetTheRoomDate()
+    {
+        var world = NewWorld();
+        var presetModel = Fixture(round => round == 0
+            ? Assistant(Call("configure_date", new() { ["mode"] = "plugin", ["initial_date"] = "2032-02-29" }))
+            : new JsonObject { ["content"] = "Date source saved." });
+        using var preset = TestAgentSession.Open("preset", Path.Combine(world.ChatRoot, "calendar-preset.sqlite"), presetModel, _ => { });
+        await new PresetAgent(world, preset).Run("Use a plugin calendar starting 2032-02-29.", CancellationToken.None);
+        Assert.AreEqual("2032-02-29", world.WorldDate);
+
+        var requests = new List<JsonObject>();
+        var envModel = Fixture(round => round switch
+        {
+            0 => Assistant(Call("set_date", new() { ["date"] = "2032-02-30" })),
+            1 => Assistant(Call("set_date", new() { ["date"] = "2032-03-01" })),
+            _ => new JsonObject { ["content"] = "Date set." }
+        }, requests.Add);
+        using var env = TestAgentSession.Open("env", Path.Combine(world.ChatRoot, "calendar-env.sqlite"), envModel, _ => { });
+        await new EnvAgent(world, env).Run("Manually set the date to 2032-03-01.", false, CancellationToken.None);
+        StringAssert.Contains(JsonValues.Serialize(requests[1]), "Provide a date in YYYY-MM-DD format.");
+        Assert.AreEqual("2032-03-01", world.WorldDate);
+        var loaded = new Workspace(world.Root);
+        loaded.Select(world.PresetId, world.ChatId);
+        Assert.AreEqual("2032-03-01", loaded.WorldDate);
+        loaded.Select(world.PresetId, null);
+        Assert.AreEqual("2032-02-29", loaded.WorldDate);
+    }
+
+    [TestMethod]
     public async Task PresetPromptAndConversationSurviveReload()
     {
         var world = NewWorld();
