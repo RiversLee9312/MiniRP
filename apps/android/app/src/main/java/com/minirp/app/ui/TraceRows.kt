@@ -28,6 +28,7 @@ internal data class TraceHeader(
     val tools: Int,
     val expanded: Boolean,
     val agent: AgentRole? = null,
+    val agentName: String? = null,
 )
 
 @Composable
@@ -39,6 +40,7 @@ internal fun TraceHeading(
 ) {
     val label =
         when {
+            header.agentName != null -> header.agentName
             header.agent != null -> stringResource(header.agent.label)
             header.running -> stringResource(R.string.running)
             header.tools > 0 ->
@@ -62,7 +64,7 @@ internal fun TraceHeading(
 @Composable
 internal fun TraceStep(step: TraceBlock, quoteDepth: Int) {
     Column(Modifier.fillMaxWidth().traceQuote(quoteDepth)) {
-        if (step.tool.isBlank()) {
+        if (step.tool.isBlank() && !step.compaction) {
             val text =
                 if (quoteDepth == 1) step.reasoning
                 else
@@ -79,11 +81,12 @@ internal fun TraceStep(step: TraceBlock, quoteDepth: Int) {
             }
         } else {
             var details by rememberSaveable { mutableStateOf(false) }
-            TraceDisclosure(step.tool.replace('_', ' '), details) { details = !details }
+            val label = if (step.compaction) stringResource(R.string.compaction_threshold) else step.tool.replace('_', ' ')
+            TraceDisclosure(label, details) { details = !details }
             if (details) {
                 SelectionContainer {
                     Text(
-                        listOf(step.arguments, step.result)
+                        listOf(if (step.compaction) step.reasoning else step.arguments, step.result)
                             .filter(String::isNotBlank)
                             .joinToString("\n\n"),
                         Modifier.padding(start = 12.dp, bottom = 6.dp),
@@ -96,7 +99,7 @@ internal fun TraceStep(step: TraceBlock, quoteDepth: Int) {
 }
 
 @Composable
-private fun Modifier.traceQuote(depth: Int): Modifier {
+internal fun Modifier.traceQuote(depth: Int): Modifier {
     if (depth == 0) return this
     val line = MaterialTheme.colorScheme.outlineVariant
     return drawBehind {

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">파일을 저장할 수 없습니다</string>
     <string name="chat">채팅</string>
     <string name="world">월드</string>
     <string name="preset">프리셋</string>
@@ -132,6 +133,9 @@
     <string name="install_plugin">플러그인 설치</string>
     <string name="run_plugin">실행</string>
     <string name="remove_plugin">제거</string>
+    <string name="plugin_enabled">사용 중</string>
+    <string name="plugin_disabled">사용 중지됨</string>
+    <string name="uninstall_plugin_title">%1$s을(를) 제거할까요?</string>
     <string name="built_in">내장</string>
     <string name="plugin_resource_request">%1$s에서 파일을 선택해 달라고 합니다</string>
     <string name="delete_chat">채팅 삭제</string>

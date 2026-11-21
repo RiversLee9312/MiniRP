@@ -6,8 +6,9 @@ using System.Threading.Channels;
 namespace MiniRP.Core;
 
 /// <summary>The native core owns decisions and parsing; the platform owns TLS and browser I/O.</summary>
-public sealed class HostPort(Action<JsonObject> emit)
+public sealed class HostPort(Action<JsonObject> emit, CancellationToken lifetime = default)
 {
+    internal CancellationToken Lifetime { get; } = lifetime;
     readonly ConcurrentDictionary<string, Channel<JsonObject>> pending = new();
     private readonly ConcurrentDictionary<string, byte[]> transfers = new();
     private static readonly byte[] Reserved = [];

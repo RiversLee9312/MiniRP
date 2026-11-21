@@ -11,7 +11,7 @@ internal sealed class SessionStateWatches(MemoryDb db, Func<string, JsonObject?>
     {
         if (key.StartsWith(PluginRuntime.StateProjectionPrefix, StringComparison.Ordinal))
             return readProjection(key);
-        if (key.StartsWith('_') || string.IsNullOrWhiteSpace(key)) return null;
+        if ((key.StartsWith('_') && !AgentContainer.IsJobKey(key)) || string.IsNullOrWhiteSpace(key)) return null;
         var row = db.Query("SELECT revision FROM entries WHERE key=?", key).FirstOrDefault();
         return row is null ? null : new JsonObject { ["revision"] = int.Parse(row["revision"], System.Globalization.CultureInfo.InvariantCulture) };
     }

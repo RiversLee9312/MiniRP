@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using MiniRP.Cli;
 using MiniRP.Core;
 
 namespace MiniRP.Core.Tests;
@@ -16,10 +17,22 @@ public sealed class AgentTests
         workspace.Select(workspace.InitialPreset().Id, null);
         var round = 0;
         HostPort? port = null;
+        using var scripts = new PluginScripts();
         port = new(request =>
         {
             if (request.GetString("kind") == "cancel_io")
             {
+                return;
+            }
+            if (request.GetString("kind") == "plugin_isolate_close")
+            {
+                scripts.Close(request.GetString("isolate"));
+                return;
+            }
+            if (request.GetString("kind") == "plugin_script")
+            {
+                port!.Reply(new() { ["id"] = request.GetString("id"),
+                    ["result"] = scripts.Step(request, CancellationToken.None, port.TakeBinary, port.WriteBinary) });
                 return;
             }
             Assert.AreEqual("http_request", request.GetString("kind"));
@@ -78,13 +91,20 @@ public sealed class AgentTests
             });
         });
         var model = new ModelClient(port, () => Model);
-        using var session = TestAgentSession.Open("search", Path.Combine(root, "search.sqlite"), model, _ => { });
+        await using var plugins = new PluginRuntime(root, port, _ => { }, (_, _, _, _, _) => throw new NotSupportedException());
+        plugins.Load();
+        var factory = new AgentSession.Factory(port, plugins, Path.Combine(root, "attachments"), () => "", () => workspace);
+        using var session = factory.Open("search", Path.Combine(root, "search.sqlite"), () => Model, () => new()
+        {
+            ["agent"] = "search", ["preset"] = workspace.PresetId, ["chat"] = workspace.ChatId, ["room"] = workspace.ChatId
+        }, _ => { });
         var fetch = new FetchAgent(port, job => TestAgentSession.Open("fetch",
             Path.Combine(root, "fetch", job + ".sqlite"), model, _ => { }));
         var search = new SearchAgent(workspace, session, new PageSource(port, fetch, () => new()));
         var result = await search.Run("search", "世界", CancellationToken.None);
         Assert.AreEqual(20, result.GetArray("results").Count);
         Assert.AreEqual(20, workspace.State.GetObject("search_cache").GetArray("世界").Count);
+        Assert.IsTrue(workspace.State.GetObject("search_cache").GetArray("世界").All(item => ResearchAssets.IsUrl(JsonValues.GetText(item))));
         Assert.AreEqual(2, round);
         var recalledResult = await search.Run("search", "世界", CancellationToken.None);
         Assert.AreEqual(20, recalledResult.GetArray("results").Count);

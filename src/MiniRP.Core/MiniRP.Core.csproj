@@ -6,6 +6,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsAotCompatible>true</IsAotCompatible>
     <PublishAot>true</PublishAot>
+    <OptimizationPreference Condition="'$(Configuration)' == 'Release'">Size</OptimizationPreference>
     <NativeLib>Shared</NativeLib>
     <AssemblyName>libminirpcore</AssemblyName>
     <InvariantGlobalization>true</InvariantGlobalization>
@@ -28,6 +29,8 @@
     <EmbeddedResource Include="../../THIRD_PARTY_NOTICES.md" LogicalName="MiniRP.BasePlugin.notices.md" />
     <EmbeddedResource Include="../../LICENSE" LogicalName="MiniRP.BasePlugin.license" />
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
+    <PackageReference Include="ReverseMarkdown" Version="6.3.0" />
+    <PackageReference Include="Scout.Text.Regex" Version="0.8.0" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
     <PackageReference Include="System.IO.Hashing" Version="10.0.11" />
     <ProjectReference Include="../MiniRP.Protocol/MiniRP.Protocol.csproj" />

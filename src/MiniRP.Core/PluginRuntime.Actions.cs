@@ -16,10 +16,7 @@ internal sealed partial class PluginRuntime
         if (address.Package == AppActions && method == "actions.invoke")
             return OpenAppAction(address, caller.BuiltIn);
 
-        var depth = environment.GetInt32("_action_depth");
-        if (depth >= 8) throw new InvalidOperationException("Too many nested Actions.");
-        var next = (JsonObject)environment.DeepClone();
-        next["_action_depth"] = depth + 1;
+        var next = NextAction(environment);
         var assets = args.GetObject("assets");
         if (assets.Count > 16) throw new ArgumentException("An Action supports up to 16 asset references.");
         foreach (var item in assets)
@@ -34,10 +31,7 @@ internal sealed partial class PluginRuntime
             if (address.Kind != "hooks") throw new ArgumentException("Invoke requires a Hook URL.");
             var target = installed.FirstOrDefault(item => item.PackageName == address.Package)
                 ?? throw new ArgumentException("Target plugin is unavailable.");
-            RequireScope(target, environment.GetString("preset"));
-            var handler = target.Bind(url);
-            if (!EnqueueRoute(target, handler, payload, next)) throw new InvalidOperationException("The plugin event queue is full.");
-            return new() { ["accepted"] = true };
+            return InvokeAction(target, target.Bind(url), payload, next);
         }
         if (address.Kind != "events" || address.Package != caller.PackageName ||
             !caller.Manifest.GetObject("actions").GetArray("events").Any(item => JsonValues.GetText(item) == address.Id))
@@ -54,6 +48,22 @@ internal sealed partial class PluginRuntime
                 count++;
         }
         return new() { ["accepted"] = true, ["subscribers"] = count };
+    }
+
+    private static JsonObject NextAction(JsonObject environment)
+    {
+        var depth = environment.GetInt32("_action_depth");
+        if (depth >= 8) throw new InvalidOperationException("Too many nested Actions.");
+        var next = (JsonObject)environment.DeepClone();
+        next["_action_depth"] = depth + 1;
+        return next;
+    }
+
+    private JsonObject InvokeAction(PluginPackage target, string handler, JsonObject payload, JsonObject environment)
+    {
+        RequireScope(target, environment.GetString("preset"));
+        if (!EnqueueRoute(target, handler, payload, environment)) throw new InvalidOperationException("The plugin event queue is full.");
+        return new() { ["accepted"] = true };
     }
 
     private JsonObject OpenAppAction(PluginActions.Address address, bool allowed)

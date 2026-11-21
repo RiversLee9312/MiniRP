@@ -5,10 +5,12 @@ namespace MiniRP.Core;
 internal sealed class PresetConversation(Workspace workspace)
 {
     private readonly string root = SessionFiles.PresetDirectory(workspace.Root, workspace.PresetId);
+    internal string PresetId { get; } = workspace.PresetId;
 
     public string Database => SessionFiles.PresetDatabase(root);
     private string Transcript => Path.Combine(root, "blocks.json");
     public JsonArray Blocks { get; private set; } = new();
+    public Dictionary<string, JsonObject> WorkerTrace { get; } = new(StringComparer.Ordinal);
     public JsonObject? LegacySession { get; private set; }
 
     public void Load(Workspace workspace)
@@ -16,6 +18,8 @@ internal sealed class PresetConversation(Workspace workspace)
         if (File.Exists(Transcript))
         {
             Blocks = JsonNode.Parse(File.ReadAllText(Transcript)) as JsonArray ?? new();
+            foreach (var block in Blocks.OfType<JsonObject>().Where(block => block.GetString("plugin_status") == "running"))
+                block["plugin_status"] = "interrupted";
             return;
         }
         if (!File.Exists(Database) && FindLegacy(workspace) is { } seed)
@@ -76,5 +80,5 @@ internal sealed class PresetConversation(Workspace workspace)
 
     public void Save() => AtomicFile.Write(Transcript, JsonValues.Serialize(Blocks));
 
-    public static bool IsPreset(JsonNode? node) => node.GetString("agent") is "preset" or "PresetAgent";
+    public static bool IsPreset(JsonNode? node) => node.GetString("agent") is "preset" or "PresetAgent" or "PluginAgent";
 }

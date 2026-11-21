@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">Filen kunne ikke gemmes</string>
     <string name="chat">Chat</string>
     <string name="world">Verden</string>
     <string name="preset">Preset</string>
@@ -134,6 +135,9 @@
     <string name="install_plugin">Installer plugin</string>
     <string name="run_plugin">Kør</string>
     <string name="remove_plugin">Afinstaller</string>
+    <string name="plugin_enabled">Aktiveret</string>
+    <string name="plugin_disabled">Deaktiveret</string>
+    <string name="uninstall_plugin_title">Afinstaller %1$s?</string>
     <string name="built_in">Indbygget</string>
     <string name="plugin_resource_request">%1$s vil have dig til at vælge filer</string>
     <string name="delete_chat">Slet chat</string>

@@ -20,6 +20,21 @@
         "resolved": "10.0.11",
         "contentHash": "IBf7lbovvjGWVWXZX5cJ/cO0WXbId0Zq4BuSeT94mGZuOAP66oMeH9PTBZ9Jpp3Jb6jtK0qm/NyUbPRo1gC/wQ=="
       },
+      "ReverseMarkdown": {
+        "type": "Direct",
+        "requested": "[6.3.0, )",
+        "resolved": "6.3.0",
+        "contentHash": "h2GwfOpLAkONJa3ARH4VnhrJro7XcqTmI1z0d6LzXVto8Qm/8cmUO3cBm7nkN48rQfSPi2NpEPBKuPzSZr1LMg==",
+        "dependencies": {
+          "AngleSharp": "1.5.2"
+        }
+      },
+      "Scout.Text.Regex": {
+        "type": "Direct",
+        "requested": "[0.8.0, )",
+        "resolved": "0.8.0",
+        "contentHash": "kQ41D/mRW1BfR0T5grX/b4Gi1vNJxmjl1/DiW9OAn1TIt9j9pjMbRXOBvga6AZjL/J0cKwnpRB2uvo2Oa5+TxQ=="
+      },
       "SQLitePCLRaw.lib.e_sqlite3": {
         "type": "Direct",
         "requested": "[3.53.3, )",
@@ -31,6 +46,11 @@
         "requested": "[10.0.11, )",
         "resolved": "10.0.11",
         "contentHash": "OzKDcIRkeNJeC8qAsbn8yJXnfTLP1dtkWILe+T56Gf/z+IkAASi7sMqLqJQat08j5z/mRN5xVtoAwbkMNMoBUQ=="
+      },
+      "AngleSharp": {
+        "type": "Transitive",
+        "resolved": "1.5.2",
+        "contentHash": "LVZ7rrr6GHbhERhTgVDarVygl1e6KwE96pronA90LBOMacDhxR4lB+xYLjn/vlnUu+xbOB2RM9fuCPEx5bdyWA=="
       },
       "minirp.protocol": {
         "type": "Project"

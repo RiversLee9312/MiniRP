@@ -53,4 +53,35 @@ public sealed class MemoryTests
         db.Write("_archive/history", "retained", internalWrite: true);
         Assert.AreEqual("retained", db.Get("_archive/history"));
     }
+
+    [TestMethod]
+    public void BranchRestoresNotesAndHistoryWithoutCopyingTheSearchIndex()
+    {
+        var root = Directory.CreateTempSubdirectory("minirp-branch-memory-");
+        try
+        {
+            using var db = new MemoryDb(Path.Combine(root.FullName, "active.sqlite"));
+            db.Write("notes/answer", "preserved answer");
+            db.Write("_context/history", "private checkpoint", internalWrite: true);
+            db.Write("_archive/public/page/0", "public source", internalWrite: true);
+            var history = new SessionHistory(db, "chat");
+            history.Record("assistant", "remembered message");
+            Assert.IsFalse(db.Query("SELECT key FROM entry_search").Any(row => row["key"].StartsWith("_context") || row["key"].StartsWith("_archive")));
+
+            var branch = Path.Combine(root.FullName, "branch.sqlite");
+            db.SnapshotSession(branch);
+            using (var copy = MemoryDb.ReadOnly(branch))
+                Assert.AreEqual(0, copy.Query("SELECT name FROM sqlite_master WHERE name GLOB 'entry_search*'").Count);
+
+            using var restored = new MemoryDb(branch);
+            Assert.AreEqual("private checkpoint", restored.Get("_context/history"));
+            Assert.AreEqual("notes/answer", restored.Call("db_search",
+                new() { ["query"] = "preserved", ["notes_only"] = true }).GetArray("matches")[0].GetString("key"));
+            Assert.AreEqual("_archive/public/page/0", restored.Call("db_search",
+                new() { ["query"] = "public source", ["prefix"] = "_archive/public/" }).GetArray("matches")[0].GetString("key"));
+            Assert.AreEqual(1, new SessionHistory(restored, "chat").Search(
+                new() { ["query"] = "remembered message" }).GetArray("matches").Count);
+        }
+        finally { root.Delete(recursive: true); }
+    }
 }

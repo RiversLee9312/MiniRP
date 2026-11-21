@@ -76,10 +76,17 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
             {
                 foreach (var path in Files(At("preset_sessions", preset), "*"))
                     if (Path.GetFileName(path) is "agent.sqlite" or "blocks.json") Add(path);
+                var overlays = At("plugins", PluginRuntime.WritableAssetArea);
+                if (Directory.Exists(overlays))
+                    foreach (var package in Directory.EnumerateDirectories(overlays, "*", SafeFiles))
+                        foreach (var path in Files(Path.Combine(package, preset), "*"))
+                            if (WritableAssetFile(Relative(path).Split('/'), preset)) Add(path);
             }
             foreach (var version in contents.Versions.ToArray())
                 foreach (var path in Files(At("versions", version), "*"))
                     if (VersionFile(Relative(path).Split('/'))) Add(path);
+                    else if (path.EndsWith(".gz", StringComparison.Ordinal) &&
+                             VersionFile(Relative(path[..^3]).Split('/')) && !File.Exists(path[..^3])) AddCompressed(path[..^3]);
             foreach (var area in Areas)
             {
                 var areaPath = At("plugins", area);
@@ -93,6 +100,10 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
                 var path = At("attachments", attachment);
                 if (File.Exists(path)) Add(path);
             }
+            foreach (var hash in contents.ContainerChunks)
+                Add(AgentContainer.Blob(workspace.Root, preset, hash));
+            foreach (var hash in contents.ResearchBlobs)
+                Add(ResearchAssets.PathFor(workspace.Root, preset, hash));
         }
 
         await using var stream = new FileStream(output, FileMode.CreateNew, FileAccess.Write, FileShare.None, 65536, useAsync: true);
@@ -103,15 +114,19 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
             await entry.WriteAsync(Encoding.UTF8.GetBytes(header), ct);
         long total = 0;
         if (sources.Count >= MaxEntries) throw new InvalidDataException("The workspace has too many archive items.");
+        var buffer = new byte[65536];
         foreach (var (entry, file) in sources)
         {
             ct.ThrowIfCancellationRequested();
-            await using var input = File.OpenRead(file);
-            total += input.Length;
-            if (total > MaxBytes) throw new InvalidDataException("The workspace archive is too large.");
+            await using var input = file.EndsWith(".gz", StringComparison.Ordinal) ? ConversationStorage.Open(file[..^3]) : File.OpenRead(file);
             await using var target = zip.CreateEntry(entry, entry.StartsWith("attachments/", StringComparison.Ordinal) ||
                 entry.EndsWith(".plugin", StringComparison.Ordinal) ? CompressionLevel.NoCompression : CompressionLevel.Fastest).Open();
-            await input.CopyToAsync(target, ct);
+            for (int count; (count = await input.ReadAsync(buffer, ct)) > 0;)
+            {
+                total += count;
+                if (total > MaxBytes) throw new InvalidDataException("The workspace archive is too large.");
+                await target.WriteAsync(buffer.AsMemory(0, count), ct);
+            }
         }
 
         void Add(string path)
@@ -130,8 +145,36 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
             else
             {
                 sources.Add(relative, path);
-                if (path.EndsWith(".json", StringComparison.Ordinal)) contents.Collect(ReadJson(path));
+                if (path.EndsWith(".json", StringComparison.Ordinal))
+                {
+                    var json = ReadJson(path);
+                    contents.Collect(json);
+                    if (relative.StartsWith("versions/", StringComparison.Ordinal) && Path.GetFileName(path) == "world.json")
+                        contents.Research(json);
+                }
             }
+        }
+
+        void AddCompressed(string path)
+        {
+            ct.ThrowIfCancellationRequested();
+            EnsureUnlinked(path + ".gz", workspace.Root);
+            sources.Add(Relative(path), path + ".gz");
+            using var input = ConversationStorage.Open(path);
+            if (path.EndsWith(".json", StringComparison.Ordinal))
+            {
+                var world = JsonNode.Parse(input);
+                contents.Collect(world);
+                if (Path.GetFileName(path) == "world.json") contents.Research(world);
+                return;
+            }
+            var snapshot = Path.Combine(stage.Path, JsonValues.NewId() + ".sqlite");
+            try
+            {
+                using (var output = File.Create(snapshot)) input.CopyTo(output);
+                ReadSessionReferences(snapshot, contents, ct);
+            }
+            finally { File.Delete(snapshot); }
         }
     }
 
@@ -165,6 +208,8 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
             var parts = path.Split('/');
             if (!parts.All(Part) || (entry.ExternalAttributes & 0xf0000000) == 0xa0000000 ||
                 !EntryAllowed(parts, preset, kind == "save") ||
+                parts[0] == AgentContainer.Storage && entry.Length > AgentContainer.MaxChunkFileBytes ||
+                parts[0] == ResearchAssets.Area && entry.Length > MessageAttachments.MaxAssetBytes ||
                 parts[^1].EndsWith(".json", StringComparison.Ordinal) && entry.Length > MaxJsonBytes)
                 throw new InvalidDataException("The archive contains an unsupported path or item.");
             var target = Path.Combine(stage.Path, Path.Combine(parts));
@@ -186,11 +231,42 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
             if (parts[0] != "conversations" || parts.Length != 3) continue;
             contents.Room(Stem(file), ReadObject(file));
         }
+        foreach (var (path, file) in entries)
+        {
+            if (path == $"preset_sessions/{preset}/blocks.json") contents.Collect(ReadJson(file));
+            if (path.Split('/') is ["versions", var version, "world.json"] && contents.Versions.Contains(version))
+                contents.Research(ReadJson(file));
+            if (path.EndsWith(".sqlite", StringComparison.Ordinal) && !path.StartsWith("plugins/", StringComparison.Ordinal))
+            {
+                using var db = MemoryDb.ReadOnly(file);
+                foreach (var owned in AgentAssetStorage.Files(db)) contents.AddAttachment(owned);
+            }
+        }
+        foreach (var attachment in contents.Attachments.Where(id => id.StartsWith(AgentAssetStorage.FilePrefix, StringComparison.Ordinal)))
+            if (!entries.ContainsKey("attachments/" + attachment))
+                throw new InvalidDataException("The archive is missing an agent-owned Asset.");
+        foreach (var hash in contents.ResearchBlobs)
+        {
+            if (!entries.TryGetValue($"{ResearchAssets.Area}/{preset}/{hash}", out var blob))
+                throw new InvalidDataException("The archive is missing a research Asset.");
+            await ResearchAssets.Verify(blob, hash, ct);
+        }
+        foreach (var (path, file) in entries)
+            if (path.EndsWith("/chat.sqlite", StringComparison.Ordinal) && !path.StartsWith("plugins/", StringComparison.Ordinal))
+                ReadContainerReferences(file, contents);
+        foreach (var hash in contents.ContainerChunks)
+        {
+            if (!entries.TryGetValue($"{AgentContainer.Storage}/{preset}/{hash}", out var chunk))
+                throw new InvalidDataException("The archive is missing a container checkpoint.");
+            await AgentContainer.ValidateChunk(chunk, hash, ct);
+        }
         foreach (var path in entries.Keys)
         {
             var parts = path.Split('/');
             if (parts[0] == "conversations" && parts.Length > 3 && !contents.Rooms.Contains(parts[2]) ||
-                parts[0] == "plugins" && parts.Length > 2 && !ScopedFile(parts, contents, includePreset: true))
+                parts[0] == "plugins" && parts.Length > 2 && !WritableAssetFile(parts, preset) && !ScopedFile(parts, contents, includePreset: true) ||
+                parts[0] == AgentContainer.Storage && !contents.ContainerChunks.Contains(parts[2]) ||
+                parts[0] == ResearchAssets.Area && !contents.ResearchBlobs.Contains(parts[2]))
                 throw new InvalidDataException("The archive contains state for another conversation.");
         }
 
@@ -228,6 +304,11 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
             EnsureUnlinked(pair.Key, workspace.Root);
             if (File.Exists(pair.Key))
             {
+                if (Relative(pair.Key).StartsWith(AgentContainer.Storage + "/", StringComparison.Ordinal))
+                {
+                    AgentContainer.ValidateChunk(pair.Key, Path.GetFileName(pair.Key), ct).GetAwaiter().GetResult();
+                    continue;
+                }
                 var wal = pair.Key + "-wal";
                 if ((pair.Key.EndsWith(".sqlite", StringComparison.Ordinal) &&
                     File.Exists(wal) && new FileInfo(wal).Length > 0) ||
@@ -265,10 +346,16 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
             "preset_sessions" => parts.Length == 3 && parts[1] == preset && parts[2] is "agent.sqlite" or "blocks.json",
             "versions" => VersionFile(parts),
             "attachments" => parts.Length == 2 && Id(parts[1]),
-            "plugins" => parts.Length is 5 or 6 && Areas.Contains(parts[1]) && Sqlite(parts[^1]),
+            AgentContainer.Storage => parts.Length == 3 && parts[1] == preset && AgentContainer.IsHash(parts[2]),
+            ResearchAssets.Area => parts.Length == 3 && parts[1] == preset && AgentContainer.IsHash(parts[2]),
+            "plugins" => WritableAssetFile(parts, preset) || parts.Length is 5 or 6 && Areas.Contains(parts[1]) && Sqlite(parts[^1]),
             _ => false
         };
     }
+
+    private static bool WritableAssetFile(string[] parts, string preset) => parts is
+        ["plugins", PluginRuntime.WritableAssetArea, var storage, var owner, var id] && owner == preset &&
+        Part(storage) && id.Length is > 0 and <= 48 && id.All(value => char.IsAsciiLetterLower(value) || char.IsAsciiDigit(value) || value is '-' or '_');
 
     private static bool RoomFile(string[] parts) =>
         parts.Length == 3 && parts[2].EndsWith(".json", StringComparison.Ordinal) && WorkspaceIds.IsValid(Stem(parts[2])) ||
@@ -311,12 +398,31 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
     {
         using var db = MemoryDb.ReadOnly(file);
         if (!db.HasEntriesTable()) return;
+        ReadContainerReferences(db, contents);
+        foreach (var owned in AgentAssetStorage.Files(db))
+        {
+            ct.ThrowIfCancellationRequested();
+            contents.AddAttachment(owned);
+        }
         foreach (var row in db.Query("SELECT content FROM entries WHERE key='_context/history' OR key GLOB '_archive/history/*' OR key GLOB '_archive/public/history/*'"))
         {
             ct.ThrowIfCancellationRequested();
             try { contents.Collect(JsonNode.Parse(row["content"])); }
             catch (JsonException) { }
         }
+    }
+
+    private static void ReadContainerReferences(string file, Contents contents)
+    {
+        using var db = MemoryDb.ReadOnly(file);
+        if (db.HasEntriesTable()) ReadContainerReferences(db, contents);
+    }
+
+    private static void ReadContainerReferences(MemoryDb db, Contents contents)
+    {
+        if (db.Get(AgentContainer.StateKey) is not { } stored) return;
+        foreach (var hash in AgentContainer.References(JsonValues.ParseObject(stored)))
+            if (hash.Length > 0) contents.ContainerChunks.Add(hash);
     }
 
     private static async Task Copy(string source, string destination, CancellationToken ct)
@@ -413,6 +519,15 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
         public Dictionary<string, HashSet<string>> Children { get; } = new(StringComparer.Ordinal);
         public HashSet<string> Versions { get; } = new(StringComparer.Ordinal);
         public HashSet<string> Attachments { get; } = new(StringComparer.Ordinal);
+        public HashSet<string> ContainerChunks { get; } = new(StringComparer.Ordinal);
+        public HashSet<string> ResearchBlobs { get; } = new(StringComparer.Ordinal);
+
+        public void Research(JsonNode? world) => ResearchBlobs.UnionWith(ResearchAssets.Hashes(world));
+
+        public void AddAttachment(string id)
+        {
+            if (Id(id)) Attachments.Add(id);
+        }
 
         public void Room(string id, JsonObject document)
         {
@@ -420,6 +535,7 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
                 document["preset"] is JsonValue && document.GetString("preset") != Preset)
                 throw new InvalidDataException("A Room identifier does not match the archive.");
             Rooms.Add(id);
+            Research(document["world"]);
             Children[id] = document.GetObject("ensemble").GetArray("chats")
                 .Select(chat => WorkspaceIds.Require(chat.GetString("id"))).ToHashSet(StringComparer.Ordinal);
             Collect(document);
@@ -432,10 +548,12 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
             if (node is not JsonObject record) return;
             var version = record.GetString("version");
             if (Id(version)) Versions.Add(version);
-            foreach (var file in record.GetArray("attachments"))
+            foreach (var file in record.GetArray("attachments")) AddAttachment(file.GetString("id"));
+            foreach (var (url, reference) in record.GetObject("asset_links"))
             {
-                var id = file.GetString("id");
-                if (Id(id)) Attachments.Add(id);
+                AddAttachment(reference.GetObject("attachment").GetString("id"));
+                if (ResearchAssets.IsUrl(url) && reference?["research"] is JsonObject research)
+                    ResearchBlobs.Add(research.GetString("hash"));
             }
             foreach (var (_, child) in record) Collect(child);
         }

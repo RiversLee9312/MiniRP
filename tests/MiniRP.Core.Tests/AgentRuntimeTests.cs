@@ -80,6 +80,64 @@ public sealed class AgentRuntimeTests
     }
 
     [TestMethod]
+    public async Task AToolCanRunOnlyAfterItsSkillWasOfferedToTheModel()
+    {
+        const string owned = "owned_tool";
+        var requests = new List<JsonObject>();
+        var events = new List<JsonObject>();
+        var executions = 0;
+        var activations = 0;
+        var skill = new AgentSkill("fixture", "Run the owned tool.", new JsonArray(Tools.Define(owned, "Call the fixture.")),
+            (_, _, _) => Task.FromResult<JsonNode?>(JsonValue.Create(++executions)), OnActivate: () => activations++);
+        HostPort? port = null;
+        port = new(request =>
+        {
+            if (request.GetString("kind") != "http_request") return;
+            requests.Add(JsonValues.ParseObject(request.GetString("body")));
+            var delta = requests.Count switch
+            {
+                1 => JsonValues.ParseObject("""
+                    {"tool_calls":[
+                        {"index":0,"id":"activate","function":{"name":"activate_skill","arguments":"{\"name\":\"fixture\"}"}},
+                        {"index":1,"id":"too_soon","function":{"name":"owned_tool","arguments":"{}"}}
+                    ]}
+                    """),
+                2 => JsonValues.ParseObject("""
+                    {"tool_calls":[
+                        {"index":0,"id":"allowed","function":{"name":"owned_tool","arguments":"{}"}},
+                        {"index":1,"id":"not_offered","function":{"name":"activate_skill","arguments":"{\"name\":\"fixture\"}"}}
+                    ]}
+                    """),
+                _ => new JsonObject { ["content"] = "Done." }
+            };
+            var reply = new JsonObject { ["choices"] = new JsonArray(new JsonObject { ["delta"] = delta }) };
+            port!.Reply(new() { ["id"] = request.GetString("id"), ["data"] = "data: " + JsonValues.Serialize(reply) + "\n\n", ["done"] = true });
+        });
+        var model = new ModelClient(port, () => new("fixture", "Fixture", "openai", "http://fixture.invalid", "", "fixture"));
+        using var session = TestAgentSession.Open("plugin-generation", ":memory:", model, events.Add, () => [skill]);
+        await session.Run("Instructions.", "Start.", CancellationToken.None);
+
+        string[] ToolNames(int request) => requests[request].GetArray("tools").Select(tool => tool.GetObject("function").GetString("name")).ToArray();
+        string Response(string id) => requests[2].GetArray("messages").Single(item => item.GetString("tool_call_id") == id).GetString("content");
+        CollectionAssert.AreEqual(new[] { "activate_skill" }, ToolNames(0));
+        CollectionAssert.AreEqual(new[] { owned }, ToolNames(1));
+        StringAssert.Contains(Response("too_soon"), "not offered");
+        StringAssert.Contains(Response("not_offered"), "not offered");
+        Assert.AreEqual(1, executions);
+        Assert.AreEqual(1, activations);
+        CollectionAssert.AreEqual(new[] { "activate", "allowed" }, events.Where(item => item.GetString("kind") == "tool_start")
+            .Select(item => item.GetString("block")).ToArray());
+    }
+
+    [TestMethod]
+    public void InactiveSkillsCannotClaimAnAlreadyOwnedTool()
+    {
+        AgentSkill Skill(string name, bool required) => new(name, "Fixture", new JsonArray(Tools.Define("owned_tool", "Call the fixture.")),
+            (_, _, _) => Task.FromResult<JsonNode?>(null), Required: required);
+        Assert.ThrowsExactly<ArgumentException>(() => new AgentSkill.Turn([Skill("active", true), Skill("inactive", false)]));
+    }
+
+    [TestMethod]
     public void ClosingASessionInboxRetainsQueuedInputAndRejectsNewInput()
     {
         var model = new ModelClient(new HostPort(_ => { }), () => new("fixture", "Fixture", "openai", "http://fixture.invalid", "", "fixture"));

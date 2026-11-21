@@ -13,10 +13,15 @@ public sealed partial class AgentSession
         AgentAssets? Assets, Func<string> OpenUi);
 
     /// <summary>Resolves role permissions and attaches every session to the same runtime.</summary>
-    internal sealed class Factory(HostPort port, PluginRuntime? plugins, string? attachmentRoot, Func<string> openUi)
+    internal sealed class Factory(HostPort port, PluginRuntime? plugins, string? attachmentRoot, Func<string> openUi,
+        Func<Workspace>? workspace = null, AgentContainer.Rooms? containers = null, Func<bool>? curlAvailable = null)
     {
         public AgentSession Open(string role, string database, Func<Provider> provider, Func<JsonObject> context,
             Action<JsonObject> emit, Func<IEnumerable<AgentSkill>>? skills = null, Func<string, bool>? canReadChat = null,
+            TurnInbox? inbox = null) => Open(role, database, provider, context, (item, _) => emit(item), skills, canReadChat, inbox);
+
+        public AgentSession Open(string role, string database, Func<Provider> provider, Func<JsonObject> context,
+            Action<JsonObject, SessionModelInfo?> emit, Func<IEnumerable<AgentSkill>>? skills = null, Func<string, bool>? canReadChat = null,
             TurnInbox? inbox = null)
         {
             var profile = role switch
@@ -35,15 +40,31 @@ public sealed partial class AgentSession
             var model = new ModelClient(port, provider, attachmentRoot);
             return new AgentSession(profile, database, model, emit, inbox, session =>
             {
+                if (role == "chat" && database != ":memory:") AgentContainer.RecoverJobs(session.Db);
                 var scoped = profile.Plugins == PluginAccess.Scoped;
                 var assets = profile.Plugins != PluginAccess.None && plugins is not null && attachmentRoot is not null
-                    ? new AgentAssets(plugins, session.Db, attachmentRoot, context) : null;
+                    ? new AgentAssets(plugins, session.Db, attachmentRoot, context, role is "chat" or "search" ? workspace : null) : null;
                 IEnumerable<AgentSkill> ResolveSkills(Provider selected, Action<JsonObject> attach)
                 {
+                    if (assets is not null && attachmentRoot is not null && database != ":memory:")
+                    {
+                        yield return assets.StorageSkill();
+                        if (curlAvailable?.Invoke() == true)
+                            yield return new AgentCurl(port, assets, Path.GetDirectoryName(attachmentRoot)!).Skill();
+                    }
                     if (plugins is not null && profile.Plugins != PluginAccess.None)
                         foreach (var skill in plugins.Skills(role, context(), builtInOnly: !scoped,
-                                     assets: assets, showCard: profile.Cards ? session.ShowCard : null, provider: selected, attach: attach))
+                                     assets: assets, showCard: profile.Cards ? session.ShowCard : null, provider: selected, attach: attach,
+                                     sessionInfo: () => session.sessionInfo))
                             yield return skill;
+                    if (role == "chat" && containers is not null && assets is not null && database != ":memory:")
+                    {
+                        var owner = context();
+                        var preset = owner.GetString("preset");
+                        var room = owner.GetString("room", owner.GetString("chat"));
+                        if (WorkspaceIds.IsValid(preset) && WorkspaceIds.IsValid(room))
+                            yield return new AgentContainer(containers, assets, session.Db, preset, room).Skill();
+                    }
                     if (skills is not null)
                         foreach (var skill in skills()) yield return skill;
                 }

@@ -179,7 +179,7 @@ internal constructor(
                                     .lastOrNull { it.id == event.optString("block") }
                             val finished =
                                 withContext(Dispatchers.Default) { block?.finishMarkdown() }
-                            if (finished != null) receiveTrace(event, finished)
+                            receiveTrace(event, finished)
                         }
                         else -> receive(event)
                     }
@@ -225,6 +225,7 @@ internal constructor(
                         ready = true,
                         preset = initial,
                         presetName = event.optString("preset_name", initial),
+                        appearance = event.optJSONObject("config").presetAppearance(),
                         chatMode =
                             event.optJSONObject("config")?.optString("chat_mode", "character")
                                 ?: "character",
@@ -291,6 +292,7 @@ internal constructor(
                     it.copy(
                         preset = preset,
                         presetName = config?.optString("name", preset) ?: preset,
+                        appearance = config.presetAppearance(),
                         chatName = chat.optString("name"),
                         chatId = chat.optString("id"),
                         conversationViewKey =
@@ -331,6 +333,7 @@ internal constructor(
                     val config = event.getJSONObject("config")
                     it.copy(
                         presetName = config.optString("name", it.presetName),
+                        appearance = config.presetAppearance(),
                         agenticSearch = config.optBoolean("agentic_search", true),
                         chatMode = config.optString("chat_mode", "character"),
                         chatGreeting = config.hasChatGreeting(),
@@ -410,12 +413,21 @@ internal constructor(
             "open_ui_end",
             "open_ui_card",
             "open_ui_card_update",
+            "context_trace",
+            "plugin_agent_status",
             "tool_start",
             "tool_end" -> receiveTrace(event)
         }
     }
 
-    private fun receiveTrace(event: JSONObject, finished: TraceBlock? = null) =
+    private var presetOpeningTrace: MutableList<JSONObject>? = null
+
+    private fun receiveTrace(event: JSONObject, finished: TraceBlock? = null) {
+        if (event.has("plugin_sequence")) presetOpeningTrace?.add(event)
+        applyTrace(event, finished)
+    }
+
+    private fun applyTrace(event: JSONObject, finished: TraceBlock? = null) =
         mutableState.update { current ->
             if (event.has("plugin_agent") && event.optString("preset") != current.preset)
                 return@update current
@@ -442,16 +454,25 @@ internal constructor(
                         id,
                         event.optString("agent"),
                         speaker = event.optString("speaker"),
+                        pluginRun = event.optString("plugin_run", event.optString("plugin_agent")),
+                        pluginAgentName = event.optString("plugin_agent_name"),
                     )
+            val sequence = event.optInt("plugin_sequence")
+            if (sequence > 0 && sequence <= old.pluginSequence) return@update current
             val changed =
                 when (event.optString("kind")) {
-                    "turn_end" -> finished ?: old
+                    "turn_end" -> finished ?: old.copy(streaming = false)
                     "open_ui_delta" ->
                         old.copy(
                             openUi = old.openUi.orEmpty() + event.optString("text"),
                             streaming = true,
                         )
                     "open_ui_end" -> old.copy(streaming = false)
+                    "plugin_agent_status" -> old.copy(
+                        pluginStatus = event.optString("status"),
+                        running = event.optString("status") == "running",
+                        content = event.optString("text"),
+                    )
                     "open_ui_card",
                     "open_ui_card_update" ->
                         old.copy(
@@ -463,6 +484,8 @@ internal constructor(
                             openUiState = event.optJSONObject("open_ui_state")?.toString(),
                             openUiRevision = event.optInt("open_ui_revision"),
                         )
+                    "context_trace" ->
+                        old.copy(compaction = true, result = event.optString("text"), running = event.optBoolean("running"))
                     "tool_start" ->
                         old.copy(
                             tool = event.optString("name"),
@@ -486,11 +509,20 @@ internal constructor(
                                 content = old.content + event.optString("text"),
                                 streaming = true,
                             )
+                }.let { block ->
+                    if (sequence > 0) block.copy(pluginSequence = sequence) else block
                 }
             val updated =
                 if (index < 0) blocks + changed
                 else blocks.toMutableList().apply { set(index, changed) }
-            if (inRoom) current.copy(ensembleBlocks = updated) else current.copy(blocks = updated)
+            val settled = if (changed.pluginStatus.isNotBlank() && changed.pluginStatus != "running") {
+                updated.map { block ->
+                    if (block.pluginRun == changed.pluginRun && (block.running || block.streaming))
+                        block.copy(running = false, streaming = false)
+                    else block
+                }
+            } else updated
+            if (inRoom) current.copy(ensembleBlocks = settled) else current.copy(blocks = settled)
         }
 
     private fun TraceBlock.finishMarkdown() =
@@ -765,6 +797,7 @@ internal constructor(
                 replyError = null,
                 preset = preset,
                 presetName = config.optString("name", preset),
+                appearance = config.presetAppearance(),
                 presetEditor = if (editPreset) PresetEditorPhase.Open else PresetEditorPhase.Closed,
                 agenticSearch = config.optBoolean("agentic_search", true),
             )
@@ -779,6 +812,8 @@ internal constructor(
         if (!create && current.preset.isBlank()) return
         mutableState.update { it.copy(presetEditor = PresetEditorPhase.Opening) }
         viewModelScope.launch {
+            val trace = mutableListOf<JSONObject>()
+            presetOpeningTrace = trace
             try {
                 val command =
                     if (create)
@@ -823,16 +858,19 @@ internal constructor(
                                     error.agent == AgentRole.Preset
                                 },
                             presetName = config.optString("name", preset),
+                            appearance = config.presetAppearance(),
                             presetEditor = PresetEditorPhase.Open,
                             agenticSearch = config.optBoolean("agentic_search", true),
                         )
                     }
                 }
+                if (state.value.presetEditorOpen) trace.forEach { applyTrace(it) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 report(error)
             } finally {
+                if (presetOpeningTrace === trace) presetOpeningTrace = null
                 mutableState.update {
                     if (it.presetEditor == PresetEditorPhase.Opening)
                         it.copy(presetEditor = PresetEditorPhase.Closed)
@@ -964,9 +1002,20 @@ internal constructor(
 
     internal fun clearArchiveSaved() = mutableState.update { it.copy(archiveSaved = false) }
 
-    internal fun removePlugin(id: String) {
-        command("plugin_uninstall") { put("id", id) }
-        command("plugin_settings")
+    internal fun removePlugin(id: String) =
+        changePlugin(JSONObject().put("op", "plugin_uninstall").put("id", id))
+
+    internal fun setPluginEnabled(id: String, enabled: Boolean) =
+        changePlugin(JSONObject().put("op", "plugin_enabled").put("id", id).put("enabled", enabled))
+
+    private fun changePlugin(command: JSONObject) = viewModelScope.launch {
+        try {
+            receive(engine.await().query(command))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            pluginFailure(failure)
+        }
     }
 
     internal suspend fun setPluginScope(id: String, scope: PluginScope) {
@@ -993,6 +1042,17 @@ internal constructor(
 
     internal suspend fun thumbnail(role: AgentRole, preview: AttachmentThumbnail): ByteArray =
         engine.await().readAsset(preview.url, 1024 * 1024, role.id, preview.attachment)
+
+    internal suspend fun savePresetBackground(preset: String, url: String, destination: File): String =
+        engine.await().savePresetBackground(preset, url, destination)
+
+    internal suspend fun displayAssetInfo(request: JSONObject) = engine.await().displayAssetInfo(request)
+
+    internal suspend fun saveDisplayAsset(request: JSONObject, output: java.io.OutputStream) =
+        engine.await().saveDisplayAsset(request, output)
+
+    internal suspend fun openDisplayMedia(request: JSONObject, accepts: (String) -> Boolean) =
+        engine.await().openDisplayMedia(request, accepts)
 
     internal fun runPlugin(id: String) = command("plugin_command") { put("id", id) }
 

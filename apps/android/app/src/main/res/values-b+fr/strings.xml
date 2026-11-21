@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">Impossible d’enregistrer ce fichier</string>
     <string name="chat">Discussion</string>
     <string name="world">Monde</string>
     <string name="preset">Préréglage</string>
@@ -134,6 +135,9 @@
     <string name="install_plugin">Installer l’extension</string>
     <string name="run_plugin">Exécuter</string>
     <string name="remove_plugin">Désinstaller</string>
+    <string name="plugin_enabled">Activé</string>
+    <string name="plugin_disabled">Désactivé</string>
+    <string name="uninstall_plugin_title">Désinstaller %1$s ?</string>
     <string name="built_in">Intégré</string>
     <string name="plugin_resource_request">%1$s vous demande de choisir des fichiers</string>
     <string name="delete_chat">Supprimer la discussion</string>

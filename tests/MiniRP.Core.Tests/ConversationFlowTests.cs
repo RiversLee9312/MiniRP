@@ -28,12 +28,13 @@ public sealed class ConversationFlowTests
     [TestMethod]
     public async Task BranchRestoresWorldAndAgentSessionsButSharesThePreset()
     {
+        using var scripts = new MiniRP.Cli.PluginScripts();
         await using var engine = new Engine(NewRoot());
         Configure(engine);
         var original = (await Run(engine, new() { ["op"] = "select_chat", ["preset"] = engine.Workspace.PresetId })).Single(IsLoaded).GetObject("chat").GetString("id");
         await Run(engine, new() { ["op"] = "rename", ["name"] = "Original" });
         await Run(engine, new() { ["op"] = "message", ["agent"] = "env", ["text"] = "Before world turn" }, "Before world reply.");
-        await Run(engine, new() { ["op"] = "message", ["text"] = "Before chat turn" },
+        await Run(engine, scripts, new() { ["op"] = "message", ["text"] = "Before chat turn" },
             "activate_search", "search_before", "submit_search_results", "Before chat reply.");
         await Write(engine, "env", "fact", "before");
         await Write(engine, "search", "query", "before");
@@ -42,7 +43,7 @@ public sealed class ConversationFlowTests
         Assert.IsFalse(string.IsNullOrEmpty(checkpoint.GetString("version")));
 
         await Run(engine, new() { ["op"] = "message", ["agent"] = "env", ["text"] = "Update the world" }, "add_fact", "Added.");
-        await Run(engine, new() { ["op"] = "message", ["text"] = "After chat turn" },
+        await Run(engine, scripts, new() { ["op"] = "message", ["text"] = "After chat turn" },
             "activate_search", "search_after", "submit_search_results", "After chat reply.");
         await Run(engine, new() { ["op"] = "message", ["agent"] = "preset", ["text"] = "Shared preset edit" }, "Preset updated.");
         await Write(engine, "env", "fact", "after", 1);
@@ -255,6 +256,12 @@ public sealed class ConversationFlowTests
 
     private static async Task<List<JsonObject>> Run(Engine engine, JsonObject command, params string[] responses)
     {
+        using var scripts = new MiniRP.Cli.PluginScripts();
+        return await Run(engine, scripts, command, responses);
+    }
+
+    private static async Task<List<JsonObject>> Run(Engine engine, MiniRP.Cli.PluginScripts scripts, JsonObject command, params string[] responses)
+    {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var events = new List<JsonObject>();
         var busyFinished = false;
@@ -268,6 +275,10 @@ public sealed class ConversationFlowTests
                 events.Add(item);
                 var kind = item.GetString("kind");
                 Assert.AreNotEqual("error", kind, item.GetString("message"));
+                if (kind == "plugin_script")
+                    engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = item.GetString("id"),
+                        ["result"] = scripts.Step(item, timeout.Token, engine.Port.TakeBinary, engine.Port.WriteBinary) });
+                if (kind == "plugin_isolate_close") scripts.Close(item.GetString("isolate"));
                 if (kind == "http_request")
                 {
                     var body = JsonValues.ParseObject(item.GetString("body"));

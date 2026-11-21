@@ -1,0 +1,42 @@
+#!/bin/busybox sh
+set -eu
+export PATH=/bin:/sbin
+/bin/busybox --install -s /bin
+mount -t devtmpfs -o mode=0755 devtmpfs /dev
+exec >/dev/console 2>&1
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+while read -r module; do insmod "/modules/$module"; done </modules/load-order
+root=/dev/vda
+case " $(cat /proc/cmdline) " in
+    *" minirp.microvm=1 "*) root=/dev/minirp-root ;;
+esac
+for attempt in $(seq 1 50); do
+    if [ "$root" = /dev/minirp-root ]; then
+        for serial in /sys/block/vd*/serial; do
+            [ -f "$serial" ] || continue
+            name=$(cat "$serial")
+            case "$name" in
+                minirp-root|minirp-workspace|minirp-mailbox)
+                    device=${serial%/serial}
+                    ln -sf "${device##*/}" "/dev/$name"
+                    ;;
+            esac
+        done
+        [ -b /dev/minirp-root ] && [ -b /dev/minirp-workspace ] && [ -b /dev/minirp-mailbox ] && break
+    else
+        [ -b /dev/vdc ] && break
+    fi
+    sleep 0.1
+done
+if [ ! -b "$root" ]; then
+    echo "MiniRP container root device is missing: $root"
+    cat /proc/cmdline
+    ls /sys/block
+    exit 1
+fi
+mount -t squashfs -o ro "$root" /root
+mount --move /dev /root/dev
+mount --move /proc /root/proc
+mount --move /sys /root/sys
+exec switch_root /root /usr/bin/python3 /minirp-guest.py

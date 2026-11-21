@@ -7,7 +7,7 @@ using Terminal.Gui.Views;
 
 namespace MiniRP.Cli;
 
-internal sealed class MainWindow : Runnable
+internal sealed partial class MainWindow : Runnable
 {
     private readonly NativeCore core;
     private readonly PlatformHost platform;
@@ -38,6 +38,7 @@ internal sealed class MainWindow : Runnable
         main.Width = Dim.Fill(1);
         main.Height = Dim.Fill(2);
         main.Submitted += text => Submit("chat", text);
+        main.Download += (block, url) => DownloadAsset("chat", block, url);
         Add(main, footer);
         Initialized += (_, _) => _ = Task.Run(Pump);
     }
@@ -51,6 +52,11 @@ internal sealed class MainWindow : Runnable
             foreach (var node in batch)
             {
                 var item = node!.AsObject();
+                if (assetRequests.TryRemove(item.GetString("request"), out var pending))
+                {
+                    pending.TrySetResult(item);
+                    continue;
+                }
                 if (!platform.Handle(item))
                 {
                     updates.Add(item);
@@ -128,6 +134,13 @@ internal sealed class MainWindow : Runnable
                 if (item.GetString("conversation") != ensembleChatId || item.GetString("chat") != chatId) break;
                 var message = item.GetObject("item");
                 var speaker = message.GetString("speaker");
+                if (message.GetString("role") == "assistant")
+                {
+                    var visible = (JsonObject)message.DeepClone();
+                    if (speaker.Length > 0) visible["content"] = speaker + ": " + message.GetString("content");
+                    main.Receive(new() { ["kind"] = "ensemble_assistant", ["item"] = visible });
+                    break;
+                }
                 main.Receive(new() { ["kind"] = "user", ["block"] = message.GetString("id"),
                     ["text"] = speaker.Length == 0 ? message.GetString("content") : speaker + ": " + message.GetString("content") });
                 break;
@@ -423,6 +436,7 @@ internal sealed class MainWindow : Runnable
         {
             panel = new(role) { DefaultExpanded = cot, Y = 1, Height = Dim.Fill(2) };
             panel.Submitted += text => Submit(role, text);
+            panel.Download += (block, url) => DownloadAsset(role, block, url);
             panel.Load(loadedBlocks.Where(block => Route(block.GetString("agent")) == role));
             agentPanes[role] = panel;
         }

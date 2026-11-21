@@ -16,6 +16,13 @@ public sealed partial class Engine
         {
             switch (command.GetString("op"))
             {
+                case "preset_background_open":
+                    var workspace = Workspace;
+                    var background = workspace.Config.GetObject("appearance").GetString("background_url");
+                    if (background.Length == 0 || workspace.PresetId != command.GetString("preset") || background != command.GetString("url"))
+                        throw new UnauthorizedAccessException("The requested background is not active for this preset.");
+                    response["result"] = plugins.OpenPresetBackground(background, workspace.PresetId);
+                    break;
                 case "asset_open":
                     var url = command.GetString("url");
                     var agent = command.GetString("agent", "chat");
@@ -29,6 +36,9 @@ public sealed partial class Engine
                             throw new UnauthorizedAccessException("This attachment preview is unavailable.");
                     }
                     response["result"] = plugins.OpenHostAsset(url, PluginEnvironment(agent), attachment.Count == 0 ? null : attachment);
+                    break;
+                case "display_asset_open":
+                    response["result"] = OpenDisplayAsset(command);
                     break;
                 case "asset_pull":
                     response["result"] = await plugins.PullHostAsset(command.GetString("handle"), lifetime.Token);
@@ -65,7 +75,7 @@ public sealed partial class Engine
         };
     }
 
-    private void PublishPluginEvent(JsonObject item)
+    private void PublishPluginEvent(JsonObject item, SessionModelInfo? sessionInfo)
     {
         var name = item.GetString("kind") switch
         {
@@ -120,7 +130,7 @@ public sealed partial class Engine
         if (item.GetString("session") is { Length: > 0 } session) context["session"] = session;
         if (item.GetString("conversation") is { Length: > 0 } conversation) context["chat"] = conversation;
         if (item.GetString("participant") is { Length: > 0 } participant) context["participant"] = participant;
-        plugins.Publish(name, payload, context);
+        plugins.Publish(name, payload, PluginRuntime.WithSessionInfo(context, sessionInfo));
     }
 
     private async Task<bool> ExecuteExtensionCommand(JsonObject command, CancellationToken token)
@@ -129,6 +139,8 @@ public sealed partial class Engine
         switch (command.GetString("op"))
         {
             case "archive_export":
+                if (command.GetString("type") is "room" or "save")
+                    await containers.Flush(command.GetString("preset"), command.GetString("room"), token);
                 await new WorkspaceTransfer(Workspace, plugins).Export(command.GetString("type"),
                     command.GetString("preset"), command.GetString("room"), command.GetString("id"), command.GetString("path"), token);
                 Emit(new() { ["kind"] = "archive_exported", ["request"] = request });
@@ -166,6 +178,7 @@ public sealed partial class Engine
             case "plugin_uninstall":
                 plugins.Uninstall(command.GetString("id"));
                 Emit(new() { ["kind"] = "plugins", ["request"] = request, ["items"] = plugins.List() });
+                EmitPluginSettings();
                 return true;
             case "plugin_command":
                 plugins.RequireScope(command.GetString("id"), Workspace.PresetId);
@@ -173,6 +186,13 @@ public sealed partial class Engine
                 return true;
             case "plugin_scope":
                 plugins.SetScope(command.GetString("id"), PluginScope.Parse(command.GetObject("scope")));
+                Emit(new() { ["kind"] = "plugins", ["request"] = request, ["items"] = plugins.List() });
+                EmitPluginSettings();
+                return true;
+            case "plugin_enabled":
+                if (command["enabled"] is not JsonValue value || !value.TryGetValue<bool>(out var enabled))
+                    throw new ArgumentException("Choose whether to enable this plugin.");
+                plugins.SetEnabled(command.GetString("id"), enabled, PluginEnvironment());
                 Emit(new() { ["kind"] = "plugins", ["request"] = request, ["items"] = plugins.List() });
                 EmitPluginSettings();
                 return true;
@@ -216,6 +236,7 @@ public sealed partial class Engine
 
     private void ShowHome(string preset, bool notify = true)
     {
+        containers.Select(null);
         var next = new Workspace(Workspace.Root, seedDefaultPreset: false);
         if (preset.Length == 0 && seedDefaultPreset) preset = next.InitialPreset().Id;
         if (preset.Length > 0) next.UsePreset(preset);
@@ -257,12 +278,14 @@ public sealed partial class Engine
                 index.Preset(next, "Default");
             }
             await pluginAgents.StopPreset(preset);
+            presetTraces.Remove(preset);
             if (Workspace.PresetId == preset) ShowHome(next ?? "");
             Workspace.Trash(preset, null);
             index.RemovePreset(preset);
             Emit(new() { ["kind"] = "preset_removed", ["id"] = preset, ["fallback"] = next ?? "" });
         }
         Emit(new() { ["kind"] = "library_changed", ["preset"] = preset, ["presets_changed"] = preset == id && command.GetString("op") == "delete_preset" });
+        Dispatch(new() { ["op"] = "_maintain_storage" });
     }
 
     private async Task<JsonNode?> PluginApi(PluginPackage package, JsonObject context, string op, JsonObject args, CancellationToken ct)
@@ -276,7 +299,9 @@ public sealed partial class Engine
         if (op == "pluginDevelopment")
         {
             if (!package.BuiltIn || package.Id != "base") throw new UnauthorizedAccessException();
-            return await pluginAgents.Execute(context, args, ct);
+            var owner = context.GetString("agent") == "preset" ? presetConversation : null;
+            return await pluginAgents.Execute(context, args,
+                owner is null ? events.Enqueue : item => Record(item, workerOwner: owner), ct);
         }
         var id = args.GetString("id");
         if (op == "generate")

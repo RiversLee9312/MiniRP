@@ -3,6 +3,7 @@ package com.minirp.app.core
 import android.annotation.SuppressLint
 import android.content.Context
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import kotlin.coroutines.resume
@@ -28,6 +29,7 @@ class BrowserHost(private val context: Context) : AutoCloseable {
             WebView(context).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
+                settings.cacheMode = WebSettings.LOAD_NO_CACHE
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
                 settings.setSupportMultipleWindows(false)

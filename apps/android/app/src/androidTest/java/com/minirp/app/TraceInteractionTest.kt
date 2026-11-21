@@ -59,6 +59,45 @@ class TraceInteractionTest {
     }
 
     @Test
+    fun presetPluginRunsExpandIndependentlyAndKeepTheirResultsInTheTrace() {
+        compose.setContent {
+            MaterialExpressiveTheme {
+                AgentConversation(
+                    ChatState(
+                        preset = "fixture",
+                        expandThoughts = true,
+                        blocks = listOf(
+                            TraceBlock("preset-thought", "PresetAgent", reasoning = "Delegating two projects"),
+                            TraceBlock("first", "PluginAgent", pluginRun = "first", pluginAgentName = "Writer", pluginStatus = "finished"),
+                            TraceBlock("second", "PluginAgent", pluginRun = "second", pluginAgentName = "Reader", pluginStatus = "finished"),
+                            TraceBlock("first-tool", "PluginAgent", tool = "write_manifest", pluginRun = "first"),
+                            TraceBlock("preset-result", "PresetAgent", content = "Both projects are done."),
+                            TraceBlock("second-reply", "PluginAgent", content = "Schema read", pluginRun = "second"),
+                            TraceBlock("first-reply", "PluginAgent", content = "Plugin published", pluginRun = "first"),
+                        ),
+                    ),
+                    AgentRole.Preset,
+                    onCancel = {},
+                    onSend = { _, _, _, _ -> false },
+                    onModels = {},
+                )
+            }
+        }
+        compose.onNodeWithText("Both projects are done.").assertIsDisplayed()
+        compose.onNodeWithText("Plugin published").assertDoesNotExist()
+        compose.onNodeWithText("Schema read").assertDoesNotExist()
+        compose.onNodeWithText("Writer").performClick()
+        compose.onAllNodesWithText("Writer").assertCountEquals(1)
+        compose.onNodeWithText("write manifest").assertIsDisplayed()
+        compose.onNodeWithText("Plugin published").assertIsDisplayed()
+        compose.onNodeWithText("Schema read").assertDoesNotExist()
+        compose.onNodeWithText("Writer").performClick()
+        compose.onNodeWithText("Reader").performClick()
+        compose.onNodeWithText("Plugin published").assertDoesNotExist()
+        compose.onNodeWithText("Schema read").assertIsDisplayed()
+    }
+
+    @Test
     fun expandedSearchTracePinsBothHeadersAndKeepsItsReadingPositionWhileStreaming() {
         val blocks =
             mutableStateOf(

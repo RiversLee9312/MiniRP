@@ -46,7 +46,8 @@ internal sealed class EnsembleConversation
     public bool IsMember(string chat, string member) => Chats.Any(item =>
         item.GetString("id") == chat && item.GetObject("members").ContainsKey(member));
 
-    public JsonObject Post(string chatId, string participant, string role, string text, JsonArray? attachments = null)
+    public JsonObject Post(string chatId, string participant, string role, string text, JsonArray? attachments = null,
+        Action<JsonObject, string>? publish = null)
     {
         var chat = Chat(chatId);
         if (participant.Length > 0 && !chat.GetObject("members").ContainsKey(participant))
@@ -61,6 +62,7 @@ internal sealed class EnsembleConversation
             ["content"] = text,
         };
         if (attachments is { Count: > 0 }) item["attachments"] = attachments.DeepClone();
+        publish?.Invoke(item, text);
         chat.GetArray("messages").AddNode(item);
         chat.GetArray("blocks").AddNode(item.DeepClone());
         world.Chat.GetArray("messages").AddNode(new JsonObject { ["role"] = role, ["agent"] = "chat", ["content"] = text });
@@ -92,7 +94,8 @@ internal sealed class EnsembleConversation
 
     internal static string DeliveryId(JsonNode? message) => "room-" + message.GetString("id");
 
-    public AgentSkill CharacterSkill(string member, string currentChat, Action<string, JsonObject> posted) =>
+    public AgentSkill CharacterSkill(string member, string currentChat, Action<string, JsonObject> posted,
+        Action<JsonObject, string>? publish = null) =>
         new("ensemble-chats", "Read your chats and send messages as your character.", new JsonArray(
             Tools.Define("my_chats", "List the chats you belong to."),
             Tools.Define("chat_send", "Send a visible message as yourself to a chat you belong to.", new()
@@ -104,10 +107,13 @@ internal sealed class EnsembleConversation
                         .Select(chat => (JsonNode?)new JsonObject { ["id"] = chat.GetString("id"),
                             ["name"] = chat.GetString("name"), ["current"] = chat.GetString("id") == currentChat }).ToArray()));
                 var chat = args.GetString("chat");
-                var message = Post(chat, member, "assistant", Text(args));
+                var message = PostCharacterMessage(chat, member, args.GetString("text"), publish);
                 posted(chat, message);
                 return Task.FromResult<JsonNode?>(new JsonObject { ["sent"] = true, ["chat"] = chat, ["id"] = message.GetString("id") });
             }, Required: true);
+
+    public JsonObject PostCharacterMessage(string chat, string member, string text, Action<JsonObject, string>? publish = null) =>
+        Post(chat, member, "assistant", RequireText(text), publish: publish);
 
     public AgentSkill WorldSkill(Action<string, JsonObject> posted, Action membershipChanged) =>
         new("ensemble-management", "Manage the cast, chats, memberships and world notices.", new JsonArray(
@@ -198,6 +204,8 @@ internal sealed class EnsembleConversation
         entries.OfType<JsonObject>().FirstOrDefault(item => item.GetString("id") == id)
         ?? throw new ArgumentException("Unknown " + kind + ".");
 
-    public static string Text(JsonObject args) => args.GetString("text").Trim() is { Length: > 0 and <= 16000 } text ?
+    public static string Text(JsonObject args) => RequireText(args.GetString("text"));
+
+    private static string RequireText(string input) => input.Trim() is { Length: > 0 and <= 16000 } text ?
         text : throw new ArgumentException("Provide a message of up to 16,000 characters.");
 }

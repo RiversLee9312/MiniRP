@@ -5,6 +5,15 @@ using System.Text.Json.Nodes;
 
 namespace MiniRP.Core;
 
+internal sealed record SessionModelInfo(string Model, string Provider, int ContextWindow, int UsedTokens)
+{
+    public JsonObject Describe() => new()
+    {
+        ["model"] = Model, ["provider"] = Provider, ["contextWindow"] = ContextWindow,
+        ["usedTokens"] = UsedTokens, ["remainingTokens"] = Math.Max(0, ContextWindow - UsedTokens)
+    };
+}
+
 /// <summary>Measures the model prompt, after the protocol adapter has removed storage-only fields.</summary>
 internal sealed class ContextBudget(Provider provider)
 {

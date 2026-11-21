@@ -4,10 +4,13 @@ namespace MiniRP.Core;
 
 public sealed partial class Engine
 {
-    private JsonObject LoadBlock(JsonObject block)
+    private JsonObject LoadBlock(JsonObject block) => LoadBlock(block, block.GetString("conversation"));
+
+    private JsonObject LoadBlock(JsonObject block, string conversation)
     {
         var cleaned = LoadedBlock(block);
         if (cleaned["plugin_card"] is JsonObject reference) RefreshCard(cleaned, reference);
+        IndexDisplayAssets(cleaned, cleaned.GetString("id"), conversation);
         return cleaned;
     }
 
@@ -18,22 +21,26 @@ public sealed partial class Engine
         if (ensemble is { } group)
             foreach (var conversation in group.List())
                 locations.Add((group.Blocks(conversation.GetString("id")), conversation.GetString("id")));
-        foreach (var (blocks, conversation) in locations)
+        lock (presetTraceGate)
         {
-            foreach (var block in blocks.OfType<JsonObject>())
+            foreach (var (blocks, conversation) in locations)
             {
-                if (block["plugin_card"] is not JsonObject reference ||
-                    reference.GetString("package") != change.GetString("package") ||
-                    reference.GetString("signer") != change.GetString("signer"))
-                    continue;
-                RefreshCard(block, reference);
-                var payload = new JsonObject { ["kind"] = "open_ui_card_update", ["chat"] = Workspace.ChatId,
-                    ["block"] = block.GetString("id"), ["open_ui"] = JsonValues.Clone(block["open_ui"]),
-                    ["open_ui_title"] = JsonValues.Clone(block["open_ui_title"]),
-                    ["open_ui_state"] = JsonValues.Clone(block["open_ui_state"]),
-                    ["open_ui_revision"] = JsonValues.Clone(block["open_ui_revision"]) };
-                if (conversation.Length > 0) payload["conversation"] = conversation;
-                Emit(payload);
+                foreach (var block in blocks.OfType<JsonObject>())
+                {
+                    if (block["plugin_card"] is not JsonObject reference ||
+                        reference.GetString("package") != change.GetString("package") ||
+                        reference.GetString("signer") != change.GetString("signer"))
+                        continue;
+                    RefreshCard(block, reference);
+                    IndexDisplayAssets(block, block.GetString("id"), conversation);
+                    var payload = new JsonObject { ["kind"] = "open_ui_card_update", ["chat"] = Workspace.ChatId,
+                        ["block"] = block.GetString("id"), ["open_ui"] = JsonValues.Clone(block["open_ui"]),
+                        ["open_ui_title"] = JsonValues.Clone(block["open_ui_title"]),
+                        ["open_ui_state"] = JsonValues.Clone(block["open_ui_state"]),
+                        ["open_ui_revision"] = JsonValues.Clone(block["open_ui_revision"]) };
+                    if (conversation.Length > 0) payload["conversation"] = conversation;
+                    Emit(payload);
+                }
             }
         }
     }

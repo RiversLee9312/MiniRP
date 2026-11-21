@@ -5,7 +5,7 @@ namespace MiniRP.Core;
 
 public sealed partial class AgentSession
 {
-    private static async Task<JsonObject> Complete(ModelClient model, JsonArray messages, JsonArray tools, Action<string, string> delta, CancellationToken ct,
+    private static async Task<JsonObject> Complete(ModelClient model, JsonArray messages, AgentSkill.Turn? skills, Action<string, string> delta, CancellationToken ct,
         bool requireComplete = false, Action<int>? inputUsage = null)
     {
         var p = model.SelectedProvider;
@@ -14,7 +14,7 @@ public sealed partial class AgentSession
             throw new InvalidOperationException("Configure a provider and model first.");
         }
 
-        var request = model.Request(p, messages, tools);
+        var request = model.Request(p, messages, skills);
         if (p.Protocol == "responses")
             return await CompleteResponses(model.Port, request, delta, ct, requireComplete, inputUsage);
 

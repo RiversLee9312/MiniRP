@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 namespace MiniRP.Core;
 
 internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory sessions, PluginRuntime runtime,
-    Func<Provider> provider, Action<JsonObject> emit, Action pluginsChanged, CancellationToken lifetime)
+    Func<Provider> provider, Action pluginsChanged, CancellationToken lifetime)
 {
     private readonly object gate = new();
     private readonly Dictionary<(string Preset, string Id), Worker> running = new();
@@ -13,7 +13,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
         public Task Task { get; set; } = Task.CompletedTask;
     }
 
-    public async Task<JsonNode?> Execute(JsonObject context, JsonObject args, CancellationToken ct)
+    public async Task<JsonNode?> Execute(JsonObject context, JsonObject args, Action<JsonObject> emit, CancellationToken ct)
     {
         var role = context.GetString("agent");
         var preset = WorkspaceIds.Require(context.GetString("preset"));
@@ -40,7 +40,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                     var task = Instruction(args);
                     Project(preset, id).Create(name);
                     var state = new JsonObject { ["id"] = id, ["name"] = name, ["status"] = "idle" };
-                    Start(preset, id, state, task, ct);
+                    Start(preset, id, state, task, emit, ct);
                     return state;
                 }
             case "plugin_list":
@@ -63,7 +63,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                         if (!current.Inbox.TryPost("", "plugin", new() { ["text"] = instruction, ["role"] = "user" }))
                             throw new InvalidOperationException("The PluginAgent is finishing its turn. Wait for the result and send again.");
                     }
-                    else Start(preset, target, state, instruction, ct);
+                    else Start(preset, target, state, instruction, emit, ct);
                     return state;
                 }
             case "plugin_wait":
@@ -104,7 +104,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
         }
     }
 
-    private void Start(string preset, string id, JsonObject state, string instruction, CancellationToken parent)
+    private void Start(string preset, string id, JsonObject state, string instruction, Action<JsonObject> emit, CancellationToken parent)
     {
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime, parent);
         var worker = new Worker(cancellation, new TurnInbox("", "plugin", _ => null));
@@ -114,10 +114,29 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
         Write(preset, id, state);
         running.Add((preset, id), worker);
         var selected = provider();
-        worker.Task = Task.Run(() => Run(preset, id, state.GetString("name"), instruction, selected, worker));
+        var name = state.GetString("name");
+        var run = JsonValues.NewId();
+        var sequence = 0;
+        void Trace(JsonObject item)
+        {
+            item["preset"] = preset;
+            item["plugin_agent"] = id;
+            item["plugin_agent_name"] = name;
+            item["plugin_run"] = run;
+            item["plugin_sequence"] = ++sequence;
+            item["block"] = item.GetString("block") is { Length: > 0 } block ? run + "-" + block : run;
+            emit(item);
+        }
+        Trace(Status("running"));
+        worker.Task = Task.Run(() => Run(preset, id, name, instruction, selected, worker, Trace));
     }
 
-    private async Task Run(string preset, string id, string name, string instruction, Provider model, Worker worker)
+    private static JsonObject Status(string status, string error = "") => new()
+    {
+        ["kind"] = "plugin_agent_status", ["agent"] = "PluginAgent", ["status"] = status, ["text"] = error
+    };
+
+    private async Task Run(string preset, string id, string name, string instruction, Provider model, Worker worker, Action<JsonObject> trace)
     {
         var status = "finished";
         string result;
@@ -125,13 +144,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
         {
             var context = new JsonObject { ["agent"] = "plugin", ["preset"] = preset, ["session"] = id };
             using var session = sessions.Open("plugin", Path.Combine(WorkerPath(preset, id), "session.sqlite"),
-                () => model, () => context, item =>
-                {
-                    item["preset"] = preset;
-                    item["plugin_agent"] = id;
-                    if (item.GetString("block") is { Length: > 0 } block) item["block"] = id + "-" + block;
-                    emit(item);
-                }, inbox: worker.Inbox);
+                () => model, () => context, trace, inbox: worker.Inbox);
             try
             {
                 var reply = await new PluginAgent(name, session).Run(instruction, worker.Cancellation.Token);
@@ -150,7 +163,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
             state["status"] = state.GetBoolean("archived") ? "archived" : status;
             state["result"] = result;
             Write(preset, id, state);
-            emit(new() { ["kind"] = "plugin_agent_status", ["agent"] = "PluginAgent", ["preset"] = preset, ["plugin_agent"] = id, ["status"] = state.GetString("status") });
+            trace(Status(state.GetString("status"), status == "failed" ? result : ""));
         }
     }
 

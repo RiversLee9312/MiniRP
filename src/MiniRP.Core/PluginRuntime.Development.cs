@@ -10,7 +10,8 @@ internal sealed partial class PluginRuntime
     {
         var arguments = invocation.Event.GetObject("arguments");
         if (!invocation.Package.BuiltIn || invocation.Package.Id != "base" ||
-            invocation.Event.GetString("tool") != "plugin_base_project_card_preview" || !arguments.GetBoolean("screenshot"))
+            invocation.Event.GetString("tool") != "plugin_base_project_card_preview" ||
+            !arguments.GetBoolean("screenshot") && arguments["viewport"] is null)
             return await Invoke(invocation, ct);
         if (provider is null || attach is null || !MessageAttachments.Supports(provider, "image/png"))
         {
@@ -83,7 +84,10 @@ internal sealed partial class PluginRuntime
         else
         {
             var handler = package.Bind(url);
-            result = await runtime.Invoke(new(package, handler, input, environment), ct);
+            var fixture = (JsonObject)input.DeepClone();
+            if (fixture.GetString("name").Length == 0) fixture["name"] = "actions.invoke";
+            fixture["url"] = url;
+            result = await runtime.Invoke(new(package, handler, fixture, environment), ct);
         }
         if (card is null) return result;
         var request = runtime.Card(package, card, environment);
@@ -91,6 +95,7 @@ internal sealed partial class PluginRuntime
         request["dark"] = JsonValues.Clone(options?["dark"]);
         request["steps"] = options.GetArray("steps").DeepClone();
         request["capture_image"] = imageOutput.Length > 0;
+        if (imageOutput.Length > 0) request["viewport"] = ImageViewport.Read(options ?? new())?.Describe();
         if (request.GetArray("steps").Count > 6 || JsonValues.Serialize(request.GetArray("steps")).Length > 6000)
             throw new ArgumentException("Supply up to six short preview steps.");
         var rendered = await port.CallHost("open_ui_preview", request, ct, TimeSpan.FromSeconds(25));

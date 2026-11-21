@@ -3,6 +3,7 @@ package com.minirp.app.core
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
 import android.graphics.Matrix
 import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
@@ -30,6 +31,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -49,21 +51,21 @@ internal object AgentMediaSampler {
         }
         val start = event.optLong("start_ms").coerceAtLeast(0)
         val duration = event.optLong("duration_ms", 10_000).coerceIn(100, 30_000)
+        val viewport = ImageViewport.read(event)
         val mime =
             when (event.getString("mode")) {
                 "pdf_page" -> {
-                    renderPdf(source, output, event.optInt("page", 1))
-                    "image/png"
+                    return renderPdf(source, output, event.optInt("page", 1), viewport)
                 }
                 "video_frame" -> {
-                    renderVideo(source, output, start)
-                    "image/png"
+                    return renderVideo(source, output, start, viewport)
                 }
                 "audio_clip" -> {
                     renderAudio(source, output, start, duration)
                     "audio/wav"
                 }
                 "image_decode" -> return decodeImage(source, output)
+                "image_preview" -> return previewImage(source, output, viewport)
                 "image_encode" -> encodeImage(source, output, event.optString("format"), event.optInt("quality", 90))
                 "pdf_create_page" -> {
                     createPdfPage(source, output)
@@ -101,15 +103,42 @@ internal object AgentMediaSampler {
         }
 
     private fun imageMetadata(source: File): JSONObject {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(source.path, bounds)
-        check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Image metadata is unavailable" }
+        val bounds = imageBounds(source)
         val orientation = runCatching {
             ExifInterface(source.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED)
         }.getOrNull()
         return JSONObject().put("width", bounds.outWidth).put("height", bounds.outHeight)
             .put("detected_mime", bounds.outMimeType)
             .put("orientation", orientation?.takeUnless { it == ExifInterface.ORIENTATION_UNDEFINED })
+    }
+
+    private fun imageBounds(source: File): BitmapFactory.Options =
+        BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+            BitmapFactory.decodeFile(source.path, this)
+            check(outWidth > 0 && outHeight > 0) { "Image metadata is unavailable" }
+        }
+
+    @Suppress("DEPRECATION")
+    private fun previewImage(source: File, output: File, viewport: ImageViewport?): JSONObject {
+        val bounds = imageBounds(source)
+        val width = bounds.outWidth
+        val height = bounds.outHeight
+        val region = viewport?.requireInside(width, height)
+        var divisor = 1
+        val longest = if (region == null) maxOf(width, height) else maxOf(region.width, region.height)
+        while ((longest.toLong() + divisor - 1) / divisor > ImageViewport.MaxSide) divisor *= 2
+        val options = BitmapFactory.Options().apply { inSampleSize = divisor; inPreferredConfig = Bitmap.Config.ARGB_8888 }
+        if (region != null) {
+            val decoder = runCatching { BitmapRegionDecoder.newInstance(source.path, false) }.getOrNull()
+            val cropped = try { decoder?.decodeRegion(region.rect(), options) } finally { decoder?.recycle() }
+            if (cropped != null)
+                return try { preview(cropped, output, width, height) } finally { cropped.recycle() }
+            require(width.toLong() * height <= 32_000_000L) { "This image format cannot decode a viewport of that size." }
+            options.inSampleSize = 1
+        }
+        val image = checkNotNull(BitmapFactory.decodeFile(source.path, options)) { "Unable to decode image" }
+        return try { preview(image, output, width, height, region) } finally { image.recycle() }
     }
 
     private inline fun <T> withBitmap(source: File, block: (Bitmap) -> T): T {
@@ -210,14 +239,16 @@ internal object AgentMediaSampler {
             PdfRenderer(descriptor).use(block)
         }
 
-    private fun renderPdf(source: File, output: File, page: Int) {
+    private fun renderPdf(source: File, output: File, page: Int, viewport: ImageViewport?): JSONObject =
         withPdf(source) { renderer ->
             require(page in 1..renderer.pageCount) { "PDF page is outside the document" }
             renderer.openPage(page - 1).use {
-                val scale = 1400f / maxOf(it.width, it.height)
+                val region = viewport?.requireInside(it.width, it.height) ?: ImageViewport(0, 0, it.width, it.height)
+                val limit = if (viewport == null) 1400 else ImageViewport.MaxSide
+                val scale = limit.toFloat() / maxOf(region.width, region.height)
                 val bitmap = Bitmap.createBitmap(
-                    (it.width * scale).toInt().coerceAtLeast(1),
-                    (it.height * scale).toInt().coerceAtLeast(1),
+                    (region.width * scale).roundToInt().coerceIn(1, limit),
+                    (region.height * scale).roundToInt().coerceIn(1, limit),
                     Bitmap.Config.ARGB_8888,
                 )
                 try {
@@ -225,16 +256,18 @@ internal object AgentMediaSampler {
                     it.render(
                         bitmap,
                         null,
-                        Matrix().apply { setScale(scale, scale) },
+                        Matrix().apply {
+                            setScale(scale, scale)
+                            postTranslate(-region.x * scale, -region.y * scale)
+                        },
                         PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY,
                     )
-                    encode(bitmap, output)
+                    preview(bitmap, output, it.width, it.height)
                 } finally {
                     bitmap.recycle()
                 }
             }
         }
-    }
 
     private inline fun <T> withVideo(source: File, block: (MediaMetadataRetriever) -> T): T {
         val retriever = MediaMetadataRetriever()
@@ -246,7 +279,7 @@ internal object AgentMediaSampler {
         }
     }
 
-    private fun renderVideo(source: File, output: File, start: Long) {
+    private fun renderVideo(source: File, output: File, start: Long, viewport: ImageViewport?): JSONObject =
         withVideo(source) { retriever ->
             val duration =
                 retriever
@@ -264,29 +297,46 @@ internal object AgentMediaSampler {
             val rotated =
                 retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION) in
                     listOf("90", "270")
-            val scale = minOf(1f, 1400f / maxOf(width, height).coerceAtLeast(1))
+            val (sourceWidth, sourceHeight) = if (rotated) height to width else width to height
+            val (scaledWidth, scaledHeight) = ImageViewport.fit(sourceWidth, sourceHeight)
             val frame =
-                if (Build.VERSION.SDK_INT >= 27) {
+                if (viewport == null && Build.VERSION.SDK_INT >= 27 &&
+                    (sourceWidth > ImageViewport.MaxSide || sourceHeight > ImageViewport.MaxSide)) {
                     retriever.getScaledFrameAtTime(
                         start * 1000,
                         MediaMetadataRetriever.OPTION_CLOSEST,
-                        ((if (rotated) height else width) * scale).toInt().coerceAtLeast(1),
-                        ((if (rotated) width else height) * scale).toInt().coerceAtLeast(1),
+                        scaledWidth,
+                        scaledHeight,
                     )
                 } else retriever.getFrameAtTime(start * 1000, MediaMetadataRetriever.OPTION_CLOSEST)
             checkNotNull(frame) { "No video frame at this time" }
             try {
-                encode(frame, output)
+                preview(frame, output, sourceWidth, sourceHeight, viewport?.requireInside(frame.width, frame.height))
             } finally {
                 frame.recycle()
             }
         }
-    }
-
-    private fun encode(bitmap: Bitmap, output: File) =
-        output.outputStream().use {
-            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) { "Image encoding failed" }
+    @Suppress("DEPRECATION")
+    private fun preview(bitmap: Bitmap, output: File, sourceWidth: Int, sourceHeight: Int, region: ImageViewport? = null): JSONObject {
+        val crop = if (region == null) bitmap else Bitmap.createBitmap(bitmap, region.x, region.y, region.width, region.height)
+        val (width, height) = ImageViewport.fit(crop.width, crop.height)
+        val scaled = if (width == crop.width && height == crop.height) crop else Bitmap.createScaledBitmap(crop, width, height, true)
+        try {
+            fun encode(format: Bitmap.CompressFormat, quality: Int) = output.outputStream().use {
+                check(scaled.compress(format, quality, it)) { "Image encoding failed" }
+            }
+            encode(Bitmap.CompressFormat.PNG, 100)
+            val mime = if (output.length() <= 10_000_000) "image/png" else {
+                encode(Bitmap.CompressFormat.WEBP, 90)
+                "image/webp"
+            }
+            return JSONObject().put("mime", mime).put("width", width).put("height", height)
+                .put("source_width", sourceWidth).put("source_height", sourceHeight)
+        } finally {
+            if (scaled !== crop) scaled.recycle()
+            if (crop !== bitmap) crop.recycle()
         }
+    }
 
     private suspend fun renderAudio(source: File, output: File, start: Long, duration: Long) {
         val extractor = MediaExtractor()

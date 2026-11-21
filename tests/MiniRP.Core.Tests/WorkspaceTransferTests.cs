@@ -11,6 +11,49 @@ public sealed class WorkspaceTransferTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
+    public async Task SaveRestoresBothRevisionsOfMigratedResearchAssets()
+    {
+        var ct = TestContext.CancellationToken;
+        var root = Directory.CreateTempSubdirectory("minirp-research-transfer-");
+        try
+        {
+            const string url = "https://fixture.invalid/page";
+            var source = new Workspace(Path.Combine(root.FullName, "source"));
+            source.Select(source.InitialPreset().Id, null);
+            source.State.GetObject("pages")[url] = new JsonObject { ["url"] = url, ["title"] = "Page", ["content"] = "Initial body" };
+            source.State.GetObject("search_cache")["query"] = new JsonArray(new JsonObject
+            {
+                ["url"] = url, ["title"] = "Result", ["snippet"] = "Useful result"
+            });
+            var assets = new ResearchAssets(source, source.State);
+            assets.Migrate();
+            var page = source.State.GetObject("pages").GetString(url);
+            var result = JsonValues.GetText(source.State.GetObject("search_cache").GetArray("query").Single());
+            Assert.IsTrue(ResearchAssets.IsUrl(page));
+            Assert.IsTrue(ResearchAssets.IsUrl(result));
+            var version = ConversationVersions.Capture(source, new Dictionary<string, AgentSession>());
+            source.Chat.GetArray("blocks").AddNode(new JsonObject { ["kind"] = "reply_end", ["id"] = "checkpoint", ["version"] = version });
+            await assets.Edit("binPatch", page, new() { ["offset"] = 0, ["old_hex"] = "49", ["new_hex"] = "46" }, ct);
+            source.Save();
+
+            await using var sourcePlugins = Runtime(source);
+            var archive = Path.Combine(root.FullName, "portable.zip");
+            await new WorkspaceTransfer(source, sourcePlugins).Export("save", source.PresetId, "", "", archive, ct);
+            var target = new Workspace(Path.Combine(root.FullName, "target"), seedDefaultPreset: false);
+            await using var targetPlugins = Runtime(target);
+            await new WorkspaceTransfer(target, targetPlugins).Import("save", archive, ct);
+            target.Select(source.PresetId, source.ChatId);
+            var current = new ResearchAssets(target, target.State);
+            Assert.AreEqual("Fnitial body", current.DocumentAt(page).GetString("content"));
+            Assert.AreEqual("Useful result", current.DocumentAt(result).GetString("snippet"));
+            var fork = ConversationVersions.Fork(target, "checkpoint", [], afterReply: true, seedDraft: false);
+            target.Select(source.PresetId, fork.Id);
+            Assert.AreEqual("Initial body", new ResearchAssets(target, target.State).DocumentAt(page).GetString("content"));
+        }
+        finally { root.Delete(recursive: true); }
+    }
+
+    [TestMethod]
     public async Task PresetAndSaveRestoreSignedPluginsAndConversationState()
     {
         var ct = TestContext.CancellationToken;
@@ -69,6 +112,9 @@ public sealed class WorkspaceTransferTests
             var exportedPlugin = Path.Combine(root, "owned.plugin");
             await transfer.Export("plugin", "", "", package.Id, exportedPlugin, ct);
             CollectionAssert.AreEqual(File.ReadAllBytes(original), File.ReadAllBytes(exportedPlugin));
+            var builtInArchive = Path.Combine(root, "base.plugin");
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => transfer.Export("plugin", "", "", "base", builtInArchive, ct));
+            Assert.IsFalse(File.Exists(builtInArchive));
 
             var roomArchive = Path.Combine(root, "single.minirp-room");
             await transfer.Export("room", preset, room, "", roomArchive, ct);

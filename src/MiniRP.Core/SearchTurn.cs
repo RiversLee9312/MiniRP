@@ -6,7 +6,7 @@ namespace MiniRP.Core;
 internal sealed class SearchTurn
 {
     private readonly AgentSession session;
-    private readonly Dictionary<string, JsonObject> documents = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> documents = new(StringComparer.Ordinal);
     private List<string> selected = [];
     private string? selectedPage;
 
@@ -30,13 +30,15 @@ internal sealed class SearchTurn
     {
         get; private set;
     }
-    public bool Changed { get; private set; }
+    public ResearchAssets Assets { get; }
+    public bool Changed => Assets.Changed || changed;
+    private bool changed;
 
-    public SearchTurn(string mode, string target, JsonObject state, AgentSession session)
+    public SearchTurn(string mode, string target, Workspace workspace, AgentSession session)
     {
         Mode = mode;
         Target = target;
-        State = (JsonObject)state.DeepClone();
+        State = (JsonObject)workspace.State.DeepClone();
         this.session = session;
         foreach (var key in new[] { "pages", "search_cache" })
         {
@@ -45,47 +47,67 @@ internal sealed class SearchTurn
                 State[key] = new JsonObject();
             }
         }
+        Assets = new(workspace, State);
+        Assets.Migrate();
     }
 
-    public JsonObject Register(JsonObject document)
+    public JsonObject Register(JsonObject document, bool page)
+    {
+        var stored = (JsonObject)document.DeepClone();
+        if (page) WebPageMarkdown.Normalize(stored, Target);
+        return Register(Assets.Draft(stored, page));
+    }
+
+    private JsonObject Register(string url, int contentLimit = 12000)
     {
         var reference = JsonValues.NewId();
-        documents[reference] = (JsonObject)document.DeepClone();
-        return Preview(reference);
+        documents[reference] = url;
+        session.Assets?.GrantResearch(url);
+        return Preview(reference, contentLimit);
     }
 
-    private JsonObject Get(string reference) => documents.TryGetValue(reference, out var document)
-        ? document
+    private string Address(string reference) => documents.TryGetValue(reference, out var url)
+        ? url
         : throw new ArgumentException("Unknown ref. Recall previous results again for this turn.");
 
-    private JsonObject Preview(string reference)
+    private JsonObject Get(string reference) => Assets.DocumentAt(Address(reference));
+
+    private JsonObject Preview(string reference, int contentLimit = 12000)
     {
-        var document = (JsonObject)Get(reference).DeepClone();
-        document["ref"] = reference;
-        var content = document.GetString("content");
-        if (content.Length > 22000)
-        {
-            document["content_key"] = session.Archive(content, "page");
-            document["total_chars"] = content.Length;
-            document["content"] = content[..12000];
-        }
-        return document;
+        var preview = PreviewDocument(Get(reference), contentLimit);
+        preview["ref"] = reference;
+        return preview;
     }
 
-    public JsonNode Execute(string tool, JsonObject arguments) => tool switch
+    private static JsonObject PreviewDocument(JsonObject document, int contentLimit)
+    {
+        var preview = new JsonObject();
+        foreach (var key in new[] { "asset_url", "url", "resolved_url", "title", "snippet", "date", "source", "credibility", "completeness", "content" })
+        {
+            if (document[key] is not JsonValue value || !value.TryGetValue<string>(out var text)) continue;
+            var limit = key == "content" ? contentLimit : key is "url" or "asset_url" or "resolved_url" ? text.Length : 1024;
+            if (text.Length > limit && char.IsHighSurrogate(text[limit - 1])) limit--;
+            preview[key] = text[..Math.Min(limit, text.Length)];
+            if (key == "content" && text.Length > limit) preview["total_chars"] = text.Length;
+        }
+        return preview;
+    }
+
+    internal JsonNode? HistoryAnswer() => Answer is not JsonObject answer || answer.ContainsKey("error") ? Answer :
+        answer["results"] is JsonArray results
+            ? new JsonObject { ["query"] = answer.GetString("query"),
+                ["results"] = new JsonArray(results.OfType<JsonObject>().Select(result => (JsonNode?)PreviewDocument(result, 512)).ToArray()) }
+            : PreviewDocument(answer, 512);
+
+    public async Task<JsonNode> Execute(string tool, JsonObject arguments, CancellationToken ct) => tool switch
     {
         "fail_request" => Fail(arguments),
-        "virtual_search" => Recall(arguments),
         "add_result" => AddResult(arguments),
         "select_results" => SelectResults(arguments),
-        "edit_result" => EditResult(arguments),
         "create_page" => CreatePage(arguments),
-        "edit_page" => EditPage(arguments),
         "set_page" => SetPage(arguments),
-        "cache_page" => CachePage(arguments),
-        "cache_search_results" => CacheResults(arguments),
-        "submit_search_results" => SubmitResults(arguments),
-        "submit_page" => SubmitPage(arguments),
+        "submit_search_results" => await SubmitResults(arguments, ct),
+        "submit_page" => await SubmitPage(arguments, ct),
         _ => throw new ArgumentException("Unknown search tool: " + tool)
     };
 
@@ -96,19 +118,22 @@ internal sealed class SearchTurn
         return (JsonObject)Answer.DeepClone();
     }
 
-    private JsonObject Recall(JsonObject arguments)
+    internal JsonObject Recall(JsonObject arguments)
     {
         var query = arguments.GetString("query");
         var url = arguments.GetString("url").TrimEnd('/');
-        var pages = State.GetObject("pages").Select(pair => pair.Value).OfType<JsonObject>();
-        var results = State.GetObject("search_cache").Select(pair => pair.Value).OfType<JsonArray>().SelectMany(array => array).OfType<JsonObject>();
-        var matches = pages.Concat(results).Reverse().Where(document =>
-            (url.Length == 0 || document.GetString("url").TrimEnd('/') == url) &&
-            (query.Length == 0 || JsonValues.Serialize(document).Contains(query, StringComparison.OrdinalIgnoreCase)));
+        var pages = State.GetObject("pages").Select(pair => pair.Value);
+        var results = State.GetObject("search_cache").Select(pair => pair.Value).OfType<JsonArray>().SelectMany(array => array);
+        var matches = pages.Concat(results).Select(node => JsonValues.GetText(node)).Where(Assets.Contains).Reverse().Where(asset =>
+        {
+            var document = Assets.DocumentAt(asset);
+            return (url.Length == 0 || document.GetString("url").TrimEnd('/') == url) &&
+                (query.Length == 0 || JsonValues.Serialize(document).Contains(query, StringComparison.OrdinalIgnoreCase));
+        });
         var output = new JsonArray();
         foreach (var document in matches.Take(Math.Clamp(arguments.GetInt32("limit", 30), 1, 200)))
         {
-            output.AddNode(Register(document));
+            output.AddNode(Register(document, contentLimit: 512));
         }
         return new() { ["results"] = output };
     }
@@ -121,7 +146,7 @@ internal sealed class SearchTurn
         {
             throw new ArgumentException("A result needs a title and URL.");
         }
-        var preview = Register(document);
+        var preview = Register(document, page: false);
         selected.Add(preview.GetString("ref"));
         return preview;
     }
@@ -137,17 +162,11 @@ internal sealed class SearchTurn
         return new() { ["selected"] = selected.Count };
     }
 
-    private JsonObject EditResult(JsonObject arguments)
-    {
-        CopyFields(arguments, Get(arguments.GetString("ref")));
-        return Preview(arguments.GetString("ref"));
-    }
-
     private static void CopyFields(JsonObject source, JsonObject target)
     {
         foreach (var field in source)
         {
-            if (field.Key != "ref")
+            if (field.Key is not ("ref" or "asset_url"))
             {
                 target[field.Key] = JsonValues.Clone(field.Value);
             }
@@ -167,21 +186,7 @@ internal sealed class SearchTurn
         {
             throw new ArgumentException("A page needs content.");
         }
-        return Register(document);
-    }
-
-    private JsonObject EditPage(JsonObject arguments)
-    {
-        var document = Get(arguments.GetString("ref"));
-        var body = document.GetString("content");
-        var old = arguments.GetString("old_string");
-        var unique = body.IndexOf(old, StringComparison.Ordinal) == body.LastIndexOf(old, StringComparison.Ordinal);
-        if (old.Length == 0 || !body.Contains(old, StringComparison.Ordinal) || (!unique && !arguments.GetBoolean("replace_all")))
-        {
-            throw new ArgumentException("old_string must exist and uniquely identify the edit.");
-        }
-        document["content"] = body.Replace(old, arguments.GetString("new_string"), StringComparison.Ordinal);
-        return Preview(arguments.GetString("ref"));
+        return Register(document, page: true);
     }
 
     private JsonObject SetPage(JsonObject arguments)
@@ -191,64 +196,68 @@ internal sealed class SearchTurn
         return new() { ["selected"] = selectedPage };
     }
 
-    private JsonObject CachePage(JsonObject arguments)
+    internal JsonObject RetainCache(JsonObject args)
     {
-        var document = Get(arguments.GetString("ref"));
-        if (document.GetString("content").Length == 0)
+        var key = args.GetString("key");
+        var urls = args.GetArray("urls");
+        if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("A cache key is required.");
+        if (args.GetBoolean("page"))
         {
-            throw new ArgumentException("A cached page needs content.");
+            SearchAgent.ValidateUrl(key);
+            var address = JsonValues.GetText(urls.Single());
+            var document = Assets.DocumentAt(address);
+            if (document.GetString("content").Length == 0) throw new ArgumentException("A cached page needs content.");
+            State.GetObject("pages")[key] = Assets.Retain(document, page: true);
         }
-        State.GetObject("pages")[document.GetString("url")] = document.DeepClone();
-        Changed = true;
+        else
+        {
+            var stored = new JsonArray();
+            foreach (var address in urls.Select(value => JsonValues.GetText(value)))
+                stored.AddNode(JsonValue.Create(Assets.Retain(Assets.DocumentAt(address), page: false)));
+            State.GetObject("search_cache")[key] = stored;
+        }
+        changed = true;
         return new() { ["cached"] = true };
     }
 
-    private JsonArray Results(JsonObject arguments)
+    internal JsonArray SelectedUrls(JsonObject arguments)
     {
         var references = arguments["refs"] is JsonArray array ? array.Select(node => JsonValues.GetText(node)) : selected;
         var results = new JsonArray();
         foreach (var reference in references)
         {
-            results.AddNode(Get(reference).DeepClone());
+            results.AddNode(JsonValue.Create(Address(reference)));
         }
         return results;
     }
 
-    private JsonObject CacheResults(JsonObject arguments)
-    {
-        var query = arguments.GetString("query", Target);
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            throw new ArgumentException("A cache query is required.");
-        }
-        State.GetObject("search_cache")[query] = Results(arguments);
-        Changed = true;
-        return new() { ["cached"] = true };
-    }
+    internal JsonObject CacheInput(JsonObject arguments, bool page) => page
+        ? new() { ["url"] = Address(arguments.GetString("ref")) }
+        : new() { ["query"] = arguments.GetString("query", Target), ["urls"] = SelectedUrls(arguments) };
 
-    private JsonObject SubmitResults(JsonObject arguments)
+    private async Task<JsonObject> SubmitResults(JsonObject arguments, CancellationToken ct)
     {
         if (Mode is not ("search" or "direct"))
         {
             throw new ArgumentException("A page request needs submit_page.");
         }
-        var results = Results(arguments);
+        var urls = SelectedUrls(arguments);
         var query = Mode == "direct" ? arguments.GetString("query") : Target;
         if (string.IsNullOrWhiteSpace(query))
         {
             throw new ArgumentException("A search query is required.");
         }
-        State.GetObject("search_cache")[query] = results.DeepClone();
-        Changed = true;
+        await session.Assets!.CacheResearch(new() { ["query"] = query, ["urls"] = urls }, ct);
+        var results = new JsonArray(urls.Select(value => (JsonNode?)Assets.DocumentAt(JsonValues.GetText(value))).ToArray());
         Answer = new JsonObject { ["query"] = query, ["results"] = results };
         if (Mode == "direct")
         {
-            return (JsonObject)Answer.DeepClone();
+            return (JsonObject)HistoryAnswer()!;
         }
         return new() { ["submitted"] = true };
     }
 
-    private JsonObject SubmitPage(JsonObject arguments)
+    private async Task<JsonObject> SubmitPage(JsonObject arguments, CancellationToken ct)
     {
         if (Mode is not ("page" or "direct"))
         {
@@ -261,8 +270,7 @@ internal sealed class SearchTurn
         {
             throw new ArgumentException("The submitted page must match the requested URL and contain text.");
         }
-        State.GetObject("pages")[url] = document.DeepClone();
-        Changed = true;
+        await session.Assets!.CacheResearch(new() { ["url"] = document.GetString("asset_url"), ["key"] = url }, ct);
         Answer = document.DeepClone();
         if (Mode == "direct")
         {

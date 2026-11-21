@@ -1,0 +1,17 @@
+---
+description: 约束 MiniRP 的 Agent Skill 和 Tool 归属及注册。
+alwaysApply: true
+---
+
+# Skill 与 Tool 的归属
+
+- 一个 Skill 可以只提供指令，也可以声明一个或多个工具。每个工具必须归属于一个明确的 Skill。
+- 插件工具写在清单所属 Skill 的 `tools` 中。内建工具通过 `AgentSkill` 声明，沿用共享的 Skill 激活和调用路径。
+- 工具可用性继承所属 Skill 的角色、作用域与激活状态。新增工具时同时核对模型能看到的声明与执行时的授权。
+- 使用同一份模型请求快照声明和执行工具。同一回复激活的 Skill 从下一次请求起提供工具。
+- 插件对外调用使用 Action URL，资源使用 Asset URL。插件技能工具引用其清单声明的 Action URL，同一 Action 也可独立用于插件互操作。
+- 按入口授权调用。只有共享的 Agent 执行路径能创建 `skill.tool`、授予会话资源访问权并发出工具生命周期事件。普通 Action 使用其自己的事件和权限。宿主需要同一业务操作时复用业务函数。
+- PluginAgent 用 `base-plugin-project` 的 `project_debug` 在隔离草稿中直接测试已声明的 Action URL。
+- `tool.started` 和 `tool.finished` 只描述注册过的工具调用。运行时维护操作使用各自的事件。
+
+例如，预设外观配置工具属于 `preset-editing`，资源查看工具属于 base 插件的 `view_asset`。

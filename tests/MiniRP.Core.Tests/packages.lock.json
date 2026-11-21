@@ -46,6 +46,11 @@
           "MSTest.Analyzers": "4.5.3"
         }
       },
+      "AngleSharp": {
+        "type": "Transitive",
+        "resolved": "1.5.2",
+        "contentHash": "LVZ7rrr6GHbhERhTgVDarVygl1e6KwE96pronA90LBOMacDhxR4lB+xYLjn/vlnUu+xbOB2RM9fuCPEx5bdyWA=="
+      },
       "BouncyCastle.Cryptography": {
         "type": "Transitive",
         "resolved": "2.7.0",
@@ -313,6 +318,19 @@
         "resolved": "1.0.11",
         "contentHash": "5/WAxSYWfiiPzp1X13qqdqjFmYLKDD/U7Vh3WCkKxWG9BjqdrXnQE5fCKCFJX+xWvuYLTxwZIVWBwBWObViE8g=="
       },
+      "ReverseMarkdown": {
+        "type": "Transitive",
+        "resolved": "6.3.0",
+        "contentHash": "h2GwfOpLAkONJa3ARH4VnhrJro7XcqTmI1z0d6LzXVto8Qm/8cmUO3cBm7nkN48rQfSPi2NpEPBKuPzSZr1LMg==",
+        "dependencies": {
+          "AngleSharp": "1.5.2"
+        }
+      },
+      "Scout.Text.Regex": {
+        "type": "Transitive",
+        "resolved": "0.8.0",
+        "contentHash": "kQ41D/mRW1BfR0T5grX/b4Gi1vNJxmjl1/DiW9OAn1TIt9j9pjMbRXOBvga6AZjL/J0cKwnpRB2uvo2Oa5+TxQ=="
+      },
       "SQLitePCLRaw.lib.e_sqlite3": {
         "type": "Transitive",
         "resolved": "3.53.3",
@@ -407,7 +425,9 @@
         "dependencies": {
           "BouncyCastle.Cryptography": "[2.7.0, )",
           "MiniRP.Protocol": "[1.0.0, )",
+          "ReverseMarkdown": "[6.3.0, )",
           "SQLitePCLRaw.lib.e_sqlite3": "[3.53.3, )",
+          "Scout.Text.Regex": "[0.8.0, )",
           "System.IO.Hashing": "[10.0.11, )"
         }
       },

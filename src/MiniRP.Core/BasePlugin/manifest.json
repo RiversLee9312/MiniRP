@@ -4,31 +4,70 @@
   "apiVersion": 2,
   "packageName": "minirp.base",
   "entry": "index.js",
-  "permissions": ["settings"],
+  "permissions": ["settings", "http"],
+  "network": ["https://api.deepseek.com"],
   "assets": [
     { "id": "dependencies", "type": "file", "path": "notices.md", "mimeType": "text/markdown", "accessibility": "public" },
     { "id": "project-license", "type": "file", "path": "LICENSE", "mimeType": "text/markdown", "accessibility": "public" }
   ],
-  "actions": { "handlers": { "develop": "develop", "preset-created": "presetCreated", "view-asset": "viewAsset" } },
+  "actions": { "handlers": { "develop": "develop", "preset-created": "presetCreated", "view-asset": "viewAsset", "search-asset": "searchAsset", "edit-asset": "editAsset", "research": "research", "research-cache": "researchCache" } },
   "hooks": { "preset.created": "minirp://actions/minirp.base/hooks/preset-created" },
   "skills": [
+    {
+      "name": "research",
+      "description": "Search the web, fetch Markdown, and recall or cache research Assets.",
+      "agents": ["chat", "search"],
+      "instructions": "Candidates carry an Asset URL and a turn ref. Open full Markdown and result records with view_asset. Edit their writable Assets with edit_asset, then cache or submit the refs you want to keep. Cached material may be stale.",
+      "tools": [
+        {
+          "name": "real_search",
+          "description": "Search the real web. Limit applies to this upstream request only. Results include an Asset URL and turn ref.",
+          "handler": "minirp://actions/minirp.base/hooks/research",
+          "parameters": {"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":50}},"required":["query"]}
+        },
+        {
+          "name": "real_fetch",
+          "description": "Fetch Markdown as a writable Asset. Use backend=local for truncated API content.",
+          "handler": "minirp://actions/minirp.base/hooks/research",
+          "parameters": {"type":"object","properties":{"url":{"type":"string"},"backend":{"type":"string","enum":["auto","api","local","api_then_local"]}},"required":["url"]}
+        },
+        {
+          "name": "virtual_search",
+          "description": "Recall cached page and result Assets by literal query or exact source URL. Omit both to list recent items.",
+          "handler": "minirp://actions/minirp.base/hooks/research",
+          "parameters": {"type":"object","properties":{"query":{"type":"string"},"url":{"type":"string"},"limit":{"type":"integer"}}}
+        },
+        {
+          "name": "cache_search_results",
+          "description": "Cache the selected or supplied result refs and their Asset revisions for a query.",
+          "handler": "minirp://actions/minirp.base/hooks/research",
+          "parameters": {"type":"object","properties":{"query":{"type":"string"},"refs":{"type":"array","items":{"type":"string"}}}}
+        },
+        {
+          "name": "cache_page",
+          "description": "Cache the current Asset revision of a page ref.",
+          "handler": "minirp://actions/minirp.base/hooks/research",
+          "parameters": {"type":"object","properties":{"ref":{"type":"string"}},"required":["ref"]}
+        }
+      ]
+    },
     {
       "name": "view_asset",
       "description": "View Asset URLs supplied with messages or returned by tools.",
       "agents": ["chat", "env", "preset", "search", "fetch", "temporary", "plugin"],
-      "instructions": "Use the Asset URL as-is. If the media type is unclear, inspect the URL metadata first. Call the corresponding viewer for each file. You can also pass the URL directly to a tool that accepts an Asset URL. Samples returned by viewers have their own Asset URLs.",
+      "instructions": "Use the Asset URL as-is. Search text with grep and original bytes with raw_grep. Use pattern ^ with a small limit to read consecutive lines or hex rows. Continue at next_line or next_offset. If the media type is unclear, inspect the URL metadata first. You can also pass the URL directly to a tool that accepts an Asset URL. Samples returned by viewers have their own Asset URLs.",
       "tools": [
         {
           "name": "view_image",
-          "description": "Send the complete image to an image-capable model.",
+          "description": "View an image, with a longest side up to 4096 pixels. Crop a viewport using original image pixels.",
           "handler": "minirp://actions/minirp.base/hooks/view-asset",
-          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."}},"required":["url"]}
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."},"viewport":{"type":"object","description":"Crop x, y, width, height from the source before resizing. Origin is top left.","properties":{"x":{"type":"integer","minimum":0},"y":{"type":"integer","minimum":0},"width":{"type":"integer","minimum":1},"height":{"type":"integer","minimum":1}},"required":["x","y","width","height"]}},"required":["url"]}
         },
         {
           "name": "view_video_frame",
-          "description": "View a video frame at start_ms, starting from zero.",
+          "description": "View a video frame at start_ms, with a longest side up to 4096 pixels. Crop using pixels of the displayed frame.",
           "handler": "minirp://actions/minirp.base/hooks/view-asset",
-          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."},"start_ms":{"type":"integer","minimum":0}},"required":["url"]}
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."},"start_ms":{"type":"integer","minimum":0},"viewport":{"type":"object","description":"Crop x, y, width, height from the source before resizing. Origin is top left.","properties":{"x":{"type":"integer","minimum":0},"y":{"type":"integer","minimum":0},"width":{"type":"integer","minimum":1},"height":{"type":"integer","minimum":1}},"required":["x","y","width","height"]}},"required":["url"]}
         },
         {
           "name": "view_video",
@@ -49,16 +88,22 @@
           "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."}},"required":["url"]}
         },
         {
-          "name": "view_text",
-          "description": "Read UTF text or the text extracted by the attachment handler. Continue at next_offset.",
-          "handler": "minirp://actions/minirp.base/hooks/view-asset",
-          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."},"offset":{"type":"integer","minimum":0},"length":{"type":"integer","minimum":1,"maximum":16000}},"required":["url"]}
+          "name": "grep",
+          "description": "Search UTF text or extracted attachment text by ripgrep-style regex or literal string. Returns matching line numbers, columns, and previews with optional surrounding lines. Use ^ to read lines and next_line to resume.",
+          "handler": "minirp://actions/minirp.base/hooks/search-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."},"pattern":{"type":"string","minLength":1,"maxLength":512},"literal":{"type":"boolean"},"ignore_case":{"type":"boolean"},"context":{"type":"integer","minimum":0,"maximum":5},"from_line":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1,"maximum":100}},"required":["url","pattern"]}
+        },
+        {
+          "name": "raw_grep",
+          "description": "Search original bytes. Regex matches 32-byte hex rows with byte spaces and a | between groups of eight. Use literal with bytes like 50 4B 03 04 for exact sequences across rows. Returns zero-based byte offsets and hex rows. Use next_offset to resume.",
+          "handler": "minirp://actions/minirp.base/hooks/search-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."},"pattern":{"type":"string","minLength":1,"maxLength":512},"literal":{"type":"boolean"},"ignore_case":{"type":"boolean"},"context":{"type":"integer","minimum":0,"maximum":5},"from_offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}},"required":["url","pattern"]}
         },
         {
           "name": "view_pdf_page",
-          "description": "View one PDF page as an image. Pages start at 1.",
+          "description": "Render a PDF page or part of it, with a longest side up to 4096 pixels. Page numbers start at 1. Viewport coordinates are in PDF points.",
           "handler": "minirp://actions/minirp.base/hooks/view-asset",
-          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."},"page":{"type":"integer","minimum":1}},"required":["url"]}
+          "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."},"page":{"type":"integer","minimum":1},"viewport":{"type":"object","description":"Crop x, y, width, height from the source before resizing. Origin is top left.","properties":{"x":{"type":"integer","minimum":0},"y":{"type":"integer","minimum":0},"width":{"type":"integer","minimum":1},"height":{"type":"integer","minimum":1}},"required":["x","y","width","height"]}},"required":["url"]}
         },
         {
           "name": "view_pdf_metadata",
@@ -83,6 +128,26 @@
           "description": "Inspect an authorised Asset URL, MIME type, origin, and known size.",
           "handler": "minirp://actions/minirp.base/hooks/view-asset",
           "parameters": {"type":"object","properties":{"url":{"type":"string","description":"An Asset URL from this session."}},"required":["url"]}
+        }
+      ]
+    },
+    {
+      "name": "edit_asset",
+      "description": "Apply exact text replacements or byte patches to writable Asset URLs supplied to this session.",
+      "agents": ["chat", "env", "preset", "search", "fetch", "temporary", "plugin"],
+      "instructions": "Inspect the current Asset with view_asset before editing. Use exact matching text for text_edit and verify old bytes with raw_grep before bin_patch. Keep unrelated content intact.",
+      "tools": [
+        {
+          "name": "bin_patch",
+          "description": "Replace expected old_hex at a zero-based byte offset. Use space-separated bytes with optional | separators. An empty old_hex inserts, and an empty new_hex deletes.",
+          "handler": "minirp://actions/minirp.base/hooks/edit-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string"},"offset":{"type":"integer","minimum":0},"old_hex":{"type":"string"},"new_hex":{"type":"string"}},"required":["url","offset","old_hex","new_hex"]}
+        },
+        {
+          "name": "text_edit",
+          "description": "Replace an exact, unique old_string with new_string. Set replace_all to replace every occurrence. For UTF-8 or BOM-marked UTF-16 Assets.",
+          "handler": "minirp://actions/minirp.base/hooks/edit-asset",
+          "parameters": {"type":"object","properties":{"url":{"type":"string"},"old_string":{"type":"string"},"new_string":{"type":"string"},"replace_all":{"type":"boolean"}},"required":["url","old_string","new_string"]}
         }
       ]
     },
@@ -134,7 +199,7 @@
       "agents": [
         "preset"
       ],
-      "instructions": "Give each PluginAgent its own task and project. Spawn independent projects in parallel, send follow-up messages by ID, wait for their findings, and archive inactive agents. If you need to resume work on an existing plugin, use the original agent's ID. Only PluginAgent operates plugin files and deployments. Deploy or remove a plugin only when requested by the user.",
+      "instructions": "Give each PluginAgent its own task and project. Spawn independent projects in parallel, send follow-up messages by ID, wait for their findings, and archive inactive agents. If you need to resume work on an existing plugin, use the original agent's ID. Only PluginAgent operates plugin files and deployments. Deploy or remove a plugin only when requested by the user.\n\nFor automatic story progression, consider an event-driven flow when delegating a plugin. One example is to expose a trigger tool to ChatAgent and a world-state update tool to EnvAgent through their respective Skills and Action URLs. When ChatAgent detects the chosen story event, it calls the trigger tool. The plugin can notify EnvAgent with api.harness.send using agent env and stage true. After advancing the story, EnvAgent calls its tool to save the new world state with api.state.set. Expose the relevant entry through the ChatAgent Skill's stateEntries so ChatAgent can subscribe to the returned db_key with db_watch and read updates with db_read. Adapt the triggers, tool roles, hand-offs, and state to suit the story. Invent new patterns freely.",
       "tools": [
         {
           "name": "plugin_spawn",
@@ -345,7 +410,7 @@
         },
         {
           "name": "project_debug",
-          "description": "Validate the signed draft and optionally invoke a declared Action hook with a fixture event.",
+          "description": "Validate the signed draft. Optionally call a declared Action URL in this draft's isolated environment with a fixture event.",
           "handler": "minirp://actions/minirp.base/hooks/develop",
           "parameters": {
             "type": "object",
@@ -386,6 +451,7 @@
               "width": { "type": "integer", "minimum": 240, "maximum": 768 },
               "dark": { "type": "boolean" },
               "screenshot": { "type": "boolean", "description": "Attach a PNG of the final rendered card to your next model request. Request this if your model accepts image input." },
+              "viewport": {"type":"object","description":"Crop x, y, width, height from the source before resizing. Origin is top left.","properties":{"x":{"type":"integer","minimum":0},"y":{"type":"integer","minimum":0},"width":{"type":"integer","minimum":1},"height":{"type":"integer","minimum":1}},"required":["x","y","width","height"]},
               "steps": {
                 "type": "array",
                 "maxItems": 6,

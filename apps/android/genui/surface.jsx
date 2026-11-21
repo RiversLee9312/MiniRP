@@ -4,7 +4,7 @@ import { Renderer } from "@openuidev/react-lang";
 import { Component } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./surface.css";
-import { library } from "./catalog.mjs";
+import { AssetMedia, library, originalAssetUrl } from "./catalog.mjs";
 import { createPreview } from "./preview.mjs";
 
 const host = window.MiniRPSurface;
@@ -58,6 +58,7 @@ window.renderOpenUi = (state) => {
     root.render(
         <RenderBoundary>
             <ThemeProvider mode={state.dark ? "dark" : "light"} lightTheme={state.theme}>
+                <AssetMedia.Provider value={!state.streaming}>
                 <Renderer
                     library={library}
                     response={state.program}
@@ -74,6 +75,7 @@ window.renderOpenUi = (state) => {
                     onStateUpdate={preview?.state ?? ((value) => post("state", { value }))}
                     publishObservability={false}
                 />
+                </AssetMedia.Provider>
             </ThemeProvider>
         </RenderBoundary>,
     );
@@ -83,7 +85,7 @@ document.addEventListener("click", (event) => {
     const link = event.target.closest?.("a[href]");
     if (!event.isTrusted || !link) return;
     event.preventDefault();
-    sendAction("link", { url: link.href });
+    sendAction("link", { url: originalAssetUrl(link.href) });
 }, true);
 
 let previousHeight = -1;

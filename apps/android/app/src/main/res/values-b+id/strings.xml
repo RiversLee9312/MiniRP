@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">File tidak dapat disimpan</string>
     <string name="chat">Obrolan</string>
     <string name="world">Dunia</string>
     <string name="preset">Preset</string>
@@ -132,6 +133,9 @@
     <string name="install_plugin">Instal plugin</string>
     <string name="run_plugin">Jalankan</string>
     <string name="remove_plugin">Copot pemasangan</string>
+    <string name="plugin_enabled">Aktif</string>
+    <string name="plugin_disabled">Nonaktif</string>
+    <string name="uninstall_plugin_title">Uninstal %1$s?</string>
     <string name="built_in">Bawaan</string>
     <string name="plugin_resource_request">%1$s ingin Anda memilih file</string>
     <string name="delete_chat">Hapus obrolan</string>

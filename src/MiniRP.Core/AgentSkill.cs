@@ -2,7 +2,7 @@ using System.Text.Json.Nodes;
 
 namespace MiniRP.Core;
 
-public sealed record AgentSkill(
+public sealed class AgentSkill(
     string Name,
     string Description,
     JsonArray Tools,
@@ -10,115 +10,103 @@ public sealed record AgentSkill(
     bool Required = false,
     string Instructions = "",
     Action? OnActivate = null,
-    Action<string, JsonObject>? OnEvent = null);
-
-internal sealed class SkillTurn
+    Action<string, JsonObject>? OnEvent = null)
 {
-    private const string Activate = "activate_skill";
-    private readonly Dictionary<string, AgentSkill> catalog;
-    private readonly Dictionary<string, AgentSkill> enabled = new(StringComparer.Ordinal);
-    private readonly HashSet<string> loaded = new(StringComparer.Ordinal);
-    private readonly AgentSkill activation;
+    public string Name { get; } = Name;
+    private readonly string description = Description;
+    private readonly string instructions = Instructions;
+    private readonly JsonArray tools = (JsonArray)Tools.DeepClone();
+    private readonly bool required = Required;
+    private readonly Func<string, JsonObject, CancellationToken, Task<JsonNode?>> execute = Execute;
+    private readonly Action? onActivate = OnActivate;
+    private readonly Action<string, JsonObject>? onEvent = OnEvent;
 
-    public SkillTurn(IEnumerable<AgentSkill> skills, IEnumerable<string>? previouslyActive = null)
+    internal sealed class Turn
     {
-        catalog = skills.ToDictionary(skill => skill.Name, StringComparer.Ordinal);
-        var retained = previouslyActive?.ToHashSet(StringComparer.Ordinal);
-        if (retained?.Contains("assets") == true) retained.Add("view_asset");
-        activation = new("skill-management", "Load a session skill.",
-            new JsonArray(Tools.Define(Activate, "Load a skill's instructions and tools. Choose its name from Available skills.",
-                new() { ["name"] = Tools.String() }, "name")), ActivateSkill);
-        if (catalog.Count > 0) enabled.Add(Activate, activation);
-        foreach (var skill in catalog.Values.Where(skill => skill.Required || retained?.Contains(skill.Name) == true))
+        private const string Activate = "activate_skill";
+        private const string Management = "skill-management";
+        private readonly Dictionary<string, AgentSkill> catalog;
+        private readonly Dictionary<string, (AgentSkill Owner, JsonObject Definition)> offered = new(StringComparer.Ordinal);
+        private readonly HashSet<string> active = new(StringComparer.Ordinal);
+
+        public Turn(IEnumerable<AgentSkill> skills, IEnumerable<string>? previouslyActive = null)
         {
-            Load(skill);
-        }
-    }
+            catalog = skills.ToDictionary(skill => skill.Name, StringComparer.Ordinal);
+            if (catalog.ContainsKey(Management) || catalog.Keys.Any(string.IsNullOrWhiteSpace))
+                throw new ArgumentException("Skills must have a name distinct from the runtime management skill.");
 
-    public IEnumerable<string> ActiveNames => catalog.Keys.Where(loaded.Contains);
-    public bool IsActive(string skill) => loaded.Contains(skill);
+            var retained = previouslyActive?.ToHashSet(StringComparer.Ordinal);
+            if (retained?.Contains("assets") == true) retained.Add("view_asset");
+            foreach (var skill in catalog.Values)
+                if (skill.required || retained?.Contains(skill.Name) == true) active.Add(skill.Name);
 
-    public JsonObject InstructionSections() => new(catalog.Values.Select(skill =>
-        new KeyValuePair<string, JsonNode?>(skill.Name, JsonValue.Create(skill.Description +
-            (loaded.Contains(skill.Name) ? " [active]\n" + skill.Instructions : " [available]")))));
-
-    public string Prompt => catalog.Count == 0 ? "" : "\nAvailable skills (use activate_skill to load one before calling its tools):\n" +
-        string.Join("\n", catalog.Values.Select(skill => $"- {skill.Name}: {skill.Description}" +
-            (loaded.Contains(skill.Name) && skill.Instructions.Length > 0 ? "\n" + skill.Instructions : "")));
-
-    public JsonArray Definitions()
-    {
-        var tools = new JsonArray();
-        if (catalog.Keys.Any(name => !loaded.Contains(name)))
-        {
-            tools.AddNode(activation.Tools[0]!.DeepClone());
-        }
-        foreach (var skill in catalog.Values.Where(skill => loaded.Contains(skill.Name)))
-        {
-            foreach (var tool in skill.Tools)
+            IEnumerable<AgentSkill> all = catalog.Values;
+            if (active.Count < catalog.Count)
             {
-                tools.AddNode(JsonValues.Clone(tool));
+                all = all.Prepend(new AgentSkill(Management, "Load a session skill.", new JsonArray(
+                    MiniRP.Core.Tools.Define(Activate, "Activate a skill before the next model round. Choose a name from Available skills.",
+                        new() { ["name"] = MiniRP.Core.Tools.String() }, "name")), ActivateSkill, Required: true));
+            }
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var skill in all)
+            {
+                foreach (var definition in skill.tools)
+                {
+                    var name = ToolName(definition);
+                    if (definition is not JsonObject function || function.GetString("type") != "function" ||
+                        string.IsNullOrWhiteSpace(name) || name == Activate && skill.Name != Management || !names.Add(name))
+                        throw new ArgumentException("Invalid, duplicate or reserved tool in skill: " + skill.Name);
+                    if (skill.required || active.Contains(skill.Name)) offered.Add(name, (skill, function));
+                }
             }
         }
-        return tools;
-    }
 
-    public async Task<JsonNode?> Invoke(string name, JsonObject args, CancellationToken ct)
-    {
-        if (!enabled.TryGetValue(name, out var owner))
-        {
-            throw new InvalidOperationException("This tool is unavailable. Activate its skill first.");
-        }
-        owner.OnEvent?.Invoke("tool.started", new() { ["name"] = "tool.started", ["tool"] = name, ["arguments"] = args.DeepClone() });
-        var result = await owner.Execute(name, args, ct);
-        owner.OnEvent?.Invoke("tool.finished", new() { ["name"] = "tool.finished", ["tool"] = name, ["result"] = JsonValues.Clone(result) });
-        return result;
-    }
+        public IEnumerable<string> ActiveNames => catalog.Keys.Where(active.Contains);
+        public bool IsActive(string skill) => active.Contains(skill);
+        public bool Offers(string tool) => offered.ContainsKey(tool);
 
-    private Task<JsonNode?> ActivateSkill(string _, JsonObject args, CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-        var key = args.GetString("name");
-        if (!catalog.TryGetValue(key, out var skill))
-            throw new ArgumentException("This skill is unavailable in this session.");
-        if (!loaded.Contains(key))
-        {
-            Load(skill);
-            skill.OnActivate?.Invoke();
-        }
-        return Task.FromResult<JsonNode?>(new JsonObject
-        {
-            ["name"] = skill.Name, ["instructions"] = skill.Instructions,
-            ["tools"] = new JsonArray(skill.Tools.Select(tool => (JsonNode?)JsonValue.Create(ToolName(tool))).ToArray())
-        });
-    }
+        public JsonObject InstructionSections() => new(catalog.Values.Select(skill =>
+            new KeyValuePair<string, JsonNode?>(skill.Name, JsonValue.Create(skill.description +
+                (active.Contains(skill.Name) ? " [active]\n" + skill.instructions : " [available]")))));
 
-    public void Broadcast(string name, JsonObject data)
-    {
-        foreach (var skill in loaded.Select(key => catalog[key]))
-        {
-            skill.OnEvent?.Invoke(name, (JsonObject)data.DeepClone());
-        }
-    }
+        public string Prompt => catalog.Count == 0 ? "" : "\nAvailable skills (use activate_skill to load one before calling its tools):\n" +
+            string.Join("\n", catalog.Values.Select(skill => $"- {skill.Name}: {skill.description}" +
+                (active.Contains(skill.Name) && skill.instructions.Length > 0 ? "\n" + skill.instructions : "")));
 
-    private void Load(AgentSkill skill)
-    {
-        if (loaded.Contains(skill.Name))
-        {
-            return;
-        }
-        var names = skill.Tools.Select(ToolName).ToArray();
-        if (names.Any(name => name.Length == 0 || name == Activate || enabled.ContainsKey(name)) ||
-            names.Distinct(StringComparer.Ordinal).Count() != names.Length)
-        {
-            throw new ArgumentException("Skill contains duplicate or reserved tools: " + skill.Name);
-        }
-        loaded.Add(skill.Name);
-        foreach (var name in names)
-        {
-            enabled.Add(name, skill);
-        }
-    }
+        public JsonArray Definitions() => new(offered.Values.Select(tool => tool.Definition.DeepClone()).ToArray());
 
-    private static string ToolName(JsonNode? tool) => tool.GetObject("function").GetString("name");
+        public async Task<JsonNode?> Invoke(string name, JsonObject args, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!offered.TryGetValue(name, out var tool))
+                throw new InvalidOperationException("This tool was not offered for this model request. Activate its skill and wait for the next request.");
+            var owner = tool.Owner;
+            owner.onEvent?.Invoke("tool.started", new() { ["name"] = "tool.started", ["tool"] = name, ["arguments"] = args.DeepClone() });
+            var result = await owner.execute(name, args, ct);
+            owner.onEvent?.Invoke("tool.finished", new() { ["name"] = "tool.finished", ["tool"] = name, ["result"] = JsonValues.Clone(result) });
+            return result;
+        }
+
+        private Task<JsonNode?> ActivateSkill(string _, JsonObject args, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!catalog.TryGetValue(args.GetString("name"), out var skill))
+                throw new ArgumentException("This skill is unavailable in this session.");
+            // Activation persists into the next request. This request's offered tools are fixed.
+            if (active.Add(skill.Name)) skill.onActivate?.Invoke();
+            return Task.FromResult<JsonNode?>(new JsonObject
+            {
+                ["name"] = skill.Name, ["instructions"] = skill.instructions,
+                ["tools"] = new JsonArray(skill.tools.Select(tool => (JsonNode?)JsonValue.Create(ToolName(tool))).ToArray())
+            });
+        }
+
+        public void Broadcast(string name, JsonObject data)
+        {
+            foreach (var skill in ActiveNames.Select(key => catalog[key]))
+                skill.onEvent?.Invoke(name, (JsonObject)data.DeepClone());
+        }
+
+        private static string ToolName(JsonNode? tool) => tool.GetObject("function").GetString("name");
+    }
 }

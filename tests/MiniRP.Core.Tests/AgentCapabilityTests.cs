@@ -31,7 +31,7 @@ public sealed class AgentCapabilityTests
             var model = new ModelClient(port, () => provider, directory);
             var messages = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = "Video sample",
                 ["_harness_asset"] = true, ["attachments"] = new JsonArray(sample.Attachment) });
-            var body = JsonValues.ParseObject(model.Request(provider, messages, new()).GetString("body"));
+            var body = JsonValues.ParseObject(model.Request(provider, messages, null).GetString("body"));
             var inline = body.GetArray("contents")[0].GetArray("parts")[1].GetObject("inlineData");
             Assert.AreEqual("video/mp4", inline.GetString("mimeType"));
             Assert.AreEqual("AQIDBA==", inline.GetString("data"));
@@ -69,21 +69,23 @@ public sealed class AgentCapabilityTests
             CollectionAssert.DoesNotContain(ToolNames(chatSkill), AssetTool);
 
             var arguments = new JsonObject { ["id"] = "summary" };
-            var result = await chatSkill.Execute(CardTool, arguments, CancellationToken.None);
+            var active = new AgentSkill.Turn([chatSkill], [Skill]);
+            var result = await active.Invoke(CardTool, arguments, CancellationToken.None);
             Assert.IsTrue(result.GetBoolean("shown"));
             Assert.AreEqual("Session summary", reading.Single().GetString("open_ui_title"));
 
             runtime.SetScope("caps", PluginScope.Include(WorkspaceIds.New()));
             Assert.IsFalse(runtime.Skills("chat", environment, showCard: reading.Add).Any(skill => skill.Name == Skill));
             await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() =>
-                chatSkill.Execute(CardTool, arguments, CancellationToken.None));
+                active.Invoke(CardTool, arguments, CancellationToken.None));
             Assert.HasCount(1, reading);
         }
         finally { Directory.Delete(root, recursive: true); }
     }
 
     private static string[] ToolNames(AgentSkill skill) =>
-        skill.Tools.Select(tool => tool.GetObject("function").GetString("name")).ToArray();
+        new AgentSkill.Turn([skill], [skill.Name]).Definitions()
+            .Select(tool => tool.GetObject("function").GetString("name")).ToArray();
 
     private static string CreateArchive(string root)
     {

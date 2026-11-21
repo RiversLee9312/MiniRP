@@ -5,6 +5,16 @@ import org.json.JSONObject
 
 internal fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull(::optJSONObject)
 
+internal fun JSONObject?.presetAppearance(): PresetAppearance {
+    val appearance = this?.optJSONObject("appearance") ?: return PresetAppearance()
+    return PresetAppearance(
+        backgroundUrl = appearance.optString("background_url"),
+        blurBackground = appearance.optBoolean("background_blur", true),
+        themeColor = appearance.optString("theme_color").takeIf { it.matches(Regex("#[0-9a-fA-F]{6}")) }
+            ?.let(android.graphics.Color::parseColor),
+    )
+}
+
 internal fun decodeProvider(value: JSONObject) =
     ProviderConfig(
         id = value.optString("id"),
@@ -86,7 +96,7 @@ internal fun decodeBlock(value: JSONObject) =
         value.optString("kind") in setOf("user", "system"),
         value.optString("content"),
         value.optString("reasoning"),
-        value.optString("tool"),
+        value.optString("tool").takeUnless { it == "compact_context" }.orEmpty(),
         value.optString("arguments"),
         value.optString("result"),
         version = value.optString("version"),
@@ -102,6 +112,12 @@ internal fun decodeBlock(value: JSONObject) =
         openUiTitle = value.optString("open_ui_title"),
         openUiState = value.optJSONObject("open_ui_state")?.toString(),
         openUiRevision = value.optInt("open_ui_revision"),
+        compaction = value.optBoolean("compaction") || value.optString("tool") == "compact_context",
+        pluginRun = value.optString("plugin_run", value.optString("plugin_agent")),
+        pluginAgentName = value.optString("plugin_agent_name"),
+        pluginStatus = value.optString("plugin_status"),
+        pluginSequence = value.optInt("plugin_sequence"),
+        running = value.optString("plugin_status") == "running",
     )
 
 internal fun decodeEnsembleChat(value: JSONObject): EnsembleChat {

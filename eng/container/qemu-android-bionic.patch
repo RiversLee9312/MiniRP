@@ -1,0 +1,12 @@
+--- a/meson.build
++++ b/meson.build
+@@ -1372,6 +1372,8 @@
+ if host_os != 'windows'
+   have_shm_open = cc.has_function('shm_open')
+   if not have_shm_open
+-    rt = cc.find_library('rt', required: true)
++    # Bionic puts timer functions in libc. The Termux oslib-posix patch
++    # supplies shm_open/shm_unlink for Android.
++    rt = cc.find_library('rt', required: cc.get_define('__ANDROID__') == '')
+   endif
+ endif

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">Soubor se nepodařilo uložit</string>
     <string name="chat">Chat</string>
     <string name="world">Svět</string>
     <string name="preset">Předvolba</string>
@@ -138,6 +139,9 @@
     <string name="install_plugin">Nainstalovat doplněk</string>
     <string name="run_plugin">Spustit</string>
     <string name="remove_plugin">Odinstalovat</string>
+    <string name="plugin_enabled">Zapnuto</string>
+    <string name="plugin_disabled">Vypnuto</string>
+    <string name="uninstall_plugin_title">Odinstalovat %1$s?</string>
     <string name="built_in">Vestavěné</string>
     <string name="plugin_resource_request">%1$s chce, abyste vybrali soubory</string>
     <string name="delete_chat">Smazat chat</string>

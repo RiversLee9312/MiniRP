@@ -49,6 +49,30 @@ internal sealed partial class PluginRuntime
         lock (packageGate) SaveScope(Installed(id), scope);
     }
 
+    public void SetEnabled(string id, bool enabled, JsonObject environment)
+    {
+        lock (packageGate)
+        {
+            var package = Installed(id);
+            if (package.BuiltIn) throw new InvalidOperationException("Built-in plugins are always enabled.");
+            if (package.Enabled == enabled) return;
+            using (var db = SettingsDb(package))
+                db.Write("host/enabled", enabled ? "true" : "false", internalWrite: true);
+            var updated = package with { Enabled = enabled, Generation = JsonValues.NewId() };
+            SetPackages(packages.Select(item => item.Id == id ? updated : item).ToArray());
+            if (enabled) PublishEnabled(updated, environment);
+        }
+    }
+
+    private bool ReadEnabled(PluginPackage package)
+    {
+        if (!File.Exists(SettingsPath(package))) return true;
+        using var db = SettingsDb(package);
+        return db.Get("host/enabled") != "false";
+    }
+
+    private bool Available(PluginPackage package, string preset) => package.Enabled && Scope(package).Allows(preset);
+
     private void SaveScope(PluginPackage package, PluginScope scope)
     {
         if (package.BuiltIn) throw new InvalidOperationException("Built-in plugins always run globally.");
@@ -67,7 +91,7 @@ internal sealed partial class PluginRuntime
 
     private void RequireCurrent(PluginPackage package)
     {
-        if (!IsCurrent(package)) throw new InvalidOperationException("The plugin was updated or uninstalled.");
+        if (!IsCurrent(package)) throw new InvalidOperationException("The plugin installation is no longer active.");
     }
 
     public void RequireGeneration(string id, string generation, string preset)
@@ -80,7 +104,7 @@ internal sealed partial class PluginRuntime
     public void RequireScope(PluginPackage package, string preset)
     {
         RequireCurrent(package);
-        if (!Scope(package).Allows(preset)) throw new UnauthorizedAccessException("The plugin is unavailable in this preset.");
+        if (!Available(package, preset)) throw new UnauthorizedAccessException("The plugin is unavailable in this preset.");
     }
 
     public T WhileCurrent<T>(PluginPackage package, string preset, Func<T> operation)

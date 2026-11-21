@@ -119,6 +119,7 @@
         "type": { "enum": ["file", "dynamic"] },
         "mimeType": { "type": "string", "pattern": "^[a-zA-Z0-9.+-]+/[a-zA-Z0-9.+-]+$" },
         "accessibility": { "enum": ["private", "protected", "public"], "default": "private" },
+        "writable": { "type": "boolean", "default": false },
         "path": { "type": "string" },
         "handler": { "$ref": "#/$defs/hook" }
       },

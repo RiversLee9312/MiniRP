@@ -12,6 +12,8 @@ public sealed partial class Engine : IAsyncDisposable
     private readonly CancellationTokenSource lifetime = new();
     private readonly Dictionary<string, AgentSession> sessions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, JsonObject> trace = new(StringComparer.Ordinal);
+    private readonly object presetTraceGate = new();
+    private readonly Dictionary<string, WeakReference<PresetConversation>> presetTraces = new(StringComparer.Ordinal);
     private readonly Task worker;
     private CancellationTokenSource? active;
     private TurnInbox? inbox;
@@ -34,6 +36,8 @@ public sealed partial class Engine : IAsyncDisposable
     private PresetAgent? presets;
     private PresetConversation? presetConversation;
     private readonly AgentSession.Factory agentSessions;
+    private readonly AgentContainer.Rooms containers;
+    private bool curlAvailable;
     private readonly PluginAgentCoordinator pluginAgents;
 
     public Workspace Workspace
@@ -61,12 +65,14 @@ public sealed partial class Engine : IAsyncDisposable
         attachmentRoot = Path.Combine(Workspace.Root, "attachments");
         var initialWorkspace = Workspace;
         catalog = Task.Run(() => new WorkspaceCatalog(initialWorkspace));
-        Port = new(Emit);
+        Port = new(Emit, lifetime.Token);
         plugins = new(Workspace.Root, Port, Emit, PluginApi, stateChanged: change =>
             Dispatch(new() { ["op"] = "_plugin_state_changed", ["change"] = change.DeepClone() }), clock: clock);
         turnRouting = routing;
-        agentSessions = new(Port, plugins, attachmentRoot, () => turnRouting.Settings.GetString("android_open_ui"));
-        pluginAgents = new(Workspace.Root, agentSessions, plugins, () => Volatile.Read(ref routing).For("preset"), events.Enqueue,
+        containers = new(Port, Workspace.Root);
+        agentSessions = new(Port, plugins, attachmentRoot, () => turnRouting.Settings.GetString("android_open_ui"), () => Workspace, containers,
+            () => curlAvailable);
+        pluginAgents = new(Workspace.Root, agentSessions, plugins, () => Volatile.Read(ref routing).For("preset"),
             () =>
             {
                 Emit(new() { ["kind"] = "plugins", ["items"] = plugins.List() });
@@ -75,6 +81,7 @@ public sealed partial class Engine : IAsyncDisposable
         Model = new(Port, () => Volatile.Read(ref routing).Default);
         worker = Task.Run(ProcessCommands);
         Dispatch(new() { ["op"] = "plugins_start" });
+        Dispatch(new() { ["op"] = "_maintain_storage" });
         Emit(new()
         {
             ["kind"] = "ready",
@@ -126,6 +133,8 @@ public sealed partial class Engine : IAsyncDisposable
                 _ = Task.Run(() => LibraryPage(command));
                 break;
             case "asset_open":
+            case "display_asset_open":
+            case "preset_background_open":
             case "asset_pull":
             case "asset_close":
                 _ = Task.Run(() => ReadAsset(command));
@@ -149,50 +158,71 @@ public sealed partial class Engine : IAsyncDisposable
         return batch;
     }
 
-    private void Emit(JsonObject item)
+    private void Emit(JsonObject item) => Emit(item, null);
+
+    private void Emit(JsonObject item, SessionModelInfo? sessionInfo)
     {
         events.Enqueue(item);
-        PublishPluginEvent(item);
+        if (item.ContainsKey("asset_links"))
+        {
+            var visible = (JsonObject)item.DeepClone();
+            visible.Remove("asset_links");
+            PublishPluginEvent(visible, sessionInfo);
+        }
+        else PublishPluginEvent(item, sessionInfo);
     }
 
-    private void Record(JsonObject item) => Record(item, null);
-
-    private void Record(JsonObject item, JsonArray? destination)
+    private void Record(JsonObject item, JsonArray? destination = null, SessionModelInfo? sessionInfo = null,
+        PresetConversation? workerOwner = null)
     {
-        Emit(item);
-        var kind = item.GetString("kind");
-        if (kind is not ("delta" or "tool_start" or "tool_end" or "open_ui_delta" or "open_ui_card"))
+        IndexDisplayAssets(item, item.GetString("block"), item.GetString("conversation"), workerOwner?.PresetId);
+        if (workerOwner is not null || PresetConversation.IsPreset(item))
         {
+            lock (presetTraceGate)
+            {
+                if (workerOwner is null) Emit(item, sessionInfo);
+                else events.Enqueue(item);
+                var owner = workerOwner ?? presetConversation!;
+                if (!RecordTrace(item, workerOwner is null ? trace : owner.WorkerTrace, owner.Blocks)) return;
+                if (workerOwner is not null && item.GetString("kind") == "plugin_agent_status" && item.GetString("status") != "running")
+                {
+                    var run = item.GetString("plugin_run");
+                    foreach (var id in owner.WorkerTrace.Keys.Where(id => id == run || id.StartsWith(run + "-", StringComparison.Ordinal)).ToArray())
+                        owner.WorkerTrace.Remove(id);
+                    owner.Save();
+                }
+            }
             return;
         }
+        Emit(item, sessionInfo);
+        if (destination is null) Workspace.Chat["blocks"] ??= new JsonArray();
+        RecordTrace(item, trace, destination ?? Workspace.Chat.GetArray("blocks"));
+    }
+
+    private static bool RecordTrace(JsonObject item, Dictionary<string, JsonObject> blocks, JsonArray destination)
+    {
+        var kind = item.GetString("kind");
+        if (kind is not ("delta" or "tool_start" or "tool_end" or "context_trace" or "open_ui_delta" or "open_ui_card" or "plugin_agent_status") &&
+            item["asset_links"] is not JsonObject)
+            return false;
         var id = item.GetString("block");
-        if (!trace.TryGetValue(id, out var block))
+        if (!blocks.TryGetValue(id, out var block))
         {
             block = new()
             {
                 ["id"] = id,
                 ["agent"] = item.GetString("agent"),
                 ["speaker"] = JsonValues.Clone(item["speaker"]),
+                ["chat"] = JsonValues.Clone(item["chat"]),
+                ["conversation"] = JsonValues.Clone(item["conversation"]),
                 ["content"] = "",
                 ["reasoning"] = ""
             };
-            trace[id] = block;
-            if (destination is not null)
-            {
-                block["chat"] = JsonValues.Clone(item["chat"]);
-                block["conversation"] = JsonValues.Clone(item["conversation"]);
-            }
-            if (destination is not null)
-                destination.AddNode(block);
-            else if (PresetConversation.IsPreset(item))
-            {
-                presetConversation!.Blocks.AddNode(block);
-            }
-            else
-            {
-                Workspace.Chat["blocks"] ??= new JsonArray();
-                Workspace.Chat.GetArray("blocks").AddNode(block);
-            }
+            if (item.ContainsKey("plugin_agent"))
+                foreach (var key in new[] { "plugin_agent", "plugin_agent_name", "plugin_run" })
+                    block[key] = JsonValues.Clone(item[key]);
+            blocks[id] = block;
+            destination.AddNode(block);
         }
         if (kind == "open_ui_card")
         {
@@ -208,12 +238,46 @@ public sealed partial class Engine : IAsyncDisposable
             var type = item.GetString("type");
             block[type] = block.GetString(type) + item.GetString("text");
         }
-        else
+        else if (kind == "context_trace")
+        {
+            block["compaction"] = true;
+            block["running"] = item.GetBoolean("running");
+            block["result"] = item.GetString("text");
+        }
+        else if (kind == "plugin_agent_status")
+        {
+            block["plugin_status"] = item.GetString("status");
+            block["content"] = item.GetString("text");
+        }
+        else if (kind is "tool_start" or "tool_end")
         {
             block["tool"] = item.GetString("name");
             block["running"] = kind == "tool_start";
             block[kind == "tool_start" ? "arguments" : "result"] = kind == "tool_start" ? item.GetString("arguments") : item.GetString("text");
         }
+        if (item["asset_links"] is JsonObject links) block["asset_links"] = links.DeepClone();
+        if (item.ContainsKey("plugin_sequence")) block["plugin_sequence"] = JsonValues.Clone(item["plugin_sequence"]);
+        return true;
+    }
+
+    private PresetConversation LoadPresetConversation(Workspace workspace)
+    {
+        var preset = workspace.PresetId;
+        if (presetTraces.TryGetValue(preset, out var previous) && previous.TryGetTarget(out var existing)) return existing;
+        var conversation = new PresetConversation(workspace);
+        conversation.Load(workspace);
+        presetTraces[preset] = new(conversation);
+        return conversation;
+    }
+
+    private JsonArray PresetBlocks(PresetConversation conversation)
+    {
+        lock (presetTraceGate) return (JsonArray)conversation.Blocks.DeepClone();
+    }
+
+    private void SavePresetTrace()
+    {
+        lock (presetTraceGate) presetConversation?.Save();
     }
 
     private async Task ProcessCommands()
@@ -239,11 +303,12 @@ public sealed partial class Engine : IAsyncDisposable
             }
             try
             {
-                await Execute(command, operation.Token);
+                if (op == "_maintain_storage") ConversationStorage.Maintain(Workspace.Root, operation.Token);
+                else await Execute(command, operation.Token);
             }
             catch (OperationCanceledException)
             {
-                FinishPendingTools("Cancelled.");
+                FinishPendingTrace("Cancelled.");
                 Emit(new()
                 {
                     ["kind"] = "cancelled",
@@ -252,7 +317,7 @@ public sealed partial class Engine : IAsyncDisposable
             }
             catch (Exception error)
             {
-                FinishPendingTools(error.Message);
+                FinishPendingTrace(error.Message);
                 Emit(new()
                 {
                     ["kind"] = "error",
@@ -271,7 +336,7 @@ public sealed partial class Engine : IAsyncDisposable
                 {
                     if (op is "message" or "_preset_interview" && command.GetString("agent") == "preset")
                     {
-                        presetConversation?.Save();
+                        SavePresetTrace();
                     }
                     if (modifiesChat && Workspace.ChatId.Length > 0)
                     {
@@ -344,13 +409,13 @@ public sealed partial class Engine : IAsyncDisposable
         }
     }
 
-    private void FinishPendingTools(string message)
+    private void FinishPendingTrace(string message)
     {
         foreach (var block in trace.Values.Where(block => block.GetBoolean("running")).ToArray())
         {
             Record(new()
             {
-                ["kind"] = "tool_end",
+                ["kind"] = block.GetBoolean("compaction") ? "context_trace" : "tool_end",
                 ["agent"] = block.GetString("agent"),
                 ["block"] = block.GetString("id"),
                 ["chat"] = JsonValues.Clone(block["chat"]),
@@ -370,8 +435,7 @@ public sealed partial class Engine : IAsyncDisposable
         nextWorkspace.Chat["mode"] ??= nextWorkspace.Mode;
         var nextEnsemble = nextWorkspace.Mode == "ensemble" ? new EnsembleConversation(nextWorkspace) : null;
         ConversationTitle.ClearLegacyTitle(nextWorkspace.Chat);
-        var nextPreset = new PresetConversation(nextWorkspace);
-        nextPreset.Load(nextWorkspace);
+        var nextPreset = LoadPresetConversation(nextWorkspace);
         var nextSessions = new Dictionary<string, AgentSession>(StringComparer.Ordinal);
         try
         {
@@ -398,6 +462,7 @@ public sealed partial class Engine : IAsyncDisposable
 
         sessions.Clear();
         trace.Clear();
+        displayAssets.Clear();
         Workspace = nextWorkspace;
         ensemble = nextEnsemble;
         activeEnsembleChat = "";
@@ -406,47 +471,52 @@ public sealed partial class Engine : IAsyncDisposable
         {
             sessions[session.Key] = session.Value;
         }
+        containers.Select(new(Workspace.PresetId, Workspace.ChatId, sessions["chat"].Db.Path));
 
         var fetch = new FetchAgent(Port, job =>
         {
             var context = PluginEnvironment("fetch");
             context["session"] = "fetch-" + job;
             return agentSessions.Open("fetch", SessionFiles.Fetch(Workspace.ChatRoot, job),
-                () => turnRouting.For("fetch"), () => context, item =>
+                () => turnRouting.For("fetch"), () => context, (item, info) =>
                 {
                     item["session"] = "fetch-" + job;
-                    Record(item);
+                    Record(item, sessionInfo: info);
                 });
         }, () => Workspace.AgentPrompt("fetch"));
         ensembleWeb = new PageSource(Port, fetch, () => turnRouting.Settings);
         search = new(Workspace, sessions["search"], ensembleWeb);
         chat = new(Workspace, sessions["chat"], search);
         environment = new(Workspace, sessions["env"]);
-        presets = new(Workspace, sessions["preset"]);
+        presets = new(Workspace, sessions["preset"], plugins);
         if (string.IsNullOrEmpty(id)) Workspace.Save();
-        Emit(new()
+        lock (presetTraceGate)
         {
-            ["kind"] = "loaded",
-            ["from_home_send"] = fromHomeSend,
-            ["draft"] = JsonValues.Clone(Workspace.Chat["draft"]),
-            ["ensemble_chats"] = ensemble?.List(),
-            ["participants"] = ensemble?.Agents.DeepClone(),
-            ["chat"] = new JsonObject
+            Emit(new()
             {
-                ["id"] = Workspace.ChatId,
-                ["name"] = Workspace.Chat.GetString("name"),
-                ["blocks"] = new JsonArray(Workspace.Chat.GetArray("blocks").OfType<JsonObject>()
-                    .Where(block => !PresetConversation.IsPreset(block))
-                    .Concat(nextPreset.Blocks.OfType<JsonObject>()).Select(LoadBlock).ToArray())
-            },
-            ["preset"] = Workspace.PresetId,
-            ["config"] = Workspace.Config.DeepClone()
-        });
+                ["kind"] = "loaded",
+                ["from_home_send"] = fromHomeSend,
+                ["draft"] = JsonValues.Clone(Workspace.Chat["draft"]),
+                ["ensemble_chats"] = ensemble?.List(),
+                ["participants"] = ensemble?.Agents.DeepClone(),
+                ["chat"] = new JsonObject
+                {
+                    ["id"] = Workspace.ChatId,
+                    ["name"] = Workspace.Chat.GetString("name"),
+                    ["blocks"] = new JsonArray(Workspace.Chat.GetArray("blocks").OfType<JsonObject>()
+                        .Where(block => !PresetConversation.IsPreset(block))
+                        .Concat(nextPreset.Blocks.OfType<JsonObject>()).Select(LoadBlock).ToArray())
+                },
+                ["preset"] = Workspace.PresetId,
+                ["config"] = Workspace.Config.DeepClone()
+            });
+        }
     }
 
     private AgentSession CreateWorkspaceSession(string role, string database, JsonObject? previous, Workspace workspace)
     {
-        var session = agentSessions.Open(role, database, () => turnRouting.For(role), () => PluginEnvironment(role), Record,
+        var session = agentSessions.Open(role, database, () => turnRouting.For(role), () => PluginEnvironment(role),
+            (item, info) => Record(item, sessionInfo: info),
             () => ModeSkills(role, workspace),
             role == "env" ? target => ensemble?.List().Any(chat => chat.GetString("id") == target) == true : null);
         try
@@ -467,26 +537,28 @@ public sealed partial class Engine : IAsyncDisposable
     {
         if (presetConversation is not null) return;
         EnsurePresetSelected();
-        var conversation = new PresetConversation(Workspace);
-        conversation.Load(Workspace);
+        var conversation = LoadPresetConversation(Workspace);
         var session = CreateWorkspaceSession("preset", conversation.Database, conversation.LegacySession, Workspace);
         sessions.Add("preset", session);
         presetConversation = conversation;
-        presets = new(Workspace, session);
+        presets = new(Workspace, session, plugins);
     }
 
     private void OpenPresetEditor(string request, bool created = false)
     {
         EnsurePresetSession();
-        Emit(new()
+        lock (presetTraceGate)
         {
-            ["kind"] = "preset_opened",
-            ["request"] = request,
-            ["created"] = created,
-            ["preset"] = Workspace.PresetId,
-            ["config"] = Workspace.Config.DeepClone(),
-            ["blocks"] = new JsonArray(presetConversation!.Blocks.OfType<JsonObject>().Select(LoadBlock).ToArray())
-        });
+            Emit(new()
+            {
+                ["kind"] = "preset_opened",
+                ["request"] = request,
+                ["created"] = created,
+                ["preset"] = Workspace.PresetId,
+                ["config"] = Workspace.Config.DeepClone(),
+                ["blocks"] = new JsonArray(presetConversation!.Blocks.OfType<JsonObject>().Select(LoadBlock).ToArray())
+            });
+        }
     }
 
     private static JsonObject LoadedBlock(JsonObject block)
@@ -511,6 +583,12 @@ public sealed partial class Engine : IAsyncDisposable
         if (await ExecuteExtensionCommand(command, token)) return;
         switch (command.GetString("op"))
         {
+            case "_container_available":
+                containers.EnableWarmStart();
+                return;
+            case "_curl_available":
+                curlAvailable = true;
+                return;
             case "list_chats":
                 Emit(new()
                 {
@@ -580,7 +658,7 @@ public sealed partial class Engine : IAsyncDisposable
                 if (command.GetString("preset") != Workspace.PresetId || Workspace.Config.GetString("setup_status") != "draft")
                     return;
                 EnsurePresetSession();
-                if (presetConversation!.Blocks.Any(block => block.GetString("content").Length > 0) ||
+                if (PresetBlocks(presetConversation!).Any(block => block.GetString("content").Length > 0) ||
                     turnRouting.For("preset").Model.Length == 0 || turnRouting.For("preset").Url.Length == 0) return;
                 var bootstrap = await plugins.InvokeBaseHook("preset.created",
                     new() { ["locale"] = command.GetString("locale", "en") }, PluginEnvironment("preset"), token);
@@ -646,7 +724,7 @@ public sealed partial class Engine : IAsyncDisposable
                 }
                 sessions[systemAgent].Insert(systemText, "system");
                 RecordInput(systemAgent, systemText, "system", new(), false);
-                presetConversation?.Save();
+                SavePresetTrace();
                 break;
             case "branch":
                 if (command.GetString("chat") != Workspace.ChatId)
@@ -781,7 +859,7 @@ public sealed partial class Engine : IAsyncDisposable
             {
                 Workspace.Chat.GetArray("messages").AddNode(new JsonObject { ["role"] = "assistant", ["agent"] = role, ["content"] = answer });
             }
-            Emit(new() { ["kind"] = "completed", ["agent"] = role, ["text"] = answer });
+            Emit(new() { ["kind"] = "completed", ["agent"] = role, ["text"] = answer }, session.SessionInfo);
             if (role == "preset")
             {
                 var name = Workspace.Config.GetString("name", Workspace.PresetId);
@@ -912,8 +990,11 @@ public sealed partial class Engine : IAsyncDisposable
         }
         if (agent == "preset")
         {
-            presetConversation!.Blocks.AddNode(block);
-            presetConversation.Save();
+            lock (presetTraceGate)
+            {
+                presetConversation!.Blocks.AddNode(block);
+                presetConversation.Save();
+            }
         }
         else
         {
@@ -1003,6 +1084,7 @@ public sealed partial class Engine : IAsyncDisposable
         try { active?.Cancel(); } catch (ObjectDisposedException) { }
         commands.Writer.TryComplete();
         await worker;
+        await containers.Shutdown();
         await pluginAgents.Drain();
         await plugins.DisposeAsync();
         await CloseTemporarySessions();

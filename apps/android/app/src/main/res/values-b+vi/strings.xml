@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">Không thể lưu tệp này</string>
     <string name="chat">Trò chuyện</string>
     <string name="world">Thế giới</string>
     <string name="preset">Preset</string>
@@ -132,6 +133,9 @@
     <string name="install_plugin">Cài đặt plugin</string>
     <string name="run_plugin">Chạy</string>
     <string name="remove_plugin">Gỡ cài đặt</string>
+    <string name="plugin_enabled">Đã bật</string>
+    <string name="plugin_disabled">Đã tắt</string>
+    <string name="uninstall_plugin_title">Gỡ cài đặt %1$s?</string>
     <string name="built_in">Tích hợp sẵn</string>
     <string name="plugin_resource_request">%1$s muốn bạn chọn tệp</string>
     <string name="delete_chat">Xóa cuộc trò chuyện</string>

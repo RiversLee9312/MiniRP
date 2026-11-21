@@ -6,6 +6,7 @@ world_state.json
 conversations/
 /versions/
 /attachments/
+/research-assets/
 /preset_sessions/
 /catalog.sqlite*
 /catalog-uuid.sqlite*

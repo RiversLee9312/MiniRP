@@ -8,25 +8,130 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.minirp.app.core.BrowserHost
 import com.minirp.app.core.CoreClient
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipFile
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
+import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.RecordedRequest
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class NativeCoreTest {
+    @get:Rule
+    val temporary = TemporaryFolder(ApplicationProvider.getApplicationContext<Context>().cacheDir)
+    @Test
+    fun chatOpenUrlDeliversMarkdownToTheModel() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = temporary.newFolder()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val url = "https://fixture.invalid/docs/article"
+        val round = AtomicInteger()
+        val failure = AtomicReference<Throwable>()
+        val researchAsset = AtomicReference<String>()
+        val pageRef = AtomicReference<String>()
+        fun tool(name: String, args: JSONObject) = JSONObject().put("tool_calls", JSONArray().put(
+            JSONObject().put("index", 0).put("id", "tool-${round.get()}").put("type", "function")
+                .put("function", JSONObject().put("name", name).put("arguments", args.toString()))
+        ))
+        MockWebServer().use { server ->
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = try {
+                    val body = JSONObject(checkNotNull(request.body).utf8())
+                    if (request.url.encodedPath == "/v1/tools/fetch") {
+                        assertEquals(url, body.getString("url"))
+                        MockResponse.Builder().setHeader("Content-Type", "application/json").body(JSONObject()
+                            .put("content", "<html><head><title>Source</title></head><body><nav>Junk</nav>" +
+                                "<main><h1>Article</h1><a href='next'>Next</a></main></body></html>").toString()).build()
+                    } else {
+                        val messages = body.getJSONArray("messages")
+                        val latest = messages.getJSONObject(messages.length() - 1)
+                        val delta = when (round.getAndIncrement()) {
+                            0 -> tool("activate_skill", JSONObject().put("name", "web-research"))
+                            1 -> tool("open_url", JSONObject().put("url", url))
+                            2 -> tool("real_fetch", JSONObject().put("url", url))
+                            3 -> {
+                                val result = JSONObject(latest.getString("content"))
+                                researchAsset.set(result.getString("asset_url"))
+                                pageRef.set(result.getString("ref"))
+                                assertTrue(researchAsset.get().startsWith("minirp://assets/minirp.base/research-"))
+                                tool("activate_skill", JSONObject().put("name", "edit_asset"))
+                            }
+                            4 -> tool("plugin_base_text_edit", JSONObject().put("url", researchAsset.get())
+                                .put("old_string", "# Article").put("new_string", "# Updated article"))
+                            5 -> {
+                                assertEquals(1, JSONObject(latest.getString("content")).getInt("changes"))
+                                tool("submit_page", JSONObject().put("ref", pageRef.get()))
+                            }
+                            6 -> {
+                                val page = JSONObject(latest.getString("content"))
+                                assertEquals("Source", page.getString("title"))
+                                assertEquals(url, page.getString("url"))
+                                assertEquals(researchAsset.get(), page.getString("asset_url"))
+                                assertEquals("# Updated article\n\n[Next](https://fixture.invalid/docs/next)", page.getString("content"))
+                                JSONObject().put("content", "Page read. [Save page](${researchAsset.get()})")
+                            }
+                            else -> JSONObject().put("content", "Article")
+                        }
+                        val event = JSONObject().put("choices", JSONArray().put(JSONObject().put("delta", delta)))
+                        MockResponse.Builder().setHeader("Content-Type", "text/event-stream").body("data: $event\n\ndata: [DONE]\n\n").build()
+                    }
+                } catch (error: Throwable) {
+                    failure.compareAndSet(null, error)
+                    MockResponse.Builder().code(500).body("Unexpected request").build()
+                }
+            }
+            server.start()
+            val core = CoreClient(object : ContextWrapper(app) { override fun getFilesDir() = directory }, scope, seedDefaultPreset = true)
+            try {
+                val preset = seededPreset(core)
+                core.send(JSONObject().put("op", "configure")
+                    .put("provider", JSONObject().put("url", server.url("/v1")).put("model", "fixture"))
+                    .put("settings", JSONObject().put("search_key", "test").put("search_url", server.url("/").toString())
+                        .put("fetch_backend", "api")))
+                core.send(JSONObject().put("op", "message").put("text", "Open the source."))
+                var block = ""
+                var room = ""
+                val completed = withTimeout(20_000) {
+                    core.events.first { event ->
+                        failure.get()?.let { throw AssertionError("open_url fixture failed", it) }
+                        check(event.optString("kind") != "error") { event.toString() }
+                        if (event.optString("kind") == "loaded") room = event.getJSONObject("chat").getString("id")
+                        if (event.optString("kind") == "turn_end" &&
+                            event.optJSONObject("asset_links")?.has(researchAsset.get()) == true) block = event.getString("block")
+                        event.optString("kind") == "completed"
+                    }
+                }
+                assertEquals("Page read. [Save page](${researchAsset.get()})", completed.getString("text"))
+                val download = JSONObject().put("op", "display_asset_open").put("url", researchAsset.get())
+                    .put("preset", preset).put("room", room).put("block", block)
+                assertEquals("Source.md", core.displayAssetInfo(download).getString("name"))
+                val bytes = ByteArrayOutputStream().also { core.saveDisplayAsset(download, it) }
+                assertEquals("# Updated article\n\n[Next](https://fixture.invalid/docs/next)", bytes.toString(Charsets.UTF_8))
+            } finally {
+                core.close()
+                scope.cancel()
+                directory.deleteRecursively()
+            }
+        }
+    }
+
     @Test
     fun longPresetSessionAppliesOneCheckpointAndSendsOnlyTheRetainedContext() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
-        val directory = File(app.cacheDir, "preset-compaction-${System.nanoTime()}").apply { mkdirs() }
+        val directory = temporary.newFolder()
         val context = object : ContextWrapper(app) {
             override fun getFilesDir() = directory
         }
@@ -91,7 +196,7 @@ class NativeCoreTest {
     @Test
     fun nativeCoreRestoresPresetAndRoomFromPortableFiles() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
-        val directory = File(app.cacheDir, "archive-probe-${System.nanoTime()}").apply { mkdirs() }
+        val directory = temporary.newFolder()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         fun client(name: String) = CoreClient(
             object : ContextWrapper(app) {
@@ -159,7 +264,7 @@ class NativeCoreTest {
     @Test
     fun presetEditorUsesItsOwnSessionWithoutCreatingAChat() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
-        val directory = File(app.cacheDir, "preset-probe-${System.nanoTime()}").apply { mkdirs() }
+        val directory = temporary.newFolder()
         val root =
             object : ContextWrapper(app) {
                 override fun getFilesDir(): File = directory
@@ -213,7 +318,7 @@ class NativeCoreTest {
         val fixture = InstrumentationRegistry.getArguments().getString("pluginFixture")
         assumeTrue("Pass a signed stream-assets example with -e pluginFixture", fixture != null)
         val app = ApplicationProvider.getApplicationContext<Context>()
-        val directory = File(app.cacheDir, "asset-probe-${System.nanoTime()}").apply { mkdirs() }
+        val directory = temporary.newFolder()
         val root =
             object : ContextWrapper(app) {
                 override fun getFilesDir(): File = directory
@@ -353,7 +458,7 @@ class NativeCoreTest {
     @Test
     fun nativeCoreLoadsLegacyChatAndRunsBuiltInV8Plugin() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
-        val directory = File(app.cacheDir, "legacy-probe-${System.nanoTime()}").apply { mkdirs() }
+        val directory = temporary.newFolder()
         File(directory, "workspace/presets")
             .apply { mkdirs() }
             .resolve("default.json")
@@ -400,7 +505,7 @@ class NativeCoreTest {
     @Test
     fun nativeCoreStreamsToolsAndPersistsUnicodeMemory() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
-        val directory = File(app.cacheDir, "native-probe-${System.nanoTime()}").apply { mkdirs() }
+        val directory = temporary.newFolder()
         val context =
             object : ContextWrapper(app) {
                 override fun getFilesDir(): File = directory

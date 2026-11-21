@@ -27,7 +27,7 @@ public sealed class ChatAgent(Workspace workspace, AgentSession session, SearchA
             prompt = prompt.Replace("{date}", workspace.State.GetString("sim_date"), StringComparison.Ordinal);
             prompt += "\n" + workspace.WorldText;
             prompt += "\nSearchAgent is disabled for this preset. You own research, tool orchestration, and world consistency. " +
-                "Use real_search/real_fetch and virtual_search when useful. Reuse, select, and edit candidates by ref, or create clearly marked simulated pages when warranted. " +
+                "Use real_search/real_fetch and virtual_search when useful. Edit candidates through their Asset URLs and select them by ref. Create clearly marked simulated pages when warranted. " +
                 "Use cache/submit tools to preserve completed results. Submission does not end your chat turn. Refs expire at the end of this turn. " +
                 "Answer the user's request after using the tools.\n" + workspace.State.GetString("chat_search_guidance");
             return await search.RunDirect(session, prompt, input, attachments, cancellationToken, inputRole, privateInput);
@@ -38,14 +38,14 @@ public sealed class ChatAgent(Workspace workspace, AgentSession session, SearchA
             {
                 ["query"] = Tools.String()
             }, "query"),
-            Tools.Define("open_url", "Read the document at a URL.", new()
+            Tools.Define("open_url", "Read a web page as Markdown. Long bodies are returned as an Asset URL for view_asset.", new()
             {
                 ["url"] = Tools.String()
             }, "url"));
         async Task<JsonNode?> Execute(string name, JsonObject arguments, CancellationToken token) => name switch
         {
-            "search" => ResearchResult.Public(await search.Run("search", arguments.GetString("query"), token)),
-            "open_url" => ResearchResult.Public(await search.Run("page", arguments.GetString("url"), token)),
+            "search" => Supply(ResearchResult.Public(await search.Run("search", arguments.GetString("query"), token))),
+            "open_url" => await OpenUrl(arguments.GetString("url"), token),
             _ => throw new ArgumentException("Unknown chat tool: " + name)
         };
         var response = await session.Run(prompt, input, new("web-research", "Find and read online sources when useful.", tools, Execute), cancellationToken,
@@ -53,4 +53,23 @@ public sealed class ChatAgent(Workspace workspace, AgentSession session, SearchA
         return response.GetString("content");
     }
 
+    private async Task<JsonObject> OpenUrl(string url, CancellationToken ct)
+    {
+        var page = Supply(ResearchResult.PublicPage(await search.Run("page", url, ct), url));
+        if (session.Assets is not { } assets || page.GetString("content") is not { Length: > 0 } markdown) return page;
+        var output = await assets.Output.Publish(markdown, "webpage.md", "text/markdown", ct);
+        if (!output.ContainsKey("asset_url")) return page;
+        page.Remove("content");
+        if (page["asset_url"] is { } cached) page["source_asset_url"] = cached.DeepClone();
+        foreach (var (field, value) in output) page[field] = JsonValues.Clone(value);
+        return page;
+    }
+
+    private JsonObject Supply(JsonObject result)
+    {
+        session.Assets?.GrantResearch(result.GetString("asset_url"));
+        foreach (var item in result.GetArray("results"))
+            session.Assets?.GrantResearch(item.GetString("asset_url"));
+        return result;
+    }
 }

@@ -13,9 +13,12 @@ import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -60,14 +63,16 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class PlatformToolFlowTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule val temporary = TemporaryFolder()
 
     @Test
     fun newPresetDelegatesFirstSigningDebuggingAndPublishingThenRollsDice() {
         val app = compose.activity.application
-        val directory = File(app.cacheDir, "tool-flow-${System.nanoTime()}").apply { mkdirs() }
+        val directory = temporary.newFolder()
         val context = object : ContextWrapper(app) {
             override fun getFilesDir(): File = directory
         }
@@ -150,6 +155,9 @@ class PlatformToolFlowTest {
                     !model.state.value.busy && model.state.value.blocks.any { it.content == SetupReply } &&
                         model.state.value.installedPlugins.any { it.name == ProjectName }
                 }
+                val worker = model.state.value.blocks.single { it.pluginStatus == "finished" }
+                assertEquals(ProjectName, worker.pluginAgentName)
+                assertTrue(model.state.value.blocks.any { it.pluginRun == worker.pluginRun && it.content == "Plugin published." })
                 compose.onNodeWithContentDescription(label(R.string.close)).performClick()
                 waitFor { !model.state.value.presetEditorOpen }
                 send(DiceRequest)
@@ -218,6 +226,11 @@ class PlatformToolFlowTest {
                 val saved = directory.resolve("portable.minirp-save")
                 openPresetList()
                 pickFromLibrary(preset, R.string.export_save, saved)
+                val overlay = "plugins/writable-assets/${plugin.packageName}.${plugin.signer}/$preset/notes"
+                ZipFile(saved).use { archive ->
+                    val edited = archive.getInputStream(archive.getEntry(overlay)).reader().use { it.readText() }
+                    assertEquals("Intro\n中文 TOKEN-44\nClosing\n", edited.removePrefix("\uFEFF"))
+                }
                 openPresetList()
                 document.set(exported)
                 importPreset.performClick()
@@ -228,13 +241,39 @@ class PlatformToolFlowTest {
                 val plugins = compose.onNodeWithText(label(R.string.plugins))
                 waitFor { plugins.isDisplayed() }
                 plugins.performClick()
-                val more = compose.onNodeWithContentDescription(label(R.string.more_options))
-                waitFor { more.isDisplayed() }
-                more.performClick()
+                val baseRow = compose.onNodeWithTag("plugin:base")
+                waitFor { baseRow.isDisplayed() }
+                baseRow.performClick()
+                compose.onNodeWithTag("plugin-export:base").assertDoesNotExist()
+                compose.onNodeWithTag("plugin-enabled:base").assertDoesNotExist()
+                compose.onNodeWithTag("plugin-uninstall:base").assertDoesNotExist()
+                val back = compose.onNodeWithContentDescription(label(R.string.back))
+                back.performClick()
+                val row = compose.onNodeWithTag("plugin:${plugin.id}")
+                waitFor { row.isDisplayed() }
+                val externalExport = compose.onNodeWithTag("plugin-export:${plugin.id}")
+                externalExport.assertDoesNotExist()
+                row.performClick()
+                val enabled = compose.onNodeWithTag("plugin-enabled:${plugin.id}")
+                waitFor { enabled.isDisplayed() }
+                enabled.assertIsOn().performClick()
+                waitFor { model.state.value.installedPlugins.any { it.id == plugin.id && !it.enabled } }
+                enabled.assertIsOff()
+                waitFor { externalExport.isDisplayed() }
                 document.set(standalone)
-                compose.onNodeWithText(label(R.string.export_archive)).performClick()
+                externalExport.performClick()
                 waitFor { !model.state.value.archiveBusy && standalone.isFile && standalone.length() > 0 }
                 assertArrayEquals(directory.resolve("workspace/plugins/${plugin.id}.plugin").readBytes(), standalone.readBytes())
+                enabled.performClick()
+                waitFor { model.state.value.installedPlugins.any { it.id == plugin.id && it.enabled } }
+                enabled.assertIsOn()
+                val uninstall = compose.onNodeWithTag("plugin-uninstall:${plugin.id}")
+                uninstall.performClick()
+                compose.onNode(hasText(label(R.string.cancel)) and hasAnyAncestor(isDialog())).performClick()
+                uninstall.performClick()
+                compose.onNode(hasText(label(R.string.remove_plugin)) and hasAnyAncestor(isDialog())).performClick()
+                waitFor { baseRow.isDisplayed() && model.state.value.installedPlugins.none { it.id == plugin.id } }
+                row.assertDoesNotExist()
                 val restored = CoreClient(object : ContextWrapper(app) {
                     override fun getFilesDir() = directory.resolve("restored").apply { mkdirs() }
                 }, scope)
@@ -246,6 +285,7 @@ class PlatformToolFlowTest {
                     assertArrayEquals(standalone.readBytes(),
                         directory.resolve("restored/workspace/plugins/${plugin.id}.plugin").readBytes())
                     assertTrue(directory.resolve("restored/workspace/conversations/$preset/$room.json").isFile)
+                    assertTrue(directory.resolve("restored/workspace/$overlay").readText().contains("TOKEN-44"))
                 } finally {
                     restored.close()
                 }
@@ -262,6 +302,7 @@ class PlatformToolFlowTest {
         private val workerRound = AtomicInteger()
         private val diceRound = AtomicInteger()
         private val assetRound = AtomicInteger()
+        private var pageSample = ""
         private val callId = AtomicInteger()
         private lateinit var draft: File
         private lateinit var manifest: JSONObject
@@ -315,6 +356,20 @@ class PlatformToolFlowTest {
                 manifest = JSONObject(JSONObject(result).getString("text"))
                 fixtureHandler = "minirp://actions/${manifest.getString("packageName")}/hooks/probe"
                 manifest.put("actions", json("handlers" to json("probe" to "probe")))
+                    .put("permissions", (manifest.optJSONArray("permissions") ?: JSONArray()).put("harness.read"))
+                    .put("assets", JSONArray().put(json(
+                        "id" to "notes", "type" to "file", "path" to "notes.txt", "mimeType" to "text/plain", "writable" to true,
+                    )))
+                    .put("skills", JSONArray().put(json(
+                        "name" to "session", "description" to "Read the current session budget.",
+                        "agents" to JSONArray().put("chat"), "tools" to JSONArray().put(json(
+                            "name" to "session_info", "description" to "Read model and token usage.",
+                            "handler" to fixtureHandler, "parameters" to json("type" to "object"),
+                        )).put(json(
+                            "name" to "notes", "description" to "Return the text fixture.", "returnType" to "asset-url",
+                            "handler" to fixtureHandler, "parameters" to json("type" to "object"),
+                        )),
+                    )))
                     .put("stateEntries", JSONArray().put(json(
                         "key" to "gate", "scope" to "room", "description" to "Gate display",
                         "initial" to json("line" to "Gate open.", "steps" to 1),
@@ -325,9 +380,12 @@ class PlatformToolFlowTest {
                     )))
                 tools(
                     tool("plugin_base_project_write", "path" to "manifest.json", "overwrite" to true, "text" to manifest.toString()),
+                    tool("plugin_base_project_write", "path" to "notes.txt", "text" to "Intro\n中文 TOKEN-42\nClosing\n"),
                     tool("plugin_base_project_write", "path" to "index.js", "overwrite" to true,
                         "text" to """
                             globalThis.handlers = { probe: async (event, api) => {
+                                if (event.tool?.endsWith("_notes")) return api.assets.url("notes");
+                                if (event.name === "skill.tool") return api.harness.getSessionInfo();
                                 if (event.line) {
                                     const state = await api.state.get({ key: "gate" });
                                     await api.state.set({ key: "gate", expected_revision: state.revision,
@@ -414,7 +472,8 @@ class PlatformToolFlowTest {
                     }
                     assertTrue("The renderer returned a blank screenshot.", colors.size > 10)
                 } finally { image.recycle() }
-                tools(tool("plugin_base_project_card_preview", "id" to "gate", "ensemble" to true))
+                tools(tool("plugin_base_project_card_preview", "id" to "gate", "ensemble" to true,
+                    "viewport" to json("x" to 0, "y" to 0, "width" to 128, "height" to 80)))
             }
             9 -> {
                 val clean = JSONObject(result)
@@ -422,6 +481,10 @@ class PlatformToolFlowTest {
                 val text = clean.getJSONObject("view").getString("text")
                 assertTrue(result, text.contains("Gate open.") && text.contains("Steps 1"))
                 assertEquals(0, clean.getJSONArray("actions").length())
+                val screenshot = clean.getJSONObject("screenshot")
+                assertTrue(result, screenshot.getBoolean("captured") && screenshot.getBoolean("cropped"))
+                assertEquals(128, screenshot.getInt("width"))
+                assertEquals(80, screenshot.getInt("height"))
                 assertTrue(draft.listFiles()!!.none { it.extension == "preview" })
                 tools(tool("plugin_base_project_publish"))
             }
@@ -450,7 +513,7 @@ class PlatformToolFlowTest {
                 0 -> tools(tool("activate_skill", "name" to "view_asset"))
                 1 -> {
                     val names = JSONObject(result).getJSONArray("tools")
-                    assertEquals(11, names.length())
+                    assertEquals(12, names.length())
                     tools(tool("plugin_base_view_url_metadata", "url" to url))
                 }
                 2 -> {
@@ -471,12 +534,27 @@ class PlatformToolFlowTest {
                     val bitmap = assertNotNullImage(Base64.getDecoder().decode(data.substringAfter(',')))
                     try { assertEquals(Color.RED, bitmap.getPixel(bitmap.width / 2, bitmap.height / 2)) }
                     finally { bitmap.recycle() }
-                    tools(tool("plugin_base_view_image_metadata", "url" to JSONObject(result).getString("sample_url")))
+                    pageSample = JSONObject(result).getString("sample_url")
+                    tools(tool("plugin_base_view_image_metadata", "url" to pageSample))
                 }
                 5 -> {
                     val metadata = JSONObject(result).getJSONObject("metadata")
                     assertEquals(700, metadata.getInt("width"))
                     assertEquals(1400, metadata.getInt("height"))
+                    tools(tool("plugin_base_view_image", "url" to pageSample,
+                        "viewport" to json("x" to 50, "y" to 100, "width" to 80, "height" to 120)))
+                }
+                6 -> {
+                    val crop = JSONObject(result)
+                    assertEquals(80, crop.getInt("width"))
+                    assertEquals(120, crop.getInt("height"))
+                    tools(tool("plugin_base_raw_grep", "url" to url, "pattern" to "25 50 44 46 2d", "literal" to true, "limit" to 1))
+                }
+                7 -> {
+                    val row = JSONObject(result).getJSONArray("lines").getJSONObject(0)
+                    assertEquals(0, row.getInt("match_offset"))
+                    assertTrue(row.getString("text").startsWith("25 50 44 46 2D "))
+                    assertTrue(row.getString("text").contains(" | "))
                     json("content" to AssetReply)
                 }
                 else -> error("Unexpected Asset preview round")
@@ -497,10 +575,51 @@ class PlatformToolFlowTest {
                 val values = (0 until rolls.length()).map(rolls::getInt)
                 assertTrue(values.all { it in 1..1000 })
                 assertEquals(values.sum() - 7, outcome.getInt("total"))
+                tools(tool("activate_skill", "name" to "${manifest.getString("id")}-session"))
+            }
+            4 -> tools(tool("plugin_${manifest.getString("id")}_session_info"))
+            5 -> {
+                val info = JSONObject(result)
+                assertEquals("fixture", info.getString("model"))
+                assertEquals("fixture", info.getString("provider"))
+                assertTrue(info.getInt("usedTokens") > 0)
+                assertEquals(info.getInt("contextWindow") - info.getInt("usedTokens"), info.getInt("remainingTokens"))
+                tools(tool("plugin_${manifest.getString("id")}_notes"))
+            }
+            6 -> tools(tool("activate_skill", "name" to "view_asset"))
+            7 -> {
+                val url = "minirp://assets/${manifest.getString("packageName")}/notes"
+                tools(tool("plugin_base_grep", "url" to url, "pattern" to "[[:upper:]]+-[0-9]+", "context" to 1))
+            }
+            8 -> {
+                val lines = JSONObject(result).getJSONArray("lines")
+                assertEquals("Intro", lines.getJSONObject(0).getString("text"))
+                assertEquals("中文 TOKEN-42", lines.getJSONObject(1).getString("text"))
+                assertEquals(4, lines.getJSONObject(1).getInt("column"))
+                assertEquals("Closing", lines.getJSONObject(2).getString("text"))
+                tools(tool("activate_skill", "name" to "edit_asset"))
+            }
+            9 -> tools(tool("plugin_base_text_edit", "url" to notesUrl(), "old_string" to "TOKEN-42", "new_string" to "TOKEN-43"))
+            10 -> {
+                assertEquals(result, 1, JSONObject(result).optInt("changes"))
+                tools(tool("plugin_base_raw_grep", "url" to notesUrl(), "pattern" to "34 33", "literal" to true))
+            }
+            11 -> {
+                val offset = JSONObject(result).getJSONArray("lines").getJSONObject(0).getInt("match_offset")
+                tools(tool("plugin_base_bin_patch", "url" to notesUrl(), "offset" to offset, "old_hex" to "34 33", "new_hex" to "34 34"))
+            }
+            12 -> {
+                assertEquals(result, 1, JSONObject(result).optInt("changes"))
+                tools(tool("plugin_base_grep", "url" to notesUrl(), "pattern" to "TOKEN-44"))
+            }
+            13 -> {
+                assertEquals("中文 TOKEN-44", JSONObject(result).getJSONArray("lines").getJSONObject(0).getString("text"))
                 json("content" to DiceReply)
             }
             else -> error("Unexpected ChatAgent round")
         }
+
+        private fun notesUrl() = "minirp://assets/${manifest.getString("packageName")}/notes"
 
         private fun tools(vararg calls: JSONObject) =
             json("tool_calls" to JSONArray().apply { calls.forEachIndexed { i, call -> put(call.put("index", i)) } })

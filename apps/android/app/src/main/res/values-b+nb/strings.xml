@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">Kunne ikke lagre filen</string>
     <string name="chat">Chat</string>
     <string name="world">Verden</string>
     <string name="preset">Forhåndsinnstilling</string>
@@ -134,6 +135,9 @@
     <string name="install_plugin">Installer programtillegg</string>
     <string name="run_plugin">Kjør</string>
     <string name="remove_plugin">Avinstaller</string>
+    <string name="plugin_enabled">Aktivert</string>
+    <string name="plugin_disabled">Deaktivert</string>
+    <string name="uninstall_plugin_title">Avinstallere %1$s?</string>
     <string name="built_in">Innebygd</string>
     <string name="plugin_resource_request">%1$s vil at du skal velge filer</string>
     <string name="delete_chat">Slett chat</string>

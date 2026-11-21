@@ -1,6 +1,6 @@
 import { library as intelligentUi } from "@openuidev/intelligent-ui-library";
 import { defineComponent, reactive, useStateField } from "@openuidev/react-lang";
-import { createElement, useEffect, useRef, useState } from "react";
+import { createContext, createElement, useContext, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
 const place = z.object({
@@ -92,8 +92,49 @@ function MapComponent({ props, statementId }) {
     );
 }
 
+export const AssetMedia = createContext(false);
+const assetUrl = /^minirp:\/\/assets\/[a-z0-9._]+\/[A-Za-z0-9_.-]+$/;
+const resourcePath = "/asset-resource/";
+
+export function originalAssetUrl(url) {
+    const resource = new URL(url, document.baseURI);
+    return resource.origin === location.origin && resource.pathname.startsWith(resourcePath)
+        ? decodeURIComponent(resource.pathname.slice(resourcePath.length)) : url;
+}
+
+function hostAssetUrl(url, ready) {
+    if (!assetUrl.test(url)) return url;
+    return ready ? location.origin + resourcePath + encodeURIComponent(url) : "";
+}
+
+function assetComponent(name, property, convert, description) {
+    const original = intelligentUi.components[name];
+    return defineComponent({
+        ...original,
+        description: description ?? original.description,
+        component: (input) => {
+            const ready = useContext(AssetMedia);
+            return createElement(original.component, {
+                ...input,
+                props: { ...input.props, [property]: convert(input.props[property], ready) },
+            });
+        },
+    });
+}
+
 export const library = intelligentUi.extend({
-    components: { add: [MapView], remove: ["HtmlView", "YouTube"] },
+    components: {
+        add: [MapView],
+        remove: ["HtmlView", "YouTube"],
+        override: [
+            assetComponent("Image", "src", hostAssetUrl, "Photo from an HTTPS URL or an Asset URL supplied to the session. aspectRatio is 0.2 to 5 (default 1.5)."),
+            assetComponent("Link", "url", hostAssetUrl, "Opens an HTTPS link or downloads a shared Asset URL."),
+            assetComponent("Markdown", "text", (text, ready) => (text ?? "").replace(
+                /\]\((minirp:\/\/assets\/[a-z0-9._]+\/[A-Za-z0-9_.-]+)\)/g,
+                (_, url) => "](" + hostAssetUrl(url, ready) + ")",
+            )),
+        ],
+    },
 });
 
 const promptOptions = {

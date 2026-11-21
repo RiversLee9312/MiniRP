@@ -1,6 +1,7 @@
 package com.minirp.app
 
 import android.os.SystemClock
+import android.graphics.Bitmap
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
@@ -21,12 +22,20 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToKey
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
 import androidx.compose.ui.unit.dp
 import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import com.minirp.app.ui.OpenUiInteractions
+import com.minirp.app.ui.AssetDownloader
+import com.minirp.app.ui.DisplayAssets
 import com.minirp.app.ui.TraceBlock
 import com.minirp.app.ui.TraceLog
+import com.mikepenz.markdown.model.State
+import com.mikepenz.markdown.model.parseMarkdown
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -40,6 +49,47 @@ import org.junit.Test
 
 class OpenUiRendererTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun downloadsReplyLinksAndRendersAnAssetImageInsideTheCard() {
+        val url = "minirp://assets/minirp.agent/12345678-1234-1234-1234-123456789abc"
+        val png = ByteArrayOutputStream().also { output ->
+            val bitmap = Bitmap.createBitmap(12, 8, Bitmap.Config.ARGB_8888)
+            try { bitmap.compress(Bitmap.CompressFormat.PNG, 100, output) }
+            finally { bitmap.recycle() }
+        }.toByteArray()
+        val request = AtomicReference<JSONObject?>()
+        val loaded = AtomicReference<JSONObject?>()
+        val assets = DisplayAssets(AssetDownloader(request::set), "preset", "room", "conversation") { info, accepts ->
+            loaded.set(info)
+            if (accepts("image/png")) "image/png" to ByteArrayInputStream(png) else null
+        }
+        val markdown = "[Save report]($url)"
+        val program = """root = Col([Image("$url", "Report preview"), Link("Save from card", "$url")])"""
+        compose.setContent {
+            MaterialExpressiveTheme {
+                TraceLog(
+                    listOf(
+                        TraceBlock("report-reply", content = markdown, markdown = parseMarkdown(markdown) as State.Success),
+                        TraceBlock("report-card", openUi = program),
+                    ),
+                    false,
+                    displayAssets = assets,
+                )
+            }
+        }
+        compose.waitUntil(15_000) {
+            js("document.querySelector('img')?.naturalWidth", cardId = "report-card") == "12"
+        }
+        assertEquals("report-card", loaded.get()!!.getString("block"))
+        assertEquals(url, loaded.get()!!.getString("url"))
+        click("Save from card", cardId = "report-card")
+        compose.waitUntil(3_000) { request.get()?.optString("block") == "report-card" }
+        assertEquals(url, request.get()!!.getString("url"))
+        compose.onNodeWithText("Save report").performTouchInput { click() }
+        compose.waitUntil(3_000) { request.get()?.optString("block") == "report-reply" }
+        assertEquals(url, request.get()!!.getString("url"))
+    }
 
     @Test
     fun openUiTablesWrapLongValuesAndKeepWideColumnsReachable() {
@@ -281,7 +331,7 @@ class OpenUiRendererTest {
                     js(
                         """
             (() => {
-                const button = [...document.querySelectorAll('button')]
+                const button = [...document.querySelectorAll('button,a[href]')]
                     .find(element => element.innerText.trim() === ${JSONObject.quote(label)});
                 if (!button) return null;
                         window.lastTestClick = null;

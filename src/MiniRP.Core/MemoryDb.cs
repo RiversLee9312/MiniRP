@@ -9,6 +9,10 @@ public sealed partial class MemoryDb : IDisposable
     private nint _db;
     private readonly object _gate = new();
     private readonly bool _fts;
+    private const string EntrySchema = "entries(key TEXT PRIMARY KEY,content TEXT NOT NULL,revision INTEGER NOT NULL,updated_at TEXT NOT NULL)";
+    private const string HistoryMessages = "_history/messages/";
+    private const string IndexedKeys = "key GLOB '" + HistoryMessages + "*' OR " +
+        "(key NOT GLOB '_context/*' AND key NOT GLOB '_archive/*' AND key NOT GLOB '_history/*')";
     public string Path
     {
         get;
@@ -16,7 +20,7 @@ public sealed partial class MemoryDb : IDisposable
 
     public MemoryDb(string path) : this(path, readOnly: false) { }
 
-    private MemoryDb(string path, bool readOnly)
+    private MemoryDb(string path, bool readOnly, bool initialize = true)
     {
         Path = path;
         if (!readOnly && path != ":memory:")
@@ -27,23 +31,45 @@ public sealed partial class MemoryDb : IDisposable
         var vfs = OperatingSystem.IsWindows() ? "win32-longpath" : null;
         Check(Open(NativePath(path), out _db, (readOnly ? 0x00000001 : 0x00000002 | 0x00000004) | 0x00010000, vfs));
         BusyTimeout(_db, 5000);
-        if (readOnly) return;
+        if (readOnly || !initialize) return;
         if (path != ":memory:")
         {
             Execute("PRAGMA journal_mode=WAL");
         }
 
-        Execute("CREATE TABLE IF NOT EXISTS entries(key TEXT PRIMARY KEY,content TEXT NOT NULL,revision INTEGER NOT NULL,updated_at TEXT NOT NULL)");
+        Execute("CREATE TABLE IF NOT EXISTS " + EntrySchema);
         try
         {
-            Execute("CREATE VIRTUAL TABLE IF NOT EXISTS entry_search USING fts5(key,content,tokenize='trigram')");
-            Execute("INSERT INTO entry_search(key,content) SELECT key,content FROM entries WHERE key NOT IN (SELECT key FROM entry_search)");
+            var hasIndex = Query("SELECT 1 FROM sqlite_master WHERE name='entry_search'").Count != 0;
+            if (hasIndex && Query("PRAGMA user_version")[0]["user_version"] == "1")
+            {
+                _fts = true;
+                return;
+            }
+            Execute("BEGIN IMMEDIATE");
+            try
+            {
+                if (hasIndex) Execute("DROP TABLE IF EXISTS entry_search");
+                Execute("CREATE VIRTUAL TABLE IF NOT EXISTS entry_search USING fts5(key,content,tokenize='trigram')");
+                Execute("INSERT INTO entry_search(key,content) SELECT key,content FROM entries WHERE (" + IndexedKeys +
+                    ") AND key NOT IN (SELECT key FROM entry_search)");
+                Execute("PRAGMA user_version=1");
+                Execute("COMMIT");
+            }
+            catch { Execute("ROLLBACK"); throw; }
             _fts = true;
+            if (hasIndex && int.Parse(Query("PRAGMA freelist_count")[0]["freelist_count"]) >= 256)
+            {
+                Execute("VACUUM");
+                Execute("PRAGMA wal_checkpoint(TRUNCATE)");
+            }
         }
         catch (InvalidOperationException) { _fts = false; }
     }
 
     internal static MemoryDb ReadOnly(string path) => new(path, readOnly: true);
+
+    internal static MemoryDb OpenScratch(string path) => new(path, readOnly: false, initialize: false);
 
     internal bool HasEntriesTable() => Query("SELECT name FROM sqlite_master WHERE type='table' AND name='entries'").Count > 0;
 
@@ -97,6 +123,20 @@ public sealed partial class MemoryDb : IDisposable
     public string? Get(string key) => Query("SELECT content FROM entries WHERE key=?", key).FirstOrDefault()?.GetValueOrDefault("content");
 
     public void Snapshot(string path) => Execute("VACUUM INTO ?", NativePath(path));
+
+    internal void SnapshotSession(string path)
+    {
+        lock (_gate)
+        {
+            Execute("ATTACH DATABASE ? AS branch", NativePath(path));
+            try
+            {
+                Execute("CREATE TABLE branch." + EntrySchema);
+                Execute("INSERT INTO branch.entries SELECT key,content,revision,updated_at FROM main.entries");
+            }
+            finally { Execute("DETACH DATABASE branch"); }
+        }
+    }
 
     private static string NativePath(string path)
     {
@@ -156,10 +196,14 @@ public sealed partial class MemoryDb : IDisposable
     private void Upsert(string key, string content, int current)
     {
         Execute("INSERT INTO entries VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET content=excluded.content,revision=excluded.revision,updated_at=excluded.updated_at", key, content, current + 1, DateTimeOffset.UtcNow.ToString("O"));
-        if (!_fts) return;
+        if (!_fts || !ShouldIndex(key)) return;
         if (current != 0) Execute("DELETE FROM entry_search WHERE key=?", key);
         Execute("INSERT INTO entry_search(key,content) VALUES(?,?)", key, content);
     }
+
+    private static bool ShouldIndex(string key) => key.StartsWith(HistoryMessages, StringComparison.Ordinal) ||
+        !(key.StartsWith("_context/", StringComparison.Ordinal) || key.StartsWith("_archive/", StringComparison.Ordinal) ||
+          key.StartsWith("_history/", StringComparison.Ordinal));
 
     public JsonObject Call(string name, JsonObject args)
     {
@@ -277,7 +321,9 @@ public sealed partial class MemoryDb : IDisposable
                 }
 
                 var prefix = args.GetString("prefix");
-                var useFts = _fts && query.EnumerateRunes().Count() >= 3;
+                var notesOnly = args.GetBoolean("notes_only");
+                var useFts = _fts && (notesOnly || prefix.StartsWith(HistoryMessages, StringComparison.Ordinal) ||
+                    prefix.Length > 0 && prefix[0] != '_') && query.EnumerateRunes().Count() >= 3;
                 var expression = (scope == "keys" ? "key : " : scope == "content" ? "content : " : "") + "\"" + query.Replace("\"", "\"\"") + "\"";
                 var condition = useFts ? "key IN (SELECT key FROM entry_search WHERE entry_search MATCH ?)" : scope switch
                 {
@@ -287,7 +333,7 @@ public sealed partial class MemoryDb : IDisposable
                 };
                 var offset = Math.Max(0, args.GetInt32("offset"));
                 var order = args.GetBoolean("newest_first") ? "updated_at DESC, key DESC" : "key";
-                var result = Query("SELECT key,revision,substr(content,max(1,instr(lower(content),lower(?))-60),220) AS snippet FROM entries WHERE " + condition + " AND substr(key,1,?)=? AND (?=0 OR substr(key,1,1)<>'_') ORDER BY " + order + " LIMIT ? OFFSET ?", query, useFts ? expression : query, prefix.EnumerateRunes().Count(), prefix, args.GetBoolean("notes_only") ? 1 : 0, limit + 1, offset);
+                var result = Query("SELECT key,revision,substr(content,max(1,instr(lower(content),lower(?))-60),220) AS snippet FROM entries WHERE " + condition + " AND substr(key,1,?)=? AND (?=0 OR substr(key,1,1)<>'_') ORDER BY " + order + " LIMIT ? OFFSET ?", query, useFts ? expression : query, prefix.EnumerateRunes().Count(), prefix, notesOnly ? 1 : 0, limit + 1, offset);
                 foreach (var row in result.Take(limit))
                 {
                     rows.AddNode(new JsonObject { ["key"] = row["key"], ["revision"] = int.Parse(row["revision"]), ["snippet"] = row["snippet"] });

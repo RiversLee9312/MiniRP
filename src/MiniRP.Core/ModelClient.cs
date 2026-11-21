@@ -72,9 +72,9 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
     }
     internal HostPort Port => port;
 
-    internal JsonObject Request(Provider provider, JsonArray messages, JsonArray tools)
+    internal JsonObject Request(Provider provider, JsonArray messages, AgentSkill.Turn? skills)
     {
-        var (path, body) = Build(provider, messages, tools, includeMediaData: true);
+        var (path, body) = Build(provider, messages, skills?.Definitions() ?? new(), includeMediaData: true);
         return new() { ["url"] = provider.Url + path, ["method"] = "POST", ["headers"] = Headers(provider),
             ["body"] = JsonValues.Serialize(body), ["stream"] = true };
     }

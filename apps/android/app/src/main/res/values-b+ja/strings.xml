@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">ファイルを保存できませんでした</string>
     <string name="chat">チャット</string>
     <string name="world">ワールド</string>
     <string name="preset">プリセット</string>
@@ -132,6 +133,9 @@
     <string name="install_plugin">プラグインをインストール</string>
     <string name="run_plugin">実行</string>
     <string name="remove_plugin">アンインストール</string>
+    <string name="plugin_enabled">有効</string>
+    <string name="plugin_disabled">無効</string>
+    <string name="uninstall_plugin_title">%1$s をアンインストールしますか？</string>
     <string name="built_in">組み込み</string>
     <string name="plugin_resource_request">%1$sがファイルの選択を求めています</string>
     <string name="delete_chat">チャットを削除</string>

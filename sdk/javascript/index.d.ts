@@ -80,6 +80,14 @@ export interface AssetMetadata {
 export type TextEncoding = "utf-8" | "utf-16le" | "utf-16be";
 export type TextPage = { text: string; offset: number; next_offset: number | null };
 export type MediaInterval = { start_ms?: number; duration_ms?: number };
+/** Top-left source coordinates. Use pixels for images and video frames and points for PDF pages. */
+export type ImageViewport = { x: number; y: number; width: number; height: number };
+export interface RenderedImage extends AssetBody {
+    readonly width: number;
+    readonly height: number;
+    readonly source_width: number;
+    readonly source_height: number;
+}
 export interface DecodedImage extends AssetBody {
     readonly width: number;
     readonly height: number;
@@ -114,24 +122,28 @@ export interface MiniRPApi {
     };
     readonly image: {
         metadata(url: AssetUrl): Promise<JsonObject>;
+        preview(url: AssetUrl, options?: { viewport?: ImageViewport }): Promise<RenderedImage>;
         decode(url: AssetUrl): Promise<DecodedImage>;
         encode(url: AssetUrl, options?: { format?: "png" | "jpeg" | "webp"; quality?: number }): Promise<AssetBody>;
     };
     readonly media: {
         videoMetadata(url: AssetUrl): Promise<JsonObject>;
-        decodeFrame(url: AssetUrl, options?: { start_ms?: number }): Promise<AssetBody>;
+        decodeFrame(url: AssetUrl, options?: { start_ms?: number; viewport?: ImageViewport }): Promise<RenderedImage>;
         decodeAudio(url: AssetUrl, options?: MediaInterval): Promise<AssetBody>;
         encodeAudio(url: AssetUrl, options?: MediaInterval): Promise<AssetBody>;
         encodeVideo(url: AssetUrl, options?: MediaInterval): Promise<AssetBody>;
     };
     readonly pdf: {
         metadata(url: AssetUrl): Promise<JsonObject>;
-        renderPage(url: AssetUrl, options?: { page?: number }): Promise<AssetBody>;
+        renderPage(url: AssetUrl, options?: { page?: number; viewport?: ImageViewport }): Promise<RenderedImage>;
         createPage(url: AssetUrl): Promise<AssetBody>;
     };
     readonly actions: {
         invoke(args: { url: HookUrl; assets?: Record<string, AssetUrl> }): Promise<Accepted>;
         publish(args: { url: EventUrl; assets?: Record<string, AssetUrl> }): Promise<Accepted & { subscribers: number }>;
+        publishOutput(args: { text: string; name?: string; mime?: string }): Promise<
+            { output: string } | { asset_url: AssetUrl; size: number; instruction: string }
+        >;
     };
     readonly attachments: {
         open(args: { id: string }): Promise<AssetBody>;
@@ -176,6 +188,13 @@ export interface MiniRPApi {
         set(args: { key: string; value: JsonObject; expected_revision: number }): Promise<StructuredState>;
     };
     readonly harness: {
+        getSessionInfo(): Promise<{
+            model: string;
+            provider: string;
+            contextWindow: number;
+            usedTokens: number;
+            remainingTokens: number;
+        } | null>;
         listPresets(args?: Page): Promise<Array<{ id: UUID; name: string }>>;
         listChats(args?: Page & RoomTarget): Promise<Array<{ id: UUID; name: string; members?: string[] }>>;
         getPreset(args?: { preset?: UUID }): Promise<JsonObject>;

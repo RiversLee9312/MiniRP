@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">फ़ाइल सेव नहीं हो सकी</string>
     <string name="chat">चैट</string>
     <string name="world">दुनिया</string>
     <string name="preset">प्रीसेट</string>
@@ -134,6 +135,9 @@
     <string name="install_plugin">प्लगइन इंस्टॉल करें</string>
     <string name="run_plugin">चलाएँ</string>
     <string name="remove_plugin">अनइंस्टॉल करें</string>
+    <string name="plugin_enabled">चालू</string>
+    <string name="plugin_disabled">बंद</string>
+    <string name="uninstall_plugin_title">%1$s को अनइंस्टॉल करें?</string>
     <string name="built_in">अंतर्निहित</string>
     <string name="plugin_resource_request">%1$s चाहता है कि आप फ़ाइलें चुनें</string>
     <string name="delete_chat">चैट हटाएँ</string>

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">Nem sikerült menteni a fájlt</string>
     <string name="chat">Csevegés</string>
     <string name="world">Világ</string>
     <string name="preset">Előbeállítás</string>
@@ -134,6 +135,9 @@
     <string name="install_plugin">Bővítmény telepítése</string>
     <string name="run_plugin">Futtatás</string>
     <string name="remove_plugin">Eltávolítás</string>
+    <string name="plugin_enabled">Engedélyezve</string>
+    <string name="plugin_disabled">Letiltva</string>
+    <string name="uninstall_plugin_title">Eltávolítja ezt: %1$s?</string>
     <string name="built_in">Beépített</string>
     <string name="plugin_resource_request">%1$s arra kér, hogy válassz fájlokat</string>
     <string name="delete_chat">Csevegés törlése</string>

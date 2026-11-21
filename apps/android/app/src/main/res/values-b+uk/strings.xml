@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">Не вдалося зберегти файл</string>
     <string name="chat">Чат</string>
     <string name="world">Світ</string>
     <string name="preset">Пресет</string>
@@ -138,6 +139,9 @@
     <string name="install_plugin">Установити плагін</string>
     <string name="run_plugin">Запустити</string>
     <string name="remove_plugin">Видалити</string>
+    <string name="plugin_enabled">Увімкнено</string>
+    <string name="plugin_disabled">Вимкнено</string>
+    <string name="uninstall_plugin_title">Видалити %1$s?</string>
     <string name="built_in">Вбудовано</string>
     <string name="plugin_resource_request">%1$s просить вибрати файли</string>
     <string name="delete_chat">Видалити чат</string>

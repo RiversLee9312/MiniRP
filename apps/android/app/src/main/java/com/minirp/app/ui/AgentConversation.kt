@@ -6,11 +6,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,9 +20,14 @@ import androidx.compose.runtime.saveable.mapSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -45,9 +52,8 @@ import kotlinx.coroutines.withContext
 import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun AgentConversation(
+internal fun AgentConversation(
     state: ChatState,
     agent: AgentRole,
     modifier: Modifier = Modifier,
@@ -60,6 +66,8 @@ fun AgentConversation(
     onOpenPreset: (() -> Unit)? = null,
     onBranchReply: ((String) -> Unit)? = null,
     onCreatePreset: (() -> Unit)? = null,
+    background: PresetBackground? = null,
+    displayAssets: DisplayAssets? = null,
 ) {
     val home = state.chatId.isBlank() && agent == AgentRole.Chat
     if (home && state.preset.isBlank()) {
@@ -82,28 +90,36 @@ fun AgentConversation(
             }
         }
     Column(modifier) {
-        if (home) {
-            HomeGreeting(
-                state.presetName,
-                Modifier.weight(1f).fillMaxWidth(),
-                onOpenPreset,
-                enabled = state.ready && !state.busy && !state.preparing,
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            PresetBackdrop(
+                background, conversation = !home, blur = state.appearance.blurBackground,
+                modifier = Modifier.matchParentSize(),
             )
-        } else
-            TraceLog(
-                blocks,
-                state.expandThoughts,
-                Modifier.weight(1f).fillMaxWidth(),
-                onBranch = onBranch.takeUnless { state.busy || state.preparing },
-                onBranchReply = onBranchReply.takeUnless { state.busy || state.preparing },
-                waiting =
-                    state.generating == agent &&
-                        blocks.lastOrNull()?.user != false &&
-                        blocks.none { it.running || it.streaming },
-                replyError = state.replyError?.takeIf { it.agent == agent }?.message,
-                loadThumbnail = loadThumbnail,
-                openUi = openUi,
-            )
+            if (home) {
+                HomeGreeting(
+                    state.presetName,
+                    Modifier.fillMaxSize(),
+                    onOpenPreset,
+                    enabled = state.ready && !state.busy && !state.preparing,
+                    onBackground = background != null,
+                )
+            } else
+                TraceLog(
+                    blocks,
+                    state.expandThoughts,
+                    Modifier.fillMaxSize(),
+                    onBranch = onBranch.takeUnless { state.busy || state.preparing },
+                    onBranchReply = onBranchReply.takeUnless { state.busy || state.preparing },
+                    waiting =
+                        state.generating == agent &&
+                            blocks.lastOrNull()?.user != false &&
+                            blocks.none { it.running || it.streaming },
+                    replyError = state.replyError?.takeIf { it.agent == agent }?.message,
+                    loadThumbnail = loadThumbnail,
+                    openUi = openUi,
+                    displayAssets = displayAssets,
+                )
+        }
         Composer(
             state.busy,
             state.preparing,
@@ -112,12 +128,15 @@ fun AgentConversation(
             steering = state.generating == agent,
             pluginTypes =
                 state.installedPlugins
-                    .filter { it.scope.allows(state.preset) }
+                    .filter { it.availableIn(state.preset) }
                     .flatMap { it.attachments },
             draft = state.branchDraft.takeIf { agent == AgentRole.Chat },
         )
-        FlowRow(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        Row(
+            Modifier.fillMaxWidth()
+                .testTag("agent-models")
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             val roles =
@@ -147,15 +166,23 @@ internal fun HomeGreeting(
     modifier: Modifier,
     onPresetAction: (() -> Unit)?,
     enabled: Boolean,
+    onBackground: Boolean = false,
 ) {
     val hasPreset = presetName.isNotBlank()
+    val dark = LocalMiniRPDarkTheme.current
+    val foreground = if (!onBackground) Color.Unspecified else if (dark) Color.White else Color.Black
+    val shadow = if (onBackground) Shadow(
+        color = (if (dark) Color.Black else Color.White).copy(alpha = 0.82f),
+        blurRadius = with(LocalDensity.current) { 14.dp.toPx() },
+    ) else null
     Box(modifier.padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 stringResource(
                     if (hasPreset) R.string.welcome_to_preset else R.string.no_presets_yet
                 ),
-                style = MaterialTheme.typography.headlineSmall,
+                color = foreground,
+                style = MaterialTheme.typography.headlineSmall.copy(shadow = shadow),
                 textAlign = TextAlign.Center,
             )
             Text(
@@ -176,7 +203,8 @@ internal fun HomeGreeting(
                                     .heightIn(min = 48.dp)
                                     .wrapContentHeight(Alignment.CenterVertically)
                         ),
-                style = MaterialTheme.typography.headlineMedium,
+                color = foreground,
+                style = MaterialTheme.typography.headlineMedium.copy(shadow = shadow),
                 textDecoration = TextDecoration.Underline,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
@@ -209,7 +237,7 @@ private sealed interface TimelineItem {
     data class ActivityStep(
         val step: TraceBlock,
         val group: TraceHeader,
-        val search: TraceHeader?,
+        val child: TraceHeader?,
     ) : TimelineItem {
         override val id: String
             get() = "activity-step:${step.id}"
@@ -263,6 +291,8 @@ private fun timeline(
     expansion: Map<String, Boolean>,
 ): List<TimelineItem> = buildList {
     val activity = mutableListOf<TraceBlock>()
+    val pluginRuns = blocks.filter { it.pluginRun.isNotBlank() }.groupBy { it.pluginRun }
+    val seenRuns = mutableSetOf<String>()
     fun flush() {
         if (activity.isEmpty()) return
         val id = "activity:${activity.first().id}"
@@ -271,40 +301,54 @@ private fun timeline(
                 id = id,
                 parent = null,
                 running = activity.any { it.running || it.streaming },
-                tools = activity.count { it.tool.isNotBlank() },
+                tools = activity.sumOf { step ->
+                    val run = pluginRuns[step.pluginRun]
+                    if (run == null) (if (step.tool.isNotBlank()) 1 else 0)
+                    else run.count { it.tool.isNotBlank() }
+                },
                 expanded =
                     expansion[id]
-                        ?: (defaultExpanded && activity.any { it.reasoning.isNotBlank() }),
+                        ?: (defaultExpanded && activity.any { step ->
+                            step.reasoning.isNotBlank() ||
+                                pluginRuns[step.pluginRun]?.any { it.reasoning.isNotBlank() } == true
+                        }),
             )
         add(TimelineItem.ActivityHeader(group))
         if (group.expanded) {
+            fun addChild(steps: List<TraceBlock>, id: String, agent: AgentRole? = null, name: String? = null) {
+                val status = steps.firstOrNull { it.pluginStatus.isNotBlank() }?.pluginStatus
+                val header = TraceHeader(
+                    id = id,
+                    parent = group,
+                    running = status?.let { it == "running" } ?: steps.any { it.running || it.streaming },
+                    tools = steps.count { it.tool.isNotBlank() },
+                    expanded = expansion[id] == true,
+                    agent = agent,
+                    agentName = name,
+                )
+                add(TimelineItem.ActivityHeader(header))
+                if (header.expanded) steps.filter { it.hasTraceContent }.forEach {
+                    add(TimelineItem.ActivityStep(it, group, header))
+                }
+            }
             var start = 0
             while (start < activity.size) {
                 val step = activity[start]
-                if (!step.isSearchTrace) {
+                val run = pluginRuns[step.pluginRun]
+                if (run != null) {
+                    addChild(run, "plugin-activity:${step.pluginRun}", name = step.pluginAgentName.ifBlank { "PluginAgent" })
+                    start++
+                } else if (step.isSearchTrace) {
+                    var end = start + 1
+                    while (end < activity.size && activity[end].isSearchTrace) end++
+                    val steps = activity.subList(start, end)
+                    val agent = if (steps.any { it.role == AgentRole.Search }) AgentRole.Search else AgentRole.Fetch
+                    addChild(steps, "search-activity:${step.id}", agent = agent)
+                    start = end
+                } else {
                     add(TimelineItem.ActivityStep(step, group, null))
                     start++
-                    continue
                 }
-                var end = start + 1
-                while (end < activity.size && activity[end].isSearchTrace) end++
-                val searchSteps = activity.subList(start, end)
-                val searchId = "search-activity:${step.id}"
-                val search =
-                    TraceHeader(
-                        id = searchId,
-                        parent = group,
-                        running = searchSteps.any { it.running || it.streaming },
-                        tools = searchSteps.count { it.tool.isNotBlank() },
-                        expanded = expansion[searchId] == true,
-                        agent =
-                            if (searchSteps.any { it.role == AgentRole.Search }) AgentRole.Search
-                            else AgentRole.Fetch,
-                    )
-                add(TimelineItem.ActivityHeader(search))
-                if (search.expanded)
-                    searchSteps.forEach { add(TimelineItem.ActivityStep(it, group, search)) }
-                start = end
             }
         }
         activity.clear()
@@ -315,16 +359,15 @@ private fun timeline(
             add(TimelineItem.ReplyActions(block, it.text))
             return@forEach
         }
-        if (block.isSearchTrace) {
-            if (
-                block.tool.isNotBlank() ||
-                    block.reasoning.isNotBlank() ||
-                    block.content.isNotBlank()
-            )
-                activity += block
+        if (block.pluginRun.isNotBlank()) {
+            if (seenRuns.add(block.pluginRun)) activity += block
             return@forEach
         }
-        if (block.tool.isNotBlank() || block.reasoning.isNotBlank()) activity += block
+        if (block.isSearchTrace) {
+            if (block.hasTraceContent) activity += block
+            return@forEach
+        }
+        if (block.compaction || block.tool.isNotBlank() || block.reasoning.isNotBlank()) activity += block
         if (!block.openUi.isNullOrBlank()) {
             flush()
             add(TimelineItem.InteractiveReply(block))
@@ -356,7 +399,7 @@ private fun timeline(
     .asReversed()
 
 @Composable
-fun TraceLog(
+internal fun TraceLog(
     blocks: List<TraceBlock>,
     expandThoughts: Boolean,
     modifier: Modifier = Modifier,
@@ -366,6 +409,7 @@ fun TraceLog(
     list: LazyListState = rememberLazyListState(),
     loadThumbnail: (suspend (AttachmentThumbnail) -> ByteArray)? = null,
     openUi: OpenUiInteractions? = null,
+    displayAssets: DisplayAssets? = null,
     onBranchReply: ((String) -> Unit)? = null,
 ) {
     val streamed = buildMap {
@@ -406,7 +450,7 @@ fun TraceLog(
                         .maxByOrNull { it.offset } ?: return@derivedStateOf emptyList()
                 val entry = itemsByKey[top.key]
                 when (entry) {
-                    is TimelineItem.ActivityStep -> listOfNotNull(entry.group, entry.search)
+                    is TimelineItem.ActivityStep -> listOfNotNull(entry.group, entry.child)
                     is TimelineItem.ActivityHeader ->
                         buildList {
                             entry.header.parent?.let(::add)
@@ -477,10 +521,17 @@ fun TraceLog(
                             TraceHeading(item.header, obscured = pinned.any { it.id == item.id }) {
                                 toggleTrace(item.header)
                             }
-                        is TimelineItem.ActivityStep ->
-                            TraceStep(item.step, if (item.search == null) 1 else 2)
+                        is TimelineItem.ActivityStep -> {
+                            val depth = if (item.child == null) 1 else 2
+                            val nestedCard = item.child != null && !item.step.openUi.isNullOrBlank()
+                            if (!nestedCard || item.step.reasoning.isNotBlank() || item.step.content.isNotBlank())
+                                TraceStep(item.step, depth)
+                            if (nestedCard) {
+                                Box(Modifier.traceQuote(depth)) { OpenUiReply(item.step, openUi, openUiPages, displayAssets) }
+                            }
+                        }
                         is TimelineItem.InteractiveReply ->
-                            OpenUiReply(item.block, openUi, openUiPages)
+                            OpenUiReply(item.block, openUi, openUiPages, displayAssets)
                         is TimelineItem.Speaker ->
                             Text(
                                 item.block.speaker,
@@ -506,15 +557,26 @@ fun TraceLog(
                                 }
                         is TimelineItem.Paragraph ->
                             SelectionContainer(Modifier.fillMaxWidth()) {
-                                Markdown(
-                                    item.document,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    animations = stillMarkdown,
-                                    components = chatMarkdownComponents,
-                                    success = { state, components, _ ->
-                                        MarkdownElement(item.node, components, state.content)
-                                    },
-                                )
+                                val external = LocalUriHandler.current
+                                val links = remember(external, displayAssets, item.block.id) {
+                                    object : UriHandler {
+                                        override fun openUri(uri: String) {
+                                            if (isDisplayAssetUrl(uri)) displayAssets?.download(item.block.id, uri)
+                                            else external.openUri(uri)
+                                        }
+                                    }
+                                }
+                                CompositionLocalProvider(LocalUriHandler provides links) {
+                                    Markdown(
+                                        item.document,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        animations = stillMarkdown,
+                                        components = chatMarkdownComponents,
+                                        success = { state, components, _ ->
+                                            MarkdownElement(item.node, components, state.content)
+                                        },
+                                    )
+                                }
                             }
                     }
                 }
@@ -713,6 +775,9 @@ private fun UserMessage(
         }
     }
 }
+
+private val TraceBlock.hasTraceContent: Boolean
+    get() = compaction || tool.isNotBlank() || reasoning.isNotBlank() || content.isNotBlank() || !openUi.isNullOrBlank()
 
 private val TraceBlock.isSearchTrace: Boolean
     get() = role == AgentRole.Search || role == AgentRole.Fetch

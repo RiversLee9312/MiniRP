@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">Nie udało się zapisać pliku</string>
     <string name="chat">Czat</string>
     <string name="world">Świat</string>
     <string name="preset">Preset</string>
@@ -138,6 +139,9 @@
     <string name="install_plugin">Zainstaluj wtyczkę</string>
     <string name="run_plugin">Uruchom</string>
     <string name="remove_plugin">Odinstaluj</string>
+    <string name="plugin_enabled">Włączono</string>
+    <string name="plugin_disabled">Wyłączono</string>
+    <string name="uninstall_plugin_title">Odinstalować %1$s?</string>
     <string name="built_in">Wbudowane</string>
     <string name="plugin_resource_request">%1$s prosi o wybranie plików</string>
     <string name="delete_chat">Usuń czat</string>

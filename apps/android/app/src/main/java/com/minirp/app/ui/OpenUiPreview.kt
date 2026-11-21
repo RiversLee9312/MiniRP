@@ -11,6 +11,7 @@ import android.view.View.MeasureSpec
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.compose.ui.graphics.toArgb
+import com.minirp.app.core.ImageViewport
 import java.io.ByteArrayOutputStream
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
@@ -104,7 +105,7 @@ internal class OpenUiPreview(private val context: Context, private val window: (
                 when {
                     !result.optBoolean("rendered") -> noImage(result, "The card did not render.")
                     !page.isAttachedToWindow -> noImage(result, "Open the Android app to capture a card image.")
-                    else -> capture(page, result, colors.surface.toArgb(), density)
+                    else -> capture(page, result, colors.surface.toArgb(), density, ImageViewport.read(request))
                 }
             }
             return result
@@ -115,7 +116,7 @@ internal class OpenUiPreview(private val context: Context, private val window: (
         }
     }
 
-    private suspend fun capture(page: OpenUiPage, result: JSONObject, background: Int, density: Float) {
+    private suspend fun capture(page: OpenUiPage, result: JSONObject, background: Int, density: Float, viewport: ImageViewport?) {
         val ready = withTimeoutOrNull(4000) {
             suspendCancellableCoroutine { continuation ->
                 page.postVisualStateCallback(0, object : WebView.VisualStateCallback() {
@@ -131,16 +132,19 @@ internal class OpenUiPreview(private val context: Context, private val window: (
         }
         val contentHeight = (result.getJSONObject("view").getInt("height") * density).roundToInt()
         val height = contentHeight.coerceIn(1, page.height)
-        val scale = minOf(1f, 1024f / page.width, 1500f / height)
+        val region = viewport?.requireInside(page.width, height) ?: ImageViewport(0, 0, page.width, height)
+        val scale = if (viewport == null) minOf(1f, 1024f / region.width, 1500f / region.height)
+            else minOf(1f, ImageViewport.MaxSide.toFloat() / maxOf(region.width, region.height))
         val image = Bitmap.createBitmap(
-            (page.width * scale).roundToInt().coerceAtLeast(1),
-            (height * scale).roundToInt().coerceAtLeast(1),
+            (region.width * scale).roundToInt().coerceAtLeast(1),
+            (region.height * scale).roundToInt().coerceAtLeast(1),
             Bitmap.Config.ARGB_8888,
         )
         try {
             val canvas = Canvas(image)
             canvas.drawColor(background)
             canvas.scale(scale, scale)
+            canvas.translate(-region.x.toFloat(), -region.y.toFloat())
             page.draw(canvas)
             val encoded = withContext(Dispatchers.Default) {
                 val bytes = ByteArrayOutputStream()
@@ -150,7 +154,8 @@ internal class OpenUiPreview(private val context: Context, private val window: (
             if (encoded == null) noImage(result, "The screenshot exceeded the image limit.")
             else result.put("image_base64", encoded).put("screenshot", JSONObject()
                 .put("captured", true).put("width", image.width).put("height", image.height)
-                .put("cropped", contentHeight > height))
+                .put("source_width", page.width).put("source_height", height)
+                .put("cropped", viewport != null || contentHeight > height))
         } finally { image.recycle() }
     }
 

@@ -35,6 +35,11 @@ data class TraceBlock(
     val openUiTitle: String = "",
     val openUiState: String? = null,
     val openUiRevision: Int = 0,
+    val compaction: Boolean = false,
+    val pluginRun: String = "",
+    val pluginAgentName: String = "",
+    val pluginStatus: String = "",
+    val pluginSequence: Int = 0,
 ) {
     val role: AgentRole
         get() =
@@ -128,6 +133,7 @@ data class ChatState(
     val modelCatalogs: Map<String, ModelCatalog> = emptyMap(),
     val catalog: List<ProviderConfig> = emptyList(),
     val presetName: String = "",
+    val appearance: PresetAppearance = PresetAppearance(),
     val presetEditor: PresetEditorPhase = PresetEditorPhase.Closed,
     val branchDraft: BranchDraft? = null,
     val expandThoughts: Boolean = false,

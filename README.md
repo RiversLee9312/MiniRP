@@ -14,6 +14,8 @@
 
 Agent 共用 `AgentSession` 的流式事件、工具循环、取消、上下文压缩和记忆工具。UI 展开/折叠只影响展示，不修改模型请求中的思考设置。
 
+ChatAgent 可激活 `container` 技能运行 x86-64 Alpine 中的命令，并在会话 Asset 和客户机文件间传递数据。Android 和 Windows x64 随包提供运行时和镜像，工作目录随分支和存档迁移。构建前准备同一份 [Agent 容器镜像和两端运行时](docs/project/agent-container.md)。
+
 ## 运行桌面版
 
 需要 .NET SDK 10.0.400、Visual Studio C++ 桌面生成工具。浏览器抓取另外需要 Node.js 和 Chrome；只用 API 或缓存时不启动浏览器。
@@ -49,6 +51,8 @@ Enter 发送，Alt+Enter 换行。输入框随换行和软换行增高，最多�
 pwsh -File eng/build-android.ps1 -Install -Device '<ADB device serial>'
 ```
 
+加上 `-Optimized` 可生成使用调试签名、启用发布版代码和资源裁剪的 APK，便于覆盖安装验证。
+
 输出 `artifacts/MiniRP.apk`。也可用 Android Studio 打开 `apps/android`；先运行 `eng/build-native.ps1 -Runtime linux-bionic-arm64` 生成本地库。
 
 Android 的世界、预设和记忆面板打开即全屏。对话页支持流式 Markdown、可折叠的工具轨迹和附件；搜索轨迹缩进展示。长按支持分支的用户消息可从发送前的世界与 Agent 状态创建新对话。旧消息没有历史快照，不能分支。标题只根据主聊天生成，点击标题可编辑或重新生成。
@@ -83,6 +87,10 @@ UI 文案使用 Android 字符串资源，支持英文及另外 29 种语言；�
 - `auto`：采用配置的默认策略。
 
 API 没有可靠的完整性字段时记录为 `unknown`。本地采集不加正文字符上限：原文完整归档，编辑稿存入 `page/markdown`，长内容通过 DB 分页读取。摘要保存在独立字段。无法访问的嵌入框架会被标记，避免宣称已完整采集。
+
+内置 base 插件的 `research` 技能提供真实搜索、抓取和缓存。候选项附有当前轮次的 `ref` 以及 `asset_url`。网页 Asset 提供 Markdown，搜索条目 Asset 提供 JSON。用 `view_asset` 查询全文，用 `edit_asset` 编辑，再按 `ref` 缓存或提交。缓存随对话分支和存档恢复。ChatAgent 的 `open_url` 同时返回 Markdown 和 Asset URL。
+
+Agent 可用 `asset_storage` 创建和管理会话文件，并在回答中提供 Markdown 下载链接。Android 的 OpenUI 卡片也支持 Asset 图片和下载链接。
 
 调研后采用语义工具和稳定元素引用：`browser_navigate`、`browser_snapshot`、`browser_click`、`browser_type`、`browser_press_key`、`browser_scroll`、`browser_wait`，再用 `capture_page` / `finish_fetch` 提交。桌面复用官方 Playwright MCP 和 C# MCP SDK；Android 用 WebView 实现相同平台接口。页面 JavaScript 仅由固定采集代码执行，模型没有宿主代码执行工具。
 

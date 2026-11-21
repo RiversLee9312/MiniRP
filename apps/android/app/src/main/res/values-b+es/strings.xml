@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">No se pudo guardar el archivo</string>
     <string name="chat">Chat</string>
     <string name="world">Mundo</string>
     <string name="preset">Preajuste</string>
@@ -134,6 +135,9 @@
     <string name="install_plugin">Instalar complemento</string>
     <string name="run_plugin">Ejecutar</string>
     <string name="remove_plugin">Desinstalar</string>
+    <string name="plugin_enabled">Activado</string>
+    <string name="plugin_disabled">Desactivado</string>
+    <string name="uninstall_plugin_title">¿Desinstalar %1$s?</string>
     <string name="built_in">Integrado</string>
     <string name="plugin_resource_request">%1$s quiere que elijas archivos</string>
     <string name="delete_chat">Eliminar chat</string>

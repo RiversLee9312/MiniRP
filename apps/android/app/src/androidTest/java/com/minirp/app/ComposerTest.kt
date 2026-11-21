@@ -7,11 +7,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.longClick
@@ -23,16 +27,22 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.mikepenz.markdown.model.State as MarkdownState
 import com.mikepenz.markdown.model.parseMarkdown
+import com.minirp.app.ui.AgentConversation
+import com.minirp.app.ui.AgentRole
+import com.minirp.app.ui.ChatState
 import com.minirp.app.ui.Choice
 import com.minirp.app.ui.Composer
 import com.minirp.app.ui.DeleteLibraryChoice
 import com.minirp.app.ui.FullSheet
 import com.minirp.app.ui.LibraryChoiceRow
+import com.minirp.app.ui.SavedModel
 import com.minirp.app.ui.TraceBlock
 import com.minirp.app.ui.TraceLog
 import kotlinx.coroutines.CompletableDeferred
@@ -43,6 +53,47 @@ import org.junit.Test
 
 class ComposerTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test
+    fun agentModelSelectorsStayOnOneRowAndCanBeSwipedIntoView() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val chat = Choice("chat", "Chat model with a long display name ".repeat(3))
+        val search = Choice("search", "Search model with a long display name ".repeat(3))
+        var opened: AgentRole? = null
+        compose.setContent {
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                MaterialExpressiveTheme {
+                    Box(Modifier.width(300.dp)) {
+                        AgentConversation(
+                            state = ChatState(
+                                chatId = "chat",
+                                agenticSearch = true,
+                                assignments = mapOf(
+                                    AgentRole.Chat to SavedModel("provider", chat),
+                                    AgentRole.Search to SavedModel("provider", search),
+                                ),
+                            ),
+                            agent = AgentRole.Chat,
+                            onCancel = {},
+                            onSend = { _, _, _, _ -> false },
+                            onModels = { opened = it },
+                        )
+                    }
+                }
+            }
+        }
+        val chatChip = compose.onNodeWithText("${context.getString(AgentRole.Chat.label)} · ${chat.name}")
+        val searchChip = compose.onNodeWithText("${context.getString(AgentRole.Search.label)} · ${search.name}")
+        chatChip.assertIsDisplayed()
+        searchChip.assertIsNotDisplayed()
+        val rowTop = chatChip.fetchSemanticsNode().boundsInRoot.top
+
+        compose.onNodeWithTag("agent-models").performTouchInput { swipeLeft() }
+        searchChip.assertIsDisplayed()
+        assertEquals(rowTop, searchChip.fetchSemanticsNode().boundsInRoot.top, 1f)
+        searchChip.performTouchInput { click() }
+        compose.runOnIdle { assertEquals(AgentRole.Search, opened) }
+    }
 
     @Test
     fun thoughtsExpandAndCollapseOnSuccessiveTaps() {

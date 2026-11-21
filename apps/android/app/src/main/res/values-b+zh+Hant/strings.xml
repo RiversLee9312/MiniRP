@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">無法儲存此檔案</string>
     <string name="chat">聊天</string>
     <string name="world">世界</string>
     <string name="preset">預設</string>
@@ -150,6 +151,9 @@
     <string name="model_provider_settings">模型和供應商</string>
     <string name="about">關於</string>
     <string name="interactive_reply">互動式回覆</string>
+    <string name="plugin_enabled">已啟用</string>
+    <string name="plugin_disabled">已停用</string>
+    <string name="uninstall_plugin_title">解除安裝 %1$s？</string>
     <string name="interactive_reply_unavailable">無法載入互動式回覆</string>
     <string name="welcome_to_preset">歡迎來到</string>
     <string name="branch_edit_message">在分支中編輯</string>

@@ -13,10 +13,11 @@ internal static class ConversationVersions
         {
             if (role != "preset")
             {
-                session.Db.Snapshot(Path.Combine(root, role + ".sqlite"));
+                ConversationStorage.Capture(session.Db, Path.Combine(root, role + ".sqlite"));
             }
         }
-        AtomicFile.Write(Path.Combine(root, "world.json"), JsonValues.Serialize(workspace.State));
+        ConversationStorage.WriteWorld(Path.Combine(root, "world.json"), JsonValues.Serialize(workspace.State));
+        ConversationStorage.MarkCompact(root);
         return id;
     }
 
@@ -38,7 +39,9 @@ internal static class ConversationVersions
         Directory.CreateDirectory(target);
         foreach (var role in roles)
         {
-            File.Copy(Path.Combine(root, role + ".sqlite"), Path.Combine(target, role + ".sqlite"));
+            using var snapshot = ConversationStorage.Open(Path.Combine(root, role + ".sqlite"));
+            using var output = File.Create(Path.Combine(target, role + ".sqlite"));
+            snapshot.CopyTo(output);
         }
 
         var prefix = new JsonArray();
@@ -57,6 +60,7 @@ internal static class ConversationVersions
         {
             messages.AddNode(JsonValues.Clone(message));
         }
+        using var world = ConversationStorage.Open(Path.Combine(root, "world.json"));
         var branch = new JsonObject
         {
             ["id"] = id,
@@ -65,7 +69,7 @@ internal static class ConversationVersions
             ["parent_message"] = blockId,
             ["blocks"] = prefix,
             ["messages"] = messages,
-            ["world"] = JsonValues.ParseObject(File.ReadAllText(Path.Combine(root, "world.json")))
+            ["world"] = JsonNode.Parse(world) as JsonObject ?? throw new InvalidDataException("Invalid world snapshot.")
         };
         var input = blocks[position].GetString("content");
         var attachments = (JsonArray)blocks[position].GetArray("attachments").DeepClone();

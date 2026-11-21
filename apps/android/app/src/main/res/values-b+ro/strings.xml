@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">Fișierul nu a putut fi salvat</string>
     <string name="chat">Chat</string>
     <string name="world">Lume</string>
     <string name="preset">Presetare</string>
@@ -136,6 +137,9 @@
     <string name="install_plugin">Instalează pluginul</string>
     <string name="run_plugin">Rulează</string>
     <string name="remove_plugin">Dezinstalează</string>
+    <string name="plugin_enabled">Activat</string>
+    <string name="plugin_disabled">Dezactivat</string>
+    <string name="uninstall_plugin_title">Dezinstalezi %1$s?</string>
     <string name="built_in">Integrat</string>
     <string name="plugin_resource_request">%1$s dorește să alegi fișiere</string>
     <string name="delete_chat">Șterge conversația</string>

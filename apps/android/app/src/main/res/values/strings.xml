@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">Couldn’t save this file</string>
     <string name="app_name" translatable="false">MiniRP</string>
     <string name="chat">Chat</string>
     <string name="world">World</string>
@@ -143,6 +144,9 @@
     <string name="install_plugin">Install plugin</string>
     <string name="run_plugin">Run</string>
     <string name="remove_plugin">Uninstall</string>
+    <string name="plugin_enabled">Enabled</string>
+    <string name="plugin_disabled">Disabled</string>
+    <string name="uninstall_plugin_title">Uninstall %1$s?</string>
     <string name="built_in">Built in</string>
     <string name="plugin_resource_request">%1$s wants you to choose files</string>
     <string name="delete_chat">Delete chat</string>

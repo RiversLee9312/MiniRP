@@ -33,7 +33,9 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.minirp.app.R
 import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.util.Locale
+import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 
 data class OpenUiInteractions(
@@ -47,6 +49,7 @@ internal fun OpenUiReply(
     block: TraceBlock,
     interactions: OpenUiInteractions?,
     pages: OpenUiPageCache,
+    displayAssets: DisplayAssets? = null,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var measuredHeight by rememberSaveable { mutableIntStateOf(120) }
@@ -97,7 +100,12 @@ internal fun OpenUiReply(
                 }
             }
             "link" -> {
-                val uri = Uri.parse(message.optString("url"))
+                val url = message.optString("url")
+                if (isDisplayAssetUrl(url)) {
+                    displayAssets?.download(block.id, url)
+                    return
+                }
+                val uri = Uri.parse(url)
                 if (uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null)
                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
             }
@@ -121,6 +129,7 @@ internal fun OpenUiReply(
                         Modifier.matchParentSize(),
                         false,
                         pages,
+                        displayAssets,
                         ::handleMessage,
                     )
                 if (!loaded && !failed)
@@ -149,6 +158,7 @@ internal fun OpenUiReply(
                 Modifier.weight(1f).fillMaxWidth(),
                 true,
                 null,
+                displayAssets,
                 ::handleMessage,
             )
         }
@@ -161,6 +171,7 @@ private fun OpenUiWebView(
     modifier: Modifier,
     expanded: Boolean,
     pages: OpenUiPageCache?,
+    displayAssets: DisplayAssets?,
     onMessage: (JSONObject) -> Unit,
 ) {
     val dark = isSystemInDarkTheme()
@@ -192,7 +203,9 @@ private fun OpenUiWebView(
         factory = ::OpenUiSlot,
         modifier = modifier,
         update = { slot ->
-            slot.bind(block.id, expanded, pages, onMessage).render(payload) {
+            val page = slot.bind(block.id, expanded, pages, onMessage)
+            page.openMedia = displayAssets?.let { assets -> { url -> assets.openMedia(block.id, url) } }
+            page.render(payload) {
                 interactions?.restore?.invoke(block.id)
             }
         },
@@ -317,6 +330,7 @@ internal class OpenUiPage(
     private var status: JSONObject? = null
     private var pendingState: JSONObject? = null
     var callback: ((JSONObject) -> Unit)? = null
+    @Volatile var openMedia: (suspend (String) -> Pair<String, InputStream>?)? = null
     val failed: Boolean
         get() = status?.optString("type") == "error"
 
@@ -344,12 +358,20 @@ internal class OpenUiPage(
                 override fun shouldInterceptRequest(
                     view: WebView,
                     request: WebResourceRequest,
-                ): WebResourceResponse? =
-                    assetLoader.shouldInterceptRequest(request.url)
-                        ?: if (offline) WebResourceResponse(
-                            "text/plain", "utf-8", 403, "Preview is offline", emptyMap(),
-                            ByteArrayInputStream(ByteArray(0)),
-                        ) else null
+                ): WebResourceResponse? {
+                    val uri = request.url
+                    if (uri.scheme == "https" && uri.authority == "minirp-ui.invalid" &&
+                        uri.encodedPath.orEmpty().startsWith(AssetResourcePath)) {
+                        val url = Uri.decode(uri.encodedPath.orEmpty().removePrefix(AssetResourcePath))
+                        val reader = openMedia
+                        if (request.isForMainFrame || request.method != "GET" || !isDisplayAssetUrl(url) || reader == null)
+                            return unavailable()
+                        val media = runCatching { runBlocking { reader(url) } }.getOrNull() ?: return unavailable()
+                        return WebResourceResponse(media.first, null, 200, "OK",
+                            mapOf("Cache-Control" to "no-store", "X-Content-Type-Options" to "nosniff"), media.second)
+                    }
+                    return assetLoader.shouldInterceptRequest(uri) ?: if (offline) unavailable() else null
+                }
 
                 override fun onReceivedError(
                     view: WebView,
@@ -397,8 +419,14 @@ internal class OpenUiPage(
 
     fun detach() {
         callback = null
+        openMedia = null
         onPause()
     }
+
+    private fun unavailable() = WebResourceResponse(
+        "text/plain", "utf-8", 403, "Asset unavailable", emptyMap(),
+        ByteArrayInputStream(ByteArray(0)),
+    )
 
     private fun pageError() {
         receive(JSONObject().put("type", if (offline) "page_error" else "error"))
@@ -453,6 +481,7 @@ internal class OpenUiPage(
 
     companion object {
         private const val Origin = "https://minirp-ui.invalid"
+        private const val AssetResourcePath = "/asset-resource/"
 
         fun isSupported() = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
     }

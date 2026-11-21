@@ -77,7 +77,7 @@ internal sealed partial class PluginRuntime
                         db.Write("host/scope", JsonValues.Serialize(PluginScope.Include(preset).Describe()), internalWrite: true);
                     files.Add(settings, file);
                 }
-                added.Add(package with { ArchivePath = target });
+                added.Add(package with { ArchivePath = target, Enabled = ReadEnabled(package) });
             }
             if (Directory.EnumerateFiles(root, "*.plugin").Take(32).Count() + added.Count > 32)
                 throw new InvalidOperationException("At most 32 plugins can be installed.");

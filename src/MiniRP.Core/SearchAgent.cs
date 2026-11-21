@@ -14,17 +14,17 @@ public sealed class SearchAgent(Workspace world, AgentSession session, PageSourc
         Refs last one request only. Result count is entirely your decision; legacy limits are advisory.
         Keep workflow and editing annotations out of document titles, snippets and bodies. Submit the document as the reader should see it.
         """;
-    private readonly SearchWorkflow workflow = new(world, web);
+    private readonly SearchWorkflow workflow = new(world);
 
     internal async Task<string> RunDirect(AgentSession chat, string system, string input, JsonArray? attachments,
         CancellationToken token, string inputRole, bool privateInput)
     {
-        var turn = new SearchTurn("direct", "", world.State, chat);
-        var response = await chat.Run(system + "\n" + SearchWorkflow.WorldInstructions + "\n" + workflow.Policies +
+        var turn = new SearchTurn("direct", "", world, chat);
+        var response = await InResearch(chat, turn, () => chat.Run(system + "\n" + SearchWorkflow.WorldInstructions + "\n" + workflow.Policies +
             "\n" + PresetDesign.SearchGuidance(world.Mode) + "\n" + world.AgentPrompt("search"),
             input, new AgentSkill("direct-research", "Find, edit and cache search results and pages.", SearchTools.Create(direct: true),
                 (tool, arguments, ct) => workflow.Execute(turn, tool, arguments, ct), Required: true),
-            token, attachments: attachments, inputRole: inputRole, privateInput: privateInput);
+            token, attachments: attachments, inputRole: inputRole, privateInput: privateInput));
         token.ThrowIfCancellationRequested();
         var answer = response.GetString("content");
         if (!turn.Failed && turn.Changed && !string.IsNullOrWhiteSpace(answer))
@@ -48,10 +48,10 @@ public sealed class SearchAgent(Workspace world, AgentSession session, PageSourc
         {
             ValidateUrl(target);
         }
-        var turn = new SearchTurn(mode, target, world.State, session);
+        var turn = new SearchTurn(mode, target, world, session);
 
         var request = "Request " + mode + ": " + target;
-        await session.Run(
+        await InResearch(session, turn, () => session.Run(
             SystemPrompt + "\n" + SearchWorkflow.WorldInstructions + "\n" + world.WorldText + "\n" + workflow.Policies +
             "\n" + PresetDesign.SearchGuidance(world.Mode) + "\n" + world.AgentPrompt("search") + "\n" + identity,
             request,
@@ -61,13 +61,22 @@ public sealed class SearchAgent(Workspace world, AgentSession session, PageSourc
             () => turn.Answer is not null,
             terminalTools: TerminalTools,
             historyInput: request,
-            historySubmission: () => session.ToolText(turn.Answer),
-            reference: "Recent conversation reference:\n" + (roomReference?.Invoke() ?? world.RecentConversation(2400)));
+            historySubmission: () => session.ToolText(turn.HistoryAnswer()),
+            reference: "Recent conversation reference:\n" + (roomReference?.Invoke() ?? world.RecentConversation(2400))));
         cancellationToken.ThrowIfCancellationRequested();
         if (!turn.Failed)
         {
             world.Commit(turn.State);
         }
         return turn.Answer!;
+    }
+
+    private async Task<JsonObject> InResearch(AgentSession agent, SearchTurn turn, Func<Task<JsonObject>> run)
+    {
+        var assets = agent.Assets ?? throw new InvalidOperationException("Research needs a session Asset registry.");
+        var previous = assets.Research;
+        assets.Research = new(turn, web);
+        try { return await run(); }
+        finally { assets.Research = previous; }
     }
 }

@@ -22,11 +22,12 @@ public sealed partial class Engine
         activeEnsembleChat = conversation;
         Emit(new() { ["kind"] = "ensemble_chat_loaded", ["request"] = command.GetString("request"),
             ["chat"] = Workspace.ChatId, ["conversation"] = conversation, ["blocks"] = new JsonArray(hub.Blocks(conversation)
-                .OfType<JsonObject>().Select(LoadBlock).ToArray()) });
+                .OfType<JsonObject>().Select(block => LoadBlock(block, conversation)).ToArray()) });
     }
 
     private void PostEnsembleMessage(string conversation, JsonObject message)
     {
+        IndexDisplayAssets(message, message.GetString("id"), conversation);
         Emit(new() { ["kind"] = "ensemble_message", ["chat"] = Workspace.ChatId,
             ["conversation"] = conversation, ["item"] = message.DeepClone() });
     }
@@ -103,7 +104,8 @@ public sealed partial class Engine
                 var name = character.GetString("name");
                 var (roleContext, searchContext) = (GroupContext("chat", member, conversation), GroupContext("search", member, conversation));
                 var postedOpening = false;
-                var dialogue = hub.CharacterSkill(member, conversation, (target, message) =>
+                AgentSession? owner = null;
+                void Posted(string target, JsonObject message)
                 {
                     if (opening is not null && target == conversation && !postedOpening)
                     {
@@ -111,11 +113,13 @@ public sealed partial class Engine
                         postedOpening = true;
                     }
                     PostEnsembleMessage(target, message);
-                });
+                }
+                var dialogue = hub.CharacterSkill(member, conversation, Posted, (message, text) => owner?.AddPublishedAssets(message, text));
                 bool CanReadChat(string target) => hub.IsMember(target, member);
                 using var own = agentSessions.Open("chat", hub.Database(member, "chat"), () => turnRouting.For("chat"), () => roleContext,
-                    item => RecordEnsembleTrace(hub, conversation, member, name, item, roleContext),
+                    (item, info) => RecordEnsembleTrace(hub, conversation, member, name, item, roleContext, info),
                     () => [dialogue], CanReadChat, turn);
+                owner = own;
                 if (opening is not null && own.HasHistory)
                 {
                     RememberEnsembleGreeting(greeted, member);
@@ -123,7 +127,7 @@ public sealed partial class Engine
                 }
                 using var research = Workspace.AgenticSearch
                     ? agentSessions.Open("search", hub.Database(member, "search"), () => turnRouting.For("search"), () => searchContext,
-                        item => RecordEnsembleTrace(hub, conversation, member, name, item, searchContext), canReadChat: CanReadChat)
+                        (item, info) => RecordEnsembleTrace(hub, conversation, member, name, item, searchContext, info), canReadChat: CanReadChat)
                     : null;
                 own.ConfigureWorldMode(Workspace.AgenticSearch);
                 if (opening is null)
@@ -145,7 +149,8 @@ public sealed partial class Engine
                 {
                     if (string.IsNullOrWhiteSpace(answer))
                         throw new IOException("The model finished without a visible opening.");
-                    await dialogue.Execute("chat_send", new() { ["chat"] = conversation, ["text"] = answer }, token);
+                    token.ThrowIfCancellationRequested();
+                    Posted(conversation, hub.PostCharacterMessage(conversation, member, answer, own.AddPublishedAssets));
                 }
             }
             if (opening is null) StartTitle(force: false);
@@ -163,17 +168,19 @@ public sealed partial class Engine
         Workspace.Save();
     }
 
-    private void RecordEnsembleTrace(EnsembleConversation hub, string conversation, string participant, string name, JsonObject item, JsonObject context)
+    private void RecordEnsembleTrace(EnsembleConversation hub, string conversation, string participant, string name, JsonObject item,
+        JsonObject context, SessionModelInfo? info)
     {
         // Only chat_send publishes dialogue. Private model prose stays in the character session.
         if (item.GetString("kind") == "delta" && item.GetString("type") == "content") return;
+        if (item.GetString("kind") == "turn_end") item.Remove("asset_links");
         if (item.GetString("block") is { Length: > 0 } block) item["block"] = participant + "-" + block;
         item["conversation"] = conversation;
         item["chat"] = Workspace.ChatId;
         item["participant"] = participant;
         item["speaker"] = name;
         item["session"] = context.GetString("session");
-        Record(item, hub.Blocks(conversation));
+        Record(item, hub.Blocks(conversation), info);
     }
 
     private JsonObject GroupContext(string role, string participant, string conversation)

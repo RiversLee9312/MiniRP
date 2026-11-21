@@ -16,6 +16,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
@@ -46,6 +47,8 @@ internal sealed interface AppRoute {
 
     @Serializable data object Plugins : AppRoute
 
+    @Serializable data class PluginDetails(val id: String) : AppRoute
+
     @Serializable data class PluginPage(val plugin: String, val key: String) : AppRoute
 }
 
@@ -58,7 +61,8 @@ fun MiniRP(model: ChatViewModel) {
         model.setPreviewWindow(view.rootView.findViewById<FrameLayout>(android.R.id.content))
         onDispose { model.setPreviewWindow(null) }
     }
-    MiniRPTheme {
+    val background = rememberPresetBackground(model, state)
+    MiniRPTheme(seedColor = state.appearance.themeColor?.let(::Color) ?: background?.seedColor) {
         val navigation = rememberNavController()
         val destination by navigation.currentBackStackEntryAsState()
         val active = destination?.destination
@@ -81,6 +85,7 @@ fun MiniRP(model: ChatViewModel) {
         }
         val context = LocalContext.current
         val archives = rememberArchivePicker(model)
+        val assetDownloader = rememberAssetDownloader(model, snackbars)
         val actions =
             remember(context, navigation) { ActionsRouter(context, ::open) { language = true } }
         fun openLink(setting: PluginSetting) {
@@ -187,6 +192,19 @@ fun MiniRP(model: ChatViewModel) {
                     composable<AppRoute.Plugins> {
                         SettingsPage(stringResource(R.string.plugins), back, snackbars) {
                             PluginsScreen(state, model, Modifier.fillMaxSize()) { plugin ->
+                                navigation.navigate(AppRoute.PluginDetails(plugin.id)) { launchSingleTop = true }
+                            }
+                        }
+                    }
+                    composable<AppRoute.PluginDetails> { entry ->
+                        val id = entry.toRoute<AppRoute.PluginDetails>().id
+                        val plugin = state.installedPlugins.firstOrNull { it.id == id }
+                        val loaded = state.installedPlugins.isNotEmpty()
+                        LaunchedEffect(plugin, loaded) {
+                            if (plugin == null && loaded && navigation.currentBackStackEntry == entry) back()
+                        }
+                        SettingsPage(plugin?.name.orEmpty(), back, snackbars) {
+                            if (plugin != null) PluginDetailsScreen(plugin, state, model) {
                                 archives.export(ArchiveType.Plugin, plugin.name, "", plugin.id)
                             }
                         }
@@ -267,31 +285,38 @@ fun MiniRP(model: ChatViewModel) {
                                     (state.chatMode == "ensemble" || state.chatGreeting)
                             ) {
                                 val ensemble = state.chatMode == "ensemble"
-                                Column(
-                                    Modifier.fillMaxSize().padding(24.dp),
-                                    verticalArrangement =
-                                        Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                ) {
-                                    HomeGreeting(
-                                        state.presetName,
-                                        Modifier.fillMaxWidth(),
-                                        { model.openPresetEditor() },
-                                        enabled = state.ready && !state.busy && !state.preparing,
+                                Box(Modifier.fillMaxSize()) {
+                                    PresetBackdrop(
+                                        background, conversation = false, blur = false,
+                                        modifier = Modifier.matchParentSize(),
                                     )
-                                    Button(
-                                        onClick = {
-                                            if (ensemble) model.createEnsembleRoom()
-                                            else model.createChat()
-                                        },
-                                        enabled = state.ready && !state.busy && !state.preparing,
+                                    Column(
+                                        Modifier.fillMaxSize().padding(24.dp),
+                                        verticalArrangement =
+                                            Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
                                     ) {
-                                        Text(
-                                            stringResource(
-                                                if (ensemble) R.string.new_room
-                                                else R.string.new_chat
-                                            )
+                                        HomeGreeting(
+                                            state.presetName,
+                                            Modifier.fillMaxWidth(),
+                                            { model.openPresetEditor() },
+                                            enabled = state.ready && !state.busy && !state.preparing,
+                                            onBackground = background != null,
                                         )
+                                        Button(
+                                            onClick = {
+                                                if (ensemble) model.createEnsembleRoom()
+                                                else model.createChat()
+                                            },
+                                            enabled = state.ready && !state.busy && !state.preparing,
+                                        ) {
+                                            Text(
+                                                stringResource(
+                                                    if (ensemble) R.string.new_room
+                                                    else R.string.new_chat
+                                                )
+                                            )
+                                        }
                                     }
                                 }
                             } else
@@ -316,6 +341,10 @@ fun MiniRP(model: ChatViewModel) {
                                         loadThumbnail = { model.thumbnail(AgentRole.Chat, it) },
                                         onOpenPreset = { model.openPresetEditor() },
                                         onCreatePreset = { model.openPresetEditor(create = true) },
+                                        background = background,
+                                        displayAssets = remember(model, assetDownloader, state.preset, state.chatId) {
+                                            DisplayAssets(model, assetDownloader, state.preset, state.chatId)
+                                        },
                                         openUi =
                                             remember(model, state.chatId) {
                                                 val chatId = state.chatId
@@ -384,6 +413,10 @@ fun MiniRP(model: ChatViewModel) {
                                         },
                                         { modelPicker = it },
                                         loadThumbnail = { model.thumbnail(AgentRole.Chat, it) },
+                                        background = background,
+                                        displayAssets = remember(model, assetDownloader, state.preset, room, conversation) {
+                                            DisplayAssets(model, assetDownloader, state.preset, room, conversation)
+                                        },
                                         openUi =
                                             remember(model, room) {
                                                 OpenUiInteractions(
@@ -457,6 +490,9 @@ fun MiniRP(model: ChatViewModel) {
                         },
                         { modelPicker = it },
                         loadThumbnail = { model.thumbnail(role, it) },
+                        displayAssets = remember(model, assetDownloader, state.preset, state.chatId, role) {
+                            DisplayAssets(model, assetDownloader, state.preset, if (role == AgentRole.Preset) "" else state.chatId)
+                        },
                     )
                 }
                 SnackbarHost(snackbars)

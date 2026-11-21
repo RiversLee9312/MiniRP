@@ -372,12 +372,12 @@ internal sealed class ContextCompactor(MemoryDb db, string agent,
     private string StartTrace()
     {
         var block = JsonValues.NewId();
-        emit(new() { ["kind"] = "tool_start", ["agent"] = agent, ["block"] = block, ["name"] = "compact_context", ["arguments"] = "" });
+        emit(new() { ["kind"] = "context_trace", ["agent"] = agent, ["block"] = block, ["running"] = true });
         return block;
     }
 
     private void EndTrace(string block, string status) =>
-        emit(new() { ["kind"] = "tool_end", ["agent"] = agent, ["block"] = block, ["name"] = "compact_context", ["text"] = status });
+        emit(new() { ["kind"] = "context_trace", ["agent"] = agent, ["block"] = block, ["running"] = false, ["text"] = status });
 
     private static int GroupStart(JsonObject[] messages, int end)
     {

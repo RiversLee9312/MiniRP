@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">تعذّر حفظ هذا الملف</string>
     <string name="chat">دردشة</string>
     <string name="world">العالم</string>
     <string name="preset">قالب</string>
@@ -142,6 +143,9 @@
     <string name="install_plugin">تثبيت الإضافة</string>
     <string name="run_plugin">تشغيل</string>
     <string name="remove_plugin">إلغاء تثبيت</string>
+    <string name="plugin_enabled">مفعّل</string>
+    <string name="plugin_disabled">متوقف</string>
+    <string name="uninstall_plugin_title">هل تريد إلغاء تثبيت %1$s؟</string>
     <string name="built_in">مدمج</string>
     <string name="plugin_resource_request">يريد %1$s منك اختيار ملفات</string>
     <string name="delete_chat">حذف المحادثة</string>

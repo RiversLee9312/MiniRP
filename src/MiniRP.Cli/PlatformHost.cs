@@ -20,6 +20,8 @@ internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?
     private readonly ConcurrentDictionary<string, CancellationTokenSource> requests = new();
     private readonly List<Task> work = [];
     private readonly PluginScripts scripts = new();
+    private readonly ContainerHost container = new(workspace);
+    private readonly CurlHost curl = new(workspace);
     private readonly HttpClient pluginHttp = new(new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false,
         AutomaticDecompression = System.Net.DecompressionMethods.All, ConnectTimeout = TimeSpan.FromSeconds(10) })
         { Timeout = Timeout.InfiniteTimeSpan };
@@ -47,6 +49,13 @@ internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?
             case "plugin_picker":
             case "agent_asset_sample":
                 Start(message, token => PluginRequest(message, token));
+                return true;
+            case "container_runtime":
+            case "container_run":
+                Start(message, async token => Reply(message.GetString("id"), new() { ["result"] = await container.Handle(message, token) }));
+                return true;
+            case "curl_download":
+                Start(message, async token => Reply(message.GetString("id"), new() { ["result"] = await curl.Handle(message, token) }));
                 return true;
             case "open_ui_catalog":
             case "open_ui_preview":

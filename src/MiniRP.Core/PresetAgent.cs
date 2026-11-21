@@ -3,6 +3,13 @@ namespace MiniRP.Core;
 
 public sealed class PresetAgent(Workspace world, AgentSession session)
 {
+    private readonly PluginRuntime? plugins;
+
+    internal PresetAgent(Workspace world, AgentSession session, PluginRuntime plugins) : this(world, session)
+    {
+        this.plugins = plugins;
+    }
+
     private static readonly HashSet<string> Editable = ["name", "subtitle", "sim_date", "phase", "world.summary", "chat_agent.system_prompt", "chat_agent.greeting_system_message", "search_agent.system_prompt", "env_agent.system_prompt", "preset_agent.system_prompt", "fetch_agent.system_prompt", "title_agent.system_prompt", "search_editor.relevance", "search_editor.scope", "search_editor.credibility", "search_editor.add_guidance", "page_editor.guidance", "page_generator.guidance", "stage.guidance", "search_editor.max_results", "search_editor.max_visible", "search_editor.max_added"];
     public async Task<string> Run(string input, CancellationToken ct, JsonArray? attachments = null, string inputRole = "user",
         bool privateInput = false)
@@ -27,12 +34,21 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
             ["agentic_search"] = Tools.Boolean(),
             ["ensemble"] = new JsonObject { ["type"] = "object", ["additionalProperties"] = true }
         }, "mode", "agentic_search"));
+        tools.AddNode(Tools.Define("list_chat_backgrounds", "List image, GIF and video Asset URLs declared by installed plugins belonging to this preset."));
+        tools.AddNode(Tools.Define("configure_chat_appearance", "Change the preset's chat and home appearance. Use a URL from list_chat_backgrounds. Set background_url to an empty string to remove it. Chat background blur defaults to true. Set theme_color to #RRGGBB or an empty string to use the background color. Omit fields you want to keep.", new()
+        {
+            ["background_url"] = Tools.String(), ["background_blur"] = Tools.Boolean(), ["theme_color"] = Tools.String(),
+        }));
         if (config.GetString("setup_status") == "draft")
             tools.AddNode(Tools.Define("finish_preset_setup", "Complete setup after the user confirms the experience and search choice."));
         Task<JsonNode?> Apply(string name, JsonObject a, CancellationToken token)
         {
             if (name == "configure_experience")
                 return Task.FromResult<JsonNode?>(PresetDesign.SetExperience(config, a, () => world.ChatEntries(world.PresetId).Any()));
+            if (name == "list_chat_backgrounds")
+                return Task.FromResult<JsonNode?>(plugins?.PresetBackgroundAssets(world.PresetId) ?? new JsonArray());
+            if (name == "configure_chat_appearance")
+                return Task.FromResult<JsonNode?>(ConfigureAppearance(config, a));
             if (name == "finish_preset_setup")
             {
                 if (config.GetString("setup_status") != "draft" || !config.ContainsKey("chat_mode") || !config.ContainsKey("agentic_search"))
@@ -125,6 +141,7 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
         }
         var guidance = "You are PresetAgent. Edit the preset with precise tool calls. Keep unrelated settings. Give new presets a short descriptive name. Set a tailored chat_agent.system_prompt and search_agent.system_prompt. Chat instructions support {date}. Use an empty prompt to restore defaults. " +
             "If the user wants an opening scene or a welcome, set chat_agent.greeting_system_message to private instructions for ChatAgent to generate it when a new conversation begins. Put scene and voice details there. Leave it empty for conversations that should wait for the user's first message. Explain changes briefly in the user's language.\n" +
+            "When asked to set a chat background, call list_chat_backgrounds, then configure_chat_appearance with an Asset declared by an installed plugin owned by this preset. Leave chat blur enabled unless the user requests clear playback. The theme normally follows the Asset; use theme_color for an explicit override.\n" +
             "Use inspect_preset to read the current staged preset before relying on existing settings. It reflects changes made by tools during this turn.\n" +
             PresetDesign.Practice + "\n" + (config.GetString("setup_status") == "draft" ? PresetDesign.Interview + "\n" : "") +
             world.AgentPrompt("preset");
@@ -139,5 +156,37 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
 
         world.CommitConfig(config);
         return answer.GetString("content");
+    }
+
+    private JsonObject ConfigureAppearance(JsonObject config, JsonObject args)
+    {
+        var appearance = (JsonObject)config.GetObject("appearance").DeepClone();
+        if (args.ContainsKey("background_url"))
+        {
+            if (args["background_url"] is not JsonValue value || !value.TryGetValue<string>(out var url))
+                throw new ArgumentException("Provide an Asset URL or an empty string.");
+            if (url.Length == 0) appearance.Remove("background_url");
+            else
+            {
+                (plugins ?? throw new InvalidOperationException("Preset assets are unavailable.")).RequirePresetBackground(url, world.PresetId);
+                appearance["background_url"] = url;
+            }
+        }
+        if (args.ContainsKey("background_blur"))
+        {
+            if (args["background_blur"] is not JsonValue value || !value.TryGetValue<bool>(out var blur))
+                throw new ArgumentException("background_blur must be true or false.");
+            appearance["background_blur"] = blur;
+        }
+        if (args.ContainsKey("theme_color"))
+        {
+            if (args["theme_color"] is not JsonValue value || !value.TryGetValue<string>(out var color) ||
+                color.Length > 0 && (color.Length != 7 || color[0] != '#' || !color[1..].All(char.IsAsciiHexDigit)))
+                throw new ArgumentException("Provide a #RRGGBB theme color or an empty string.");
+            if (color.Length == 0) appearance.Remove("theme_color");
+            else appearance["theme_color"] = color.ToUpperInvariant();
+        }
+        config["appearance"] = appearance;
+        return (JsonObject)appearance.DeepClone();
     }
 }

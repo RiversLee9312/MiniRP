@@ -14,10 +14,13 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -28,6 +31,7 @@ import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -91,7 +95,19 @@ data class PluginInfo(
     val packageName: String = "",
     val signer: String = "",
     val scope: PluginScope = PluginScope(),
-)
+    val presetId: String = "",
+    val generation: String = "",
+    val enabled: Boolean = true,
+) {
+    fun availableIn(preset: String): Boolean = enabled && scope.allows(preset)
+
+    val status: Int
+        get() = when {
+            builtIn -> R.string.built_in
+            enabled -> R.string.plugin_enabled
+            else -> R.string.plugin_disabled
+        }
+}
 
 enum class PluginScopeMode(val id: String, val label: Int) {
     Global("global", R.string.plugin_scope_global),
@@ -165,6 +181,9 @@ internal fun decodePlugin(value: JSONObject): PluginInfo {
             .orEmpty(),
         packageName = value.optString("packageName"),
         signer = value.optString("signer"),
+        presetId = value.optString("presetId"),
+        generation = value.optString("generation"),
+        enabled = value.optBoolean("enabled", true),
         scope =
             PluginScope(
                 PluginScopeMode.entries.firstOrNull { it.id == scope?.optString("mode") }
@@ -266,12 +285,10 @@ internal fun PluginsScreen(
     state: ChatState,
     model: ChatViewModel,
     modifier: Modifier,
-    onExport: (PluginInfo) -> Unit,
+    onOpen: (PluginInfo) -> Unit,
 ) {
     val context = LocalContext.current
     var candidate by remember { mutableStateOf<Pair<File, PluginInfo>?>(null) }
-    var removing by remember { mutableStateOf<PluginInfo?>(null) }
-    var editingScope by rememberSaveable { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val installer =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -287,74 +304,27 @@ internal fun PluginsScreen(
                     }
                 }
         }
-    LazyColumn(modifier, contentPadding = PaddingValues(16.dp)) {
-        item {
-            TextButton(onClick = { installer.launch(arrayOf("*/*")) }) {
+    LazyColumn(modifier, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item(key = "install", contentType = "action") {
+            FilledTonalButton(onClick = { installer.launch(arrayOf("*/*")) }) {
+                Symbol("add", size = 18)
+                Spacer(Modifier.width(8.dp))
                 Text(stringResource(R.string.install_plugin))
             }
         }
-        items(state.installedPlugins, key = { it.id }) { plugin ->
-            var menu by remember { mutableStateOf(false) }
-            val canRun = plugin.command && plugin.scope.allows(state.preset)
-            ListItem(
-                content = { Text(plugin.name) },
-                supportingContent = {
-                    Text(
-                        stringResource(
-                            if (plugin.builtIn) R.string.built_in else plugin.scope.mode.label
-                        )
-                    )
-                },
-                modifier =
-                    if (plugin.builtIn) Modifier
-                    else Modifier.clickable { editingScope = plugin.id },
-                trailingContent = {
-                    if (canRun || !plugin.builtIn)
-                        Box {
-                            IconButton(onClick = { menu = true }) {
-                                Symbol("more_horiz", stringResource(R.string.more_options))
-                            }
-                            DropdownMenu(menu, { menu = false }) {
-                                if (canRun)
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.run_plugin)) },
-                                        onClick = {
-                                            menu = false
-                                            model.runPlugin(plugin.id)
-                                        },
-                                    )
-                                if (!plugin.builtIn) {
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.export_archive)) },
-                                        enabled = !state.archiveBusy,
-                                        onClick = { menu = false; onExport(plugin) },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.plugin_scope)) },
-                                        onClick = {
-                                            menu = false
-                                            editingScope = plugin.id
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.remove_plugin)) },
-                                        onClick = {
-                                            menu = false
-                                            removing = plugin
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                },
-            )
+        items(state.installedPlugins, key = { it.id }, contentType = { "plugin" }) { plugin ->
+            Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                ListItem(
+                    content = { Text(plugin.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    supportingContent = { Text(stringResource(plugin.status)) },
+                    leadingContent = { Symbol("extension") },
+                    trailingContent = { Symbol("chevron_right") },
+                    modifier = Modifier.testTag("plugin:${plugin.id}").clickable(role = Role.Button) { onOpen(plugin) },
+                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                )
+            }
         }
     }
-    state.installedPlugins
-        .firstOrNull { it.id == editingScope && !it.builtIn }
-        ?.let { plugin ->
-            PluginScopeSheet(plugin, model, onDismiss = { editingScope = null })
-        }
     candidate?.let { (file, plugin) ->
         fun discard() {
             candidate = null
@@ -395,25 +365,128 @@ internal fun PluginsScreen(
             },
         )
     }
-    removing?.let { plugin ->
+}
+
+@Composable
+internal fun PluginDetailsScreen(
+    plugin: PluginInfo,
+    state: ChatState,
+    model: ChatViewModel,
+    onExport: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var editingScope by rememberSaveable(plugin.id) { mutableStateOf(false) }
+    var confirmingRemoval by rememberSaveable(plugin.id) { mutableStateOf(false) }
+    var updating by remember(plugin.id) { mutableStateOf(false) }
+    fun update(operation: () -> Job) {
+        if (updating) return
+        updating = true
+        val pending = operation()
+        scope.launch {
+            try {
+                pending.join()
+            } finally {
+                updating = false
+            }
+        }
+    }
+    val enabled = !updating
+    val colors = MaterialTheme.colorScheme
+    val canRun = plugin.command && plugin.availableIn(state.preset)
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item(key = "identity") {
+            Surface(shape = MaterialTheme.shapes.extraLarge, color = colors.surfaceContainer) {
+                ListItem(
+                    content = { Text(stringResource(plugin.status)) },
+                    supportingContent = { Text(plugin.packageName.ifBlank { plugin.id }) },
+                    leadingContent = { Symbol("extension", size = 28) },
+                    trailingContent = if (plugin.builtIn) null else {
+                        { Switch(checked = plugin.enabled, onCheckedChange = null, enabled = enabled) }
+                    },
+                    modifier = if (plugin.builtIn) Modifier else Modifier.testTag("plugin-enabled:${plugin.id}")
+                        .toggleable(plugin.enabled, enabled = enabled, role = Role.Switch) { next ->
+                            update { model.setPluginEnabled(plugin.id, next) }
+                        },
+                    colors = ListItemDefaults.colors(containerColor = colors.surfaceContainer),
+                )
+            }
+        }
+        if (canRun || !plugin.builtIn) {
+            item(key = "actions") {
+                Surface(shape = MaterialTheme.shapes.large, color = colors.surfaceContainerLow) {
+                    Column {
+                        if (canRun) {
+                            PluginDetailAction(R.string.run_plugin, "play_arrow", enabled) { model.runPlugin(plugin.id) }
+                        }
+                        if (!plugin.builtIn) {
+                            if (canRun) HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                            PluginDetailAction(R.string.plugin_scope, "tune", enabled, support = plugin.scope.mode.label) {
+                                editingScope = true
+                            }
+                            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                            PluginDetailAction(
+                                R.string.export_archive, "download", enabled && !state.archiveBusy,
+                                Modifier.testTag("plugin-export:${plugin.id}"),
+                                onClick = onExport,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (!plugin.builtIn) {
+            item(key = "uninstall") {
+                OutlinedButton(
+                    onClick = { confirmingRemoval = true }, enabled = enabled && !state.archiveBusy,
+                    modifier = Modifier.fillMaxWidth().testTag("plugin-uninstall:${plugin.id}"),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.error),
+                ) {
+                    Symbol("delete", size = 18)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.remove_plugin))
+                }
+            }
+        }
+    }
+    if (editingScope) PluginScopeSheet(plugin, model, onDismiss = { editingScope = false })
+    if (confirmingRemoval) {
+        val dismiss = { confirmingRemoval = false }
         AlertDialog(
-            onDismissRequest = { removing = null },
-            title = { Text(plugin.name) },
-            dismissButton = {
-                TextButton(onClick = { removing = null }) { Text(stringResource(R.string.cancel)) }
-            },
+            onDismissRequest = dismiss,
+            title = { Text(stringResource(R.string.uninstall_plugin_title, plugin.name)) },
+            dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.cancel)) } },
             confirmButton = {
                 Button(
                     onClick = {
-                        model.removePlugin(plugin.id)
-                        removing = null
-                    }
-                ) {
-                    Text(stringResource(R.string.remove_plugin))
-                }
+                        dismiss()
+                        update { model.removePlugin(plugin.id) }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.error, contentColor = colors.onError),
+                ) { Text(stringResource(R.string.remove_plugin)) }
             },
         )
     }
+}
+
+@Composable
+private fun PluginDetailAction(
+    label: Int, icon: String, enabled: Boolean, modifier: Modifier = Modifier, support: Int? = null,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    ListItem(
+        content = { Text(stringResource(label)) },
+        leadingContent = { Symbol(icon) },
+        supportingContent = support?.let { { Text(stringResource(it)) } },
+        trailingContent = if (support == null) null else { { Symbol("chevron_right") } },
+        modifier = modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+        colors = ListItemDefaults.colors(containerColor = colors.surfaceContainerLow),
+        enabled = enabled,
+    )
 }
 
 @Composable

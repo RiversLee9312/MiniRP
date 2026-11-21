@@ -107,7 +107,7 @@ internal sealed partial class PluginRuntime
         if (parts.Length is not (2 or 3)) return null;
         var entry = parts[1];
         var package = Volatile.Read(ref packages).FirstOrDefault(item => item.Id == parts[0]);
-        if (package is null || !Scope(package).Allows(environment.GetString("preset")) ||
+        if (package is null || !Available(package, environment.GetString("preset")) ||
             !package.Manifest.GetArray("skills").Any(skill =>
                 skill.GetArray("agents").Any(role => JsonValues.GetText(role) == agent) &&
                 skill.GetArray("stateEntries").Any(item => JsonValues.GetText(item) == entry))) return null;

@@ -1,14 +1,45 @@
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace MiniRP.Core;
 
 internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string directory,
-    Func<JsonObject> environment)
+    Func<JsonObject> environment, Func<Workspace>? workspace = null)
 {
     private const string Grants = "_context/asset-grants";
     private const string FileGrants = "_context/asset-file/";
+    private const string ResearchGrants = "_context/research-asset/";
     private readonly MessageAttachments files = new(directory);
+    private readonly AgentAssetStorage storage = new(runtime, db, directory);
+    private static readonly Regex AssetLinks = new(@"minirp://assets/[a-z0-9._]+/[A-Za-z0-9_.-]+", RegexOptions.NonBacktracking);
+    internal AgentSkill StorageSkill() => storage.Skill(Open);
+    internal AgentToolOutput Output => new(storage);
     internal sealed record Reading(JsonObject Result, JsonObject? Attachment = null);
+    internal sealed record ResearchScope(SearchTurn Turn, PageSource Source);
+    internal ResearchScope? Research { get; set; }
+
+    private ResearchAssets? CurrentResearch()
+    {
+        if (Research is { } active) return active.Turn.Assets;
+        var owner = workspace?.Invoke();
+        var context = environment();
+        return owner is not null && owner.ChatId.Length > 0 && owner.PresetId == context.GetString("preset") &&
+            owner.ChatId == context.GetString("room", context.GetString("chat"))
+            ? new ResearchAssets(owner, owner.State) : null;
+    }
+
+    private ResearchAssets ResearchFor(string url) =>
+        db.Get(ResearchGrants + url) is not null && CurrentResearch() is { } store && store.Contains(url)
+            ? store : throw MissingGrant();
+
+    internal void GrantResearch(string url)
+    {
+        if (ResearchAssets.IsUrl(url) && CurrentResearch()?.Contains(url) == true && db.Get(ResearchGrants + url) is null)
+            db.Write(ResearchGrants + url, "1", internalWrite: true);
+    }
+
+    internal Task<JsonNode?> CacheResearch(JsonObject args, CancellationToken ct) =>
+        runtime.CacheResearch(environment(), Research ?? throw MissingGrant(), args, ct);
 
     internal string StoreFile(JsonObject file)
     {
@@ -37,7 +68,8 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
     private JsonObject? FileGrant(string url)
     {
         if (!url.StartsWith(MessageAttachments.AssetPrefix, StringComparison.Ordinal)) return null;
-        var id = Workspace.Safe(url[MessageAttachments.AssetPrefix.Length..]);
+        var id = url[MessageAttachments.AssetPrefix.Length..];
+        if (id.Length == 0 || id.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('-' or '_'))) return null;
         if (db.Get(FileGrants + id) is not { } stored) return null;
         var file = JsonValues.ParseObject(stored);
         return file.GetString("preset") == environment().GetString("preset") ? file : null;
@@ -87,7 +119,9 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
                     break;
                 case JsonValue value when value.TryGetValue<string>(out var url) &&
                     PluginUrls.Route(url, "assets").Length > 0:
-                    if (MessageAttachments.IsAttachmentUrl(url) ? FileGrant(url) is not null : grants.ContainsKey(url))
+                    if (AgentAssetStorage.IsUrl(url) ? storage.Find(url) is not null :
+                        ResearchAssets.IsUrl(url) ? db.Get(ResearchGrants + url) is not null && CurrentResearch()?.Contains(url) == true :
+                        MessageAttachments.IsAttachmentUrl(url) ? FileGrant(url) is not null : grants.ContainsKey(url))
                         allowed.Add(url);
                     break;
             }
@@ -96,13 +130,67 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
 
     internal PluginRuntime.AssetContent Open(string url, JsonObject options)
     {
+        if (AgentAssetStorage.IsUrl(url)) return storage.Open(url);
+        if (ResearchAssets.IsUrl(url)) return ResearchFor(url).Open(url);
         if (MessageAttachments.IsAttachmentUrl(url))
             return runtime.OpenAttachmentAsset(FileGrant(url) ?? throw MissingGrant());
         var grant = Load()[url] as JsonObject ?? throw MissingGrant();
         return runtime.OpenAgentAsset(url, grant.GetString("package"), grant.GetString("signer"), environment(), options);
     }
 
+    internal Task<JsonObject> Edit(string method, string url, JsonObject args, CancellationToken ct)
+    {
+        if (AgentAssetStorage.IsUrl(url)) return storage.Edit(method, url, args, ct);
+        if (ResearchAssets.IsUrl(url)) return ResearchFor(url).Edit(method, url, args, ct);
+        var grant = Load()[url] as JsonObject ?? throw MissingGrant();
+        return runtime.EditAgentAsset(url, grant.GetString("package"), grant.GetString("signer"), environment(), method, args, ct);
+    }
+
+    internal Func<Stream, CancellationToken, Task<JsonObject>> PrepareWrite(string url)
+    {
+        if (AgentAssetStorage.IsUrl(url))
+        {
+            storage.RequireWritable(url);
+            return (input, ct) => storage.Import(url, input, ct);
+        }
+        if (ResearchAssets.IsUrl(url))
+        {
+            var research = ResearchFor(url);
+            return (input, ct) => research.Import(url, input, ct);
+        }
+        var grant = Load()[url] as JsonObject ?? throw MissingGrant();
+        return runtime.PrepareAssetWrite(url, grant.GetString("package"), grant.GetString("signer"), environment());
+    }
+
     private static UnauthorizedAccessException MissingGrant() => new("Use an Asset URL supplied in this session.");
+
+    internal JsonObject Published(string text)
+    {
+        var result = new JsonObject();
+        var grants = Load();
+        foreach (var url in PublishedUrls(text))
+        {
+            if (result.Count >= 64) break;
+            if (result.ContainsKey(url)) continue;
+            if ((storage.Find(url) ?? FileGrant(url)) is { } file)
+                result[url] = new JsonObject { ["attachment"] = file };
+            else if (ResearchAssets.IsUrl(url) && db.Get(ResearchGrants + url) is not null &&
+                     CurrentResearch()?.Published(url) is { } research)
+                result[url] = new JsonObject { ["research"] = research };
+            else if (grants[url] is JsonObject grant)
+                result[url] = new JsonObject { ["plugin"] = grant.DeepClone() };
+        }
+        return result;
+    }
+
+    internal static IEnumerable<string> PublishedUrls(string text)
+    {
+        foreach (Match match in AssetLinks.Matches(text))
+        {
+            if (match.Index + match.Length < text.Length && text[match.Index + match.Length] is '?' or '/' or '#') continue;
+            if (match.Length <= 512) yield return match.Value;
+        }
+    }
 
     internal async Task<Reading> Present(PluginRuntime.AssetContent asset, Provider provider, string url, CancellationToken ct)
     {

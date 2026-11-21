@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">לא ניתן לשמור את הקובץ</string>
     <string name="chat">צ׳אט</string>
     <string name="world">עולם</string>
     <string name="preset">תבנית</string>
@@ -136,6 +137,9 @@
     <string name="install_plugin">התקנת תוסף</string>
     <string name="run_plugin">הפעלה</string>
     <string name="remove_plugin">הסרה</string>
+    <string name="plugin_enabled">פעיל</string>
+    <string name="plugin_disabled">מושבת</string>
+    <string name="uninstall_plugin_title">להסיר את %1$s?</string>
     <string name="built_in">מובנה</string>
     <string name="plugin_resource_request">%1$s מבקש ממך לבחור קבצים</string>
     <string name="delete_chat">מחיקת הצ׳אט</string>

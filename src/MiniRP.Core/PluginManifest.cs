@@ -15,7 +15,8 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
     public string PackageName => Manifest.GetString("packageName", Id);
     public string PresetId => Manifest.GetString("presetId");
     public bool Signed => Signer.Length > 0;
-    internal string Generation { get; } = JsonValues.NewId();
+    internal string Generation { get; init; } = JsonValues.NewId();
+    internal bool Enabled { get; init; } = true;
     internal string StorageKey => Signed ? PackageName + "." + Signer : Id;
     public bool UsesActions => PackageName != Id;
     internal string Bind(string value) => UsesActions ? PluginActions.Bind(Manifest, value) : value;
@@ -38,7 +39,7 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
         if (name.Length is 0 or > 120 || version != 2 && !(allowLegacy && version == 1))
             throw new InvalidDataException("A plugin name and supported apiVersion are required.");
         var signed = version == 2;
-        if (signed && manifest.ContainsKey("tools"))
+        if (manifest.ContainsKey("tools"))
             throw new InvalidDataException("Declare tools inside a skill.");
         if (signed) PackageIdentifier(manifest.GetString("packageName"));
         if (manifest.ContainsKey("presetId")) WorkspaceIds.Require(manifest.GetString("presetId"));
@@ -168,8 +169,11 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
             var access = asset.GetString("accessibility", "private");
             var path = asset.GetString("path");
             var handler = asset.GetString("handler");
+            if (asset is JsonObject obj && obj.TryGetPropertyValue("writable", out var writable) &&
+                (writable is not JsonValue flag || !flag.TryGetValue<bool>(out _)))
+                throw new InvalidDataException("Asset writable must be a boolean.");
             if (access is not ("private" or "protected" or "public") || !MimeType(mime) ||
-                !assets.TryAdd(id, new(id, kind, mime, access, path, handler)))
+                !assets.TryAdd(id, new(id, kind, mime, access, path, handler, asset.GetBoolean("writable"))))
                 throw new InvalidDataException("Assets need unique IDs, a MIME type and valid accessibility.");
             if (kind == "dynamic" && path.Length == 0) PluginActions.BindRequired(manifest, handler);
             else if (kind != "file" || handler.Length > 0 || !SafePath(path) || !exists(path))

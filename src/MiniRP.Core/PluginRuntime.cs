@@ -39,9 +39,11 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
     private readonly List<Task> retirements = [];
     private PluginPackage[] packages = [];
     private sealed record Invocation(PluginPackage Package, string Handler, JsonObject Event, JsonObject Environment,
-        bool Installation = false, Task<bool>? Committed = null,
+        bool Installation = false, Task<bool>? Committed = null, bool SkillTool = false,
         Func<string, JsonObject, AssetContent?>? OpenSuppliedAsset = null,
-        Func<AssetContent, string, CancellationToken, Task<JsonObject>>? PresentAsset = null);
+        Func<AssetContent, string, CancellationToken, Task<JsonObject>>? PresentAsset = null,
+        Func<string, string, JsonObject, CancellationToken, Task<JsonObject>>? EditSuppliedAsset = null,
+        AgentAssets.ResearchScope? Research = null, AgentToolOutput? Output = null);
 
     private sealed class Isolate
     {
@@ -168,7 +170,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                 using var stream = File.OpenRead(path);
                 var package = ReadPackage(stream, path, allowLegacy: true);
                 if (Path.GetFileNameWithoutExtension(path) == package.Id && installed.All(item => item.PackageName != package.PackageName))
-                    installed.Add(package);
+                    installed.Add(package with { Enabled = ReadEnabled(package) });
             }
             catch (Exception error) { Fault(Path.GetFileName(path), error.Message); }
         }
@@ -217,7 +219,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
     {
         lock (packageGate)
         {
-            if (stop.IsCancellationRequested || !IsCurrent(package)) return null;
+            if (stop.IsCancellationRequested || !package.Enabled || !IsCurrent(package)) return null;
             if (loops.TryGetValue(package.Generation, out var existing)) return existing;
             var created = new EventLoop(this);
             loops.Add(package.Generation, created);
@@ -242,6 +244,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
             var isNew = !File.Exists(target);
             if (isNew && Directory.EnumerateFiles(root, "*.plugin").Take(32).Count() >= 32)
                 throw new InvalidOperationException("At most 32 plugins can be installed.");
+            package = package with { Enabled = ReadEnabled(package) };
             var temp = target + ".tmp";
             input.Position = 0;
             try
@@ -277,7 +280,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
     {
         ["id"] = package.Id, ["name"] = package.Name,
         ["packageName"] = package.PackageName, ["signer"] = package.Signer, ["presetId"] = package.PresetId,
-        ["builtIn"] = package.BuiltIn,
+        ["builtIn"] = package.BuiltIn, ["enabled"] = package.Enabled, ["generation"] = package.Generation,
         ["scope"] = Scope(package).Describe(),
         ["permissions"] = package.Manifest.GetArray("permissions").DeepClone(),
         ["network"] = package.Manifest.GetArray("network").DeepClone(),
@@ -290,7 +293,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         var items = new JsonArray();
         foreach (var package in Volatile.Read(ref packages))
         {
-            if (!Scope(package).Allows(preset)) continue;
+            if (!Available(package, preset)) continue;
             foreach (var setting in package.Manifest.GetArray("settings").OfType<JsonObject>()) items.AddNode(RenderSetting(package, setting));
         }
         return items;
@@ -364,7 +367,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
     {
         foreach (var package in Volatile.Read(ref packages))
         {
-            if ((only is not null && package.Id != only) || package.Id == exclude || !Scope(package).Allows(environment.GetString("preset"))) continue;
+            if ((only is not null && package.Id != only) || package.Id == exclude || !Available(package, environment.GetString("preset"))) continue;
             var handler = package.Bind(package.Manifest.GetObject("hooks").GetString(name));
             if (handler.Length == 0) continue;
             // Context identifiers are available to every handler; transcript payloads require permission.
@@ -389,18 +392,25 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
     }
 
     public IEnumerable<AgentSkill> Skills(string agent, JsonObject environment, bool builtInOnly = false, AgentAssets? assets = null,
-        Action<JsonObject>? showCard = null, Provider? provider = null, Action<JsonObject>? attach = null)
+        Action<JsonObject>? showCard = null, Provider? provider = null, Action<JsonObject>? attach = null,
+        Func<SessionModelInfo?>? sessionInfo = null)
     {
+        JsonObject SessionContext() => WithSessionInfo(environment, sessionInfo?.Invoke());
         foreach (var package in Volatile.Read(ref packages))
         {
-            if (builtInOnly && !package.BuiltIn || !Scope(package).Allows(environment.GetString("preset"))) continue;
+            if (builtInOnly && !package.BuiltIn || !Available(package, environment.GetString("preset"))) continue;
             foreach (var declaration in package.Manifest.GetArray("skills"))
             {
                 if (!declaration.GetArray("agents").Any(item => JsonValues.GetText(item) == agent)) continue;
                 var skillName = declaration.GetString("name");
                 var assetView = package.BuiltIn && package.Id == "base" && skillName == "view_asset";
+                var assetEdit = package.BuiltIn && package.Id == "base" && skillName == "edit_asset";
+                var researchSkill = package.BuiltIn && package.Id == "base" && skillName == "research";
                 if (assetView && (assets is null || provider is null || attach is null)) continue;
-                var key = assetView ? skillName : package.Id + "-" + skillName;
+                if (assetEdit && assets is null) continue;
+                var research = researchSkill ? assets?.Research : null;
+                if (researchSkill && research is null) continue;
+                var key = assetView || assetEdit || researchSkill ? skillName : package.Id + "-" + skillName;
                 var handlers = new Dictionary<string, string>(StringComparer.Ordinal);
                 var assetTools = new HashSet<string>(StringComparer.Ordinal);
                 var tools = new JsonArray();
@@ -409,7 +419,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                     var returnsAsset = tool.GetString("returnType") == "asset-url";
                     if (returnsAsset && assets is null) continue;
                     // Provider tool names have a 64-character limit.
-                    var qualified = "plugin_" + package.Id + "_" + tool.GetString("name");
+                    var qualified = researchSkill ? tool.GetString("name") : "plugin_" + package.Id + "_" + tool.GetString("name");
                     if (qualified.Length > 64) throw new InvalidDataException("Plugin tool name is too long.");
                     handlers.Add(qualified, package.Bind(tool.GetString("handler")));
                     if (returnsAsset) assetTools.Add(qualified);
@@ -453,19 +463,32 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                         }
                         var supplied = assets?.SuppliedUrls(args);
                         var invocation = new Invocation(package, handlers[name], new()
-                        { ["name"] = "skill.tool", ["skill"] = key, ["tool"] = name, ["arguments"] = args.DeepClone() }, environment,
+                        { ["name"] = "skill.tool", ["skill"] = key, ["tool"] = name, ["arguments"] = args.DeepClone() }, SessionContext(),
+                            SkillTool: true,
                             OpenSuppliedAsset: (url, options) => supplied?.Contains(url) == true ? assets!.Open(url, options) : null,
-                            PresentAsset: assetView ? PresentAsset : null);
+                            PresentAsset: assetView ? PresentAsset : null,
+                            EditSuppliedAsset: assetEdit ? assets!.Edit : null,
+                            Research: research, Output: package.UsesActions ? assets?.Output : null);
                         var result = await InvokeSkillTool(invocation, provider, attach, assets, ct);
                         if (assetTools.Contains(name)) (assets ?? throw new InvalidOperationException("This agent has no asset reader.")).Grant(package, result, supplied);
                         return result;
                     },
-                    Instructions: declaration.GetString("instructions"),
-                    OnActivate: () => Enqueue(package, package.Bind(declaration.GetObject("hooks").GetString("skill.activated")), new() { ["name"] = "skill.activated", ["skill"] = key }, environment),
+                    Required: researchSkill, Instructions: declaration.GetString("instructions"),
+                    OnActivate: () => Enqueue(package, package.Bind(declaration.GetObject("hooks").GetString("skill.activated")), new() { ["name"] = "skill.activated", ["skill"] = key }, SessionContext()),
                     OnEvent: (name, payload) => Enqueue(package, package.Bind(declaration.GetObject("hooks").GetString(name)),
-                        name is "tool.started" or "tool.finished" || package.Has("harness.read") ? payload : new() { ["name"] = name }, environment));
+                        name is "tool.started" or "tool.finished" || package.Has("harness.read") ? payload : new() { ["name"] = name }, SessionContext()));
             }
         }
+    }
+
+    private const string SessionInfoKey = "_session_info";
+
+    internal static JsonObject WithSessionInfo(JsonObject environment, SessionModelInfo? info)
+    {
+        if (info is null) return environment;
+        var context = (JsonObject)environment.DeepClone();
+        context[SessionInfoKey] = info.Describe();
+        return context;
     }
 
     public async Task<JsonArray> ProcessAttachments(JsonArray attachments, JsonObject environment, CancellationToken ct)
@@ -510,7 +533,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
 
     private bool EnqueueRoute(PluginPackage package, string handler, JsonObject @event, JsonObject environment,
         Task<bool>? committed = null) =>
-        Scope(package).Allows(environment.GetString("preset")) &&
+        Available(package, environment.GetString("preset")) &&
         Loop(package)?.Queue.Writer.TryWrite(new(package, handler, @event, environment, Committed: committed)) == true;
 
     private async Task ReadEvents(ChannelReader<Invocation> reader, CancellationToken token)
@@ -551,7 +574,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         var loop = Loop(invocation.Package) ?? throw new InvalidOperationException("The plugin is no longer loaded.");
         var isolate = loop.EnsureIsolate(invocation.Package.Source);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct, loop.Token, isolate.Token);
-        deadline.CancelAfter(binary ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(90));
+        deadline.CancelAfter(binary || invocation.Research is not null ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(90));
         var token = deadline.Token;
         try { await isolate.Ready.WaitAsync(token); }
         catch
@@ -689,6 +712,8 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
 
     private void RequireInvocation(Invocation invocation)
     {
+        if (invocation.Event.GetString("name") == "skill.tool" && !invocation.SkillTool)
+            throw new UnauthorizedAccessException("Only the agent runtime can issue a skill.tool event.");
         if (invocation.Installation) RequireCurrent(invocation.Package);
         else RequireScope(invocation.Package, invocation.Environment.GetString("preset"));
     }
@@ -703,14 +728,24 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
             method.StartsWith("actions.", StringComparison.Ordinal) || method.StartsWith("text.", StringComparison.Ordinal) ||
             method.StartsWith("codecs.", StringComparison.Ordinal) || method == "settings.get"))
             throw new UnauthorizedAccessException("The preview runs with isolated settings, storage, actions and assets.");
-        if (method == "development.run" && package.BuiltIn && package.Id == "base")
+        if (method == "development.run" && invocation.SkillTool && package.BuiltIn && package.Id == "base")
             return await harness(package, ctx, "pluginDevelopment", args, ct);
+        if (invocation.Research is { } research && package.BuiltIn && package.Id == "base" &&
+            method.StartsWith("research.", StringComparison.Ordinal))
+            return await ResearchApi(research, method[9..], args, ct);
         if (method == "assetView.present" && invocation.PresentAsset is { } present)
         {
             var url = args.GetString("url");
             var asset = args.GetString("handle") is { Length: > 0 } handle ? readers.Content(handle) : ResolveAsset(url, new());
             return await present(asset, url, ct);
         }
+        if (invocation.SkillTool && invocation.PresentAsset is not null && method is "assetView.grep" or "assetView.rawGrep")
+        {
+            var asset = ResolveAsset(args.GetString("url"), new());
+            return method == "assetView.grep" ? await codecs.Grep(asset, args, ct) : await AssetGrep.Raw(asset, args, ct);
+        }
+        if (invocation.EditSuppliedAsset is { } edit && method is "assetEdit.binPatch" or "assetEdit.textEdit")
+            return await edit(method[10..], args.GetString("url"), args, ct);
         if (method == "text.encode") return AssetCodecs.EncodeText(args);
         if (method == "text.decode") return AssetCodecs.DecodeText(args);
         if (method == "text.read") return await codecs.ReadText(ResolveAsset(args.GetString("url"), new()), args, ct);
@@ -724,6 +759,14 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         }
         if (method is "state.get" or "state.set") return State(package, ctx, args, method == "state.set");
         if (method == "url.open" && !package.UsesActions) return OpenUrl(args.GetString("url"), ctx, package.Id, package.BuiltIn);
+        if (method == "actions.publishOutput")
+        {
+            if (invocation.Output is not { } output)
+                throw new UnauthorizedAccessException("Publishing output requires a Skill Action with an active Agent session.");
+            if (args["text"] is not JsonValue value || !value.TryGetValue<string>(out var text))
+                throw new ArgumentException("Supply the tool output as text.");
+            return await output.Publish(text, args.GetString("name", "tool-output.txt"), args.GetString("mime", "text/plain"), ct);
+        }
         if (method.StartsWith("actions.", StringComparison.Ordinal))
             return WhileCurrent(package, ctx.GetString("preset"), () => DispatchAction(package, method, args, ctx));
         if (method == "assets.open") return readers.Open(ResolveAsset(args.GetString("url"), args.GetObject("options")));
@@ -779,7 +822,12 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         {
             var op = method[8..];
             Require(package, op == "generate" ? "model" :
-                op is "readSession" or "readChat" or "listRooms" or "readRoom" or "listChats" or "listPresets" or "getPreset" ? "harness.read" : "harness.write");
+                op is "getSessionInfo" or "readSession" or "readChat" or "listRooms" or "readRoom" or "listChats" or "listPresets" or "getPreset" ? "harness.read" : "harness.write");
+            if (op == "getSessionInfo")
+            {
+                if (args.Count != 0) throw new ArgumentException("This API reads only the current session.");
+                return JsonValues.Clone(ctx[SessionInfoKey]);
+            }
             if (op == "send" && args.GetArray("attachments").Any(item => !grantedFiles.Contains(item.GetString("id"))))
                 throw new UnauthorizedAccessException("A sent attachment was not granted to this handler.");
             return await harness(package, ctx, op, args, ct);
@@ -810,18 +858,12 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
             if (parts.Length != 2) throw new ArgumentException("Expected plugin and route.");
             var plugin = Volatile.Read(ref packages).FirstOrDefault(item => item.Id == parts[0]) ??
                 throw new ArgumentException("Target plugin is unavailable.");
-            RequireScope(plugin, environment.GetString("preset"));
             var handler = plugin.Manifest.GetObject("routes").GetString(parts[1]);
             if (handler.Length == 0) throw new ArgumentException("Target plugin does not declare this route.");
-            var hop = environment.GetInt32("_url_hop");
-            if (hop >= 8) throw new InvalidOperationException("Too many URL Interaction hops.");
-            var next = (JsonObject)environment.DeepClone();
-            next["_url_hop"] = hop + 1;
-            if (!EnqueueRoute(plugin, handler, new() { ["name"] = "url.open", ["url"] = value, ["sender"] = sender, ["route"] = parts[1] }, next))
-                throw new InvalidOperationException("Plugin event queue is full.");
+            return InvokeAction(plugin, handler, new() { ["name"] = "url.open", ["url"] = value, ["sender"] = sender, ["route"] = parts[1] },
+                NextAction(environment));
         }
-        else throw new ArgumentException("Unknown URL Interaction host.");
-        return new() { ["accepted"] = true };
+        throw new ArgumentException("Unknown URL Interaction host.");
     }
 
     public void OpenSettingLink(string id, string key, JsonObject environment)

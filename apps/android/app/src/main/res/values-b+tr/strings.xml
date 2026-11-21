@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="asset_download_failed">Dosya kaydedilemedi</string>
     <string name="chat">Sohbet</string>
     <string name="world">Dünya</string>
     <string name="preset">Hazır ayar</string>
@@ -132,6 +133,9 @@
     <string name="install_plugin">Eklenti yükle</string>
     <string name="run_plugin">Çalıştır</string>
     <string name="remove_plugin">Kaldır</string>
+    <string name="plugin_enabled">Etkin</string>
+    <string name="plugin_disabled">Devre dışı</string>
+    <string name="uninstall_plugin_title">%1$s kaldırılsın mı?</string>
     <string name="built_in">Yerleşik</string>
     <string name="plugin_resource_request">%1$s dosya seçmenizi istiyor</string>
     <string name="delete_chat">Sohbeti sil</string>

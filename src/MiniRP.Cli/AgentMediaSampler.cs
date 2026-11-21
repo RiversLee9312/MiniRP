@@ -1,7 +1,9 @@
 using System.ComponentModel;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using MiniRP.Protocol;
 
 namespace MiniRP.Cli;
@@ -19,30 +21,23 @@ internal static class AgentMediaSampler
         if (kind == "pdf_metadata") return await PdfMetadata(input, ct);
         if (kind is "image_metadata" or "video_metadata") return await MediaMetadata(kind, input, ct);
         if (kind is "image_decode" or "image_encode") return await Image(kind, input, output, request, ct);
+        var viewport = ImageViewport.Read(request);
         var start = Seconds(Math.Max(0, request.GetInt32("start_ms")));
         var length = Seconds(Math.Clamp(request.GetInt32("duration_ms", 10000), 100, 30000));
         if (kind == "pdf_page")
-        {
-            var page = Math.Max(1, request.GetInt32("page", 1)).ToString(CultureInfo.InvariantCulture);
-            var png = output + ".png";
-            try
-            {
-                await Run("pdftoppm", ["-f", page, "-l", page, "-scale-to", "1400", "-singlefile", "-png", input, output], ct);
-                File.Move(png, output);
-            }
-            finally { File.Delete(png); }
-        }
-        else if (kind == "pdf_create_page")
+            return await PreviewPdf(input, output, Math.Max(1, request.GetInt32("page", 1)), viewport, ct);
+        if (kind is "image_preview" or "video_frame")
+            return await PreviewRaster(input, output, kind == "video_frame", start, viewport, ct);
+        if (kind == "pdf_create_page")
         {
             await Run("img2pdf", ["--output", output, input], ct);
         }
-        else if (kind is "video_frame" or "audio_clip" or "video_encode")
+        else if (kind is "audio_clip" or "video_encode")
         {
             string[] common = ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe",
                 "-format_whitelist", MediaFormats, "-ss", start, "-i", input];
             string[] sample = kind switch
             {
-                "video_frame" => ["-map", "0:v:0", "-frames:v", "1", "-vf", "scale=1400:1400:force_original_aspect_ratio=decrease", "-f", "image2", "-update", "1", "-c:v", "png"],
                 "video_encode" => ["-map", "0:v:0", "-map", "0:a:0?", "-t", length, "-c:v", "libx264", "-pix_fmt", "yuv420p",
                     "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:a", "aac", "-movflags", "+faststart", "-f", "mp4"],
                 _ => ["-map", "0:a:0", "-t", length, "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", "-f", "wav"]
@@ -55,6 +50,82 @@ internal static class AgentMediaSampler
         {
             "audio_clip" => "audio/wav", "video_encode" => "video/mp4", "pdf_create_page" => "application/pdf", _ => "image/png"
         } };
+    }
+
+    private static async Task<JsonObject> PreviewRaster(string input, string output, bool video, string start,
+        ImageViewport? viewport, CancellationToken ct)
+    {
+        var metadata = await MediaMetadata(video ? "video_metadata" : "image_metadata", input, ct);
+        var width = metadata.GetInt32("width");
+        var height = metadata.GetInt32("height");
+        if (width < 1 || height < 1) throw new IOException("Image dimensions are unavailable.");
+        if (video && Math.Abs(metadata.GetInt32("rotation_degrees")) % 180 == 90) (width, height) = (height, width);
+        viewport?.RequireInside(width, height);
+        var crop = viewport is { } view ? FormattableString.Invariant($"crop={view.Width}:{view.Height}:{view.X}:{view.Y}:exact=1,") : "";
+        const int limit = ImageViewport.MaxSide;
+        var scale = FormattableString.Invariant($"scale=w='min(iw,{limit})':h='min(ih,{limit})':force_original_aspect_ratio=decrease");
+        await Run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe",
+            "-format_whitelist", video ? MediaFormats : ImageFormats, .. video ? new[] { "-ss", start } : ["-noautorotate"],
+            "-i", input, "-map", "0:v:0", "-frames:v", "1", "-vf", crop + scale,
+            "-f", "image2", "-update", "1", "-c:v", "png", output], ct);
+        return await FinishPreview(output, width, height, ct);
+    }
+
+    private static async Task<JsonObject> PreviewPdf(string input, string output, int index,
+        ImageViewport? viewport, CancellationToken ct)
+    {
+        var page = index.ToString(CultureInfo.InvariantCulture);
+        var metadata = await Run("pdfinfo", ["-f", page, "-l", page, "-box", input], ct);
+        var size = Regex.Match(metadata, @"^Page(?:\s+\d+)?\s+size:\s+([0-9.]+) x ([0-9.]+) pts", RegexOptions.Multiline);
+        if (!size.Success) throw new IOException("PDF page dimensions are unavailable.");
+        var width = double.Parse(size.Groups[1].Value, CultureInfo.InvariantCulture);
+        var height = double.Parse(size.Groups[2].Value, CultureInfo.InvariantCulture);
+        var rotation = Regex.Match(metadata, @"^Page(?:\s+\d+)?\s+rot:\s+(90|270)\s*$", RegexOptions.Multiline);
+        if (rotation.Success) (width, height) = (height, width);
+        var sourceWidth = (int)Math.Ceiling(width);
+        var sourceHeight = (int)Math.Ceiling(height);
+        viewport?.RequireInside(sourceWidth, sourceHeight);
+        string[] dimensions = ["-scale-to", "1400"];
+        if (viewport is { } rect)
+        {
+            var scale = (double)ImageViewport.MaxSide / Math.Max(rect.Width, rect.Height);
+            string Pixels(int points) => Math.Round(points * scale).ToString(CultureInfo.InvariantCulture);
+            dimensions = ["-r", (72d * scale).ToString("G17", CultureInfo.InvariantCulture),
+                "-x", Pixels(rect.X), "-y", Pixels(rect.Y), "-W", Pixels(rect.Width), "-H", Pixels(rect.Height)];
+        }
+        var png = output + ".png";
+        try
+        {
+            await Run("pdftoppm", ["-f", page, "-l", page, "-cropbox", .. dimensions, "-singlefile", "-png", input, output], ct);
+            File.Move(png, output);
+        }
+        finally { File.Delete(png); }
+        return await FinishPreview(output, sourceWidth, sourceHeight, ct);
+    }
+
+    private static async Task<JsonObject> FinishPreview(string output, int sourceWidth, int sourceHeight, CancellationToken ct)
+    {
+        byte[] header = new byte[24];
+        await using (var png = File.OpenRead(output)) await png.ReadExactlyAsync(header, ct);
+        var width = BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(16));
+        var height = BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(20));
+        if (width is < 1 or > ImageViewport.MaxSide || height is < 1 or > ImageViewport.MaxSide)
+            throw new IOException("Invalid image preview dimensions.");
+        var mime = "image/png";
+        if (new FileInfo(output).Length > 10_000_000)
+        {
+            var webp = output + ".webp";
+            try
+            {
+                await Run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe",
+                    "-format_whitelist", "png_pipe", "-i", output, "-frames:v", "1", "-c:v", "libwebp", "-quality", "90", webp], ct);
+                File.Move(webp, output, overwrite: true);
+                mime = "image/webp";
+            }
+            finally { File.Delete(webp); }
+        }
+        return new() { ["mime"] = mime, ["width"] = width, ["height"] = height,
+            ["source_width"] = sourceWidth, ["source_height"] = sourceHeight };
     }
 
     private static async Task<JsonObject> Image(string kind, string input, string output, JsonObject request, CancellationToken ct)

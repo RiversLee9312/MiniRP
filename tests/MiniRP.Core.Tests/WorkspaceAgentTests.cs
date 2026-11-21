@@ -96,7 +96,7 @@ public sealed class WorkspaceAgentTests
         using var session = TestAgentSession.Open("chat", Path.Combine(world.ChatRoot, "compact-test.sqlite"), model, _ => { });
         var original = new string('x', 330000);
         session.Restore(new JsonArray(new JsonObject { ["role"] = "user", ["content"] = original }));
-        await session.Run("Test", "Continue", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+        await session.Run("Test", "Continue", CancellationToken.None);
         var archives = session.Db.Call("db_list", new() { ["prefix"] = "_archive/history/" }).GetArray("entries");
         Assert.AreEqual(1, archives.Count);
         Assert.IsTrue(session.Db.Get(archives[0].GetString("key"))!.Contains(original, StringComparison.Ordinal));
@@ -114,8 +114,8 @@ public sealed class WorkspaceAgentTests
         var reference = "Recent chat: " + new string('x', 2400);
         var oldSkill = new AgentSkill("research", "Find facts.", new(),
             (_, _, _) => Task.FromResult<JsonNode?>(null), Required: true, Instructions: "Policy one.");
-        var newSkill = oldSkill with { Instructions = "Policy two.",
-            Tools = new JsonArray(Tools.Define("research_new", "Find sources.", new())) };
+        var newSkill = new AgentSkill("research", "Find facts.", new JsonArray(Tools.Define("research_new", "Find sources.")),
+            (_, _, _) => Task.FromResult<JsonNode?>(null), Required: true, Instructions: "Policy two.");
 
         await session.Run("Old instructions.", "Search first", oldSkill, CancellationToken.None, reference: reference);
         await session.Run("New instructions.", "Search again", newSkill, CancellationToken.None, reference: reference);
@@ -143,7 +143,7 @@ public sealed class WorkspaceAgentTests
         using (var initial = TestAgentSession.Open("chat", path,
             Fixture(round => new JsonObject { ["content"] = round == 0 ? "Compressed summary." : "Done." }), events.Add))
         {
-            await initial.Run("Test", original, new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+            await initial.Run("Test", original, CancellationToken.None);
             Assert.IsFalse(initial.History.Any(item => item.GetString("content") == original));
         }
 
@@ -156,7 +156,7 @@ public sealed class WorkspaceAgentTests
             1 => Assistant(Call("history_recall", new() { ["id"] = MessageId(), ["length"] = 25 })),
             _ => new JsonObject { ["content"] = "Recovered." }
         }), events.Add);
-        await resumed.Run("Test", "Recall the color", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+        await resumed.Run("Test", "Recall the color", CancellationToken.None);
         var recalled = JsonValues.ParseObject(events.Single(e => e.GetString("name") == "history_recall" && e.GetString("kind") == "tool_end").GetString("text"));
         Assert.AreEqual(original[..25], recalled.GetString("content"));
         Assert.AreEqual(original.Length, recalled.GetInt32("total_chars"));
@@ -164,7 +164,7 @@ public sealed class WorkspaceAgentTests
 
         using var other = TestAgentSession.Open("env", Path.Combine(world.ChatRoot, "separate-history-test.sqlite"), Fixture(round => round == 0
             ? Assistant(Call("history_search", new() { ["query"] = "lantern green" })) : new JsonObject { ["content"] = "No match." }), events.Add);
-        await other.Run("Test", "Find a lantern", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+        await other.Run("Test", "Find a lantern", CancellationToken.None);
         var otherSearch = events.Last(e => e.GetString("name") == "history_search" && e.GetString("kind") == "tool_end");
         Assert.AreEqual(0, JsonValues.ParseObject(otherSearch.GetString("text")).GetArray("matches").Count);
     }
@@ -205,7 +205,7 @@ public sealed class WorkspaceAgentTests
         using (var originalSession = TestAgentSession.Open("chat", path, model, _ => { }))
         {
             originalSession.Restore(new JsonArray(new JsonObject { ["role"] = "user", ["content"] = original }));
-            await originalSession.Run("Test", "Prepare without blocking", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), timeout.Token);
+            await originalSession.Run("Test", "Prepare without blocking", timeout.Token);
             Assert.AreEqual("", originalSession.Summary);
             Assert.AreEqual(original, originalSession.History[0].GetString("content"));
             Reply(await summaryRequest.Task.WaitAsync(timeout.Token), "Checkpoint retained the original state.");
@@ -217,7 +217,7 @@ public sealed class WorkspaceAgentTests
         var events = new List<JsonObject>();
         using var resumed = TestAgentSession.Open("chat", path, model, events.Add);
         var nextInput = "New input " + new string('y', 21000);
-        await resumed.Run("Test", nextInput, new(), (_, _, _) => Task.FromResult<JsonNode?>(null), timeout.Token);
+        await resumed.Run("Test", nextInput, timeout.Token);
         Assert.AreEqual(1, summaries);
         Assert.AreEqual(2, requests.Count);
         var messages = requests.Last().GetArray("messages");
@@ -258,17 +258,21 @@ public sealed class WorkspaceAgentTests
             return Assistant(Call("step", new()), Call("step", new()));
         }, requests.Add, new Provider("test", "Test", "openai", "http://fixture.invalid", "", "test",
             CompactAt: 5400, BackgroundCompaction: false));
-        using var session = TestAgentSession.Open("chat", Path.Combine(world.ChatRoot, "repeated-compaction.sqlite"), model, _ => { });
+        var trace = new List<JsonObject>();
+        using var session = TestAgentSession.Open("chat", Path.Combine(world.ChatRoot, "repeated-compaction.sqlite"), model, trace.Add);
         session.Restore(new JsonArray(new JsonObject { ["role"] = "user", ["content"] = new string('x', 22000) }));
         var callsExecuted = 0;
-        await session.Run("Test", "Finish the current job", new JsonArray(Tools.Define("step", "Complete one step.")), (_, _, _) =>
+        var skill = new AgentSkill("fixture-steps", "Complete the remaining steps.", new JsonArray(Tools.Define("step", "Complete one step.")), (_, _, _) =>
         {
             var step = ++callsExecuted;
             completed = step / 2;
             return Task.FromResult<JsonNode?>(JsonValue.Create($"step-{step} " + new string('p', 1880)));
-        }, CancellationToken.None);
+        }, Required: true);
+        await session.Run("Test", "Finish the current job", skill, CancellationToken.None);
         Assert.IsGreaterThanOrEqualTo(2, progress);
         Assert.AreEqual(8, callsExecuted);
+        Assert.IsTrue(trace.Any(item => item.GetString("kind") == "context_trace" && !item.GetBoolean("running")));
+        Assert.IsTrue(trace.Where(item => item.GetString("kind") is "tool_start" or "tool_end").All(item => item.GetString("name") == "step"));
         StringAssert.Contains(session.Summary, "Checkpoint " + progress);
     }
 
@@ -303,7 +307,7 @@ public sealed class WorkspaceAgentTests
         Assert.IsTrue(requests.All(request => !JsonValues.Serialize(request).Contains(marker, StringComparison.Ordinal)));
         Assert.IsTrue(requests.All(request => request.GetArray("messages").Any(item => item.GetString("content") == "Keep the lantern green.")));
         Assert.IsFalse(session.History.Any(SessionInstructions.IsFrame));
-        Assert.IsFalse(seen.Any(item => item.GetString("name") == "compact_context"));
+        Assert.IsFalse(seen.Any(item => item.GetString("kind") == "context_trace"));
     }
 
     [TestMethod]
@@ -346,11 +350,11 @@ public sealed class WorkspaceAgentTests
         }, requests.Add, provider, inputUsage: round => round == 0 ? 8400 : 0);
         var original = "Preserve original status " + new string('a', 11250);
         using (var first = TestAgentSession.Open("preset", path, model, _ => { }))
-            await first.Run("Test", original, new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+            await first.Run("Test", original, CancellationToken.None);
 
         using var second = TestAgentSession.Open("preset", path, model, _ => { });
-        await second.Run("Test", "Continue", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
-        await second.Run("Test", "One more turn", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+        await second.Run("Test", "Continue", CancellationToken.None);
+        await second.Run("Test", "One more turn", CancellationToken.None);
         Assert.AreEqual(1, summaries);
         Assert.AreEqual(4, requests.Count);
         Assert.IsFalse(second.History.Any(item => item.GetString("content") == original));
@@ -371,14 +375,13 @@ public sealed class WorkspaceAgentTests
                    : throw new IOException("Primary generation failed."), provider: provider), _ => { }))
         {
             session.Restore(new JsonArray(new JsonObject { ["role"] = "user", ["content"] = original }));
-            await Assert.ThrowsExactlyAsync<IOException>(() => session.Run("Test", "Uncommitted request", new(),
-                (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None));
+            await Assert.ThrowsExactlyAsync<IOException>(() => session.Run("Test", "Uncommitted request", CancellationToken.None));
         }
         var requests = new List<JsonObject>();
         using var resumed = TestAgentSession.Open("preset", path, Fixture(_ => new() { ["content"] = "Reply." }, requests.Add, provider), _ => { });
         Assert.AreEqual(0, resumed.History.Count);
         StringAssert.Contains(resumed.Summary, "The committed checkpoint.");
-        await resumed.Run("Test", "Retry", new(), (_, _, _) => Task.FromResult<JsonNode?>(null), CancellationToken.None);
+        await resumed.Run("Test", "Retry", CancellationToken.None);
         Assert.AreEqual(1, requests.Count);
         var sent = requests[0].GetArray("messages");
         Assert.IsFalse(sent.Any(item => item.GetString("content") == original || item.GetString("content") == "Uncommitted request"));

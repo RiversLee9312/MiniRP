@@ -10,6 +10,9 @@ settings.Load();
 await using var browser = new BrowserHost(root, settings["MINIRP_BROWSER"].Length > 0 ? settings["MINIRP_BROWSER"] : "chrome");
 await using var platform = new PlatformHost(core.Send, core.TakeBinary, core.WriteBinary, browser, root);
 core.Send(settings.Configure());
+var containerImage = Environment.GetEnvironmentVariable("MINIRP_CONTAINER_IMAGE") ?? Path.Combine(AppContext.BaseDirectory, "container-image");
+if (File.Exists(Path.Combine(containerImage, "ROOM_VM"))) core.Send(new() { ["op"] = "_container_available" });
+if (File.Exists(CurlHost.Executable)) core.Send(new() { ["op"] = "_curl_available" });
 
 if (args.Contains("--stdio", StringComparer.Ordinal))
 {

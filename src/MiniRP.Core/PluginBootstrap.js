@@ -79,11 +79,16 @@
                 const info = parse(payload);
                 const api = freeze({
                     environment: freeze(info.environment),
-                    harness: bind("harness", ["readSession", "readChat", "listPresets", "listChats", "listRooms", "readRoom", "createChat", "createRoom", "createPreset", "send", "steer", "insertSystemMessage", "createTemporarySession", "runTemporary", "closeTemporary", "renameChat", "renameRoom", "generateTitle", "getPreset", "setSearchMode", "setPrompt", "branchChat", "generate"]),
+                    harness: bind("harness", ["getSessionInfo", "readSession", "readChat", "listPresets", "listChats", "listRooms", "readRoom", "createChat", "createRoom", "createPreset", "send", "steer", "insertSystemMessage", "createTemporarySession", "runTemporary", "closeTemporary", "renameChat", "renameRoom", "generateTitle", "getPreset", "setSearchMode", "setPrompt", "branchChat", "generate"]),
                     state: bind("state", ["get", "set"]),
                     ...(info.development ? {
                         development: bind("development", ["run"]),
+                        assetEdit: bind("assetEdit", ["binPatch", "textEdit"]),
+                        research: bind("research", ["request", "local", "normalize", "backend", "register", "registerAll",
+                            "recall", "selection", "metadata", "retain"]),
                         assetView: freeze({
+                            grep: (args) => call("assetView.grep", args),
+                            rawGrep: (args) => call("assetView.rawGrep", args),
                             present(url, resource) {
                                 const handle = resource === undefined ? undefined : assetHandles.get(resource);
                                 if (resource !== undefined && !handle) throw new TypeError("Expected an open codec output.");
@@ -99,7 +104,7 @@
                         ...(info.legacy ? bind("attachments", ["read"]) : {}),
                     }),
                     settings: bind("settings", ["get"]),
-                    actions: bind("actions", ["invoke", "publish"]),
+                    actions: bind("actions", ["invoke", "publish", "publishOutput"]),
                     assets: freeze({
                         url(id) {
                             if (typeof id !== "string" || !/^[a-z][a-z0-9_-]{0,47}$/.test(id)) throw new TypeError("Invalid asset ID.");
@@ -121,6 +126,7 @@
                     }),
                     image: freeze({
                         metadata: (url) => call("codecs.image_metadata", { url }),
+                        preview: (url, options = {}) => openContent("codecs.image_preview", { ...options, url }),
                         decode: (url) => openContent("codecs.image_decode", { url }),
                         encode: (url, options = {}) => openContent("codecs.image_encode", { ...options, url }),
                     }),

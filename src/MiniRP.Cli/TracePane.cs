@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using MiniRP.Protocol;
 using Terminal.Gui.Input;
 using Terminal.Gui.Editor;
@@ -15,6 +16,8 @@ internal sealed class TracePane : View
     private readonly List<JsonObject> blocks = [];
     private readonly Dictionary<string, bool> expanded = new(StringComparer.Ordinal);
     private readonly Dictionary<int, string> headers = [];
+    private readonly Dictionary<int, (string Block, string Url)> links = [];
+    private static readonly Regex AssetLink = new(@"\[([^\]\r\n]+)\]\((minirp://assets/[a-z0-9._]+/[A-Za-z0-9_.-]+)\)", RegexOptions.NonBacktracking);
     private readonly Editor transcript = new() { ReadOnly = true, WordWrap = false, Width = Dim.Fill(), Height = Dim.Fill() };
     private readonly Editor composer = new() { WordWrap = true, Width = Dim.Fill(), Height = 2 };
     private int lastLines;
@@ -22,6 +25,7 @@ internal sealed class TracePane : View
     private bool dirty;
 
     public event Action<string>? Submitted;
+    public event Action<string, string>? Download;
     public bool DefaultExpanded
     {
         get; set;
@@ -68,7 +72,7 @@ internal sealed class TracePane : View
             {
                 if (mouse.Position is { } position)
                 {
-                    Toggle(position.Y + transcript.Viewport.Y);
+                    Activate(position.Y + transcript.Viewport.Y);
                 }
             }
         };
@@ -76,7 +80,7 @@ internal sealed class TracePane : View
         {
             if (key == Key.Enter)
             {
-                Toggle((transcript.Document!.GetLineByOffset(transcript.CaretOffset).LineNumber - 1));
+                Activate((transcript.Document!.GetLineByOffset(transcript.CaretOffset).LineNumber - 1));
                 key.Handled = true;
             }
         };
@@ -109,13 +113,22 @@ internal sealed class TracePane : View
         {
             blocks.Add(new()
             {
-                ["id"] = JsonValues.NewId(),
+                ["id"] = item.GetString("block", JsonValues.NewId()),
                 ["kind"] = "user",
                 ["agent"] = item.GetString("agent"),
                 ["content"] = item.GetString("text")
             });
         }
-        else if (kind is "delta" or "tool_start" or "tool_end")
+        else if (kind == "ensemble_assistant")
+        {
+            blocks.Add((JsonObject)item.GetObject("item").DeepClone());
+        }
+        else if (kind == "turn_end" && item["asset_links"] is JsonObject published)
+        {
+            var block = blocks.FirstOrDefault(block => block.GetString("id") == item.GetString("block"));
+            if (block is not null) block["asset_links"] = published.DeepClone();
+        }
+        else if (kind is "delta" or "tool_start" or "tool_end" or "context_trace")
         {
             var id = item.GetString("block");
             var block = blocks.FirstOrDefault(block => block.GetString("id") == id);
@@ -132,6 +145,11 @@ internal sealed class TracePane : View
             {
                 var type = item.GetString("type");
                 block[type] = block.GetString(type) + item.GetString("text");
+            }
+            else if (kind == "context_trace")
+            {
+                block["compaction"] = true;
+                block["result"] = item.GetString("text");
             }
             else
             {
@@ -151,13 +169,14 @@ internal sealed class TracePane : View
         Render();
     }
 
-    private void Toggle(int row)
+    private void Activate(int row)
     {
         if (headers.TryGetValue(row, out var key))
         {
             expanded[key] = !expanded.GetValueOrDefault(key, DefaultExpanded);
             Render();
         }
+        else if (links.TryGetValue(row, out var link)) Download?.Invoke(link.Block, link.Url);
     }
 
     private void Render()
@@ -166,6 +185,7 @@ internal sealed class TracePane : View
         var width = Math.Max(10, Viewport.Width - 2);
         var follow = (transcript.Document!.GetLineByOffset(transcript.CaretOffset).LineNumber - 1) >= lastLines - 4;
         headers.Clear();
+        links.Clear();
         foreach (var block in blocks)
         {
             if (block.GetString("kind") == "user")
@@ -175,10 +195,29 @@ internal sealed class TracePane : View
             else
             {
                 Fold(block, "reasoning", "Thoughts", block.GetString("reasoning"));
-                Fold(block, "tool", block.GetString("tool"), block.GetString("arguments") + "\n" + block.GetString("result"));
+                if (block.GetBoolean("compaction") || block.GetString("tool") == "compact_context")
+                    Fold(block, "compaction", "Context compaction", block.GetString("result"));
+                else
+                    Fold(block, "tool", block.GetString("tool"), block.GetString("arguments") + "\n" + block.GetString("result"));
                 if (block.GetString("content").Length > 0)
                 {
-                    rows.AddRange(Wrap(block.GetString("content"), width));
+                    var published = block.GetObject("asset_links");
+                    var downloads = new Dictionary<string, string>(StringComparer.Ordinal);
+                    var markdown = AssetLink.Replace(block.GetString("content"), match =>
+                    {
+                        var url = match.Groups[2].Value;
+                        if (!published.ContainsKey(url)) return match.Value;
+                        var label = match.Groups[1].Value;
+                        downloads.TryAdd(url, label);
+                        return label;
+                    });
+                    rows.AddRange(Wrap(markdown, width));
+                    foreach (var (url, label) in downloads)
+                        foreach (var row in Wrap("↓ " + label, width))
+                        {
+                            links[rows.Count] = (block.GetString("id"), url);
+                            rows.Add(row);
+                        }
                 }
             }
             rows.Add("");

@@ -69,9 +69,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class NavigationTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule val temporary = TemporaryFolder()
     private val preferencesScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val preset = UUID.randomUUID().toString()
     private val otherPreset = UUID.randomUUID().toString()
@@ -82,7 +84,7 @@ class NavigationTest {
     @Before
     fun launchPresetHome() {
         val app = compose.activity.application
-        val directory = File(app.cacheDir, "navigation-home-$preset").apply { mkdirs() }
+        val directory = temporary.newFolder()
         val context =
             object : ContextWrapper(app) {
                 override fun getFilesDir(): File = directory
@@ -420,12 +422,12 @@ class EmptyHomeTest {
 
 class PluginNavigationDuringGenerationTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule val temporary = TemporaryFolder()
 
     @Test
     fun cleanHomeAndPluginsStayResponsiveWhileTheChatRequestIsPending() {
         val application = compose.activity.application
-        val directory =
-            File(application.cacheDir, "navigation-${System.nanoTime()}").apply { mkdirs() }
+        val directory = temporary.newFolder()
         val workspace =
             object : ContextWrapper(application) {
                 override fun getFilesDir(): File = directory

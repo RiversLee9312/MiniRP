@@ -15,6 +15,7 @@ Preset、Room 和 Chat 都使用标准小写 UUID，例如 `7844467a-14ae-48eb-8
 | `harness.listRooms` | `harness.read` | `{preset?,offset?,limit?}` → 预设下的 Room 列表 `[{id,name}]`。普通预设的 Room 与 Chat 使用同一个 ID。 |
 | `harness.readRoom` | `harness.read` | `{preset?,room?,offset?,limit?}` → `{id,preset,name,chats}`，其中 `chats` 是该 Room 的 Chat 列表。 |
 | `harness.readSession` | `harness.read` | `{preset?,room?,chat?,agent?,id?,participant?,offset?,limit?}` → 指定 Agent 当前上下文中的可见消息。群像的 Chat/Search 会话以 Room 和角色 ID `participant` 定位。Fetch 和临时 Agent 可提供任务 ID，临时会话只向所有者开放。 |
+| `harness.getSessionInfo()` | `harness.read` | 当前回调绑定到模型会话时，返回 `{model,provider,contextWindow,usedTokens,remainingTokens}`。没有已计算上下文的会话时返回 `null`。 |
 | `harness.createChat` | `harness.write` | `{preset?}` → 在普通预设中新建聊天并选中。 |
 | `harness.createRoom` | `harness.write` | `{preset?}` → 在群像预设中新建 Room，用预设定义初始化角色和 Chat。Room 内新增 Chat 或改变成员由 EnvAgent 处理。 |
 | `harness.createPreset` | `harness.write` | `{name?}` → 新建预设，省略时用默认名称。 |
@@ -33,3 +34,5 @@ Preset、Room 和 Chat 都使用标准小写 UUID，例如 `7844467a-14ae-48eb-8
 | `harness.generate` | `model` | `{text,system?}` → `{text}`。使用 Chat 模型做独立生成，最多 384 输出 token，无会话和工具。 |
 
 写操作通常返回 `{queued:true,request}`。该结果表示进入工作区队列，完成情况从对应宿主事件或之后的读取确认。普通消息文本上限 64,000 字符。发送系统角色消息会发起生成，空闲时插入系统消息只写入历史。
+
+`getSessionInfo()` 不接收目标参数。它返回触发回调的会话快照，例如工具调用或模型轮次的 Hook。`model` 是模型 ID，`provider` 是宿主配置的提供商 ID。`contextWindow` 是整个模型窗口，`usedTokens` 沿用上下文压缩估算，并在提供商返回输入用量时校准。`remainingTokens` 是窗口减去当前用量，下限为 0。这个数字尚未扣除为模型输出预留的空间。

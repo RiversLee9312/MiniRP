@@ -519,8 +519,327 @@ public sealed class ExtensionTests
         }
         Assert.StartsWith("draft-", deployed);
         Assert.AreNotEqual(children[0], children[1]);
+        var preset = engine.Workspace.PresetId;
+        engine.Dispatch(new() { ["op"] = "home", ["preset"] = preset });
+        await Until(engine, "home", scripts);
+        engine.Dispatch(new() { ["op"] = "open_preset", ["preset"] = preset });
+        var reopened = (await Until(engine, "preset_opened", scripts)).GetArray("blocks");
+        var panels = reopened.Where(block => block.GetString("agent") == "PluginAgent")
+            .GroupBy(block => block.GetString("plugin_run")).ToArray();
+        Assert.HasCount(2, panels);
+        foreach (var (name, reply, tool) in new[]
+        {
+            ("Writer", "Published.", "plugin_base_project_publish"),
+            ("Reader", "Schema read.", "plugin_base_plugin_docs")
+        })
+        {
+            var panel = panels.Single(group => group.First().GetString("plugin_agent_name") == name);
+            Assert.IsFalse(string.IsNullOrEmpty(panel.Key));
+            Assert.AreEqual("finished", panel.First().GetString("plugin_status"));
+            Assert.IsTrue(panel.Any(block => block.GetString("content") == reply));
+            Assert.IsTrue(panel.Any(block => block.GetString("tool") == tool));
+        }
 
         void Tool(JsonObject request, string name, JsonObject args) => ReplyTool(engine, request, name, args);
+    }
+
+    [TestMethod]
+    public async Task HarnessSessionInfoIsBoundToTheInvocationAndUsesProviderUsage()
+    {
+        var root = NewRoot();
+        using var signer = Certificate();
+        var archive = Pack(root, "session-info", signer, """
+            {"id":"session-info","packageName":"test.sessioninfo","name":"Session info","apiVersion":2,"entry":"index.js",
+             "permissions":["harness.read","db"],"actions":{"handlers":{"read":"read","check":"check"}},
+             "hooks":{"plugin.command":"minirp://actions/test.sessioninfo/hooks/check"},
+             "skills":[{"name":"measure","description":"Read the session budget.","agents":["preset"],"tools":[
+               {"name":"read","description":"Read the measured session budget.","parameters":{"type":"object"},
+                "handler":"minirp://actions/test.sessioninfo/hooks/read"}]}]}
+            """, """
+            globalThis.handlers = {
+                async read(_, api) {
+                    let rejectsTarget = false;
+                    try { await api.harness.getSessionInfo({agent: "chat"}); } catch { rejectsTarget = true; }
+                    return {info: await api.harness.getSessionInfo(), rejectsTarget};
+                },
+                async check(_, api) {
+                    const info = await api.harness.getSessionInfo();
+                    await api.db.put({scope: "preset", key: "unbound", content: JSON.stringify(info)});
+                }
+            };
+            """);
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        engine.Dispatch(new() { ["op"] = "configure", ["provider"] = new JsonObject
+        {
+            ["id"] = "configured-provider", ["url"] = "http://fixture.invalid/v1",
+            ["model"] = "fixture", ["context_window"] = 64000, ["max_output"] = 2048
+        } });
+        engine.Dispatch(new() { ["op"] = "plugin_install", ["path"] = archive });
+        await Until(engine, "plugin", scripts);
+        var preset = engine.Workspace.PresetId;
+        engine.Dispatch(new() { ["op"] = "plugin_command", ["id"] = "session-info" });
+        engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["text"] = "Read the session budget." });
+        ReplyTool(engine, await NextModel(engine, scripts), "activate_skill", new() { ["name"] = "session-info-measure" });
+        ReplyTool(engine, await NextModel(engine, scripts), "plugin_session-info_read", new(), promptTokens: 18800);
+        var last = await NextModel(engine, scripts);
+        var result = JsonValues.ParseObject(JsonValues.ParseObject(last.GetString("body")).GetArray("messages")
+            .Last(message => message.GetString("role") == "tool").GetString("content"));
+        Assert.IsTrue(result.GetBoolean("rejectsTarget"));
+        var info = result.GetObject("info");
+        Assert.HasCount(5, info);
+        Assert.AreEqual("fixture", info.GetString("model"));
+        Assert.AreEqual("configured-provider", info.GetString("provider"));
+        Assert.AreEqual(64000, info.GetInt32("contextWindow"));
+        var used = info.GetInt32("usedTokens");
+        Assert.IsTrue(used >= 18800 && used < 19000);
+        Assert.AreEqual(64000 - used, info.GetInt32("remainingTokens"));
+        Reply(engine, last, "Budget read.");
+        await Until(engine, "completed", scripts);
+        var path = Path.Combine(root, "plugins", "data", "test.sessioninfo." + signer.GetCertHashString(HashAlgorithmName.SHA256),
+            "preset", preset + ".sqlite");
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (true)
+        {
+            foreach (var item in engine.Poll().OfType<JsonObject>()) Process(engine, item, scripts, deadline.Token);
+            if (File.Exists(path))
+            {
+                using var db = new MemoryDb(path);
+                if (db.Get("unbound") is { } unbound)
+                {
+                    Assert.AreEqual("null", unbound);
+                    break;
+                }
+            }
+            await Task.Delay(8, deadline.Token);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ChatOpenUrlReturnsMarkdownAfterFetchAndAfterSearchAgentEdits(bool longPage)
+    {
+        const string url = "https://fixture.invalid/docs/page";
+        const string raw = """
+            <!doctype html><html><head><title>Page title</title></head><body>
+            <nav>Navigation junk</nav><main><h1>Article</h1><p><strong>Important</strong> <a href="next">Next</a>.</p>
+            <script>script junk</script></main><footer>Footer junk</footer></body></html>
+            """;
+        await using var engine = new Engine(NewRoot());
+        using var scripts = new PluginScripts();
+        engine.Dispatch(new() { ["op"] = "configure", ["provider"] = new JsonObject
+        {
+            ["url"] = "http://fixture.invalid/v1", ["model"] = "fixture"
+        }, ["settings"] = new JsonObject { ["search_key"] = "test", ["fetch_backend"] = "api" } });
+        engine.Dispatch(new() { ["op"] = "message", ["text"] = "Open the source." });
+        ReplyTool(engine, await NextModel(engine, scripts), "activate_skill", new() { ["name"] = "web-research" });
+        ReplyTool(engine, await NextModel(engine, scripts), "open_url", new() { ["url"] = url });
+        ReplyTool(engine, await NextModel(engine, scripts), "real_fetch", new() { ["url"] = url });
+        var fetch = await NextModel(engine, scripts);
+        StringAssert.EndsWith(fetch.GetString("url"), "/v1/tools/fetch");
+        engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = fetch.GetString("id"), ["done"] = true,
+            ["data"] = JsonValues.Serialize(new JsonObject { ["content"] = raw }) });
+
+        static JsonObject ToolResult(JsonObject request) => JsonValues.ParseObject(JsonValues.ParseObject(request.GetString("body"))
+            .GetArray("messages").Last(message => message.GetString("role") == "tool").GetString("content"));
+        var search = await NextModel(engine, scripts);
+        var preview = ToolResult(search);
+        Assert.IsFalse(preview.ContainsKey("error"), JsonValues.Serialize(preview));
+        var content = preview.GetString("content");
+        var reference = preview.GetString("ref");
+        var asset = preview.GetString("asset_url");
+        Assert.IsTrue(ResearchAssets.IsUrl(asset));
+        StringAssert.Contains(content, "# Article");
+        StringAssert.Contains(content, "[Next](https://fixture.invalid/docs/next)");
+        ReplyTool(engine, search, "activate_skill", new() { ["name"] = "edit_asset" });
+        var updated = longPage ? raw.Replace("</main>", string.Concat(Enumerable.Repeat("<p>" + new string('A', 90) + "</p>", 95)) +
+            "<p>Final paragraph marker</p></main>", StringComparison.Ordinal) : raw;
+        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_text_edit", new()
+        {
+            ["url"] = asset, ["old_string"] = content, ["new_string"] = updated
+        });
+        var submit = await NextModel(engine, scripts);
+        Assert.AreEqual(1, ToolResult(submit).GetInt32("changes"), JsonValues.Serialize(ToolResult(submit)));
+        ReplyTool(engine, submit, "submit_page", new() { ["ref"] = reference });
+        var chat = await NextModel(engine, scripts);
+        var result = ToolResult(chat);
+        Assert.AreEqual("Page title", result.GetString("title"));
+        Assert.AreEqual(url, result.GetString("url"));
+        Assert.IsFalse(content.Contains("junk", StringComparison.Ordinal));
+        Assert.IsFalse(content.Contains("<html>", StringComparison.Ordinal));
+        if (longPage)
+        {
+            Assert.IsFalse(result.ContainsKey("content"));
+            Assert.AreEqual(asset, result.GetString("source_asset_url"));
+            Assert.IsTrue(AgentAssetStorage.IsUrl(result.GetString("asset_url")));
+        }
+        else
+        {
+            Assert.AreEqual(content, result.GetString("content"));
+            Assert.AreEqual(asset, result.GetString("asset_url"));
+        }
+        ReplyTool(engine, chat, "activate_skill", new() { ["name"] = "view_asset" });
+        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_grep", new()
+        {
+            ["url"] = result.GetString("asset_url"), ["pattern"] = longPage ? "Final paragraph marker" : "Important"
+        });
+        var read = await NextModel(engine, scripts);
+        Assert.AreNotEqual(0, ToolResult(read).GetArray("lines").Count);
+        Reply(engine, read, "Article read.");
+        await Until(engine, "completed", scripts);
+    }
+
+    [TestMethod]
+    public async Task SkillActionPublishesLongUnicodeOutputAsAReadableAsset()
+    {
+        var root = NewRoot();
+        using var signer = Certificate();
+        var archive = Pack(root, "report", signer, """
+            {"id":"report","packageName":"test.longreport","name":"Report","apiVersion":2,"entry":"index.js",
+             "actions":{"handlers":{"write":"write"}},
+             "skills":[{"name":"reports","description":"Generate reports.","agents":["chat"],"tools":[
+                {"name":"write","description":"Generate a report.","parameters":{"type":"object"},
+                 "handler":"minirp://actions/test.longreport/hooks/write"}]}]}
+            """, """
+            globalThis.handlers = { async write(_, api) {
+              const boundary = "😀".repeat(8192);
+              const inline = await api.actions.publishOutput({text: boundary});
+              return { inlineCorrect: inline.output === boundary,
+                ...await api.actions.publishOutput({text: boundary + "\nfinal report line", name: "report.txt"}) };
+            } };
+            """);
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        engine.Dispatch(new() { ["op"] = "plugin_install", ["path"] = archive });
+        await Until(engine, "plugin", scripts);
+        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "message", ["text"] = "Generate a report." });
+        ReplyTool(engine, await NextModel(engine, scripts), "activate_skill", new() { ["name"] = "report-reports" });
+        ReplyTool(engine, await NextModel(engine, scripts), "plugin_report_write", new());
+        var next = await NextModel(engine, scripts);
+        static JsonObject Result(JsonObject request) => JsonValues.ParseObject(JsonValues.ParseObject(request.GetString("body"))
+            .GetArray("messages").Last(message => message.GetString("role") == "tool").GetString("content"));
+        var published = Result(next);
+        Assert.IsTrue(published.GetBoolean("inlineCorrect"), published.ToJsonString());
+        Assert.IsFalse(published.ContainsKey("output"));
+        var url = published.GetString("asset_url");
+        Assert.IsTrue(AgentAssetStorage.IsUrl(url));
+        ReplyTool(engine, next, "activate_skill", new() { ["name"] = "view_asset" });
+        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_grep", new() { ["url"] = url, ["pattern"] = "final report line" });
+        next = await NextModel(engine, scripts);
+        Assert.AreEqual(1, Result(next).GetInt32("match_count"), Result(next).ToJsonString());
+        Reply(engine, next, "Report read.");
+        await Until(engine, "completed", scripts);
+    }
+
+    [TestMethod]
+    public async Task PublishedAssetLinksKeepTheirRevisionAndAreScopedToTheReply()
+    {
+        var root = NewRoot();
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "message", ["text"] = "Make a downloadable file." });
+        ReplyTool(engine, await NextModel(engine, scripts), "activate_skill", new() { ["name"] = "asset_storage" });
+        ReplyTool(engine, await NextModel(engine, scripts), "create_asset", new() { ["name"] = "report.txt", ["text"] = "original" });
+        var next = await NextModel(engine, scripts);
+        var created = JsonValues.ParseObject(JsonValues.ParseObject(next.GetString("body")).GetArray("messages")
+            .Last(message => message.GetString("role") == "tool").GetString("content"));
+        var url = created.GetString("url");
+        Assert.IsTrue(AgentAssetStorage.IsUrl(url), created.ToJsonString());
+        Reply(engine, next, "[Download report](" + url + ")");
+        await Until(engine, "completed", scripts);
+
+        var preset = engine.Workspace.PresetId;
+        var room = engine.Workspace.ChatId;
+        var block = engine.Workspace.Chat.GetArray("blocks").Single(item => item.GetString("content") == "[Download report](" + url + ")");
+        var blockId = block.GetString("id");
+        async Task CheckDownload()
+        {
+            engine.Dispatch(new() { ["op"] = "display_asset_open", ["preset"] = preset, ["room"] = room,
+                ["block"] = blockId, ["url"] = url });
+            var asset = (await Until(engine, "asset_result", scripts)).GetObject("result");
+            Assert.AreEqual("report.txt", asset.GetString("name"));
+            Assert.AreEqual("text/plain", asset.GetString("mimeType"));
+            var handle = asset.GetString("handle");
+            engine.Dispatch(new() { ["op"] = "asset_pull", ["handle"] = handle });
+            var chunk = (await Until(engine, "asset_result", scripts)).GetObject("result");
+            CollectionAssert.AreEqual("original"u8.ToArray(), engine.Port.TakeBinary(chunk.GetString("transfer")));
+            engine.Dispatch(new() { ["op"] = "asset_close", ["handle"] = handle });
+            await Until(engine, "asset_result", scripts);
+        }
+        await CheckDownload();
+
+        engine.Dispatch(new() { ["op"] = "message", ["text"] = "Update that file and remove it from the working set." });
+        ReplyTool(engine, await NextModel(engine, scripts), "activate_skill", new() { ["name"] = "edit_asset" });
+        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_text_edit", new()
+            { ["url"] = url, ["old_string"] = "original", ["new_string"] = "revised" });
+        var edited = await NextModel(engine, scripts);
+        StringAssert.Contains(edited.GetString("body"), "changes");
+        ReplyTool(engine, edited, "delete_asset", new() { ["url"] = url });
+        Reply(engine, await NextModel(engine, scripts), "Removed from my files.");
+        await Until(engine, "completed", scripts);
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset, ["id"] = room });
+        await Until(engine, "loaded", scripts);
+        await CheckDownload();
+
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
+        await Until(engine, "loaded", scripts);
+        engine.Dispatch(new() { ["op"] = "display_asset_open", ["preset"] = preset, ["room"] = engine.Workspace.ChatId,
+            ["block"] = blockId, ["url"] = url });
+        var denied = await Until(engine, "error", scripts);
+        StringAssert.Contains(denied.GetString("message"), "unavailable in the displayed reply");
+    }
+
+    [TestMethod]
+    public async Task BaseSearchCachesTheEditedResultAsset()
+    {
+        const string url = "https://fixture.invalid/result";
+        await using var engine = new Engine(NewRoot());
+        using var scripts = new PluginScripts();
+        engine.Dispatch(new() { ["op"] = "configure", ["provider"] = new JsonObject
+        {
+            ["url"] = "http://fixture.invalid/v1", ["model"] = "fixture"
+        }, ["settings"] = new JsonObject { ["search_key"] = "test", ["search_url"] = "http://web.fixture.invalid" } });
+        engine.Dispatch(new() { ["op"] = "message", ["text"] = "Find the source." });
+
+        static JsonObject LastResult(JsonObject request) => JsonValues.ParseObject(JsonValues.ParseObject(request.GetString("body"))
+            .GetArray("messages").Last(message => message.GetString("role") == "tool").GetString("content"));
+
+        ReplyTool(engine, await NextModel(engine, scripts), "activate_skill", new() { ["name"] = "web-research" });
+        ReplyTool(engine, await NextModel(engine, scripts), "search", new() { ["query"] = "fixture terms" });
+        ReplyTool(engine, await NextModel(engine, scripts), "real_search", new() { ["query"] = "fixture terms", ["limit"] = 55 });
+        var request = await NextModel(engine, scripts);
+        Assert.AreEqual("http://web.fixture.invalid/v1/tools/search", request.GetString("url"));
+        Assert.AreEqual(50, JsonValues.ParseObject(request.GetString("body")).GetInt32("count"));
+        engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = request.GetString("id"), ["done"] = true,
+            ["data"] = JsonValues.Serialize(new JsonObject { ["results"] = new JsonArray(new JsonObject
+            {
+                ["url"] = url, ["title"] = "Fixture result", ["snippet"] = "Original snippet"
+            }) }) });
+        var search = await NextModel(engine, scripts);
+        var item = LastResult(search).GetArray("results").Single();
+        var asset = item.GetString("asset_url");
+        Assert.IsTrue(ResearchAssets.IsUrl(asset));
+        ReplyTool(engine, search, "activate_skill", new() { ["name"] = "edit_asset" });
+        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_text_edit", new()
+        {
+            ["url"] = asset, ["old_string"] = "Original snippet", ["new_string"] = "Edited snippet"
+        });
+        var cache = await NextModel(engine, scripts);
+        Assert.AreEqual(1, LastResult(cache).GetInt32("changes"), JsonValues.Serialize(LastResult(cache)));
+        ReplyTool(engine, cache, "cache_search_results", new() { ["refs"] = new JsonArray(item.GetString("ref")) });
+        ReplyTool(engine, await NextModel(engine, scripts), "virtual_search", new() { ["query"] = "Edited snippet" });
+        var submit = await NextModel(engine, scripts);
+        var recalled = LastResult(submit).GetArray("results").Single();
+        Assert.AreEqual(asset, recalled.GetString("asset_url"));
+        ReplyTool(engine, submit, "submit_search_results", new() { ["refs"] = new JsonArray(recalled.GetString("ref")) });
+        var chat = await NextModel(engine, scripts);
+        Assert.AreEqual("Edited snippet", LastResult(chat).GetArray("results").Single().GetString("snippet"));
+        Reply(engine, chat, "Found it.");
+        await Until(engine, "completed", scripts);
+        Assert.AreEqual(asset, JsonValues.GetText(engine.Workspace.State.GetObject("search_cache").GetArray("fixture terms").Single()));
     }
 
     [TestMethod]
@@ -545,7 +864,7 @@ public sealed class ExtensionTests
         engine.Dispatch(new() { ["op"] = "message", ["text"] = "Read notes." });
 
         const string url = "minirp://assets/example.report/notes";
-        var query = new JsonObject { ["url"] = url, ["mode"] = "text", ["offset"] = 6, ["length"] = 2 };
+        var query = new JsonObject { ["url"] = url, ["pattern"] = "b[a-z]+" };
         var round = 0;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         while (true)
@@ -563,7 +882,7 @@ public sealed class ExtensionTests
                 switch (round++)
                 {
                     case 0: ReplyTool(engine, item, "activate_skill", new() { ["name"] = "view_asset" }); break;
-                    case 1: ReplyTool(engine, item, "plugin_base_view_text", query); break;
+                    case 1: ReplyTool(engine, item, "plugin_base_grep", query); break;
                     case 2:
                         StringAssert.Contains(result, "supplied in this session");
                         ReplyTool(engine, item, "activate_skill", new() { ["name"] = "report-notes" });
@@ -571,11 +890,12 @@ public sealed class ExtensionTests
                     case 3: ReplyTool(engine, item, "plugin_report_notes_url", new()); break;
                     case 4:
                         Assert.AreEqual(url, JsonValues.GetText(((JsonArray)JsonNode.Parse(result)!)[0]));
-                        ReplyTool(engine, item, "plugin_base_view_text", query);
+                        ReplyTool(engine, item, "plugin_base_grep", query);
                         break;
                     case 5:
-                        Assert.AreEqual("be", JsonValues.ParseObject(result).GetString("text"));
-                        Assert.AreEqual(8, JsonValues.ParseObject(result).GetInt32("next_offset"));
+                        var row = JsonValues.ParseObject(result).GetArray("lines").Single();
+                        Assert.AreEqual("alpha beta", row.GetString("text"));
+                        Assert.AreEqual(7, row.GetInt32("column"));
                         Reply(engine, item, "Notes read.");
                         break;
                     default: Assert.Fail("Unexpected model request."); break;
@@ -640,6 +960,157 @@ public sealed class ExtensionTests
         StringAssert.Contains(Result(request), "not supplied to the handler");
         Reply(engine, request, "Asset URL round trip verified.");
         await Until(engine, "completed", scripts);
+    }
+
+    [TestMethod]
+    public async Task PluginsExchangeAnAssetThroughTheSameActionUsedByAnAgentTool()
+    {
+        var root = NewRoot();
+        using var signer = Certificate();
+        const string action = "minirp://actions/test.routecheck/hooks/execute";
+        var archive = Pack(root, "route-check", signer, """
+            {"id":"route-check","packageName":"test.routecheck","name":"Route check","apiVersion":2,"entry":"index.js",
+             "permissions":["db"],"actions":{"handlers":{"execute":"execute"}},
+             "skills":[{"name":"routing","description":"Verify handler permissions.","agents":["chat"],"tools":[
+               {"name":"execute","description":"Return the invocation kind.","parameters":{"type":"object"},"handler":"minirp://actions/test.routecheck/hooks/execute"}]}]}
+            """, """
+            globalThis.handlers = {
+                async execute(event, api) {
+                    if (event.name === "actions.invoke" && event.assets?.message) {
+                        const data = await api.assets.read(event.assets.message);
+                        const content = await api.text.decode(data.bytes);
+                        await api.db.put({scope: "preset", key: "action-message", content: `${event.sender}/${content}`});
+                    }
+                    return event.name;
+                }
+            };
+            """);
+        var caller = Pack(root, "route-caller", signer, """
+            {"id":"route-caller","packageName":"test.routecaller","name":"Route caller","apiVersion":2,"entry":"index.js",
+             "actions":{"handlers":{"send":"send"}},"hooks":{"plugin.command":"minirp://actions/test.routecaller/hooks/send"},
+             "assets":[{"id":"message","type":"file","path":"message.txt","mimeType":"text/plain","accessibility":"public"}]}
+            """, """
+            globalThis.handlers = { async send(_, api) {
+                return await api.actions.invoke({url: "minirp://actions/test.routecheck/hooks/execute", assets: {message: api.assets.url("message")}});
+            } };
+            """, folder => File.WriteAllText(Path.Combine(folder, "message.txt"), "shared asset"));
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        foreach (var package in new[] { archive, caller })
+        {
+            engine.Dispatch(new() { ["op"] = "plugin_install", ["path"] = package });
+            await Until(engine, "plugin", scripts);
+        }
+        engine.Dispatch(new() { ["op"] = "plugin_command", ["id"] = "route-caller" });
+        var preset = engine.Workspace.PresetId;
+        var dbPath = Path.Combine(root, "plugins", "data", "test.routecheck." + signer.GetCertHashString(HashAlgorithmName.SHA256),
+            "preset", preset + ".sqlite");
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            while (true)
+            {
+                foreach (var item in engine.Poll().OfType<JsonObject>())
+                {
+                    Assert.IsFalse(item.GetString("kind") is "tool_start" or "tool_end");
+                    Process(engine, item, scripts, timeout.Token);
+                }
+                if (File.Exists(dbPath))
+                {
+                    using var stored = new MemoryDb(dbPath);
+                    if (stored.Get("action-message") is { } received)
+                    {
+                        Assert.AreEqual("test.routecaller/shared asset", received);
+                        break;
+                    }
+                }
+                await Task.Delay(8, timeout.Token);
+            }
+        }
+
+        await using (var draft = new PluginRuntime(Path.Combine(root, "debug-runtime"), engine.Port, _ => { },
+            (_, _, _, _, _) => throw new InvalidOperationException()))
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => draft.Debug(archive, Path.Combine(root, "preview"), preset,
+                action, new() { ["name"] = "skill.tool" }, timeout.Token));
+            var debugging = draft.Debug(archive, Path.Combine(root, "preview"), preset, action, new(), timeout.Token);
+            while (!debugging.IsCompleted)
+            {
+                foreach (var item in engine.Poll().OfType<JsonObject>()) Process(engine, item, scripts, timeout.Token);
+                await Task.Delay(8, timeout.Token);
+            }
+            Assert.AreEqual("actions.invoke", JsonValues.GetText(await debugging));
+        }
+
+        engine.Dispatch(new() { ["op"] = "message", ["text"] = "Check the registered routes." });
+        JsonNode? Result(JsonObject request) => JsonValues.ParseObject(request.GetString("body")).GetArray("messages")
+            .Last(message => message.GetString("role") == "tool");
+        ReplyTool(engine, await NextModel(engine, scripts), "activate_skill", new() { ["name"] = "route-check-routing" });
+        ReplyTool(engine, await NextModel(engine, scripts), "plugin_route-check_execute", new());
+        var allowed = await NextModel(engine, scripts);
+        Assert.AreEqual("skill.tool", Result(allowed).GetString("content"));
+        Reply(engine, allowed, "Routing verified.");
+        await Until(engine, "completed", scripts);
+    }
+
+    [TestMethod]
+    public async Task PresetAppearanceOnlyAcceptsOwnedMediaAndPersistsTheStagedConfiguration()
+    {
+        var root = NewRoot();
+        await using var engine = new Engine(root);
+        using var signer = Certificate();
+        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "create_preset", ["name"] = "Backdrop", ["open"] = true, ["interview"] = false });
+        var preset = (await Until(engine, "preset_opened")).GetString("preset");
+
+        string PackBackground(string id, string owner) => Pack(root, id, signer, $$"""
+            {"id":"{{id}}","packageName":"test.{{id}}","name":"Backdrop","apiVersion":2,"presetId":"{{owner}}","entry":"index.js",
+             "assets":[{"id":"scene","type":"file","path":"scene.bin","mimeType":"image/png"},
+                       {"id":"text","type":"file","path":"scene.bin","mimeType":"text/plain"}]}
+            """, "globalThis.handlers = {};", folder => File.WriteAllText(Path.Combine(folder, "scene.bin"), "backdrop"));
+        const string background = "minirp://assets/test.owned/scene";
+        foreach (var archive in new[] { PackBackground("owned", preset), PackBackground("foreign", Guid.NewGuid().ToString()) })
+        {
+            engine.Dispatch(new() { ["op"] = "plugin_install", ["path"] = archive });
+            await Until(engine, "plugin");
+        }
+
+        engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["text"] = "Set my chat background." });
+        var request = await Until(engine, "http_request");
+        string Result(JsonObject response) => JsonValues.ParseObject(response.GetString("body")).GetArray("messages")
+            .Last(message => message.GetString("role") == "tool").GetString("content");
+        async Task<JsonObject> Call(string tool, JsonObject args)
+        {
+            ReplyTool(engine, request, tool, args);
+            return request = await Until(engine, "http_request");
+        }
+        var listed = Result(await Call("list_chat_backgrounds", new()));
+        StringAssert.Contains(listed, background);
+        Assert.IsFalse(listed.Contains("test.foreign", StringComparison.Ordinal));
+        Assert.IsFalse(listed.Contains("/text", StringComparison.Ordinal));
+        StringAssert.Contains(Result(await Call("configure_chat_appearance", new() { ["background_url"] = "minirp://assets/test.foreign/scene" })),
+            "owned by this preset");
+        StringAssert.Contains(Result(await Call("configure_chat_appearance", new() { ["background_url"] = "minirp://assets/test.owned/text" })),
+            "Choose a declared image");
+        var staged = JsonValues.ParseObject(Result(await Call("configure_chat_appearance", new() { ["background_url"] = background })));
+        Assert.IsFalse(staged.ContainsKey("background_blur"));
+        var edited = JsonValues.ParseObject(Result(await Call("configure_chat_appearance", new() { ["background_blur"] = false, ["theme_color"] = "#2277bc" })));
+        Assert.AreEqual(background, edited.GetString("background_url"));
+        Assert.IsFalse(edited.GetBoolean("background_blur", true));
+        Assert.AreEqual("#2277BC", edited.GetString("theme_color"));
+        Reply(engine, request, "Backdrop saved.");
+        await Until(engine, "preset_config");
+
+        engine.Dispatch(new() { ["op"] = "home", ["preset"] = preset });
+        var restored = (await Until(engine, "home")).GetObject("config").GetObject("appearance");
+        Assert.AreEqual(background, restored.GetString("background_url"));
+        engine.Dispatch(new() { ["op"] = "preset_background_open", ["preset"] = preset, ["url"] = background });
+        var source = (await Until(engine, "asset_result")).GetObject("result");
+        Assert.AreEqual("image/png", source.GetString("mimeType"));
+        engine.Dispatch(new() { ["op"] = "asset_pull", ["handle"] = source.GetString("handle") });
+        var part = (await Until(engine, "asset_result")).GetObject("result");
+        CollectionAssert.AreEqual("backdrop"u8.ToArray(), engine.Port.TakeBinary(part.GetString("transfer")));
     }
 
     [TestMethod]
@@ -808,8 +1279,8 @@ public sealed class ExtensionTests
         Assert.IsFalse(request.GetString("body").Contains("data:application/pdf;base64", StringComparison.Ordinal));
         Assert.IsFalse(request.GetString("body").Contains("thumbnail_url", StringComparison.Ordinal));
         ReplyTool(engine, request, "activate_skill", new() { ["name"] = "view_asset" });
-        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_view_text",
-            new() { ["url"] = "minirp://assets/minirp.attachments/abc" });
+        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_grep",
+            new() { ["url"] = "minirp://assets/minirp.attachments/abc", ["pattern"] = "^Parsed" });
         var converted = await NextModel(engine, scripts);
         StringAssert.Contains(converted.GetString("body"), "Parsed ABC");
         var attachment = engine.Workspace.Chat.GetArray("blocks").First().GetArray("attachments").First();
@@ -985,6 +1456,98 @@ public sealed class ExtensionTests
         Assert.IsTrue(Guid.TryParseExact(id, "D", out var parsed), $"Expected UUID, got '{id}'.");
         Assert.AreNotEqual(Guid.Empty, parsed);
         Assert.AreEqual(parsed.ToString("D"), id);
+    }
+
+    [TestMethod]
+    public async Task WritableAssetEditsAreAtomicAndScopedToThePreset()
+    {
+        var root = NewRoot();
+        using var signer = Certificate();
+        var archive = Pack(root, "editable", signer, """
+            {"id":"editable","packageName":"test.editable","name":"Editable","apiVersion":2,"entry":"index.js",
+             "assets":[{"id":"notes","type":"file","path":"notes.txt","mimeType":"text/plain","writable":true},
+                       {"id":"fixed","type":"file","path":"notes.txt","mimeType":"text/plain"}]}
+            """, "globalThis.handlers = {};", folder => File.WriteAllText(Path.Combine(folder, "notes.txt"), "abc abc"));
+        await using var runtime = new PluginRuntime(root, new HostPort(_ => { }), _ => { }, (_, _, _, _, _) => throw new InvalidOperationException());
+        runtime.Load();
+        var installed = runtime.Install(archive, inspect: false);
+        const string url = "minirp://assets/test.editable/notes";
+        var preset = new JsonObject { ["preset"] = WorkspaceIds.New() };
+        var other = new JsonObject { ["preset"] = WorkspaceIds.New() };
+        async Task<string> Read(JsonObject scope)
+        {
+            var asset = runtime.OpenAgentAsset(url, installed.PackageName, installed.Signer, scope);
+            await using var input = new AssetStream(asset, default);
+            using var reader = new StreamReader(input, leaveOpen: true);
+            return await reader.ReadToEndAsync();
+        }
+        Task<JsonObject> Edit(string method, JsonObject args, string target = url, string publisher = "test.editable") =>
+            runtime.EditAgentAsset(target, publisher, installed.Signer, preset, method, args, default);
+        var textEdit = new JsonObject { ["old_string"] = "abc", ["new_string"] = "xyz" };
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => Edit("textEdit", textEdit));
+        await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Edit("textEdit", textEdit, "minirp://assets/test.editable/fixed"));
+        await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() => Edit("textEdit", textEdit, publisher: "other.plugin"));
+        Assert.AreEqual("abc abc", await Read(preset));
+        textEdit["replace_all"] = true;
+        Assert.AreEqual(2, (await Edit("textEdit", textEdit)).GetInt32("changes"));
+        await Edit("binPatch", new() { ["offset"] = 0, ["old_hex"] = "78 79 | 7a", ["new_hex"] = "77" });
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            Edit("binPatch", new() { ["offset"] = 0, ["old_hex"] = "ff", ["new_hex"] = "00" }));
+        Assert.AreEqual("w xyz", await Read(preset));
+        Assert.AreEqual("abc abc", await Read(other));
+        CollectionAssert.AreEqual(File.ReadAllBytes(archive), File.ReadAllBytes(runtime.ExportablePlugin(installed.Id)));
+    }
+
+    [TestMethod]
+    public async Task DisabledPluginRetainsItsPackageAndScopeButRevokesRuntimeAccess()
+    {
+        var root = NewRoot();
+        using var signer = Certificate();
+        var archive = Pack(root, "switchable", signer, """
+            {"id":"switchable","packageName":"test.switchable","name":"Switchable","apiVersion":2,"entry":"index.js",
+             "actions":{"handlers":{"ping":"ping"}},
+             "settings":[{"key":"preview","type":"boolean","title":"Preview","default":true}],
+             "assets":[{"id":"fixture","type":"file","path":"fixture.txt","mimeType":"text/plain"}],
+             "skills":[{"name":"check","description":"Check the test fixture.","agents":["chat"],"tools":[
+                 {"name":"ping","description":"Ping the fixture.","parameters":{"type":"object"},
+                  "handler":"minirp://actions/test.switchable/hooks/ping"}]}]}
+            """, "globalThis.handlers = { ping() { return 'ok'; } };",
+            folder => File.WriteAllText(Path.Combine(folder, "fixture.txt"), "fixture"));
+        var preset = WorkspaceIds.New();
+        var environment = new JsonObject { ["preset"] = preset };
+        const string url = "minirp://assets/test.switchable/fixture";
+        PluginRuntime OpenRuntime() => new(root, new HostPort(_ => { }), _ => { },
+            (_, _, _, _, _) => Task.FromResult<JsonNode?>(null));
+
+        await using (var runtime = OpenRuntime())
+        {
+            runtime.Load();
+            var installed = runtime.Install(archive, inspect: false, initialScope: PluginScope.Include(preset));
+            Assert.IsTrue(runtime.Settings(preset).Any(item => item.GetString("plugin") == installed.Id));
+            var turn = new AgentSkill.Turn(runtime.Skills("chat", environment), ["switchable-check"]);
+            Assert.IsTrue(turn.Offers("plugin_switchable_ping"));
+            var handle = runtime.OpenHostAsset(url, environment, null).GetString("handle");
+
+            runtime.SetEnabled(installed.Id, false, environment);
+            CollectionAssert.AreEqual(File.ReadAllBytes(archive), File.ReadAllBytes(runtime.ExportablePlugin(installed.Id)));
+            Assert.IsFalse(runtime.Settings(preset).Any(item => item.GetString("plugin") == installed.Id));
+            Assert.IsFalse(runtime.Skills("chat", environment).Any(skill => skill.Name == "switchable-check"));
+            Assert.ThrowsExactly<UnauthorizedAccessException>(() => runtime.OpenHostAsset(url, environment, null));
+            await Assert.ThrowsExactlyAsync<IOException>(() => runtime.PullHostAsset(handle, default));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => turn.Invoke("plugin_switchable_ping", new(), default));
+            Assert.ThrowsExactly<InvalidOperationException>(() => runtime.SetEnabled("base", false, environment));
+        }
+
+        await using var reloaded = OpenRuntime();
+        reloaded.Load();
+        JsonNode? Descriptor() => reloaded.List().Single(item => item.GetString("id") == "switchable");
+        Assert.IsFalse(Descriptor().GetBoolean("enabled"));
+        reloaded.SetEnabled("switchable", true, environment);
+        Assert.IsTrue(Descriptor().GetBoolean("enabled"));
+        Assert.AreEqual(preset, JsonValues.GetText(Descriptor().GetObject("scope").GetArray("presets").Single()));
+        reloaded.RequireScope("switchable", preset);
+        Assert.ThrowsExactly<UnauthorizedAccessException>(() => reloaded.RequireScope("switchable", WorkspaceIds.New()));
+        Assert.HasCount(1, reloaded.Skills("chat", environment).Where(skill => skill.Name == "switchable-check"));
     }
 
     [TestMethod]
@@ -1196,12 +1759,13 @@ public sealed class ExtensionTests
         engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = request.GetString("id"), ["done"] = true, ["data"] = "data: " + JsonValues.Serialize(fixture) + "\n\n" });
     }
 
-    private static void ReplyTool(Engine engine, JsonObject request, string name, JsonObject args)
+    private static void ReplyTool(Engine engine, JsonObject request, string name, JsonObject args, int promptTokens = 0)
     {
         var call = new JsonObject { ["id"] = JsonValues.NewId(), ["type"] = "function",
             ["function"] = new JsonObject { ["name"] = name, ["arguments"] = JsonValues.Serialize(args) } };
         var frame = new JsonObject { ["choices"] = new JsonArray(new JsonObject
             { ["delta"] = new JsonObject { ["tool_calls"] = new JsonArray(call) } }) };
+        if (promptTokens > 0) frame["usage"] = new JsonObject { ["prompt_tokens"] = promptTokens };
         engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = request.GetString("id"), ["done"] = true,
             ["data"] = "data: " + JsonValues.Serialize(frame) + "\n\n" });
     }
@@ -1232,7 +1796,7 @@ public sealed class ExtensionTests
             foreach (var item in engine.Poll().OfType<JsonObject>())
             {
                 if (item.GetString("kind") == kind) found = item;
-                Process(engine, item, scripts, timeout.Token);
+                if (item.GetString("kind") != kind || kind != "error") Process(engine, item, scripts, timeout.Token);
             }
             if (found is not null) return found;
             await Task.Delay(8, timeout.Token);

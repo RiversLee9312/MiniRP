@@ -4,7 +4,9 @@ import android.content.Context
 import android.widget.FrameLayout
 import com.minirp.app.ui.OpenUiPreview
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -46,6 +48,8 @@ class CoreClient(
     private val calls = ConcurrentHashMap<String, Call>()
     private val pluginJobs = ConcurrentHashMap<String, Job>()
     private val scripts = PluginScripts()
+    private val container = ContainerHost(context, workspace)
+    private val curl = CurlHost(context, workspace)
     private val openUiPreview = OpenUiPreview(context) { previewWindow?.invoke() }
     private val pluginHttp =
         http.newBuilder().followRedirects(false).followSslRedirects(false).build()
@@ -58,6 +62,15 @@ class CoreClient(
 
     init {
         check(handle != 0L) { "Could not initialize native core" }
+        if (container.available()) send(JSONObject().put("op", "_container_available"))
+        if (curl.available) send(JSONObject().put("op", "_curl_available"))
+        clientScope.launch(Dispatchers.IO) {
+            val temporary = Regex("transfer-[0-9a-f-]{36}|preset-background-[0-9]+\\.media")
+            val stale = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(1)
+            context.cacheDir.listFiles()?.forEach { file ->
+                if (file.isFile && temporary.matches(file.name) && file.lastModified() < stale) file.delete()
+            }
+        }
         clientScope.launch(Dispatchers.IO) {
             for (command in commands) {
                 if (closed) break
@@ -103,6 +116,9 @@ class CoreClient(
                         "plugin_sign",
                         "roll_dice",
                         "agent_asset_sample",
+                        "container_runtime",
+                        "container_run",
+                        "curl_download",
                         "open_ui_catalog",
                         "open_ui_preview",
                         "plugin_http",
@@ -175,6 +191,8 @@ class CoreClient(
                             context.applicationContext,
                         )
                     "plugin_http" -> pluginHttpRequest(event)
+                    "container_runtime", "container_run" -> container.handle(event)
+                    "curl_download" -> curl.handle(event)
                     else -> picker?.invoke(event) ?: error("No picker is available")
                 }
             reply.put("result", result)
@@ -266,34 +284,102 @@ class CoreClient(
         attachment: JSONObject? = null,
     ): ByteArray =
         withContext(Dispatchers.IO) {
-            val info =
-                query(
-                        JSONObject()
-                            .put("op", "asset_open")
-                            .put("url", url)
-                            .put("agent", agent)
-                            .put("attachment", attachment)
-                    )
-                    .getJSONObject("result")
-            val stream = info.getString("handle")
-            try {
-                val output = ByteArrayOutputStream()
-                while (true) {
-                    val part =
-                        query(JSONObject().put("op", "asset_pull").put("handle", stream))
-                            .getJSONObject("result")
-                    if (part.optBoolean("done")) break
-                    val bytes = takeBinary(part.getString("transfer"))
-                    check(output.size() + bytes.size <= limit) {
-                        "Asset exceeds the permitted size."
+            val request = JSONObject().put("op", "asset_open").put("url", url)
+                .put("agent", agent).put("attachment", attachment)
+            val output = ByteArrayOutputStream()
+            copyAsset(request, limit.toLong(), output)
+            output.toByteArray()
+        }
+
+    internal suspend fun savePresetBackground(preset: String, url: String, destination: File): String =
+        withContext(Dispatchers.IO) {
+            val request = JSONObject().put("op", "preset_background_open").put("preset", preset).put("url", url)
+            destination.outputStream().buffered().use { copyAsset(request, 128L * 1024 * 1024, it) }
+        }
+
+    private suspend fun copyAsset(request: JSONObject, limit: Long, output: OutputStream): String {
+        return copyOpenedAsset(query(request).getJSONObject("result"), limit, output)
+    }
+
+    internal suspend fun displayAssetInfo(request: JSONObject): JSONObject =
+        query(request).getJSONObject("result").also { closeAsset(it.getString("handle")) }
+
+    internal suspend fun saveDisplayAsset(request: JSONObject, output: OutputStream) {
+        copyAsset(request, Long.MAX_VALUE, output)
+    }
+
+    internal suspend fun openDisplayMedia(request: JSONObject, accepts: (String) -> Boolean): Pair<String, java.io.InputStream>? {
+        val info = query(request).getJSONObject("result")
+        val handle = info.getString("handle")
+        val mime = info.getString("mimeType").substringBefore(';').trim().lowercase(java.util.Locale.ROOT)
+        if (!accepts(mime)) {
+            closeAsset(handle)
+            return null
+        }
+        return mime to object : java.io.InputStream() {
+            private var chunk = ByteArray(0)
+            private var position = 0
+            private var received = 0
+            @Volatile private var ended = false
+
+            override fun read(): Int {
+                val one = ByteArray(1)
+                return if (read(one, 0, 1) < 0) -1 else one[0].toInt() and 255
+            }
+
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (length == 0) return 0
+                if (ended) return -1
+                try {
+                    if (position == chunk.size) {
+                        chunk = kotlinx.coroutines.runBlocking { pullAsset(handle) } ?: run {
+                            close()
+                            return -1
+                        }
+                        received += chunk.size
+                        check(received <= 128 * 1024 * 1024) { "Asset exceeds the permitted size." }
+                        position = 0
                     }
-                    output.write(bytes)
+                    val count = minOf(length, chunk.size - position)
+                    chunk.copyInto(buffer, offset, position, position + count)
+                    position += count
+                    return count
+                } catch (error: Exception) {
+                    close()
+                    throw java.io.IOException("Could not read the Asset.", error)
                 }
-                output.toByteArray()
-            } finally {
-                send(JSONObject().put("op", "asset_close").put("handle", stream))
+            }
+
+            override fun close() {
+                if (ended) return
+                ended = true
+                closeAsset(handle)
             }
         }
+    }
+
+    private suspend fun pullAsset(handle: String): ByteArray? {
+        val part = query(JSONObject().put("op", "asset_pull").put("handle", handle)).getJSONObject("result")
+        return if (part.optBoolean("done")) null else takeBinary(part.getString("transfer"))
+    }
+
+    private fun closeAsset(handle: String) = send(JSONObject().put("op", "asset_close").put("handle", handle))
+
+    private suspend fun copyOpenedAsset(info: JSONObject, limit: Long, output: OutputStream): String {
+        val stream = info.getString("handle")
+        try {
+            var total = 0L
+            while (true) {
+                val bytes = pullAsset(stream) ?: break
+                total += bytes.size
+                check(total <= limit) { "Asset exceeds the permitted size." }
+                output.write(bytes)
+            }
+            return info.getString("mimeType")
+        } finally {
+            closeAsset(stream)
+        }
+    }
 
     suspend fun query(command: JSONObject, timeoutMillis: Long? = 20_000): JSONObject {
         val id = java.util.UUID.randomUUID().toString()
