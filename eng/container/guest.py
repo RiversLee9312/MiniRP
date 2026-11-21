@@ -47,7 +47,20 @@ def copy(source, target, length):
         length -= len(data)
 
 
-def transfer(mailbox, request):
+def read_host_asset(direct, target, length):
+    # The host replaces these blocks outside the guest's page cache.
+    position = HEADER
+    with mmap.mmap(-1, 65536) as buffer:
+        while length:
+            amount = min(len(buffer), length)
+            if os.preadv(direct, [buffer], position) < amount:
+                raise OSError("Incomplete Asset data.")
+            target.write(buffer[:amount])
+            position += amount
+            length -= amount
+
+
+def transfer(mailbox, direct, request):
     # Open the mailbox as PID 1, but access guest paths with the same permissions as shell.
     as_agent()
     path = request["path"]
@@ -58,7 +71,7 @@ def transfer(mailbox, request):
         with tempfile.NamedTemporaryFile(dir=os.path.dirname(path) or ".", delete=False) as out:
             temporary = out.name
             try:
-                copy(mailbox, out, length)
+                read_host_asset(direct, out, length)
                 out.close()
                 os.replace(temporary, path)
             finally:
@@ -168,10 +181,10 @@ def shell(request, mailbox, cancelled):
     return {**result, "size": size}
 
 
-def operate(mailbox, request):
+def operate(mailbox, direct, request):
     fd = mailbox.fileno()
-    result = subprocess.run([sys.executable, __file__, "--transfer", str(fd)],
-                            pass_fds=(fd,), input=json.dumps(request), text=True,
+    result = subprocess.run([sys.executable, __file__, "--transfer", str(fd), str(direct)],
+                            pass_fds=(fd, direct), input=json.dumps(request), text=True,
                             stdout=subprocess.PIPE, check=True, timeout=30)
     return json.loads(result.stdout)
 
@@ -245,7 +258,7 @@ def serve(mailbox):
                         return
                     if op not in ("resume", "checkpoint"):
                         mailbox.seek(HEADER)
-                        response = shell(request, mailbox, cancelled) if op == "shell" else operate(mailbox, request)
+                        response = shell(request, mailbox, cancelled) if op == "shell" else operate(mailbox, direct, request)
                     if op in ("checkpoint", "shell", "export_asset"):
                         fcntl.ioctl(workspace, FREEZE, 0)
                         frozen = True
@@ -274,7 +287,7 @@ def main():
 if len(sys.argv) > 1 and sys.argv[1] == "--transfer":
     with open(int(sys.argv[2]), "r+b", buffering=0) as inherited:
         try:
-            print(json.dumps(transfer(inherited, json.load(sys.stdin))))
+            print(json.dumps(transfer(inherited, int(sys.argv[3]), json.load(sys.stdin))))
         except Exception as error:
             print(json.dumps({"error": str(error)}))
 else:

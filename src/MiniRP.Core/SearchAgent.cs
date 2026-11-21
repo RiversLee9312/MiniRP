@@ -20,7 +20,7 @@ public sealed class SearchAgent(Workspace world, AgentSession session, PageSourc
         CancellationToken token, string inputRole, bool privateInput)
     {
         var turn = new SearchTurn("direct", "", world, chat);
-        var response = await InResearch(chat, turn, () => chat.Run(system + "\n" + SearchWorkflow.WorldInstructions + "\n" + workflow.Policies +
+        var response = await InResearch(chat, turn, web, () => chat.Run(system + "\n" + SearchWorkflow.WorldInstructions + "\n" + workflow.Policies +
             "\n" + PresetDesign.SearchGuidance(world.Mode) + "\n" + world.AgentPrompt("search"),
             input, new AgentSkill("direct-research", "Find, edit and cache search results and pages.", SearchTools.Create(direct: true),
                 (tool, arguments, ct) => workflow.Execute(turn, tool, arguments, ct), Required: true),
@@ -51,7 +51,7 @@ public sealed class SearchAgent(Workspace world, AgentSession session, PageSourc
         var turn = new SearchTurn(mode, target, world, session);
 
         var request = "Request " + mode + ": " + target;
-        await InResearch(session, turn, () => session.Run(
+        await InResearch(session, turn, web, () => session.Run(
             SystemPrompt + "\n" + SearchWorkflow.WorldInstructions + "\n" + world.WorldText + "\n" + workflow.Policies +
             "\n" + PresetDesign.SearchGuidance(world.Mode) + "\n" + world.AgentPrompt("search") + "\n" + identity,
             request,
@@ -71,7 +71,7 @@ public sealed class SearchAgent(Workspace world, AgentSession session, PageSourc
         return turn.Answer!;
     }
 
-    private async Task<JsonObject> InResearch(AgentSession agent, SearchTurn turn, Func<Task<JsonObject>> run)
+    internal static async Task<JsonObject> InResearch(AgentSession agent, SearchTurn turn, PageSource web, Func<Task<JsonObject>> run)
     {
         var assets = agent.Assets ?? throw new InvalidOperationException("Research needs a session Asset registry.");
         var previous = assets.Research;

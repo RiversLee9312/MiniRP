@@ -12,11 +12,13 @@ internal sealed partial class MainWindow : Runnable
     private readonly NativeCore core;
     private readonly PlatformHost platform;
     private readonly EnvironmentSettings settings;
+    private readonly PluginFiles attachmentPicker;
     private readonly TracePane main = new("chat");
     private readonly Dictionary<string, TracePane> sidebars = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TracePane> agentPanes = new(StringComparer.Ordinal);
     private JsonObject[] loadedBlocks = [];
-    private readonly Label footer = new() { Text = "/env  /preset-agent  /create-preset  /chats  /room-chats  /config  /cot  /stop  /quit", X = 1, Y = Pos.AnchorEnd(1), Width = Dim.Fill() };
+    private const string Commands = "/env  /preset-agent  /create-preset  /chats  /room-chats  /config  /cot  /stop  /quit";
+    private readonly Label footer = new() { Text = Commands, X = 1, Y = Pos.AnchorEnd(1), Width = Dim.Fill() };
     private readonly CancellationTokenSource lifetime = new();
     private JsonArray presetItems = new();
     private string presetId = "";
@@ -27,11 +29,12 @@ internal sealed partial class MainWindow : Runnable
     private JsonArray? ensembleChats;
     private string pluginInstallPath = "";
 
-    public MainWindow(NativeCore core, PlatformHost platform, EnvironmentSettings settings)
+    public MainWindow(NativeCore core, PlatformHost platform, EnvironmentSettings settings, PluginFiles attachmentPicker)
     {
         this.core = core;
         this.platform = platform;
         this.settings = settings;
+        this.attachmentPicker = attachmentPicker;
         Title = "MiniRP";
         main.X = 1;
         main.Y = 1;
@@ -236,6 +239,9 @@ internal sealed partial class MainWindow : Runnable
                 core.Send(new() { ["op"] = "create_preset", ["open"] = true,
                     ["name"] = argument.Length > 0 ? argument : "新预设", ["locale"] = "zh-Hans" });
                 break;
+            case "/attach" when role == "preset":
+                AttachToPreset(argument);
+                break;
             case "/room-chats":
                 PickEnsembleChat();
                 break;
@@ -418,6 +424,7 @@ internal sealed partial class MainWindow : Runnable
 
     private void Arrange()
     {
+        footer.Text = sidebars.ContainsKey("preset") ? "/attach  /close  " + Commands : Commands;
         var count = sidebars.Count + 1;
         main.Width = count == 1 ? Dim.Fill(1) : Dim.Percent(100 / count);
         View previous = main;

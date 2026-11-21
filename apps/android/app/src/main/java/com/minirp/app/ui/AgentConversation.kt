@@ -131,6 +131,8 @@ internal fun AgentConversation(
                     .filter { it.availableIn(state.preset) }
                     .flatMap { it.attachments },
             draft = state.branchDraft.takeIf { agent == AgentRole.Chat },
+            documentTypes = if (agent == AgentRole.Preset) arrayOf("*/*")
+                else com.minirp.app.data.AttachmentStore.documentTypes,
         )
         Row(
             Modifier.fillMaxWidth()

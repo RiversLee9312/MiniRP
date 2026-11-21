@@ -72,6 +72,7 @@ internal fun Composer(
     steering: Boolean = busy,
     pluginTypes: List<PluginAttachmentType> = emptyList(),
     draft: BranchDraft? = null,
+    documentTypes: Array<String> = com.minirp.app.data.AttachmentStore.documentTypes,
 ) {
     var text by rememberSaveable { mutableStateOf(draft?.text.orEmpty()) }
     val retained = draft?.attachments.orEmpty()
@@ -187,7 +188,7 @@ internal fun Composer(
                         onClick = {
                             mediaMenu = false
                             pendingType = ""
-                            picker.launch(com.minirp.app.data.AttachmentStore.documentTypes)
+                            picker.launch(documentTypes)
                         },
                     )
                     pluginTypes.forEach { type ->

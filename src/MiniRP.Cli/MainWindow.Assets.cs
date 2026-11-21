@@ -10,6 +10,41 @@ internal sealed partial class MainWindow
 {
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonObject>> assetRequests = new();
 
+    private async void AttachToPreset(string text)
+    {
+        var app = App;
+        if (app is null || presetId.Length == 0) return;
+        var preset = presetId;
+        try
+        {
+            var result = await attachmentPicker.Choose(app, new() { ["name"] = "PresetAgent", ["picker"] = "file" }, lifetime.Token);
+            var files = result.GetArray("files");
+            if (files.Count == 0) return;
+            app.Invoke(() =>
+            {
+                if (lifetime.IsCancellationRequested) return;
+                var pane = GetAgentPane("preset");
+                if (preset != presetId)
+                {
+                    pane.Notice("预设已切换，请重新选择文件。");
+                    return;
+                }
+                try
+                {
+                    core.Send(new()
+                    {
+                        ["op"] = "message", ["agent"] = "preset", ["preset"] = preset,
+                        ["text"] = text.Length > 0 ? text : "请导入这些设定资料。",
+                        ["attachments"] = files.DeepClone()
+                    });
+                }
+                catch (InvalidOperationException error) { pane.Notice(error.Message); }
+            });
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception error) { app.Invoke(() => GetAgentPane("preset").Notice(error.Message)); }
+    }
+
     private async void DownloadAsset(string role, string block, string url)
     {
         var request = new JsonObject { ["op"] = "display_asset_open", ["preset"] = presetId,

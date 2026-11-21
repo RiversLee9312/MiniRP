@@ -140,6 +140,8 @@ public sealed partial class Engine
             case "archive_export":
                 if (command.GetString("type") is "room" or "save")
                     await containers.Flush(command.GetString("preset"), command.GetString("room"), token);
+                if (command.GetString("type") == "save")
+                    await presetContainers.Flush(command.GetString("preset"), "", token);
                 await new WorkspaceTransfer(Workspace, plugins).Export(command.GetString("type"),
                     command.GetString("preset"), command.GetString("room"), command.GetString("id"), command.GetString("path"), token);
                 Emit(new() { ["kind"] = "archive_exported", ["request"] = request });
@@ -239,6 +241,7 @@ public sealed partial class Engine
         var next = new Workspace(Workspace.Root, seedDefaultPreset: false);
         if (preset.Length == 0 && seedDefaultPreset) preset = next.InitialPreset().Id;
         if (preset.Length > 0) next.UsePreset(preset);
+        if (preset != Workspace.PresetId) presetContainers.Select(null);
         foreach (var session in sessions.Values) session.Dispose();
         sessions.Clear();
         trace.Clear();

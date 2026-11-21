@@ -34,11 +34,11 @@ internal sealed class SearchTurn
     public bool Changed => Assets.Changed || changed;
     private bool changed;
 
-    public SearchTurn(string mode, string target, Workspace workspace, AgentSession session)
+    public SearchTurn(string mode, string target, Workspace workspace, AgentSession session, JsonObject? initialState = null)
     {
         Mode = mode;
         Target = target;
-        State = (JsonObject)workspace.State.DeepClone();
+        State = (JsonObject)(initialState ?? workspace.State).DeepClone();
         this.session = session;
         foreach (var key in new[] { "pages", "search_cache" })
         {

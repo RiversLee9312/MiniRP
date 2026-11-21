@@ -23,6 +23,10 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
         if (Research is { } active) return active.Turn.Assets;
         var owner = workspace?.Invoke();
         var context = environment();
+        if (context.GetString("agent") == "preset")
+            return owner is not null && owner.PresetId == context.GetString("preset") &&
+                db.Get(PresetAgent.ResearchStateKey) is { } stored
+                ? new ResearchAssets(owner, JsonValues.ParseObject(stored)) : null;
         return owner is not null && owner.ChatId.Length > 0 && owner.PresetId == context.GetString("preset") &&
             owner.ChatId == context.GetString("room", context.GetString("chat"))
             ? new ResearchAssets(owner, owner.State) : null;

@@ -26,8 +26,8 @@ internal sealed partial class AgentContainer(AgentContainer.Rooms rooms, AgentAs
             }, "command"),
             Tools.Define("export_asset", "Copy a session Asset URL to a guest file.", AssetArguments(), "url", "path"),
             Tools.Define("import_asset", "Copy a guest file into an existing writable session Asset.", AssetArguments(), "url", "path")),
-        Execute, Instructions: "Commands start in /workspace, which is saved with the conversation. " +
-        "Background processes keep running while this room is open. Redirect background output to a /workspace file to read it later. " +
+        Execute, Instructions: "Commands start in /workspace, which is saved with this agent's session. " +
+        "Background processes keep running while this workspace is open. Redirect background output to a /workspace file to read it later. " +
         "The image includes apk, Bash, curl, FFmpeg, Node.js, npm, Python 3, pip, Git, jq, rg, sqlite3, pdftotext, unzip, zstd and GNU diff. " +
         "Use db_watch and db_read with an async shell's db_key to track running, failed or success. Read output Assets with view_asset. " +
         "Set seconds only when a command needs a deadline. export_asset writes a guest file and import_asset replaces a writable Asset.");

@@ -143,6 +143,8 @@ public sealed class ExtensionTests
         Assert.AreEqual("system", instruction.GetString("role"));
         StringAssert.Contains(instruction.GetString("content"), "zh-Hans");
         StringAssert.Contains(instruction.GetString("content"), "Ask only the first question");
+        StringAssert.Contains(instruction.GetString("content"), "setting documents");
+        StringAssert.Contains(instruction.GetString("content"), "SillyTavern");
         Reply(engine, request, "你想创造一个什么样的世界？");
         await Until(engine, "completed", scripts);
         engine.Dispatch(new() { ["op"] = "open_preset", ["preset"] = opened.GetString("preset") });
@@ -150,6 +152,74 @@ public sealed class ExtensionTests
         Assert.AreEqual(1, reopened.GetArray("blocks").Count);
         Assert.AreEqual("你想创造一个什么样的世界？", reopened.GetArray("blocks")[0].GetString("content"));
         Assert.AreEqual("", engine.Workspace.ChatId);
+    }
+
+    [TestMethod]
+    public async Task PresetReadsAnAttachedCardAndResearchesWithoutCreatingARoom()
+    {
+        var root = NewRoot();
+        var id = Guid.NewGuid().ToString("D");
+        Directory.CreateDirectory(Path.Combine(root, "attachments"));
+        File.WriteAllText(Path.Combine(root, "attachments", id), """{"name":"Mira","description":"Keeps a blue lantern."}""");
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        var preset = engine.Workspace.PresetId;
+        engine.Dispatch(new() { ["op"] = "configure", ["provider"] = new JsonObject
+            { ["url"] = "http://fixture.invalid/v1", ["model"] = "fixture" },
+            ["settings"] = new JsonObject { ["search_key"] = "test", ["search_url"] = "https://research.fixture.invalid" } });
+        engine.Dispatch(new() { ["op"] = "_curl_available" });
+        engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["preset"] = preset, ["text"] = "Import my card.",
+            ["attachments"] = new JsonArray(new JsonObject { ["id"] = id, ["name"] = "character.json", ["mime"] = "application/json" }) });
+
+        var model = await NextModel(engine, scripts);
+        var request = JsonValues.ParseObject(model.GetString("body"));
+        var tools = request.GetArray("tools");
+        Assert.IsTrue(tools.Any(tool => tool.GetObject("function").GetString("name") == "real_search"));
+        Assert.IsTrue(tools.Any(tool => tool.GetObject("function").GetString("name") == "real_fetch"));
+        StringAssert.Contains(model.GetString("body"), MessageAttachments.AssetPrefix + id);
+
+        ReplyTool(engine, model, "activate_skill", new() { ["name"] = "container" });
+        var withContainer = await NextModel(engine, scripts);
+        Assert.IsTrue(JsonValues.ParseObject(withContainer.GetString("body")).GetArray("tools")
+            .Any(tool => tool.GetObject("function").GetString("name") == "export_asset"));
+        ReplyTool(engine, withContainer, "activate_skill", new() { ["name"] = "curl" });
+        var withCurl = await NextModel(engine, scripts);
+        Assert.IsTrue(JsonValues.ParseObject(withCurl.GetString("body")).GetArray("tools")
+            .Any(tool => tool.GetObject("function").GetString("name") == "curl"));
+        ReplyTool(engine, withCurl, "activate_skill", new() { ["name"] = "view_asset" });
+        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_grep",
+            new() { ["url"] = MessageAttachments.AssetPrefix + id, ["pattern"] = "blue lantern" });
+        var card = await NextModel(engine, scripts);
+        StringAssert.Contains(card.GetString("body"), "Keeps a blue lantern");
+
+        const string url = "https://lore.fixture.invalid/lantern";
+        ReplyTool(engine, card, "real_search", new() { ["query"] = "Lantern lore" });
+        var apiSearch = await NextModel(engine, scripts);
+        Assert.AreEqual("https://research.fixture.invalid/v1/tools/search", apiSearch.GetString("url"));
+        engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = apiSearch.GetString("id"), ["done"] = true,
+            ["data"] = """{"results":[{"url":"https://lore.fixture.invalid/lantern","title":"Lantern lore","snippet":"Harbor signal"}]}""" });
+        var hits = await NextModel(engine, scripts);
+        StringAssert.Contains(hits.GetString("body"), "Harbor signal");
+        ReplyTool(engine, hits, "real_fetch", new() { ["url"] = url });
+        var apiFetch = await NextModel(engine, scripts);
+        Assert.AreEqual("https://research.fixture.invalid/v1/tools/fetch", apiFetch.GetString("url"));
+        engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = apiFetch.GetString("id"), ["done"] = true,
+            ["data"] = """{"title":"Lantern lore","content":"Blue lanterns signal safe harbor."}""" });
+        var page = await NextModel(engine, scripts);
+        var lastTool = JsonValues.ParseObject(page.GetString("body")).GetArray("messages").Last(item => item.GetString("role") == "tool");
+        var document = JsonValues.ParseObject(lastTool.GetString("content"));
+        StringAssert.Contains(document.GetString("content"), "Blue lanterns signal safe harbor");
+        ReplyTool(engine, page, "cache_page", new() { ["ref"] = document.GetString("ref") });
+        ReplyTool(engine, await NextModel(engine, scripts), "set_value",
+            new() { ["path"] = "chat_agent.system_prompt", ["value"] = "You are Mira and carry a blue lantern." });
+        Reply(engine, await NextModel(engine, scripts), "I imported Mira.");
+        await Until(engine, "completed", scripts);
+
+        Assert.AreEqual("You are Mira and carry a blue lantern.", engine.Workspace.AgentPrompt("chat"));
+        Assert.AreEqual("", engine.Workspace.ChatId);
+        Assert.IsFalse(Directory.Exists(Path.Combine(root, "conversations")));
+        using var database = MemoryDb.ReadOnly(SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(root, preset)));
+        StringAssert.Contains(database.Get(PresetAgent.ResearchStateKey) ?? "", url);
     }
 
     [TestMethod]

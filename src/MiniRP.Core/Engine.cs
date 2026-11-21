@@ -36,6 +36,7 @@ public sealed partial class Engine : IAsyncDisposable
     private PresetConversation? presetConversation;
     private readonly AgentSession.Factory agentSessions;
     private readonly AgentContainer.Rooms containers;
+    private readonly AgentContainer.Rooms presetContainers;
     private bool curlAvailable;
     private readonly PluginAgentCoordinator pluginAgents;
 
@@ -69,8 +70,9 @@ public sealed partial class Engine : IAsyncDisposable
             Dispatch(new() { ["op"] = "_plugin_state_changed", ["change"] = change.DeepClone() }), clock: clock);
         turnRouting = routing;
         containers = new(Port, Workspace.Root);
+        presetContainers = new(Port, Workspace.Root);
         agentSessions = new(Port, plugins, attachmentRoot, () => turnRouting.Settings.GetString("android_open_ui"), () => Workspace, containers,
-            () => curlAvailable);
+            () => curlAvailable, presetContainers);
         pluginAgents = new(Workspace.Root, agentSessions, plugins, () => Volatile.Read(ref routing).For("preset"),
             () =>
             {
@@ -471,22 +473,11 @@ public sealed partial class Engine : IAsyncDisposable
         }
         containers.Select(new(Workspace.PresetId, Workspace.ChatId, sessions["chat"].Db.Path));
 
-        var fetch = new FetchAgent(Port, job =>
-        {
-            var context = PluginEnvironment("fetch");
-            context["session"] = "fetch-" + job;
-            return agentSessions.Open("fetch", SessionFiles.Fetch(Workspace.ChatRoot, job),
-                () => turnRouting.For("fetch"), () => context, (item, info) =>
-                {
-                    item["session"] = "fetch-" + job;
-                    Record(item, sessionInfo: info);
-                });
-        }, () => Workspace.AgentPrompt("fetch"));
-        ensembleWeb = new PageSource(Port, fetch, () => turnRouting.Settings);
+        ensembleWeb = CreatePageSource(Workspace, Workspace.ChatRoot);
         search = new(Workspace, sessions["search"], ensembleWeb);
         chat = new(Workspace, sessions["chat"], search);
         environment = new(Workspace, sessions["env"]);
-        presets = new(Workspace, sessions["preset"], plugins);
+        presets = CreatePresetAgent(sessions["preset"]);
         if (string.IsNullOrEmpty(id)) Workspace.Save();
         lock (presetTraceGate)
         {
@@ -509,6 +500,42 @@ public sealed partial class Engine : IAsyncDisposable
                 ["config"] = Workspace.Config.DeepClone()
             });
         }
+    }
+
+    private PageSource CreatePageSource(Workspace workspace, string sessionRoot, bool forPreset = false)
+    {
+        var fetch = new FetchAgent(Port, job =>
+        {
+            var context = PluginEnvironment("fetch");
+            var session = "fetch-" + job;
+            context["session"] = session;
+            if (forPreset)
+            {
+                context["chat"] = null;
+                context["room"] = null;
+                context["_ensemble"] = false;
+            }
+            return agentSessions.Open("fetch", SessionFiles.Fetch(sessionRoot, job), () => turnRouting.For("fetch"),
+                () => context, (item, info) =>
+                {
+                    item["session"] = session;
+                    if (forPreset)
+                    {
+                        item["agent"] = "PresetAgent";
+                        item["speaker"] = "FetchAgent";
+                    }
+                    Record(item, sessionInfo: info);
+                });
+        }, () => workspace.AgentPrompt("fetch"));
+        return new(Port, fetch, () => turnRouting.Settings);
+    }
+
+    private PresetAgent CreatePresetAgent(AgentSession session)
+    {
+        var preset = Workspace.PresetId;
+        presetContainers.Select(new(preset, preset, session.Db.Path));
+        var web = CreatePageSource(Workspace, SessionFiles.PresetDirectory(Workspace.Root, preset), forPreset: true);
+        return new(Workspace, session, plugins, web);
     }
 
     private AgentSession CreateWorkspaceSession(string role, string database, JsonObject? previous, Workspace workspace)
@@ -540,7 +567,7 @@ public sealed partial class Engine : IAsyncDisposable
         var session = CreateWorkspaceSession("preset", conversation.Database, conversation.LegacySession, Workspace);
         sessions.Add("preset", session);
         presetConversation = conversation;
-        presets = new(Workspace, session, plugins);
+        presets = CreatePresetAgent(session);
     }
 
     private void OpenPresetEditor(string request, bool created = false)
@@ -1101,7 +1128,7 @@ public sealed partial class Engine : IAsyncDisposable
         try { active?.Cancel(); } catch (ObjectDisposedException) { }
         commands.Writer.TryComplete();
         await worker;
-        await containers.Shutdown();
+        await Task.WhenAll(containers.Shutdown(), presetContainers.Shutdown());
         await pluginAgents.Drain();
         await plugins.DisposeAsync();
         await CloseTemporarySessions();

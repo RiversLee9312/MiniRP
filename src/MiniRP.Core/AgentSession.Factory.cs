@@ -14,7 +14,8 @@ public sealed partial class AgentSession
 
     /// <summary>Resolves role permissions and attaches every session to the same runtime.</summary>
     internal sealed class Factory(HostPort port, PluginRuntime? plugins, string? attachmentRoot, Func<string> openUi,
-        Func<Workspace>? workspace = null, AgentContainer.Rooms? containers = null, Func<bool>? curlAvailable = null)
+        Func<Workspace>? workspace = null, AgentContainer.Rooms? containers = null, Func<bool>? curlAvailable = null,
+        AgentContainer.Rooms? presetContainers = null)
     {
         public AgentSession Open(string role, string database, Func<Provider> provider, Func<JsonObject> context,
             Action<JsonObject> emit, Func<IEnumerable<AgentSkill>>? skills = null, Func<string, bool>? canReadChat = null,
@@ -40,10 +41,10 @@ public sealed partial class AgentSession
             var model = new ModelClient(port, provider, attachmentRoot);
             return new AgentSession(profile, database, model, emit, inbox, session =>
             {
-                if (role == "chat" && database != ":memory:") AgentContainer.RecoverJobs(session.Db);
+                if ((role is "chat" or "preset") && database != ":memory:") AgentContainer.RecoverJobs(session.Db);
                 var scoped = profile.Plugins == PluginAccess.Scoped;
                 var assets = profile.Plugins != PluginAccess.None && plugins is not null && attachmentRoot is not null
-                    ? new AgentAssets(plugins, session.Db, attachmentRoot, context, role is "chat" or "search" ? workspace : null) : null;
+                    ? new AgentAssets(plugins, session.Db, attachmentRoot, context, role is "chat" or "search" or "preset" ? workspace : null) : null;
                 IEnumerable<AgentSkill> ResolveSkills(Provider selected, Action<JsonObject> attach)
                 {
                     if (assets is not null && attachmentRoot is not null && database != ":memory:")
@@ -57,13 +58,14 @@ public sealed partial class AgentSession
                                      assets: assets, showCard: profile.Cards ? session.ShowCard : null, provider: selected, attach: attach,
                                      sessionInfo: () => session.sessionInfo))
                             yield return skill;
-                    if (role == "chat" && containers is not null && assets is not null && database != ":memory:")
+                    var container = role switch { "chat" => containers, "preset" => presetContainers, _ => null };
+                    if (container is not null && assets is not null && database != ":memory:")
                     {
                         var owner = context();
                         var preset = owner.GetString("preset");
-                        var room = owner.GetString("room", owner.GetString("chat"));
+                        var room = role == "preset" ? preset : owner.GetString("room", owner.GetString("chat"));
                         if (WorkspaceIds.IsValid(preset) && WorkspaceIds.IsValid(room))
-                            yield return new AgentContainer(containers, assets, session.Db, preset, room).Skill();
+                            yield return new AgentContainer(container, assets, session.Db, preset, room).Skill();
                     }
                     if (skills is not null)
                         foreach (var skill in skills()) yield return skill;

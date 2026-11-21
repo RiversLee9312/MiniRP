@@ -1,6 +1,6 @@
 # Agent 容器
 
-Android 和 Windows x64 的安装包包含同一份 x86-64 Alpine 镜像和各平台的无界面 QEMU。安装后，ChatAgent 可以激活 `container` 技能。
+Android 和 Windows x64 的安装包包含同一份 x86-64 Alpine 镜像和各平台的无界面 QEMU。安装后，ChatAgent 和 PresetAgent 可以激活 `container` 技能。PresetAgent 的容器在第一次调用时启动，按预设保存，供导入资料时使用。
 
 - `shell(command, seconds?, memory_mib?, async?)` 在 `/workspace` 执行 Bash，返回退出码和合并输出。超过 8192 个 Unicode 码点的输出使用临时 `asset_url`，可用 `view_asset` 查看。`async: true` 立即返回输出的 `asset_url` 和 `db_key`，完成后可用同一 URL 读取输出。通过 `db_watch` 订阅下一轮模型调用前的更新，用 `db_read` 读取 `running`、`failed` 或 `success`。非零退出码、超时、输出达到 128 MiB 上限以及执行中断都会标记为 `failed`，可读取已捕获的输出。
 
@@ -16,7 +16,7 @@ Android 和 Windows x64 的安装包包含同一份 x86-64 Alpine 镜像和各�
 
 Linux user-mode 的 `-R` 参数预留来宾虚拟地址区间。x86-64 的高地址 vsyscall 页超出 `-R 4G` 的范围。Android ARM64 真机 上的 PRoot 原型使用这个参数时会在启动阶段失败。 [QEMU user-mode 参数](https://www.qemu.org/docs/master/user/main.html) · [x86-64 装载器源码](https://gitlab.com/qemu-project/qemu/-/blob/v11.1.3/linux-user/x86_64/elfload.c)
 
-检查点包含按内容哈希保存的压缩磁盘块，存档只携带各聊天及其历史分支引用的块。导入校验块大小和 SHA‑256。用预设的「导出存档」和「导入存档」在 Android 与 Windows 间继续使用工作目录。同一会话从历史消息分支时恢复该消息对应的磁盘检查点。
+检查点包含按内容哈希保存的压缩磁盘块，完整存档携带预设会话、各聊天及其历史分支引用的块。导入校验块大小和 SHA‑256。用预设的「导出存档」和「导入存档」在 Android 与 Windows 间继续使用工作目录。同一会话从历史消息分支时恢复该消息对应的磁盘检查点。
 
 历史版本只保存会话原始记录和世界快照，恢复时从原始记录重建全文索引。当前会话索引普通笔记和可召回消息，指定归档前缀时直接查原文。版本在本地压缩，导出仍使用原有的归档布局。已删除的会话进入压缩回收目录，保留 30 天。自动清理会保留仍被活动对话或回收记录引用的版本，并回收超期的中断 VM 工作目录和 Android 导入、导出临时文件。
 

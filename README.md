@@ -8,7 +8,7 @@
 
 - **ChatAgent**：主对话，调用 agentic 搜索和网页工具；system prompt 可按预设配置，支持 `{date}`。
 - **EnvAgent**：编辑事实、世界状态和剧情日期。修改暂存，完成后提交。
-- **PresetAgent**：用精确工具编辑预设，包括 ChatAgent 的 system prompt。
+- **PresetAgent**：用精确工具编辑预设，也能读取设定文档和角色卡，整理角色、世界规则和开场。Android 在预设对话中用文件选择器发送，桌面打开预设面板后用 `/attach`。
 - **SearchAgent**：每轮完成一次搜索或网页请求，自主决定是否搜索、搜索多少轮、抓取哪些页面，以及召回、编辑和缓存哪些材料。最终结果数量不设上限。
 - **FetchAgent**：临时浏览器 Agent，操作网页、采集全文、在 DB 中精修 Markdown，再提交正文和单独的摘要。
 

@@ -239,6 +239,11 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
             if (path.EndsWith(".sqlite", StringComparison.Ordinal) && !path.StartsWith("plugins/", StringComparison.Ordinal))
             {
                 using var db = MemoryDb.ReadOnly(file);
+                if (path == $"preset_sessions/{preset}/agent.sqlite" && db.HasEntriesTable())
+                {
+                    ReadContainerReferences(db, contents);
+                    ReadPresetResearchReferences(db, contents);
+                }
                 foreach (var owned in AgentAssetStorage.Files(db)) contents.AddAttachment(owned);
             }
         }
@@ -399,6 +404,7 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
         using var db = MemoryDb.ReadOnly(file);
         if (!db.HasEntriesTable()) return;
         ReadContainerReferences(db, contents);
+        ReadPresetResearchReferences(db, contents);
         foreach (var owned in AgentAssetStorage.Files(db))
         {
             ct.ThrowIfCancellationRequested();
@@ -423,6 +429,12 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
         if (db.Get(AgentContainer.StateKey) is not { } stored) return;
         foreach (var hash in AgentContainer.References(JsonValues.ParseObject(stored)))
             if (hash.Length > 0) contents.ContainerChunks.Add(hash);
+    }
+
+    private static void ReadPresetResearchReferences(MemoryDb db, Contents contents)
+    {
+        if (db.Get(PresetAgent.ResearchStateKey) is { } stored)
+            contents.Research(JsonValues.ParseObject(stored));
     }
 
     private static async Task Copy(string source, string destination, CancellationToken ct)

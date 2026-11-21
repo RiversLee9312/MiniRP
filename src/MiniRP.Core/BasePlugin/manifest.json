@@ -16,7 +16,7 @@
     {
       "name": "research",
       "description": "Search the web, fetch Markdown, and recall or cache research Assets.",
-      "agents": ["chat", "search"],
+      "agents": ["chat", "search", "preset"],
       "instructions": "Candidates carry an Asset URL and a turn ref. Open full Markdown and result records with view_asset. Edit their writable Assets with edit_asset, then cache or submit the refs you want to keep. Cached material may be stale.",
       "tools": [
         {

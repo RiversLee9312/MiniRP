@@ -3,11 +3,14 @@ namespace MiniRP.Core;
 
 public sealed class PresetAgent(Workspace world, AgentSession session)
 {
+    internal const string ResearchStateKey = "_context/preset-research";
     private readonly PluginRuntime? plugins;
+    private readonly PageSource? web;
 
-    internal PresetAgent(Workspace world, AgentSession session, PluginRuntime plugins) : this(world, session)
+    internal PresetAgent(Workspace world, AgentSession session, PluginRuntime plugins, PageSource web) : this(world, session)
     {
         this.plugins = plugins;
+        this.web = web;
     }
 
     private static readonly HashSet<string> Editable = ["name", "subtitle", "sim_date", "phase", "world.summary", "chat_agent.system_prompt", "chat_agent.greeting_system_message", "search_agent.system_prompt", "env_agent.system_prompt", "preset_agent.system_prompt", "fetch_agent.system_prompt", "title_agent.system_prompt", "search_editor.relevance", "search_editor.scope", "search_editor.credibility", "search_editor.add_guidance", "page_editor.guidance", "page_generator.guidance", "stage.guidance", "search_editor.max_results", "search_editor.max_visible", "search_editor.max_added"];
@@ -153,11 +156,15 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
             "When asked to set a chat background, call list_chat_backgrounds, then configure_chat_appearance with an Asset declared by an installed plugin owned by this preset. Leave chat blur enabled unless the user requests clear playback. The theme normally follows the Asset; use theme_color for an explicit override.\n" +
             "Manage the calendar for the preset with configure_date. Use the real calendar for experiences that follow the device date. If the story advances on its own timeline, offer a plugin-managed calendar and agree on when its date advances and where new rooms start. Honor the user's preference and keep the existing calendar when dates are unrelated to the request. A scoped plugin can call harness.getWorldDate and harness.setWorldDate. EnvAgent can manually set the date of an existing room with its world-state skill.\n" +
             "Use inspect_preset to read the current staged preset before relying on existing settings. It reflects changes made by tools during this turn.\n" +
-            PresetDesign.Practice + "\n" + (config.GetString("setup_status") == "draft" ? PresetDesign.Interview + "\n" : "") +
+            PresetDesign.Practice + "\n" + PresetDesign.ImportGuidance + "\n" +
+            (config.GetString("setup_status") == "draft" ? PresetDesign.Interview + "\n" : "") +
             world.AgentPrompt("preset");
-        var answer = await session.Run(guidance, input,
+        Task<JsonObject> Ask() => session.Run(guidance, input,
             new AgentSkill("preset-editing", "Inspect and edit the staged preset.", tools, Apply, Required: true), ct,
             attachments: attachments, inputRole: inputRole, privateInput: privateInput);
+        var research = web is null ? null : new SearchTurn("direct", "", world, session,
+            JsonValues.ParseObject(session.Db.Get(ResearchStateKey) ?? "{}"));
+        var answer = await (research is null ? Ask() : SearchAgent.InResearch(session, research, web!, Ask));
         ct.ThrowIfCancellationRequested();
         if (answer.GetString("content").Length == 0)
         {
@@ -165,6 +172,8 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
         }
 
         world.CommitConfig(config);
+        if (research is { Changed: true })
+            session.Db.Write(ResearchStateKey, JsonValues.Serialize(research.State), internalWrite: true);
         return answer.GetString("content");
     }
 
