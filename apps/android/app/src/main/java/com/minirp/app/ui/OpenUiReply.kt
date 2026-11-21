@@ -42,7 +42,11 @@ data class OpenUiInteractions(
     val reply: (String, String, JSONObject) -> Boolean,
     val restore: (String) -> String,
     val save: (String, String) -> Unit,
+    val hostAction: ((String, String) -> Boolean)? = null,
 )
+
+internal const val PresetHomeAction = "preset-home"
+internal enum class PresetHomeResult { Returned, SetupPending, Working, Unavailable }
 
 @Composable
 internal fun OpenUiReply(
@@ -55,7 +59,14 @@ internal fun OpenUiReply(
     var measuredHeight by rememberSaveable { mutableIntStateOf(120) }
     var loaded by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
-    val title = block.openUiTitle.ifBlank { stringResource(R.string.interactive_reply) }
+    val presetHome = block.openUiHostAction == PresetHomeAction
+    val title = if (presetHome) stringResource(R.string.preset_return_home)
+        else block.openUiTitle.ifBlank { stringResource(R.string.interactive_reply) }
+    val renderedBlock = if (presetHome) {
+        val detail = JSONObject.quote(stringResource(R.string.preset_return_home_detail))
+        val label = JSONObject.quote(title)
+        block.copy(openUi = """root = Col([Text($detail), Button($label, @ToAssistant("$PresetHomeAction"))])""")
+    } else block
     val context = LocalContext.current
     val supported = remember { OpenUiPage.isSupported() }
     if (!supported) {
@@ -87,6 +98,11 @@ internal fun OpenUiReply(
                 }
             "reply" -> {
                 val text = message.optString("text").trim()
+                if (presetHome) {
+                    if (text == PresetHomeAction && interactions?.hostAction?.invoke(block.id, text) == true)
+                        closeExpanded()
+                    return
+                }
                 if (text.length !in 1..2000) return
                 val data =
                     JSONObject()
@@ -124,7 +140,7 @@ internal fun OpenUiReply(
             ) {
                 if (!expanded && !failed)
                     OpenUiWebView(
-                        block,
+                        renderedBlock,
                         interactions,
                         Modifier.matchParentSize(),
                         false,
@@ -153,7 +169,7 @@ internal fun OpenUiReply(
     if (expanded && !failed)
         FullSheet(title, onDismiss = ::closeExpanded) {
             OpenUiWebView(
-                block,
+                renderedBlock,
                 interactions,
                 Modifier.weight(1f).fillMaxWidth(),
                 true,

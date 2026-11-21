@@ -31,7 +31,7 @@ import com.minirp.app.R
 import java.util.Locale
 import kotlinx.coroutines.launch
 
-private enum class SetupStep { Welcome, Provider, Model }
+private enum class SetupStep { Welcome, Provider, Model, Effort }
 
 private const val MiniRPDocs = "https://github.com/RiversLee9312/MiniRP/blob/main/README.md"
 
@@ -47,6 +47,7 @@ internal fun FirstRunGuide(state: ChatState, model: ChatViewModel) {
     var modelSearch by rememberSaveable(provider?.id) { mutableStateOf("") }
     var selectedModel by rememberSaveable(provider?.id) { mutableStateOf("") }
     var manualId by rememberSaveable(provider?.id) { mutableStateOf("") }
+    var requestedEffort by rememberSaveable(provider?.id, selectedModel.ifBlank { manualId.trim() }) { mutableStateOf("") }
     val snackbars = remember { SnackbarHostState() }
 
     val catalog = state.modelCatalogs[provider?.id]
@@ -54,9 +55,13 @@ internal fun FirstRunGuide(state: ChatState, model: ChatViewModel) {
         ?: manualId.trim().takeIf { catalog?.choices.isNullOrEmpty() && it.isNotEmpty() }?.let {
             Choice(it, it)
         }
+    val (effortLevels, effortLoadFailed) = rememberThinkingEffortOptions(
+        provider, choice.takeIf { step == SetupStep.Effort }, catalog?.loading == true, model::fetchModelEffortLevels,
+    )
 
     LaunchedEffect(step, provider?.id) {
-        if (step == SetupStep.Model && provider != null && catalog == null) model.refreshModels(provider)
+        if ((step == SetupStep.Model || step == SetupStep.Effort) && provider != null && catalog == null)
+            model.refreshModels(provider)
     }
     LaunchedEffect(state.error) {
         state.error?.let {
@@ -66,7 +71,11 @@ internal fun FirstRunGuide(state: ChatState, model: ChatViewModel) {
     }
 
     fun back() {
-        step = if (step == SetupStep.Model) SetupStep.Provider else SetupStep.Welcome
+        step = when (step) {
+            SetupStep.Effort -> SetupStep.Model
+            SetupStep.Model -> SetupStep.Provider
+            else -> SetupStep.Welcome
+        }
     }
     BackHandler(enabled = step != SetupStep.Welcome && !editing && !help, onBack = ::back)
 
@@ -74,6 +83,7 @@ internal fun FirstRunGuide(state: ChatState, model: ChatViewModel) {
         SetupStep.Welcome -> R.string.setup_welcome
         SetupStep.Provider -> R.string.setup_connect_provider
         SetupStep.Model -> R.string.setup_choose_model
+        SetupStep.Effort -> R.string.setup_effort_title
     }
     Scaffold(
         topBar = {
@@ -86,19 +96,25 @@ internal fun FirstRunGuide(state: ChatState, model: ChatViewModel) {
             )
         },
         bottomBar = {
-            if (step == SetupStep.Model) {
+            if (step == SetupStep.Model || step == SetupStep.Effort) {
+                val choosingModel = step == SetupStep.Model
                 Surface(tonalElevation = 2.dp) {
                     Box(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(16.dp)) {
                         Button(
-                            enabled = choice != null && provider != null && catalog?.loading == false,
+                            enabled = choice != null && provider != null && catalog?.loading == false &&
+                                (choosingModel || effortLevels != null || effortLoadFailed),
                             onClick = {
-                                if (choice != null && provider != null) {
-                                    model.finishOnboarding(SavedModel(provider.id, choice))
+                                if (choosingModel) step = SetupStep.Effort
+                                else if (choice != null && provider != null) {
+                                    val selected = requestedEffort.takeIf { it in effortLevels.orEmpty() }.orEmpty()
+                                    model.finishOnboarding(SavedModel(
+                                        provider.id, choice.copy(effortLevels = effortLevels.orEmpty()), reasoningEffort = selected,
+                                    ))
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text(stringResource(R.string.setup_use_model))
+                            Text(stringResource(if (choosingModel) R.string.setup_next else R.string.setup_use_model))
                         }
                     }
                 }
@@ -205,6 +221,12 @@ internal fun FirstRunGuide(state: ChatState, model: ChatViewModel) {
                                 },
                             )
                         }
+                    }
+                }
+                SetupStep.Effort -> {
+                    item { Text(stringResource(R.string.setup_effort_detail)) }
+                    item {
+                        ThinkingEffortField(effortLevels, requestedEffort, effortLoadFailed) { requestedEffort = it }
                     }
                 }
             }

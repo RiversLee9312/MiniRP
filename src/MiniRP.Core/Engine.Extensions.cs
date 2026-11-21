@@ -257,7 +257,6 @@ public sealed partial class Engine
         var next = new Workspace(Workspace.Root, seedDefaultPreset: false);
         if (preset.Length == 0 && seedDefaultPreset) preset = next.InitialPreset().Id;
         if (preset.Length > 0) next.UsePreset(preset);
-        if (preset != Workspace.PresetId) presetContainers.Select(null);
         foreach (var session in sessions.Values) session.Dispose();
         sessions.Clear();
         trace.Clear();
@@ -296,6 +295,7 @@ public sealed partial class Engine
                 index.Preset(next, "Default");
             }
             await pluginAgents.StopPreset(preset);
+            await presetContainers.ClosePreset(preset, lifetime.Token);
             presetTraces.Remove(preset);
             if (Workspace.PresetId == preset) OpenPresetHome(next ?? "", command);
             Workspace.Trash(preset, null);

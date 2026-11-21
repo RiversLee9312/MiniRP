@@ -3,7 +3,8 @@ using System.Text.Json.Nodes;
 namespace MiniRP.Core;
 
 internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory sessions, PluginRuntime runtime,
-    Func<Provider> provider, Action pluginsChanged, Action<string> notificationQueued, CancellationToken lifetime)
+    Func<Provider> provider, Func<Workspace, Action<JsonObject>, PageSource> pageSource,
+    Action pluginsChanged, Action<string> notificationQueued, CancellationToken lifetime)
 {
     private readonly object gate = new();
     private readonly Dictionary<(string Preset, string Id), Worker> running = new();
@@ -153,11 +154,14 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
         try
         {
             var context = new JsonObject { ["agent"] = "plugin", ["preset"] = preset, ["session"] = id };
+            var workspace = new Workspace(root, seedDefaultPreset: false);
+            workspace.UsePreset(preset);
+            using var sharedAssets = MemoryDb.OpenScratch(PresetDatabase(preset));
             using var session = sessions.Open("plugin", Path.Combine(WorkerPath(preset, id), "session.sqlite"),
-                () => model, () => context, trace, inbox: worker.Inbox);
+                () => model, () => context, trace, inbox: worker.Inbox, presetWorkspace: workspace, sharedAssets: sharedAssets);
             try
             {
-                var reply = await new PluginAgent(name, session).Run(instruction, worker.Cancellation.Token);
+                var reply = await new PluginAgent(name, session, pageSource(workspace, trace)).Run(instruction, worker.Cancellation.Token);
                 result = reply.GetString("content");
                 if (string.IsNullOrWhiteSpace(result)) throw new IOException("The model finished without a task report.");
             }

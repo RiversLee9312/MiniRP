@@ -37,6 +37,10 @@
     <string name="expand">הרחבה</string>
     <string name="collapse">כיווץ</string>
     <string name="running">בעבודה</string>
+    <string name="preset_return_home">חזרה לדף הבית</string>
+    <string name="preset_return_home_detail">הקשה על הכפתור תצא מעורך ה־preset. אפשר להתחיל צ׳אט חדש מדף הבית של ה־preset הזה.</string>
+    <string name="preset_return_home_setup_pending">יש להשלים את הגדרת ה־preset לפני החזרה לדף הבית.</string>
+    <string name="preset_return_home_working">אפשר לחזור לדף הבית כשהסוכנים יסיימו לעבוד.</string>
     <string name="error">שגיאה</string>
     <string name="retry">ניסיון חוזר</string>
     <string name="select_model">בחירת מודל</string>

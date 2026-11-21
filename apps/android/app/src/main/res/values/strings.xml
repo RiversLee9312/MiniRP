@@ -38,6 +38,10 @@
     <string name="expand">Expand</string>
     <string name="collapse">Collapse</string>
     <string name="running">Working</string>
+    <string name="preset_return_home">Return to home</string>
+    <string name="preset_return_home_detail">Tap the button to leave the preset editor. You can start a new chat from this preset’s home.</string>
+    <string name="preset_return_home_setup_pending">Finish setting up the preset before returning to home.</string>
+    <string name="preset_return_home_working">You can return to home when the agents finish working.</string>
     <string name="error">Error</string>
     <string name="retry">Retry</string>
     <string name="select_model">Select model</string>

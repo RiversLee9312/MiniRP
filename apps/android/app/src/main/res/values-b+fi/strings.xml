@@ -37,6 +37,10 @@
     <string name="expand">Laajenna</string>
     <string name="collapse">Kutista</string>
     <string name="running">Työskentelee</string>
+    <string name="preset_return_home">Takaisin etusivulle</string>
+    <string name="preset_return_home_detail">Poistu preset-editorista napauttamalla painiketta. Voit aloittaa uuden keskustelun tämän presetin etusivulta.</string>
+    <string name="preset_return_home_setup_pending">Viimeistele presetin määritys ennen paluuta etusivulle.</string>
+    <string name="preset_return_home_working">Voit palata etusivulle, kun agentit ovat saaneet työnsä päätökseen.</string>
     <string name="error">Virhe</string>
     <string name="retry">Yritä uudelleen</string>
     <string name="select_model">Valitse malli</string>

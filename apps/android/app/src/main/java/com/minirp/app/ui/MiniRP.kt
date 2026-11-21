@@ -1,6 +1,7 @@
 package com.minirp.app.ui
 
 import android.widget.FrameLayout
+import android.widget.Toast
 import android.os.Build
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
@@ -86,9 +87,10 @@ fun MiniRP(model: ChatViewModel) {
         var panel by rememberSaveable { mutableStateOf("") }
         val isConversation = isChat || active.hasRoute<AppRoute.EnsembleChat>()
         val activePanel = if (state.presetEditorOpen && isConversation) "preset" else panel
-        fun closePanel() {
-            if (state.presetEditorOpen) model.closePresetEditor()
+        fun closePanel(): Boolean {
+            if (model.state.value.presetEditorOpen && !model.closePresetEditor()) return false
             panel = ""
+            return true
         }
         var editTitle by rememberSaveable { mutableStateOf(false) }
         var modelPicker by rememberSaveable { mutableStateOf<AgentRole?>(null) }
@@ -147,39 +149,42 @@ fun MiniRP(model: ChatViewModel) {
             }
         }
         val library: @Composable (DrawerState, Boolean) -> Unit = { sheet, presetsFirst ->
+            fun canNavigate() = !presetsFirst || !model.state.value.presetWorking
             ConversationDrawer(
                 state,
                 model,
                 sheet,
                 sheet.currentValue == DrawerValue.Open,
                 onSelect = { preset, id ->
-                    model.chooseChat(preset, id)
+                    if (canNavigate()) model.chooseChat(preset, id)
                     scope.launch { sheet.close() }
                 },
                 onSelectPreset = { preset ->
-                    model.selectPreset(preset)
+                    if (canNavigate()) model.selectPreset(preset)
                     scope.launch { sheet.close() }
                 },
                 onCreateConversation = { preset, ensemble ->
-                    if (ensemble) model.createEnsembleRoom(preset) else model.createChat(preset)
+                    if (canNavigate()) {
+                        if (ensemble) model.createEnsembleRoom(preset) else model.createChat(preset)
+                    }
                     scope.launch { sheet.close() }
                 },
                 onCreatePreset = {
                     scope.launch {
                         sheet.close()
-                        model.openPresetEditor(create = true)
+                        if (canNavigate()) model.openPresetEditor(create = true)
                     }
                 },
                 onArchiveExport = { type, name, preset, id ->
                     scope.launch {
                         sheet.close()
-                        archives.export(type, name, preset, id)
+                        if (canNavigate()) archives.export(type, name, preset, id)
                     }
                 },
                 onArchiveImport = { type ->
                     scope.launch {
                         sheet.close()
-                        archives.importArchive(type)
+                        if (canNavigate()) archives.importArchive(type)
                     }
                 },
                 presetsFirst = presetsFirst,
@@ -521,6 +526,23 @@ fun MiniRP(model: ChatViewModel) {
             val assets = remember(model, assetDownloader, state.preset, state.chatId, role) {
                 DisplayAssets(model, assetDownloader, state.preset, if (role == AgentRole.Preset) "" else state.chatId)
             }
+            val presetActions = if (role == AgentRole.Preset) remember(model, context, session) {
+                OpenUiInteractions(
+                    reply = { _, _, _ -> false },
+                    restore = { id -> model.openUiDraft(session, id) },
+                    save = { id, value -> model.saveOpenUiDraft(session, id, value) },
+                    hostAction = { id, _ ->
+                        val result = model.returnHomeFromPresetCard(session, id)
+                        val message = when (result) {
+                            PresetHomeResult.SetupPending -> R.string.preset_return_home_setup_pending
+                            PresetHomeResult.Working -> R.string.preset_return_home_working
+                            else -> null
+                        }
+                        if (message != null) Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        result == PresetHomeResult.Returned
+                    },
+                )
+            } else null
             val conversation: @Composable (Modifier) -> Unit = { modifier ->
                 screens.SaveableStateProvider("${role.id}:$session") {
                     AgentConversation(
@@ -530,16 +552,13 @@ fun MiniRP(model: ChatViewModel) {
                         model::cancel,
                         { text, files, system, type ->
                             if (!system && text.trim() == "/close" && files.isEmpty()) {
-                                if (role == AgentRole.Preset && state.presetSetupPending) false
-                                else {
-                                    closePanel()
-                                    true
-                                }
-                            } else model.send(text, files, role, stage, system, type)
+                                closePanel()
+                            } else model.sendFromPanel(text, files, role, stage, system, type)
                         },
                         { modelPicker = it },
                         loadThumbnail = { model.thumbnail(role, it) },
                         displayAssets = assets,
+                        openUi = presetActions,
                     )
                 }
             }
@@ -549,7 +568,8 @@ fun MiniRP(model: ChatViewModel) {
                         state.blocks,
                         assets,
                         ::closePanel,
-                        locked = state.presetSetupPending,
+                        locked = state.presetExitLocked,
+                        canSwitchPreset = !state.presetWorking,
                         onSettings = { open(AppRoute.Settings) },
                         library = { library(it, true) },
                         snackbarHost = { SnackbarHost(snackbars) },
@@ -815,8 +835,11 @@ internal fun FullSheet(
         )
     val scope = rememberCoroutineScope()
     val dismiss by rememberUpdatedState(onDismiss)
+    val currentLock by rememberUpdatedState(locked)
     ModalBottomSheet(
-        onDismissRequest = { if (!locked) onDismiss() },
+        onDismissRequest = {
+            if (currentLock) scope.launch { state.show() } else dismiss()
+        },
         sheetState = state,
         sheetGesturesEnabled = !locked,
         properties = ModalBottomSheetProperties(
@@ -844,7 +867,7 @@ internal fun FullSheet(
                 SheetHeading(title, onBack, draftControls) {
                     scope.launch {
                         state.hide()
-                        dismiss()
+                        if (currentLock) state.show() else dismiss()
                     }
                 }
                 content()
@@ -853,7 +876,7 @@ internal fun FullSheet(
         if (draftControls == null) body()
         else ModalNavigationDrawer(
             drawerState = draftControls.drawer,
-            gesturesEnabled = locked,
+            gesturesEnabled = locked && draftControls.canSwitchPreset,
             drawerContent = draftControls.library,
             content = body,
         )
@@ -879,6 +902,7 @@ private fun SheetPageBackHandler(onBack: () -> Unit) {
 
 internal data class DraftPresetControls(
     val locked: Boolean,
+    val canSwitchPreset: Boolean,
     val drawer: DrawerState,
     val library: @Composable () -> Unit,
     val openDrawer: () -> Unit,
@@ -904,7 +928,7 @@ private fun SheetHeading(
             }
         } else {
             AnimatedVisibility(
-                visible = locked,
+                visible = locked && draftControls.canSwitchPreset,
                 enter = expandHorizontally(motion.fastSpatialSpec()) + fadeIn(motion.fastEffectsSpec()),
                 exit = shrinkHorizontally(motion.fastSpatialSpec()) + fadeOut(motion.fastEffectsSpec()),
             ) {

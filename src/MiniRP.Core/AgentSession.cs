@@ -188,7 +188,7 @@ public sealed partial class AgentSession : IDisposable
         pending?.Complete(Insert);
     }
 
-    private void ShowCard(JsonObject card)
+    internal void ShowCard(JsonObject card)
     {
         card["kind"] = "open_ui_card";
         card["agent"] = Name;

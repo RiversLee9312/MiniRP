@@ -37,6 +37,10 @@
     <string name="expand">Espandi</string>
     <string name="collapse">Comprimi</string>
     <string name="running">In corso</string>
+    <string name="preset_return_home">Torna alla home</string>
+    <string name="preset_return_home_detail">Tocca il pulsante per uscire dall’editor del preset. Puoi iniziare una nuova chat dalla home di questo preset.</string>
+    <string name="preset_return_home_setup_pending">Completa la configurazione del preset prima di tornare alla home.</string>
+    <string name="preset_return_home_working">Puoi tornare alla home quando gli agenti avranno finito di lavorare.</string>
     <string name="error">Errore</string>
     <string name="retry">Riprova</string>
     <string name="select_model">Seleziona modello</string>

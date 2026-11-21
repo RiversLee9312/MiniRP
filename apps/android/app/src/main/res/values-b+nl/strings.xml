@@ -37,6 +37,10 @@
     <string name="expand">Uitklappen</string>
     <string name="collapse">Inklappen</string>
     <string name="running">Bezig</string>
+    <string name="preset_return_home">Terug naar startpagina</string>
+    <string name="preset_return_home_detail">Tik op de knop om de preset-editor te verlaten. Je kunt vanaf de startpagina van deze preset een nieuwe chat starten.</string>
+    <string name="preset_return_home_setup_pending">Voltooi de configuratie van de preset voordat je teruggaat naar de startpagina.</string>
+    <string name="preset_return_home_working">Je kunt teruggaan naar de startpagina zodra de agents klaar zijn.</string>
     <string name="error">Fout</string>
     <string name="retry">Opnieuw proberen</string>
     <string name="select_model">Model selecteren</string>

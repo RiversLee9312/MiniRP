@@ -8,6 +8,45 @@ namespace MiniRP.Core.Tests;
 public sealed class AgentCapabilityTests
 {
     [TestMethod]
+    public async Task LegacyPluginAssetsJoinOnlyTheirOwnPresetAndDeletedAssetsStayDeleted()
+    {
+        var root = Directory.CreateTempSubdirectory("minirp-preset-assets-").FullName;
+        try
+        {
+            var port = new HostPort(_ => { });
+            await using var runtime = new PluginRuntime(root, port, _ => { },
+                (_, _, _, _, _) => throw new InvalidOperationException());
+            var preset = WorkspaceIds.New();
+            var workers = SessionFiles.PluginDirectory(root, preset);
+            var directory = Path.Combine(root, "attachments");
+            using var legacy = new MemoryDb(Path.Combine(workers, WorkspaceIds.New(), "session.sqlite"));
+            var old = new AgentAssets(runtime, legacy, directory, () => new() { ["preset"] = preset, ["agent"] = "plugin" });
+            var oldTools = new AgentSkill.Turn([old.StorageSkill()], ["asset_storage"]);
+            var created = await oldTools.Invoke("create_asset", new() { ["name"] = "existing.txt", ["text"] = "Existing" },
+                CancellationToken.None);
+            var url = created.GetString("url");
+
+            using var primary = new MemoryDb(SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(root, preset)));
+            using var shared = MemoryDb.OpenScratch(primary.Path);
+            var parent = new AgentAssets(runtime, primary, directory, () => new() { ["preset"] = preset, ["agent"] = "preset" });
+            var worker = new AgentAssets(runtime, shared, directory, () => new() { ["preset"] = preset, ["agent"] = "plugin" });
+            using var unrelated = new MemoryDb(":memory:");
+            var other = new AgentAssets(runtime, unrelated, directory, () => new() { ["preset"] = WorkspaceIds.New() });
+
+            AgentAssets.ImportPluginGrants(primary, workers);
+            Assert.AreEqual(8L, parent.Open(url, new()).Length);
+            Assert.AreEqual(8L, worker.Open(url, new()).Length);
+            Assert.ThrowsExactly<UnauthorizedAccessException>(() => other.Open(url, new()));
+
+            var currentTools = new AgentSkill.Turn([worker.StorageSkill()], ["asset_storage"]);
+            await currentTools.Invoke("delete_asset", new() { ["url"] = url }, CancellationToken.None);
+            AgentAssets.ImportPluginGrants(primary, workers);
+            Assert.ThrowsExactly<UnauthorizedAccessException>(() => parent.Open(url, new()));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
     public async Task DirectMediaUsesTheSelectedModelAndKeepsASampleUrl()
     {
         var root = Directory.CreateTempSubdirectory("minirp-media-").FullName;

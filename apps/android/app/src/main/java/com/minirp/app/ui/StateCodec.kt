@@ -75,6 +75,14 @@ internal fun JSONObject.effortLevels(): List<String> {
     return effort.keys().asSequence().filter { effort.optJSONObject(it)?.optBoolean("supported") == true }.toList()
 }
 
+internal fun List<String>.highestEffort(): String {
+    // Capability maps may arrive in alphabetical order. Arrays with provider-specific levels keep their advertised order.
+    val ranks = mapOf("none" to 0, "minimal" to 1, "low" to 2, "medium" to 3, "high" to 4,
+        "xhigh" to 5, "max" to 6, "ultra" to 7)
+    return if (all { it.lowercase() in ranks }) maxByOrNull { ranks.getValue(it.lowercase()) }.orEmpty()
+    else lastOrNull().orEmpty()
+}
+
 internal fun decodeModel(value: JSONObject) =
     SavedModel(
         value.getString("provider"),
@@ -130,6 +138,7 @@ internal fun decodeBlock(value: JSONObject) =
         openUiTitle = value.optString("open_ui_title"),
         openUiState = value.optJSONObject("open_ui_state")?.toString(),
         openUiRevision = value.optInt("open_ui_revision"),
+        openUiHostAction = value.optString("open_ui_host_action"),
         compaction = value.optBoolean("compaction") || value.optString("tool") == "compact_context",
         pluginAgentId = value.optString("plugin_agent"),
         pluginRun = value.optString("plugin_run", value.optString("plugin_agent")),

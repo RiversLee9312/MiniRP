@@ -433,7 +433,7 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
 
     private static void ReadPresetResearchReferences(MemoryDb db, Contents contents)
     {
-        if (db.Get(PresetAgent.ResearchStateKey) is { } stored)
+        if (db.Get(PresetResearch.StateKey) is { } stored)
             contents.Research(JsonValues.ParseObject(stored));
     }
 

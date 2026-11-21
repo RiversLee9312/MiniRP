@@ -37,6 +37,10 @@
     <string name="expand">बड़ा करें</string>
     <string name="collapse">छोटा करें</string>
     <string name="running">काम जारी है</string>
+    <string name="preset_return_home">होम पर लौटें</string>
+    <string name="preset_return_home_detail">प्रीसेट एडिटर छोड़ने के लिए बटन पर टैप करें। आप इस प्रीसेट के होम से नई चैट शुरू कर सकते हैं।</string>
+    <string name="preset_return_home_setup_pending">होम पर लौटने से पहले प्रीसेट का सेटअप पूरा करें।</string>
+    <string name="preset_return_home_working">एजेंट्स का काम पूरा होने पर आप होम पर लौट सकते हैं।</string>
     <string name="error">त्रुटि</string>
     <string name="retry">फिर कोशिश करें</string>
     <string name="select_model">मॉडल चुनें</string>

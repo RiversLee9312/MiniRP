@@ -5,7 +5,7 @@ using Org.BouncyCastle.Crypto.Digests;
 namespace MiniRP.Core;
 
 /// <summary>Branch state names immutable payloads. Drafts stay in memory until a cache operation retains them.</summary>
-internal sealed class ResearchAssets(Workspace workspace, JsonObject state)
+internal sealed class ResearchAssets(Workspace workspace, JsonObject state, PresetResearch? shared = null)
 {
     internal const string Area = "research-assets";
     private const string Index = "research_assets";
@@ -22,11 +22,15 @@ internal sealed class ResearchAssets(Workspace workspace, JsonObject state)
     public string Draft(JsonObject document, bool page)
     {
         var url = Prefix + Guid.NewGuid().ToString("N");
-        drafts.Add(url, Encode(document, page));
+        var encoded = Encode(document, page);
+        if (shared is null) drafts.Add(url, encoded);
+        else Store(url, encoded);
         return url;
     }
 
-    public bool Contains(string url) => IsUrl(url) && (drafts.ContainsKey(url) || state[Index]?[url] is JsonObject);
+    public bool Contains(string url) => IsUrl(url) && (drafts.ContainsKey(url) || Record(url) is not null);
+
+    private JsonObject? Record(string url) => (shared?.Read()[Index]?[url] ?? state[Index]?[url]) as JsonObject;
 
     public static IEnumerable<string> Hashes(JsonNode? world)
     {
@@ -95,7 +99,7 @@ internal sealed class ResearchAssets(Workspace workspace, JsonObject state)
         return PluginRuntime.OpenSample(path, Mime(page), Name(page, record.GetObject("metadata"))) with { Writable = true };
     }
 
-    internal JsonObject? Published(string url) => IsUrl(url) ? JsonValues.Clone(state[Index]?[url]) as JsonObject : null;
+    internal JsonObject? Published(string url) => IsUrl(url) ? Record(url)?.DeepClone().AsObject() : null;
 
     internal static PluginRuntime.AssetContent OpenPublished(string root, string preset, JsonObject record)
     {
@@ -177,7 +181,7 @@ internal sealed class ResearchAssets(Workspace workspace, JsonObject state)
 
     private (JsonObject Record, string Path) Stored(string url)
     {
-        if (state[Index]?[url] is not JsonObject item) throw new FileNotFoundException("This research Asset is unavailable.");
+        if (Record(url) is not { } item) throw new FileNotFoundException("This research Asset is unavailable.");
         var path = PathFor(workspace.Root, preset, item.GetString("hash"));
         var file = new FileInfo(path);
         if (!file.Exists || file.Attributes.HasFlag(FileAttributes.ReparsePoint)) throw new FileNotFoundException("This research Asset is unavailable.");
@@ -187,7 +191,7 @@ internal sealed class ResearchAssets(Workspace workspace, JsonObject state)
 
     private void Write(string url, Document document)
     {
-        if (state[Index]?[url] is JsonObject)
+        if (Record(url) is not null)
             Store(url, document);
         else
             drafts[url] = document;
@@ -211,10 +215,12 @@ internal sealed class ResearchAssets(Workspace workspace, JsonObject state)
             finally { File.Delete(staged); }
         }
         state[Index] ??= new JsonObject();
-        state[Index]![url] = new JsonObject
+        var record = new JsonObject
         {
             ["hash"] = hash, ["page"] = document.Page, ["metadata"] = document.Metadata.DeepClone()
         };
+        shared?.Set(Index, url, record);
+        state[Index]![url] = record;
         drafts.Remove(url);
         Changed = true;
     }

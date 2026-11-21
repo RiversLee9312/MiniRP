@@ -3,7 +3,6 @@ namespace MiniRP.Core;
 
 public sealed class PresetAgent(Workspace world, AgentSession session)
 {
-    internal const string ResearchStateKey = "_context/preset-research";
     private readonly PluginRuntime? plugins;
     private readonly PageSource? web;
 
@@ -18,6 +17,7 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
         bool privateInput = false)
     {
         var config = (JsonObject)world.Config.DeepClone();
+        var setupPending = config.GetString("setup_status") == "draft";
         var tools = new JsonArray(Tools.Define("inspect_preset", "Inspect current staged preset."), Tools.Define("set_value", "Set one supported dot path, including name, chat_agent.system_prompt, chat_agent.greeting_system_message and agentic_search (true or false). An empty greeting disables the opening message.", new()
         {
             ["path"] = Tools.String(),
@@ -46,7 +46,7 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
         {
             ["background_url"] = Tools.String(), ["background_blur"] = Tools.Boolean(), ["theme_color"] = Tools.String(),
         }));
-        if (config.GetString("setup_status") == "draft")
+        if (setupPending)
             tools.AddNode(Tools.Define("finish_preset_setup", "Complete setup after the user confirms the experience and search choice."));
         Task<JsonNode?> Apply(string name, JsonObject a, CancellationToken token)
         {
@@ -156,15 +156,15 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
             "When asked to set a chat background, call list_chat_backgrounds, then configure_chat_appearance with an Asset declared by an installed plugin owned by this preset. Leave chat blur enabled unless the user requests clear playback. The theme normally follows the Asset; use theme_color for an explicit override.\n" +
             "Manage the calendar for the preset with configure_date. Use the real calendar for experiences that follow the device date. If the story advances on its own timeline, offer a plugin-managed calendar and agree on when its date advances and where new rooms start. Honor the user's preference and keep the existing calendar when dates are unrelated to the request. A scoped plugin can call harness.getWorldDate and harness.setWorldDate. EnvAgent can manually set the date of an existing room with its world-state skill.\n" +
             "Use inspect_preset to read the current staged preset before relying on existing settings. It reflects changes made by tools during this turn.\n" +
+            "When delegating plugin work, pass the exact Asset URLs or /workspace paths it needs. PluginAgent shares this preset's Assets and container.\n" +
             PresetDesign.Practice + "\n" + PresetDesign.ImportGuidance + "\n" +
-            (config.GetString("setup_status") == "draft" ? PresetDesign.Interview + "\n" : "") +
+            (setupPending ? PresetDesign.Interview + "\n" : "") +
             world.AgentPrompt("preset");
         Task<JsonObject> Ask() => session.Run(guidance, input,
             new AgentSkill("preset-editing", "Inspect and edit the staged preset.", tools, Apply, Required: true), ct,
             attachments: attachments, inputRole: inputRole, privateInput: privateInput);
-        var research = web is null ? null : new SearchTurn("direct", "", world, session,
-            JsonValues.ParseObject(session.Db.Get(ResearchStateKey) ?? "{}"));
-        var answer = await (research is null ? Ask() : SearchAgent.InResearch(session, research, web!, Ask));
+        var answer = await (web is not null && session.Assets?.PresetResearch is { } research
+            ? research.Run(session, web, Ask) : Ask());
         ct.ThrowIfCancellationRequested();
         if (answer.GetString("content").Length == 0)
         {
@@ -172,8 +172,12 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
         }
 
         world.CommitConfig(config);
-        if (research is { Changed: true })
-            session.Db.Write(ResearchStateKey, JsonValues.Serialize(research.State), internalWrite: true);
+        if (setupPending && config.GetString("setup_status") == "complete")
+            session.ShowCard(new()
+            {
+                ["open_ui_host_action"] = "preset-home",
+                ["open_ui"] = """root = Col([Text("Return to this preset’s home to start a chat."), Button("Return to home", @ToAssistant("preset-home"))])"""
+            });
         return answer.GetString("content");
     }
 

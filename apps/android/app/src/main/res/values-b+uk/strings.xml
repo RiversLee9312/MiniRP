@@ -37,6 +37,10 @@
     <string name="expand">Розгорнути</string>
     <string name="collapse">Згорнути</string>
     <string name="running">Працює</string>
+    <string name="preset_return_home">Повернутися на головну</string>
+    <string name="preset_return_home_detail">Натисніть кнопку, щоб вийти з редактора пресету. На головній сторінці цього пресету можна почати новий чат.</string>
+    <string name="preset_return_home_setup_pending">Завершіть налаштування пресету перед поверненням на головну.</string>
+    <string name="preset_return_home_working">Ви зможете повернутися на головну після завершення роботи агентів.</string>
     <string name="error">Помилка</string>
     <string name="retry">Повторити</string>
     <string name="select_model">Вибрати модель</string>

@@ -37,6 +37,10 @@
     <string name="expand">Perluas</string>
     <string name="collapse">Ciutkan</string>
     <string name="running">Sedang bekerja</string>
+    <string name="preset_return_home">Kembali ke beranda</string>
+    <string name="preset_return_home_detail">Ketuk tombol untuk keluar dari editor preset. Anda dapat memulai chat baru dari beranda preset ini.</string>
+    <string name="preset_return_home_setup_pending">Selesaikan penyiapan preset sebelum kembali ke beranda.</string>
+    <string name="preset_return_home_working">Anda dapat kembali ke beranda setelah agen selesai bekerja.</string>
     <string name="error">Kesalahan</string>
     <string name="retry">Coba lagi</string>
     <string name="select_model">Pilih model</string>

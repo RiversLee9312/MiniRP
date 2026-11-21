@@ -37,6 +37,10 @@
     <string name="expand">展开</string>
     <string name="collapse">折叠</string>
     <string name="running">正在运行</string>
+    <string name="preset_return_home">回到首页</string>
+    <string name="preset_return_home_detail">点击按钮离开预设编辑器。你可以从此预设的首页开始新聊天。</string>
+    <string name="preset_return_home_setup_pending">请先完成预设设置，再回到首页。</string>
+    <string name="preset_return_home_working">代理完成工作后，你就可以回到首页。</string>
     <string name="error">出错</string>
     <string name="retry">重试</string>
     <string name="select_model">选择模型</string>

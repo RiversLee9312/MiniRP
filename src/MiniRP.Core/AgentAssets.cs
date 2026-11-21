@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 namespace MiniRP.Core;
 
 internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string directory,
-    Func<JsonObject> environment, Func<Workspace>? workspace = null)
+    Func<JsonObject> environment, Func<Workspace>? workspace = null, PresetResearch? presetResearch = null)
 {
     private const string Grants = "_context/asset-grants";
     private const string FileGrants = "_context/asset-file/";
@@ -14,6 +14,8 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
     private static readonly Regex AssetLinks = new(@"minirp://assets/[a-z0-9._]+/[A-Za-z0-9_.-]+", RegexOptions.NonBacktracking);
     internal AgentSkill StorageSkill() => storage.Skill(Open);
     internal AgentToolOutput Output => new(storage);
+    internal string DatabasePath => db.Path;
+    internal PresetResearch? PresetResearch => presetResearch;
     internal sealed record Reading(JsonObject Result, JsonObject? Attachment = null);
     internal sealed record ResearchScope(SearchTurn Turn, PageSource Source);
     internal ResearchScope? Research { get; set; }
@@ -21,12 +23,9 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
     private ResearchAssets? CurrentResearch()
     {
         if (Research is { } active) return active.Turn.Assets;
+        if (presetResearch is not null) return presetResearch.Assets();
         var owner = workspace?.Invoke();
         var context = environment();
-        if (context.GetString("agent") == "preset")
-            return owner is not null && owner.PresetId == context.GetString("preset") &&
-                db.Get(PresetAgent.ResearchStateKey) is { } stored
-                ? new ResearchAssets(owner, JsonValues.ParseObject(stored)) : null;
         return owner is not null && owner.ChatId.Length > 0 && owner.PresetId == context.GetString("preset") &&
             owner.ChatId == context.GetString("room", context.GetString("chat"))
             ? new ResearchAssets(owner, owner.State) : null;
@@ -82,7 +81,7 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
     public void Grant(PluginPackage publisher, JsonNode? output, IReadOnlySet<string>? supplied = null)
     {
         var urls = output is JsonArray array ? array.AsEnumerable() : new[] { output };
-        var grants = Load();
+        var pending = new JsonObject();
         foreach (var item in urls)
         {
             if (item is not JsonValue value || !value.TryGetValue<string>(out var url))
@@ -99,9 +98,9 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
                 continue;
             }
             runtime.OpenAgentAsset(url, publisher.PackageName, publisher.Signer, environment());
-            grants[url] = new JsonObject { ["package"] = publisher.PackageName, ["signer"] = publisher.Signer };
+            pending[url] = new JsonObject { ["package"] = publisher.PackageName, ["signer"] = publisher.Signer };
         }
-        db.Write(Grants, JsonValues.Serialize(grants), internalWrite: true);
+        if (pending.Count > 0) MergeGrants(db, pending);
     }
 
     internal IReadOnlySet<string> SuppliedUrls(JsonNode? arguments)
@@ -221,4 +220,33 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
     }
 
     private JsonObject Load() => JsonValues.ParseObject(db.Get(Grants) ?? "{}");
+
+    private static void MergeGrants(MemoryDb target, JsonObject pending, bool replace = true) =>
+        target.UpdateInternal(Grants, stored =>
+        {
+            var grants = JsonValues.ParseObject(stored ?? "{}");
+            foreach (var (url, grant) in pending)
+                if (replace || grants[url] is null) grants[url] = grant?.DeepClone();
+            return JsonValues.Serialize(grants);
+        });
+
+    internal static void ImportPluginGrants(MemoryDb target, string workers)
+    {
+        if (!Directory.Exists(workers)) return;
+        foreach (var folder in Directory.EnumerateDirectories(workers))
+        {
+            var file = Path.Combine(folder, "session.sqlite");
+            var key = "_context/plugin-asset-import/" + Path.GetFileName(folder);
+            if (!File.Exists(file) || target.Get(key) is not null) continue;
+            using var source = MemoryDb.ReadOnly(file);
+            if (!source.HasEntriesTable()) continue;
+            foreach (var row in source.Query(
+                "SELECT key,content FROM entries WHERE key GLOB ? OR key GLOB ? OR key GLOB ? OR key GLOB ?",
+                AgentAssetStorage.EntryPrefix + "*", AgentAssetStorage.OutputPrefix + "*", FileGrants + "*", ResearchGrants + "*"))
+                target.Execute("INSERT OR IGNORE INTO entries VALUES(?,?,1,?)",
+                    row["key"], row["content"], DateTimeOffset.UtcNow.ToString("O"));
+            if (source.Get(Grants) is { } grants) MergeGrants(target, JsonValues.ParseObject(grants), replace: false);
+            target.Write(key, "1", internalWrite: true);
+        }
+    }
 }

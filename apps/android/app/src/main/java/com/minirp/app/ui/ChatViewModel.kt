@@ -48,7 +48,6 @@ internal constructor(
     }
     internal val picker = PluginPicker()
     private var openUiInstructions = ""
-    private var editorOwnsTurn = false
     private val openUiDrafts = android.util.LruCache<Pair<String, String>, String>(40)
     internal val actions =
         kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.BUFFERED)
@@ -290,9 +289,6 @@ internal constructor(
                         event.optBoolean("value") && it.id == event.optString("agent")
                     }
                 mutableState.update { it.copy(generating = role) }
-                editorOwnsTurn = role == AgentRole.Preset && event.optBoolean("editor_turn")
-                if (editorOwnsTurn && state.value.presetEditor == PresetEditorPhase.Closed)
-                    cancelPresetTurn()
             }
             "loaded" -> {
                 val chat = event.getJSONObject("chat")
@@ -498,6 +494,7 @@ internal constructor(
                             openUiTitle = event.optString("open_ui_title"),
                             openUiState = event.optJSONObject("open_ui_state")?.toString(),
                             openUiRevision = event.optInt("open_ui_revision"),
+                            openUiHostAction = event.optString("open_ui_host_action", old.openUiHostAction),
                         )
                     "context_trace" ->
                         old.copy(compaction = true, result = event.optString("text"), running = event.optBoolean("running"))
@@ -575,6 +572,7 @@ internal constructor(
                     choice = choice.copy(
                         contextWindow = choice.contextWindow.takeIf { it > 0 } ?: model.choice.contextWindow,
                         maxOutput = choice.maxOutput.takeIf { it > 0 } ?: model.choice.maxOutput,
+                        effortLevels = if (ollama && choice.effortLevels.isEmpty()) model.choice.effortLevels else choice.effortLevels,
                     ),
                     reasoningEffort = model.reasoningEffort.takeIf {
                         ollama || it in choice.effortLevels
@@ -682,6 +680,11 @@ internal constructor(
             mutableState.update { it.copy(submitting = false) }
         }
     }
+
+    internal suspend fun sendFromPanel(
+        text: String, documents: List<String>, role: AgentRole, stage: Boolean,
+        system: Boolean, pluginAttachment: PluginAttachmentType?,
+    ): Boolean = viewModelScope.async { send(text, documents, role, stage, system, pluginAttachment) }.await()
 
     internal fun openUiDraft(chatId: String, id: String): String =
         openUiDrafts.get(chatId to id).orEmpty()
@@ -906,10 +909,22 @@ internal constructor(
         }
     }
 
-    fun closePresetEditor() {
-        if (state.value.presetSetupPending) return
+    fun closePresetEditor(): Boolean {
+        if (state.value.presetExitLocked) return false
         mutableState.update { it.copy(presetEditor = PresetEditorPhase.Closed) }
-        if (editorOwnsTurn) cancelPresetTurn()
+        return true
+    }
+
+    internal fun returnHomeFromPresetCard(preset: String, blockId: String): PresetHomeResult {
+        val current = state.value
+        if (current.preset != preset || !current.presetEditorOpen ||
+            current.blocks.none { it.id == blockId && it.openUiHostAction == PresetHomeAction }) {
+            return PresetHomeResult.Unavailable
+        }
+        if (current.presetSetupPending) return PresetHomeResult.SetupPending
+        if (!closePresetEditor()) return PresetHomeResult.Working
+        chooseChat(preset)
+        return PresetHomeResult.Returned
     }
 
     fun markPresetHintSeen(inChat: Boolean) {
@@ -920,8 +935,6 @@ internal constructor(
         }
         persist()
     }
-
-    private fun cancelPresetTurn() = command("cancel") { put("agent", AgentRole.Preset.id) }
 
     private fun JSONObject?.presetSetupPending(): Boolean = this?.optString("setup_status") == "draft"
 
@@ -1189,6 +1202,22 @@ internal constructor(
     fun enableModel(model: SavedModel, enabled: Boolean) {
         mutableState.update { it.withSavedModel(model, enabled) }
         persist()
+        val provider = state.value.providers.find { it.id == model.provider }
+        if (enabled && provider?.protocol == "ollama" && model.choice.effortLevels.isEmpty()) {
+            viewModelScope.launch {
+                val levels = try {
+                    fetchModelEffortLevels(provider, model.choice.id)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    return@launch
+                }
+                if (levels.isNotEmpty() && provider in state.value.providers &&
+                    state.value.savedModels.any { it.sameModel(model) }) {
+                    updateModelSettings(model) { it.copy(choice = it.choice.copy(effortLevels = levels)) }
+                }
+            }
+        }
     }
 
     private fun ChatState.withSavedModel(model: SavedModel, enabled: Boolean): ChatState {
@@ -1202,9 +1231,17 @@ internal constructor(
         )
     }
 
-    fun saveModelSettings(model: SavedModel, settings: CompactionSettings, reasoningEffort: String) {
+    fun saveModelSettings(model: SavedModel, settings: CompactionSettings, reasoningEffort: String, effortLevels: List<String>?) =
+        updateModelSettings(model) {
+            it.copy(
+                choice = effortLevels?.let { levels -> it.choice.copy(effortLevels = levels) } ?: it.choice,
+                compaction = settings, reasoningEffort = reasoningEffort,
+            )
+        }
+
+    private fun updateModelSettings(model: SavedModel, transform: (SavedModel) -> SavedModel) {
         fun update(entry: SavedModel) =
-            if (entry.sameModel(model)) entry.copy(compaction = settings, reasoningEffort = reasoningEffort) else entry
+            if (entry.sameModel(model)) transform(entry) else entry
         mutableState.update {
             it.copy(
                 savedModels = it.savedModels.map(::update),
@@ -1269,7 +1306,7 @@ internal constructor(
                     maxOutput = choice.maxOutput.takeIf { it > 0 } ?: provider.maxOutput,
                 )
             ).put("input_modalities", choice.inputModalities?.let(::JSONArray))
-                .put("reasoning_effort", model.reasoningEffort)
+                .put("reasoning_effort", model.reasoningEffort.ifEmpty { choice.effortLevels.highestEffort() })
                 .putCompaction(model.compaction)
         }
         val assignments = JSONObject()

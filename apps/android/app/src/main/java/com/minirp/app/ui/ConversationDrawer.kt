@@ -59,8 +59,12 @@ internal fun ConversationDrawer(
     val ensemble = if (preset == state.preset) state.chatMode == "ensemble" else selectedEnsemble
     var picking by rememberSaveable { mutableStateOf(false) }
     var deletion by remember { mutableStateOf<Pair<Choice, Boolean>?>(null) }
+    val workLocked = presetsFirst && state.presetWorking
     LaunchedEffect(open) {
         picking = open && presetsFirst
+    }
+    LaunchedEffect(workLocked) {
+        if (workLocked) deletion = null
     }
     ModalDrawerSheet(drawerState = drawer, modifier = Modifier.widthIn(max = 360.dp)) {
         Row(
@@ -82,7 +86,7 @@ internal fun ConversationDrawer(
             }
         }
         HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-        val enabled = state.ready && !state.busy && !state.preparing && !state.archiveBusy
+        val enabled = state.ready && !state.busy && !state.preparing && !state.archiveBusy && !workLocked
         DrawerLibrary(
             picking = picking,
             enabled = enabled,
@@ -147,7 +151,8 @@ internal fun ConversationDrawer(
             onDismiss = { deletion = null },
             isRoom = !isPreset && ensemble,
         ) {
-            model.deleteChoice(if (isPreset) item.id else preset, item.id, isPreset)
+            if (!presetsFirst || !model.state.value.presetWorking)
+                model.deleteChoice(if (isPreset) item.id else preset, item.id, isPreset)
             if (isPreset) {
                 presetName = ""
                 picking = false

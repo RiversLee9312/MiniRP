@@ -37,6 +37,10 @@
     <string name="expand">توسيع</string>
     <string name="collapse">طيّ</string>
     <string name="running">جارٍ العمل</string>
+    <string name="preset_return_home">العودة إلى الصفحة الرئيسية</string>
+    <string name="preset_return_home_detail">اضغط على الزر لمغادرة محرر الإعداد المسبق. يمكنك بدء محادثة جديدة من الصفحة الرئيسية لهذا الإعداد.</string>
+    <string name="preset_return_home_setup_pending">أكمل إعداد الإعداد المسبق قبل العودة إلى الصفحة الرئيسية.</string>
+    <string name="preset_return_home_working">يمكنك العودة إلى الصفحة الرئيسية عند انتهاء الوكلاء من العمل.</string>
     <string name="error">خطأ</string>
     <string name="retry">إعادة المحاولة</string>
     <string name="select_model">اختيار نموذج</string>

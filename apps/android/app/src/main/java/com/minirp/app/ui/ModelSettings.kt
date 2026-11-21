@@ -143,10 +143,10 @@ internal fun ModelsScreen(
             selected,
             provider,
             catalog.loading,
-            fetchEffortLevels = { model.fetchModelEffortLevels(provider, selected.choice.id) },
+            fetchEffortLevels = model::fetchModelEffortLevels,
             onDismiss = { editingModel = null },
-            onSave = { compaction, effort ->
-                model.saveModelSettings(selected, compaction, effort)
+            onSave = { compaction, effort, levels ->
+                model.saveModelSettings(selected, compaction, effort, levels)
                 editingModel = null
             },
         )
@@ -158,9 +158,9 @@ private fun ModelSettingsDialog(
     model: SavedModel,
     provider: ProviderConfig,
     catalogLoading: Boolean,
-    fetchEffortLevels: suspend () -> List<String>,
+    fetchEffortLevels: suspend (ProviderConfig, String) -> List<String>,
     onDismiss: () -> Unit,
-    onSave: (CompactionSettings, String) -> Unit,
+    onSave: (CompactionSettings, String, List<String>?) -> Unit,
 ) {
     var value by rememberSaveable(model.provider, model.choice.id) {
         mutableStateOf(model.compaction.threshold.toString())
@@ -172,25 +172,7 @@ private fun ModelSettingsDialog(
         mutableStateOf(model.compaction.backgroundThreshold.toString())
     }
     var requestedEffort by rememberSaveable(model.provider, model.choice.id) { mutableStateOf(model.reasoningEffort) }
-    val fetchDetails = provider.protocol == "ollama" && model.choice.effortLevels.isEmpty()
-    var fetchedLevels by remember(provider, model.choice.id) { mutableStateOf<List<String>?>(null) }
-    var loadFailed by remember(provider, model.choice.id) { mutableStateOf(false) }
-    LaunchedEffect(provider, model.choice.id, fetchDetails) {
-        if (fetchDetails) {
-            try {
-                fetchedLevels = fetchEffortLevels()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                loadFailed = true
-            }
-        }
-    }
-    val effortLevels = when {
-        fetchDetails -> fetchedLevels
-        catalogLoading && model.choice.effortLevels.isEmpty() -> null
-        else -> model.choice.effortLevels
-    }
+    val (effortLevels, loadFailed) = rememberThinkingEffortOptions(provider, model.choice, catalogLoading, fetchEffortLevels)
     val effort = requestedEffort.takeIf { effortLevels == null || it in effortLevels }.orEmpty()
     val percent = value.toIntOrNull()?.takeIf { it in 1..100 }
     val start = startValue.toIntOrNull()?.takeIf { it in 1..99 && percent != null && it < percent }
@@ -242,7 +224,7 @@ private fun ModelSettingsDialog(
             TextButton(
                 onClick = {
                     if (percent != null) {
-                        onSave(CompactionSettings(percent, background, start ?: model.compaction.backgroundThreshold), effort)
+                        onSave(CompactionSettings(percent, background, start ?: model.compaction.backgroundThreshold), effort, effortLevels)
                     }
                 },
                 enabled = percent != null && (!background || start != null),
@@ -254,9 +236,39 @@ private fun ModelSettingsDialog(
     )
 }
 
+@Composable
+internal fun rememberThinkingEffortOptions(
+    provider: ProviderConfig?,
+    choice: Choice?,
+    catalogLoading: Boolean,
+    fetchLevels: suspend (ProviderConfig, String) -> List<String>,
+): Pair<List<String>?, Boolean> {
+    val listed = choice?.effortLevels.orEmpty()
+    val fetchDetails = provider?.protocol == "ollama" && choice != null && listed.isEmpty()
+    var fetchedLevels by remember(provider, choice?.id) { mutableStateOf<List<String>?>(null) }
+    var loadFailed by remember(provider, choice?.id) { mutableStateOf(false) }
+    LaunchedEffect(provider, choice?.id, fetchDetails) {
+        if (fetchDetails) {
+            try {
+                fetchedLevels = fetchLevels(provider, choice.id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                loadFailed = true
+            }
+        }
+    }
+    val levels = when {
+        fetchDetails -> fetchedLevels
+        catalogLoading && listed.isEmpty() -> null
+        else -> listed
+    }
+    return levels to loadFailed
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ThinkingEffortField(
+internal fun ThinkingEffortField(
     levels: List<String>?,
     effort: String,
     loadFailed: Boolean,
@@ -264,7 +276,6 @@ private fun ThinkingEffortField(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val label = stringResource(R.string.thinking_effort)
-    val default = stringResource(R.string.thinking_effort_default)
     if (levels.isNullOrEmpty()) {
         Text(label, style = MaterialTheme.typography.titleSmall)
         Text(
@@ -281,18 +292,19 @@ private fun ThinkingEffortField(
     }
     ExposedDropdownMenuBox(expanded, { expanded = it }) {
         OutlinedTextField(
-            value = effort.ifEmpty { default },
+            value = effort.takeIf { it in levels } ?: levels.highestEffort(),
             onValueChange = {},
             modifier = Modifier.fillMaxWidth().testTag("model-thinking-effort")
                 .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
             readOnly = true,
             label = { Text(label) },
+            supportingText = if (effort !in levels) ({ Text(stringResource(R.string.thinking_effort_default)) }) else null,
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
         )
         ExposedDropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-            (listOf("") + levels).forEach { value ->
+            levels.forEach { value ->
                 DropdownMenuItem(
-                    text = { Text(value.ifEmpty { default }) },
+                    text = { Text(value) },
                     onClick = {
                         onSelect(value)
                         expanded = false

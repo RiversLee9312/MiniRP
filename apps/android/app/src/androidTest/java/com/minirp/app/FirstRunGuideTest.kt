@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
@@ -63,7 +64,7 @@ class FirstRunGuideTest {
                     if (request.url.encodedPath != "/v1/models") return MockResponse.Builder().code(404).build()
                     auth.set(request.headers["Authorization"])
                     return MockResponse.Builder().setHeader("Content-Type", "application/json")
-                        .body("""{"data":[{"id":"guide-model","displayName":"Guide model"}]}""").build()
+                        .body("""{"data":[{"id":"guide-model","displayName":"Guide model","effort":{"supported_levels":["low","max","medium"]}}]}""").build()
                 }
             }
             server.start()
@@ -132,12 +133,18 @@ class FirstRunGuideTest {
                 assertEquals(null, model.state.value.modelCatalogs[providerId]?.error)
                 compose.waitUntil(10_000) { choice.isDisplayed() }
                 assertEquals("Bearer guide-key", auth.get())
-                text(R.string.setup_use_model).assertIsNotEnabled()
+                text(R.string.setup_next).assertIsNotEnabled()
                 choice.performClick()
+                text(R.string.setup_next).performClick()
+                text(R.string.setup_effort_detail).assertIsDisplayed()
+                val effort = compose.onNodeWithTag("model-thinking-effort")
+                effort.assertTextContains("max").performClick()
+                compose.onNodeWithText("low").performClick()
                 text(R.string.setup_use_model).performClick()
 
                 compose.waitUntil(10_000) { text(R.string.create_preset).isDisplayed() }
                 assertEquals("guide-model", model.state.value.assigned(AgentRole.Chat)?.choice?.id)
+                assertEquals("low", model.state.value.assigned(AgentRole.Chat)?.reasoningEffort)
                 assertEquals("", model.state.value.chatId)
                 compose.waitUntil(5_000) { runBlocking { preferences.load().second.optBoolean("onboarding_complete") } }
             } finally {

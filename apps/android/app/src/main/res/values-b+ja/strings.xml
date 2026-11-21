@@ -37,6 +37,10 @@
     <string name="expand">展開</string>
     <string name="collapse">折りたたみ</string>
     <string name="running">動作中</string>
+    <string name="preset_return_home">ホームに戻る</string>
+    <string name="preset_return_home_detail">ボタンをタップしてプリセットエディタを終了します。このプリセットのホームから新しいチャットを開始できます。</string>
+    <string name="preset_return_home_setup_pending">ホームに戻る前に、プリセットの設定を完了してください。</string>
+    <string name="preset_return_home_working">エージェントの作業が終わると、ホームに戻れます。</string>
     <string name="error">エラー</string>
     <string name="retry">再試行</string>
     <string name="select_model">モデルを選択</string>

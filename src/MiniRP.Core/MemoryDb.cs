@@ -198,6 +198,22 @@ public sealed partial class MemoryDb : IDisposable
         }
     }
 
+    internal void UpdateInternal(string key, Func<string?, string> update)
+    {
+        ValidateKey(key, true);
+        lock (_gate)
+        {
+            Execute("BEGIN IMMEDIATE");
+            try
+            {
+                var old = Query("SELECT content, revision FROM entries WHERE key=?", key).FirstOrDefault();
+                Upsert(key, update(old?["content"]), old is null ? 0 : int.Parse(old["revision"]));
+                Execute("COMMIT");
+            }
+            catch { Execute("ROLLBACK"); throw; }
+        }
+    }
+
     private void Upsert(string key, string content, int current)
     {
         Execute("INSERT INTO entries VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET content=excluded.content,revision=excluded.revision,updated_at=excluded.updated_at", key, content, current + 1, DateTimeOffset.UtcNow.ToString("O"));

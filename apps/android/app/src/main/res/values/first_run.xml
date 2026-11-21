@@ -10,6 +10,9 @@
     <string name="setup_model_detail">Pick a model from %1$s to use for your first conversations.</string>
     <string name="setup_model_fallback">Check the API address and key, then try again. If your provider doesn’t list models, enter the exact model ID from its website.</string>
     <string name="setup_use_model">Use this model</string>
+    <string name="setup_next">Continue</string>
+    <string name="setup_effort_title">How much should it think?</string>
+    <string name="setup_effort_detail">Thinking effort is how much time your AI spends working things out before it replies. For a complicated story or a plugin, start with the highest level. For a quick chat, try a lower one. Higher levels can take longer and use more of your plan’s quota. You can change this anytime in Settings → Models.</string>
     <string name="setup_help_title">Get help configuring MiniRP</string>
     <string name="setup_help_detail">Copy this prompt into %1$s, then follow the steps it gives you.</string>
     <string name="setup_assistants_china">DeepSeek or Qwen</string>

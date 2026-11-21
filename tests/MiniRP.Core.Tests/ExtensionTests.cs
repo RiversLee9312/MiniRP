@@ -195,6 +195,10 @@ public sealed class ExtensionTests
         await Until(engine, "completed", scripts);
         engine.Dispatch(new() { ["op"] = "home", ["preset"] = preset });
         Assert.AreEqual("complete", (await Until(engine, "home", scripts)).GetObject("config").GetString("setup_status"));
+        engine.Dispatch(new() { ["op"] = "open_preset", ["preset"] = preset });
+        var card = (await Until(engine, "preset_opened", scripts)).GetArray("blocks")
+            .Single(block => block.GetString("open_ui_host_action") == "preset-home");
+        StringAssert.Contains(card.GetString("open_ui"), "@ToAssistant(\"preset-home\")");
         engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
         Assert.AreNotEqual("", (await Until(engine, "loaded", scripts)).GetObject("chat").GetString("id"));
     }
@@ -264,7 +268,7 @@ public sealed class ExtensionTests
         Assert.AreEqual("", engine.Workspace.ChatId);
         Assert.IsFalse(Directory.Exists(Path.Combine(root, "conversations")));
         using var database = MemoryDb.ReadOnly(SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(root, preset)));
-        StringAssert.Contains(database.Get(PresetAgent.ResearchStateKey) ?? "", url);
+        StringAssert.Contains(database.Get(PresetResearch.StateKey) ?? "", url);
     }
 
     [TestMethod]

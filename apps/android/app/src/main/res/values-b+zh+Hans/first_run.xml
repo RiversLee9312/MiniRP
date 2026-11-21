@@ -10,6 +10,9 @@
     <string name="setup_model_detail">从 %1$s 选择一个模型，作为聊天时默认使用的模型。</string>
     <string name="setup_model_fallback">检查 API 地址和密钥后重试。如果服务不提供模型列表，可以输入官网给出的完整模型 ID。</string>
     <string name="setup_use_model">使用这个模型</string>
+    <string name="setup_next">继续</string>
+    <string name="setup_effort_title">要让它想多少？</string>
+    <string name="setup_effort_detail">思考强度决定 AI 回复前会花多少时间想一想。想做复杂剧情或写插件，可以先用默认的最高档。只是闲聊，或者想让它回得快一点，就选低一档。高档可能回得慢，也可能多用一些额度。以后随时可以在「设置 → 模型」里改。</string>
     <string name="setup_help_title">请 AI 帮你配置</string>
     <string name="setup_help_detail">把下面这段提示词复制给%1$s，然后跟着它一步一步操作。</string>
     <string name="setup_assistants_china">DeepSeek 或千问</string>

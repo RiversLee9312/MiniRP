@@ -37,6 +37,10 @@
     <string name="expand">Extinde</string>
     <string name="collapse">Restrânge</string>
     <string name="running">Se lucrează</string>
+    <string name="preset_return_home">Înapoi la pagina principală</string>
+    <string name="preset_return_home_detail">Atinge butonul pentru a ieși din editorul presetării. Poți începe un chat nou din pagina principală a acestei presetări.</string>
+    <string name="preset_return_home_setup_pending">Finalizează configurarea presetării înainte de a reveni la pagina principală.</string>
+    <string name="preset_return_home_working">Poți reveni la pagina principală după ce agenții termină de lucrat.</string>
     <string name="error">Eroare</string>
     <string name="retry">Încearcă din nou</string>
     <string name="select_model">Selectează modelul</string>

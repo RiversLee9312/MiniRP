@@ -5,7 +5,8 @@ using Org.BouncyCastle.Crypto.Digests;
 
 namespace MiniRP.Core;
 
-internal sealed partial class AgentContainer(AgentContainer.Rooms rooms, AgentAssets assets, MemoryDb db, string preset, string room)
+internal sealed partial class AgentContainer(AgentContainer.Rooms rooms, AgentAssets assets, MemoryDb db, string preset, string room,
+    string? presetDatabase = null)
 {
     internal const string StateKey = "_context/container";
     internal const string Storage = "containers";
@@ -26,7 +27,7 @@ internal sealed partial class AgentContainer(AgentContainer.Rooms rooms, AgentAs
             }, "command"),
             Tools.Define("export_asset", "Copy a session Asset URL to a guest file.", AssetArguments(), "url", "path"),
             Tools.Define("import_asset", "Copy a guest file into an existing writable session Asset.", AssetArguments(), "url", "path")),
-        Execute, Instructions: "Commands start in /workspace, which is saved with this agent's session. " +
+        Execute, Instructions: "Commands start in /workspace, which is saved with this " + (presetDatabase is null ? "room. " : "preset. ") +
         "Background processes keep running while this workspace is open. Redirect background output to a /workspace file to read it later. " +
         "The image includes apk, Bash, curl, FFmpeg, Node.js, npm, Python 3, pip, Git, jq, rg, sqlite3, pdftotext, unzip, zstd and GNU diff. " +
         "Use db_watch and db_read with an async shell's db_key to track running, failed or success. Read output Assets with view_asset. " +
@@ -79,8 +80,9 @@ internal sealed partial class AgentContainer(AgentContainer.Rooms rooms, AgentAs
             var status = new JsonObject { ["asset_url"] = url, ["status"] = "failed" };
             try
             {
+                using var assetConnection = assets.DatabasePath == connection.Path ? null : MemoryDb.OpenScratch(assets.DatabasePath);
                 var result = await Run("shell", command, "", seconds, memory,
-                    assets.Output.WithDatabase(connection), url, rooms.Lifetime);
+                    assets.Output.WithDatabase(assetConnection ?? connection), url, rooms.Lifetime);
                 if (result["exit_code"] is { } code) status["exit_code"] = code.DeepClone();
                 if (result["error"] is { } error) status["error"] = error.DeepClone();
                 else if (result.GetInt32("exit_code", -1) == 0) status["status"] = "success";
@@ -113,7 +115,7 @@ internal sealed partial class AgentContainer(AgentContainer.Rooms rooms, AgentAs
     private Task<JsonObject> Run(string tool, string command, string path, int seconds, int memory,
         AgentToolOutput output, string? outputUrl, CancellationToken ct,
         PluginRuntime.AssetContent? source = null, Func<Stream, CancellationToken, Task<JsonObject>>? write = null)
-        => rooms.Use(preset, room, async vm =>
+        => rooms.Use(preset, room, presetDatabase, async vm =>
         {
             var request = new JsonObject { ["op"] = tool, ["command"] = command, ["path"] = path,
                 ["seconds"] = seconds, ["memory_mib"] = memory, ["size"] = 0, ["asset_output"] = outputUrl is not null };

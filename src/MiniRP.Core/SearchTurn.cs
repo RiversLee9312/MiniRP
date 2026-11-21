@@ -6,6 +6,7 @@ namespace MiniRP.Core;
 internal sealed class SearchTurn
 {
     private readonly AgentSession session;
+    private readonly PresetResearch? shared;
     private readonly Dictionary<string, string> documents = new(StringComparer.Ordinal);
     private List<string> selected = [];
     private string? selectedPage;
@@ -34,12 +35,14 @@ internal sealed class SearchTurn
     public bool Changed => Assets.Changed || changed;
     private bool changed;
 
-    public SearchTurn(string mode, string target, Workspace workspace, AgentSession session, JsonObject? initialState = null)
+    public SearchTurn(string mode, string target, Workspace workspace, AgentSession session, JsonObject? initialState = null,
+        PresetResearch? shared = null)
     {
         Mode = mode;
         Target = target;
         State = (JsonObject)(initialState ?? workspace.State).DeepClone();
         this.session = session;
+        this.shared = shared;
         foreach (var key in new[] { "pages", "search_cache" })
         {
             if (State[key] is not JsonObject)
@@ -47,7 +50,7 @@ internal sealed class SearchTurn
                 State[key] = new JsonObject();
             }
         }
-        Assets = new(workspace, State);
+        Assets = new(workspace, State, shared);
         Assets.Migrate();
     }
 
@@ -122,8 +125,9 @@ internal sealed class SearchTurn
     {
         var query = arguments.GetString("query");
         var url = arguments.GetString("url").TrimEnd('/');
-        var pages = State.GetObject("pages").Select(pair => pair.Value);
-        var results = State.GetObject("search_cache").Select(pair => pair.Value).OfType<JsonArray>().SelectMany(array => array);
+        var state = shared?.Read() ?? State;
+        var pages = state.GetObject("pages").Select(pair => pair.Value);
+        var results = state.GetObject("search_cache").Select(pair => pair.Value).OfType<JsonArray>().SelectMany(array => array);
         var matches = pages.Concat(results).Select(node => JsonValues.GetText(node)).Where(Assets.Contains).Reverse().Where(asset =>
         {
             var document = Assets.DocumentAt(asset);
@@ -207,13 +211,16 @@ internal sealed class SearchTurn
             var address = JsonValues.GetText(urls.Single());
             var document = Assets.DocumentAt(address);
             if (document.GetString("content").Length == 0) throw new ArgumentException("A cached page needs content.");
-            State.GetObject("pages")[key] = Assets.Retain(document, page: true);
+            var retained = JsonValue.Create(Assets.Retain(document, page: true));
+            shared?.Set("pages", key, retained);
+            State.GetObject("pages")[key] = retained;
         }
         else
         {
             var stored = new JsonArray();
             foreach (var address in urls.Select(value => JsonValues.GetText(value)))
                 stored.AddNode(JsonValue.Create(Assets.Retain(Assets.DocumentAt(address), page: false)));
+            shared?.Set("search_cache", key, stored);
             State.GetObject("search_cache")[key] = stored;
         }
         changed = true;

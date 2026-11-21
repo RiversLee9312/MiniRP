@@ -35,6 +35,7 @@ data class TraceBlock(
     val openUiTitle: String = "",
     val openUiState: String? = null,
     val openUiRevision: Int = 0,
+    val openUiHostAction: String = "",
     val compaction: Boolean = false,
     val pluginAgentId: String = "",
     val pluginRun: String = "",
@@ -160,6 +161,13 @@ data class ChatState(
 
     val presetEditorOpen
         get() = presetEditor == PresetEditorPhase.Open
+
+    val presetWorking
+        get() = generating == AgentRole.Preset || submitting ||
+            blocks.any { it.pluginStatus == "running" }
+
+    val presetExitLocked
+        get() = presetSetupPending || presetWorking
 
     fun assigned(role: AgentRole): SavedModel? =
         assignments[role]

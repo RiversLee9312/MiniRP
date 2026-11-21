@@ -37,6 +37,10 @@
     <string name="expand">Rozbalit</string>
     <string name="collapse">Sbalit</string>
     <string name="running">Pracuje se</string>
+    <string name="preset_return_home">Zpět na domovskou stránku</string>
+    <string name="preset_return_home_detail">Klepnutím na tlačítko opustíte editor presetu. Na jeho domovské stránce můžete začít nový chat.</string>
+    <string name="preset_return_home_setup_pending">Před návratem na domovskou stránku dokončete nastavení presetu.</string>
+    <string name="preset_return_home_working">Na domovskou stránku se můžete vrátit, až agenti dokončí práci.</string>
     <string name="error">Chyba</string>
     <string name="retry">Zkusit znovu</string>
     <string name="select_model">Vybrat model</string>

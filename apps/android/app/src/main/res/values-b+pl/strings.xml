@@ -37,6 +37,10 @@
     <string name="expand">Rozwiń</string>
     <string name="collapse">Zwiń</string>
     <string name="running">Pracuje</string>
+    <string name="preset_return_home">Wróć do strony głównej</string>
+    <string name="preset_return_home_detail">Dotknij przycisku, aby opuścić edytor presetu. Na stronie głównej tego presetu możesz rozpocząć nowy czat.</string>
+    <string name="preset_return_home_setup_pending">Przed powrotem do strony głównej dokończ konfigurację presetu.</string>
+    <string name="preset_return_home_working">Możesz wrócić do strony głównej, gdy agenci zakończą pracę.</string>
     <string name="error">Błąd</string>
     <string name="retry">Ponów</string>
     <string name="select_model">Wybierz model</string>

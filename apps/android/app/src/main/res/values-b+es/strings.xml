@@ -37,6 +37,10 @@
     <string name="expand">Expandir</string>
     <string name="collapse">Contraer</string>
     <string name="running">En curso</string>
+    <string name="preset_return_home">Volver al inicio</string>
+    <string name="preset_return_home_detail">Toca el botón para salir del editor del preset. Puedes iniciar un chat nuevo desde el inicio de este preset.</string>
+    <string name="preset_return_home_setup_pending">Termina de configurar el preset antes de volver al inicio.</string>
+    <string name="preset_return_home_working">Puedes volver al inicio cuando los agentes terminen de trabajar.</string>
     <string name="error">Error</string>
     <string name="retry">Reintentar</string>
     <string name="select_model">Seleccionar modelo</string>

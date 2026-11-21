@@ -31,7 +31,7 @@ Android ARM64 下载 `MiniRP.apk`，可直接覆盖升级。Windows x64 解压 `
 
 Agent 共用 `AgentSession` 的流式事件、工具循环、取消、上下文压缩和记忆工具。UI 展开/折叠只影响展示，不修改模型请求中的思考设置。
 
-ChatAgent 和 PresetAgent 可激活 `container` 技能运行 x86-64 Alpine 中的命令，并在会话 Asset 和客户机文件间传递数据。Android 和 Windows x64 随包提供运行时和镜像，工作目录随分支和存档迁移。构建前准备同一份 [Agent 容器镜像和两端运行时](docs/project/agent-container.md)。
+ChatAgent、PresetAgent 和 PluginAgent 可激活 `container` 技能运行 x86-64 Alpine 命令，并在 Asset 和客户机文件间传递数据。同一预设下的 PresetAgent 和 PluginAgent 共用 Asset URL 和容器工作目录。Android 和 Windows x64 随包提供运行时和镜像，工作目录随分支和存档迁移。构建前准备同一份 [Agent 容器镜像和两端运行时](docs/project/agent-container.md)。
 
 ## 运行桌面版
 

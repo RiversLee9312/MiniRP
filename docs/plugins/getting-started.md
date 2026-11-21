@@ -42,4 +42,6 @@
 
 PluginAgent 可以列出、读写或修改自己项目的文件，调用已声明的 Actions 处理器以测试事件，以及签名、部署或卸载自己的插件。预览使用单独的 V8 环境和调试数据。首次部署的作用域仅包含当前预设，更新会沿用配置过的作用域。调试时可以使用本地设置、数据库、资源和项目内 Actions。
 
+同一预设中的 PresetAgent 和 PluginAgent 可以双向传递 Asset URL，并在同一个容器的 `/workspace` 中交换文件。委派任务或回报结果时可以直接附上相应的 URL 或路径。PluginAgent 可用宿主 `curl` 技能将下载保存为 Asset，也可通过 `research` 技能调用 `real_search` 和 `real_fetch`，使用应用配置的搜索、抓取服务和本地浏览器回退。
+
 PresetAgent 和 PluginAgent 都能激活 `base-plugin-docs`，按页查询 `development`、`api`、`schema`、`preset` 和 `automation`，也可传 `query` 查找具体字段。 `preset` 解释对话分工与智能体搜索。 `automation` 提供从技能触发事件、更新世界、持久化状态到渲染卡片的完整流程。

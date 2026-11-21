@@ -232,14 +232,15 @@ class NavigationTest {
     @Test
     fun savedModelUsesDiscoveredWindowAndEffortLevels() {
         MockWebServer().use { server ->
-            val selectedEffort = "fixture-deliberate"
+            val defaultEffort = "fixture-deliberate"
+            val selectedEffort = "fixture-quick"
             val chatRequest = LinkedBlockingQueue<JSONObject>()
             server.dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     if (request.url.encodedPath == "/v1/models") {
                         return MockResponse.Builder()
                             .setHeader("Content-Type", "application/json")
-                            .body("""{"data":[{"id":"fixture","name":"Fixture model","context_length":65536,"effort":{"supported_levels":["fixture-quick","$selectedEffort"]}}]}""")
+                            .body("""{"data":[{"id":"fixture","name":"Fixture model","context_length":65536,"effort":{"supported_levels":["$selectedEffort","$defaultEffort"]}}]}""")
                             .build()
                     }
                     val body = JSONObject(checkNotNull(request.body).utf8())
@@ -264,8 +265,7 @@ class NavigationTest {
                 compose.onNodeWithContentDescription(label(R.string.model_settings)).performClick()
             }
             openModelSettings()
-            compose.onNodeWithTag("model-thinking-effort").performClick()
-            compose.onNodeWithText("fixture-quick").assertIsDisplayed()
+            compose.onNodeWithTag("model-thinking-effort").assertTextContains(defaultEffort).performClick()
             compose.onNodeWithText("high").assertDoesNotExist()
             compose.onNodeWithText(selectedEffort).performClick()
             compose.onNodeWithText(compose.activity.getString(R.string.compaction_model_context, 65536)).assertIsDisplayed()

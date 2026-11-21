@@ -37,6 +37,10 @@
     <string name="expand">Utvid</string>
     <string name="collapse">Skjul</string>
     <string name="running">Arbeider</string>
+    <string name="preset_return_home">Tilbake til startsiden</string>
+    <string name="preset_return_home_detail">Trykk på knappen for å gå ut av forhåndsinnstillingsredigereren. Du kan starte en ny chat fra startsiden til denne forhåndsinnstillingen.</string>
+    <string name="preset_return_home_setup_pending">Fullfør oppsettet av forhåndsinnstillingen før du går tilbake til startsiden.</string>
+    <string name="preset_return_home_working">Du kan gå tilbake til startsiden når agentene er ferdige med arbeidet.</string>
     <string name="error">Feil</string>
     <string name="retry">Prøv igjen</string>
     <string name="select_model">Velg modell</string>

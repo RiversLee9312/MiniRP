@@ -8,7 +8,7 @@ internal sealed class AgentAssetStorage(PluginRuntime runtime, MemoryDb db, stri
     internal const string EntryPrefix = "_context/owned-asset/";
     internal const string FilePrefix = "asset-owned-";
     private const string Prefix = "minirp://assets/minirp.agent/";
-    private const string OutputPrefix = "_context/tool-output/";
+    internal const string OutputPrefix = "_context/tool-output/";
     private static readonly TimeSpan OutputLifetime = TimeSpan.FromDays(7);
 
     internal static bool IsUrl(string url) => url.StartsWith(Prefix, StringComparison.Ordinal) &&
@@ -92,13 +92,11 @@ internal sealed class AgentAssetStorage(PluginRuntime runtime, MemoryDb db, stri
                         list.AddNode(Describe(Prefix + row["key"][EntryPrefix.Length..], JsonValues.ParseObject(row["content"])));
                     return list;
                 case "rename_asset":
-                    var file = Require(url);
-                    file["name"] = Name(args);
-                    Save(url, file);
-                    return Describe(url, file);
+                    var filename = Name(args);
+                    var renamed = Update(url, file => { file["name"] = filename; return true; });
+                    return Describe(url, renamed);
                 case "delete_asset":
-                    _ = Require(url);
-                    db.Write(EntryPrefix + url[Prefix.Length..], "", internalWrite: true);
+                    Update(url, _ => false);
                     return new JsonObject { ["url"] = url, ["deleted"] = true };
                 default:
                     throw new InvalidOperationException("Unknown asset storage tool.");
@@ -144,21 +142,27 @@ internal sealed class AgentAssetStorage(PluginRuntime runtime, MemoryDb db, stri
 
     private async Task<JsonObject> Replace(string url, Func<Stream, CancellationToken, Task<int>> write, CancellationToken ct)
     {
-        var file = Require(url);
+        var original = Require(url).GetString("id");
         var id = FilePrefix + WorkspaceIds.New();
         var path = Path.Combine(directory, id);
         try
         {
             int changes;
+            long size;
             await using (var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 65536, useAsync: true))
             {
                 changes = await write(output, ct);
                 if (output.Length > MessageAttachments.MaxAssetBytes) throw new IOException("The Asset is too large.");
-                file["size"] = output.Length;
+                size = output.Length;
             }
             ct.ThrowIfCancellationRequested();
-            file["id"] = id;
-            Save(url, file);
+            var file = Update(url, current =>
+            {
+                if (current.GetString("id") != original) throw new InvalidOperationException("The Asset changed while it was being written. Re-read it and retry.");
+                current["id"] = id;
+                current["size"] = size;
+                return true;
+            });
             var result = Describe(url, file);
             result["changes"] = changes;
             return result;
@@ -167,7 +171,22 @@ internal sealed class AgentAssetStorage(PluginRuntime runtime, MemoryDb db, stri
     }
 
     private JsonObject Require(string url) => Find(url) is { } file && !file.ContainsKey("expires_at")
-        ? file : throw new UnauthorizedAccessException("This session has no writable Asset at that URL.");
+        ? file : throw MissingWritableAsset();
+
+    private JsonObject Update(string url, Func<JsonObject, bool> update)
+    {
+        if (!IsUrl(url)) throw MissingWritableAsset();
+        JsonObject? record = null;
+        db.UpdateInternal(EntryPrefix + url[Prefix.Length..], stored =>
+        {
+            if (string.IsNullOrEmpty(stored)) throw MissingWritableAsset();
+            record = JsonValues.ParseObject(stored);
+            return update(record) ? JsonValues.Serialize(record) : "";
+        });
+        return record!;
+    }
+
+    private static UnauthorizedAccessException MissingWritableAsset() => new("This session has no writable Asset at that URL.");
     private void Save(string url, JsonObject record) => db.Write(EntryPrefix + url[Prefix.Length..], JsonValues.Serialize(record), internalWrite: true);
 
     private static JsonObject Describe(string url, JsonObject file) => new()

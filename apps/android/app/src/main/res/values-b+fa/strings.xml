@@ -37,6 +37,10 @@
     <string name="expand">بازکردن</string>
     <string name="collapse">بستن</string>
     <string name="running">در حال کار</string>
+    <string name="preset_return_home">بازگشت به صفحه اصلی</string>
+    <string name="preset_return_home_detail">برای خروج از ویرایشگر پیش‌تنظیم، روی دکمه بزنید. می‌توانید از صفحه اصلی این پیش‌تنظیم گفت‌وگوی جدیدی شروع کنید.</string>
+    <string name="preset_return_home_setup_pending">پیش از بازگشت به صفحه اصلی، راه‌اندازی پیش‌تنظیم را کامل کنید.</string>
+    <string name="preset_return_home_working">پس از پایان کار عامل‌ها می‌توانید به صفحه اصلی برگردید.</string>
     <string name="error">خطا</string>
     <string name="retry">تلاش دوباره</string>
     <string name="select_model">انتخاب مدل</string>

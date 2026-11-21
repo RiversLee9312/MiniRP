@@ -37,6 +37,10 @@
     <string name="expand">Mở rộng</string>
     <string name="collapse">Thu gọn</string>
     <string name="running">Đang xử lý</string>
+    <string name="preset_return_home">Quay lại trang chủ</string>
+    <string name="preset_return_home_detail">Nhấn nút để rời trình chỉnh sửa preset. Bạn có thể bắt đầu cuộc trò chuyện mới từ trang chủ của preset này.</string>
+    <string name="preset_return_home_setup_pending">Hoàn tất thiết lập preset trước khi quay lại trang chủ.</string>
+    <string name="preset_return_home_working">Bạn có thể quay lại trang chủ khi các tác nhân hoàn tất công việc.</string>
     <string name="error">Lỗi</string>
     <string name="retry">Thử lại</string>
     <string name="select_model">Chọn mô hình</string>

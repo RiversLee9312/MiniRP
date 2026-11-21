@@ -47,6 +47,7 @@ internal fun PresetPluginPanel(
     displayAssets: DisplayAssets,
     onClose: () -> Unit,
     locked: Boolean,
+    canSwitchPreset: Boolean,
     onSettings: () -> Unit,
     library: @Composable (DrawerState) -> Unit,
     snackbarHost: @Composable () -> Unit,
@@ -81,13 +82,16 @@ internal fun PresetPluginPanel(
     val back: () -> Unit = { navigation.popBackStack() }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    LaunchedEffect(locked) { if (!locked && drawer.isOpen) drawer.close() }
+    LaunchedEffect(locked, canSwitchPreset) {
+        if ((!locked || !canSwitchPreset) && drawer.isOpen) drawer.close()
+    }
     FullSheet(
         title,
         onClose,
         onBack = back.takeIf { showActivity || trace != null },
         draftControls = DraftPresetControls(
             locked,
+            canSwitchPreset,
             drawer,
             { library(drawer) },
             { scope.launch { drawer.open() } },

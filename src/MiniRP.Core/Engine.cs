@@ -76,6 +76,7 @@ public sealed partial class Engine : IAsyncDisposable
         agentSessions = new(Port, plugins, attachmentRoot, () => turnRouting.Settings.GetString("android_open_ui"), () => Workspace, containers,
             () => curlAvailable, presetContainers);
         pluginAgents = new(Workspace.Root, agentSessions, plugins, () => Volatile.Read(ref routing).For("plugin"),
+            (world, trace) => CreatePageSource(world, SessionFiles.PresetDirectory(world.Root, world.PresetId), forPreset: true, workerTrace: trace),
             () =>
             {
                 Emit(new() { ["kind"] = "plugins", ["items"] = plugins.List() });
@@ -236,7 +237,7 @@ public sealed partial class Engine : IAsyncDisposable
         }
         if (kind == "open_ui_card")
         {
-            foreach (var key in new[] { "open_ui", "open_ui_title", "open_ui_state", "open_ui_revision", "plugin_card" })
+            foreach (var key in new[] { "open_ui", "open_ui_title", "open_ui_state", "open_ui_revision", "open_ui_host_action", "plugin_card" })
                 block[key] = JsonValues.Clone(item[key]);
         }
         else if (kind == "open_ui_delta")
@@ -523,38 +524,34 @@ public sealed partial class Engine : IAsyncDisposable
         QueuePresetNotifications(preset);
     }
 
-    private PageSource CreatePageSource(Workspace workspace, string sessionRoot, bool forPreset = false)
+    private PageSource CreatePageSource(Workspace workspace, string sessionRoot, bool forPreset = false, Action<JsonObject>? workerTrace = null)
     {
+        var workerRouting = workerTrace is null ? null : Volatile.Read(ref routing);
+        Routing Selected() => workerRouting ?? turnRouting;
         var fetch = new FetchAgent(Port, job =>
         {
-            var context = PluginEnvironment("fetch");
+            var context = forPreset ? new JsonObject { ["agent"] = "fetch", ["preset"] = workspace.PresetId } : PluginEnvironment("fetch");
             var session = "fetch-" + job;
             context["session"] = session;
-            if (forPreset)
-            {
-                context["chat"] = null;
-                context["room"] = null;
-                context["_ensemble"] = false;
-            }
-            return agentSessions.Open("fetch", SessionFiles.Fetch(sessionRoot, job), () => turnRouting.For("fetch"),
+            return agentSessions.Open("fetch", SessionFiles.Fetch(sessionRoot, job), () => Selected().For("fetch"),
                 () => context, (item, info) =>
                 {
                     item["session"] = session;
                     if (forPreset)
                     {
-                        item["agent"] = "PresetAgent";
+                        item["agent"] = workerTrace is null ? "PresetAgent" : "PluginAgent";
                         item["speaker"] = "FetchAgent";
                     }
-                    Record(item, sessionInfo: info);
+                    if (workerTrace is null) Record(item, sessionInfo: info);
+                    else workerTrace(item);
                 });
         }, () => workspace.AgentPrompt("fetch"));
-        return new(Port, fetch, () => turnRouting.Settings);
+        return new(Port, fetch, () => Selected().Settings);
     }
 
     private PresetAgent CreatePresetAgent(AgentSession session)
     {
         var preset = Workspace.PresetId;
-        presetContainers.Select(new(preset, preset, session.Db.Path));
         var web = CreatePageSource(Workspace, SessionFiles.PresetDirectory(Workspace.Root, preset), forPreset: true);
         return new(Workspace, session, plugins, web);
     }
@@ -564,7 +561,8 @@ public sealed partial class Engine : IAsyncDisposable
         var session = agentSessions.Open(role, database, () => turnRouting.For(role), () => PluginEnvironment(role),
             (item, info) => Record(item, sessionInfo: info),
             () => ModeSkills(role, workspace),
-            role == "env" ? target => ensemble?.List().Any(chat => chat.GetString("id") == target) == true : null);
+            role == "env" ? target => ensemble?.List().Any(chat => chat.GetString("id") == target) == true : null,
+            presetWorkspace: role == "preset" ? workspace : null);
         try
         {
             if (!session.HasHistory && previous?["history"] is JsonArray legacy)

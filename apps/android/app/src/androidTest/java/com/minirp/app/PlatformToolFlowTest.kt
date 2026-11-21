@@ -8,6 +8,10 @@ import android.graphics.Color
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.view.KeyEvent
+import android.view.View
+import android.view.ViewGroup
+import android.view.inspector.WindowInspector
+import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.result.ActivityResultRegistry
@@ -36,6 +40,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.printToString
@@ -258,7 +263,56 @@ class PlatformToolFlowTest {
                 sheetHandle.assertIsDisplayed()
                 sheetIcon(R.string.open_menu).assertDoesNotExist()
                 sheetIcon(R.string.settings).assertDoesNotExist()
-                sheetIcon(R.string.close).performClick()
+                if (!steer) {
+                    val card = model.state.value.blocks.single { it.openUiHostAction == "preset-home" }
+                    fun findCard(view: View): WebView? = when (view) {
+                        is WebView -> view.takeIf { it.tag == card.id }
+                        is ViewGroup -> (0 until view.childCount).firstNotNullOfOrNull { findCard(view.getChildAt(it)) }
+                        else -> null
+                    }
+                    fun cardButton(click: Boolean): Boolean {
+                        val complete = CountDownLatch(1)
+                        val result = AtomicReference<String>()
+                        val expected = JSONObject.quote(label(R.string.preset_return_home))
+                        compose.activityRule.scenario.onActivity {
+                            val view = WindowInspector.getGlobalWindowViews().firstNotNullOfOrNull(::findCard)
+                            if (view == null) complete.countDown()
+                            else view.evaluateJavascript(
+                                "(() => { const b = document.querySelector('button'); " +
+                                    "if (b?.textContent.trim() !== $expected) return false; " +
+                                    (if (click) "b.click(); " else "") + "return true; })()"
+                            ) { value -> result.set(value); complete.countDown() }
+                        }
+                        return complete.await(3, TimeUnit.SECONDS) && result.get() == "true"
+                    }
+                    val transcript = compose.onNode(hasTestTag("transcript") and hasAnyAncestor(isDialog()))
+                    transcript.performScrollToIndex(0)
+                    waitFor { cardButton(click = false) }
+                    send(PresetLockRequest, inPresetEditor = true)
+                    waitFor { fixture.presetLockStarted.count == 0L && model.state.value.generating?.id == "preset" }
+                    sheetIcon(R.string.close).assertDoesNotExist()
+                    pressedBack()
+                    transcript.performScrollToIndex(0)
+                    waitFor { cardButton(click = true) }
+                    compose.waitForIdle()
+                    assertTrue(model.state.value.presetEditorOpen)
+                    fixture.releasePresetLock.countDown()
+
+                    waitFor { !model.state.value.busy && model.state.value.generating == null &&
+                        model.state.value.blocks.any { it.pluginStatus == "running" } }
+                    sheetIcon(R.string.close).assertDoesNotExist()
+                    sheetHandle.assertDoesNotExist()
+                    pressedBack()
+                    transcript.performScrollToIndex(0)
+                    waitFor { cardButton(click = true) }
+                    compose.waitForIdle()
+                    assertTrue(model.state.value.presetEditorOpen)
+                    fixture.releaseWorkerLock.countDown()
+                    waitFor { model.state.value.blocks.any { it.content == PresetLockReply } &&
+                        !model.state.value.presetExitLocked }
+                    transcript.performScrollToIndex(0)
+                    waitFor { cardButton(click = true) }
+                } else sheetIcon(R.string.close).performClick()
                 waitFor { !model.state.value.presetEditorOpen }
                 if (!steer) {
                     waitFor { compose.onNodeWithText(label(R.string.preset_home_hint)).isDisplayed() }
@@ -303,6 +357,16 @@ class PlatformToolFlowTest {
                     sheetIcon(R.string.close).performClick()
                     waitFor { !model.state.value.presetEditorOpen }
                     assertTrue(model.state.value.presetChatHintSeen)
+                    compose.onNodeWithContentDescription(label(R.string.more_options)).performClick()
+                    compose.onNodeWithText(label(R.string.world)).performClick()
+                    waitFor { sheetIcon(R.string.close).isDisplayed() }
+                    send(EnvLockRequest, inPresetEditor = true)
+                    waitFor { fixture.envStarted.count == 0L && model.state.value.generating?.id == "env" }
+                    sheetIcon(R.string.close).performClick()
+                    waitFor { !sheetIcon(R.string.close).isDisplayed() }
+                    assertEquals("env", model.state.value.generating?.id)
+                    fixture.releaseEnv.countDown()
+                    waitFor { !model.state.value.busy && model.state.value.blocks.any { it.content == EnvLockReply } }
                 }
                 val pdf = directory.resolve("asset-probe.pdf")
                 val fixturePdf = PdfDocument()
@@ -433,6 +497,9 @@ class PlatformToolFlowTest {
             } finally {
                 fixture.continueWorker.countDown()
                 fixture.releaseParentAnswer.countDown()
+                fixture.releasePresetLock.countDown()
+                fixture.releaseWorkerLock.countDown()
+                fixture.releaseEnv.countDown()
                 scope.cancel()
             }
         }
@@ -443,8 +510,15 @@ class PlatformToolFlowTest {
         val continueWorker = CountDownLatch(1)
         val parentAnswerStarted = CountDownLatch(1)
         val releaseParentAnswer = CountDownLatch(1)
+        val presetLockStarted = CountDownLatch(1)
+        val releasePresetLock = CountDownLatch(1)
+        val releaseWorkerLock = CountDownLatch(1)
+        val envStarted = CountDownLatch(1)
+        val releaseEnv = CountDownLatch(1)
         private val presetRound = AtomicInteger()
         private val workerRound = AtomicInteger()
+        private val presetLockRound = AtomicInteger()
+        private lateinit var workerId: String
         private val diceRound = AtomicInteger()
         private val assetRound = AtomicInteger()
         private var pageSample = ""
@@ -460,12 +534,33 @@ class PlatformToolFlowTest {
             val system = messages.getJSONObject(0).getString("content")
             val history = (0 until messages.length()).map(messages::getJSONObject)
             val result = history.lastOrNull { it.optString("role") == "tool" }?.optString("content").orEmpty()
+            val userText = history.lastOrNull { it.optString("role") == "user" }?.optString("content")
             val delta = when {
                 system.startsWith("You are PluginAgent working on") -> {
                     assertEquals("plugin-fixture", body.getString("model"))
-                    if (workerRound.get() == 0)
-                        assertTrue("The PluginAgent trace did not open", continueWorker.await(30, TimeUnit.SECONDS))
-                    workerReply(result, history)
+                    if (userText == PluginLockRequest) {
+                        assertTrue("The plugin lock probe was never released", releaseWorkerLock.await(30, TimeUnit.SECONDS))
+                        json("content" to "Worker lock probe completed.")
+                    } else {
+                        if (workerRound.get() == 0)
+                            assertTrue("The PluginAgent trace did not open", continueWorker.await(30, TimeUnit.SECONDS))
+                        workerReply(result, history)
+                    }
+                }
+                system.startsWith("You are EnvAgent") && userText == EnvLockRequest -> {
+                    envStarted.countDown()
+                    assertTrue("The environment request was never released", releaseEnv.await(30, TimeUnit.SECONDS))
+                    json("content" to EnvLockReply)
+                }
+                system.startsWith("You are PresetAgent") && history.any { it.optString("content") == PresetLockRequest } -> when (presetLockRound.getAndIncrement()) {
+                    0 -> {
+                        presetLockStarted.countDown()
+                        assertTrue("The preset lock probe was never released", releasePresetLock.await(30, TimeUnit.SECONDS))
+                        tools(tool("plugin_base_plugin_send", "id" to workerId, "message" to PluginLockRequest))
+                    }
+                    1 -> json("content" to "The worker lock probe is running.")
+                    2 -> json("content" to PresetLockReply)
+                    else -> error("Unexpected lock probe request")
                 }
                 !body.has("tools") -> json("content" to "Tabletop test")
                 history.any { it.optString("content").startsWith(AssetRequest) } -> assetReply(result, history)
@@ -492,7 +587,10 @@ class PlatformToolFlowTest {
                 tools(tool("activate_skill", "name" to "base-plugin-development"))
             }
             3 -> tools(tool("plugin_base_plugin_spawn", "name" to ProjectName, "message" to "Debug the draft, iterate on its card, then publish it."))
-            4 -> tools(tool("plugin_base_plugin_wait", "ids" to JSONArray().put(JSONObject(result).getString("id")), "seconds" to 1))
+            4 -> {
+                workerId = JSONObject(result).getString("id")
+                tools(tool("plugin_base_plugin_wait", "ids" to JSONArray().put(workerId), "seconds" to 1))
+            }
             5 -> {
                 val child = JSONArray(result).getJSONObject(0)
                 assertEquals("running", child.getString("status"))
@@ -806,6 +904,11 @@ class PlatformToolFlowTest {
         const val SetupRequest = "Create a tabletop preset whose plugin-managed calendar starts on 2032-02-29. Delegate, debug, and publish a small plugin."
         const val WaitingForWorker = "The plugin is still being built."
         const val SetupReply = "The tabletop preset and plugin are ready."
+        const val PresetLockRequest = "Verify the preset navigation lock."
+        const val PluginLockRequest = "Hold the worker navigation lock."
+        const val PresetLockReply = "The navigation lock probe completed."
+        const val EnvLockRequest = "Continue this work when the world panel closes."
+        const val EnvLockReply = "The world work completed."
         const val DiceRequest = "Roll thirty dice with a modifier of minus seven."
         const val DiceReply = "The dice results were checked."
         const val AssetRequest = "Inspect the attached PDF using its Asset URL."

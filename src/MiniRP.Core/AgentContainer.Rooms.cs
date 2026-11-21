@@ -50,15 +50,29 @@ internal sealed partial class AgentContainer
             }
         });
 
-        internal async Task<JsonObject> Use(string preset, string room, Func<RoomVm, Task<JsonObject>> action, CancellationToken ct)
+        internal async Task<JsonObject> Use(string preset, string room, string? presetDatabase, Func<RoomVm, Task<JsonObject>> action,
+            CancellationToken ct)
         {
             await gate.WaitAsync(ct);
             try
             {
-                var selection = Volatile.Read(ref selected);
+                var selection = presetDatabase is null ? Volatile.Read(ref selected) :
+                    File.Exists(presetDatabase) ? new Selection(preset, room, presetDatabase) : null;
                 if (selection is null || selection.Preset != preset || selection.Room != room)
                     throw new InvalidOperationException("The container's room is closed.");
                 return await action(await Open(selection, ct));
+            }
+            finally { gate.Release(); }
+        }
+
+        internal async Task ClosePreset(string preset, CancellationToken ct)
+        {
+            if (Volatile.Read(ref current) is not { } vm || vm.Target.Preset != preset) return;
+            vm.Interrupt();
+            await gate.WaitAsync(ct);
+            try
+            {
+                if (current?.Target.Preset == preset) await StopCurrent();
             }
             finally { gate.Release(); }
         }

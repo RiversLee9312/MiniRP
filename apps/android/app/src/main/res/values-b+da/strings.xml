@@ -37,6 +37,10 @@
     <string name="expand">Udvid</string>
     <string name="collapse">Fold sammen</string>
     <string name="running">Arbejder</string>
+    <string name="preset_return_home">Tilbage til startside</string>
+    <string name="preset_return_home_detail">Tryk på knappen for at forlade preset-editoren. Du kan starte en ny chat fra dette presets startside.</string>
+    <string name="preset_return_home_setup_pending">Færdiggør opsætningen af preset’et, før du vender tilbage til startsiden.</string>
+    <string name="preset_return_home_working">Du kan vende tilbage til startsiden, når agenterne er færdige med at arbejde.</string>
     <string name="error">Fejl</string>
     <string name="retry">Prøv igen</string>
     <string name="select_model">Vælg model</string>

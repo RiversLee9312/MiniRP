@@ -1,13 +1,13 @@
 # Agent 容器
 
-Android 和 Windows x64 的安装包包含同一份 x86-64 Alpine 镜像和各平台的无界面 QEMU。安装后，ChatAgent 和 PresetAgent 可以激活 `container` 技能。PresetAgent 的容器在第一次调用时启动，按预设保存，供导入资料时使用。
+Android 和 Windows x64 的安装包包含同一份 x86-64 Alpine 镜像和各平台的无界面 QEMU。ChatAgent、PresetAgent 和 PluginAgent 可以激活 `container` 技能。PresetAgent 和所属的 PluginAgent 共用同一预设容器、`/workspace` 和 Asset URL。容器在第一次调用时启动，切换容器时按预设保存工作盘。插件项目可以使用各自的子目录。
 
 - `shell(command, seconds?, memory_mib?, async?)` 在 `/workspace` 执行 Bash，返回退出码和合并输出。超过 8192 个 Unicode 码点的输出使用临时 `asset_url`，可用 `view_asset` 查看。`async: true` 立即返回输出的 `asset_url` 和 `db_key`，完成后可用同一 URL 读取输出。通过 `db_watch` 订阅下一轮模型调用前的更新，用 `db_read` 读取 `running`、`failed` 或 `success`。非零退出码、超时、输出达到 128 MiB 上限以及执行中断都会标记为 `failed`，可读取已捕获的输出。
 
 `shell` 和 `curl` 的 `seconds` 参数用于设置可选的执行期限，留空时运行到完成或取消。
 - 镜像内含 Alpine 的 `apk`、BusyBox、Bash、curl、FFmpeg、Node.js、npm、Python 3、pip、Git、jq、ripgrep（`rg`）、`sqlite3`、`pdftotext`、`unzip`、`zstd` 和 GNU diffutils。两端提供相同的用户态网络和工具参数。
-- `export_asset(url, path)` 将当前 Agent 会话已授权的 Asset 写入客户机文件。
-- `import_asset(url, path)` 将客户机普通文件写入当前会话已授权且声明为可写的 Asset。成功提交后复用现有 Asset 作用域和原子替换机制。
+- `export_asset(url, path)` 将当前会话或所属预设已授权的 Asset 写入客户机文件。
+- `import_asset(url, path)` 将客户机普通文件写入已授权且声明为可写的 Asset。成功提交后复用现有 Asset 作用域和原子替换机制。
 - Agent 可单独激活 `curl` Skill，使用 `curl(args, read_assets?, write_assets?, stdin_asset?, asset_url?, seconds?)`。`args` 是原始 curl 参数数组，省略命令名。把命令里的文件参数写成 Asset URL，并在 `read_assets` 或 `write_assets` 中声明。`-o` 等显式目的地只在 curl 成功后提交。标准输入可来自 `stdin_asset`，标准输出保存为 Asset。可用 `asset_url` 指定已有的可写文件。单个 Asset 上限为 128 MiB。宿主内置单独从 curl 源码构建的工具，启动 Skill 时无需等待 Room 虚拟机。
 
 系统盘是使用 XZ 压缩的只读 SquashFS，`/workspace` 是独立的 ext4 日志盘，也用作 Agent 的主目录。打开 Room 时异步引导虚拟机。后续调用复用来宾内核、进程和临时目录。后台进程的输出可重定向到 `/workspace`，供后续命令读取。离开 Room 后保存工作盘检查点并退出虚拟机。保存检查点期间短暂冻结 ext4，完成后恢复后台写入。

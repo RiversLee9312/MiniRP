@@ -37,6 +37,10 @@
     <string name="expand">ขยาย</string>
     <string name="collapse">ยุบ</string>
     <string name="running">กำลังทำงาน</string>
+    <string name="preset_return_home">กลับไปที่หน้าหลัก</string>
+    <string name="preset_return_home_detail">แตะปุ่มเพื่อออกจากตัวแก้ไขพรีเซ็ต คุณสามารถเริ่มแชตใหม่จากหน้าหลักของพรีเซ็ตนี้ได้</string>
+    <string name="preset_return_home_setup_pending">ตั้งค่าพรีเซ็ตให้เสร็จก่อนกลับไปที่หน้าหลัก</string>
+    <string name="preset_return_home_working">คุณจะกลับไปที่หน้าหลักได้เมื่อตัวแทนทำงานเสร็จ</string>
     <string name="error">ข้อผิดพลาด</string>
     <string name="retry">ลองอีกครั้ง</string>
     <string name="select_model">เลือกโมเดล</string>

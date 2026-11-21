@@ -19,11 +19,12 @@ public sealed partial class AgentSession
     {
         public AgentSession Open(string role, string database, Func<Provider> provider, Func<JsonObject> context,
             Action<JsonObject> emit, Func<IEnumerable<AgentSkill>>? skills = null, Func<string, bool>? canReadChat = null,
-            TurnInbox? inbox = null) => Open(role, database, provider, context, (item, _) => emit(item), skills, canReadChat, inbox);
+            TurnInbox? inbox = null, Workspace? presetWorkspace = null, MemoryDb? sharedAssets = null) =>
+            Open(role, database, provider, context, (item, _) => emit(item), skills, canReadChat, inbox, presetWorkspace, sharedAssets);
 
         public AgentSession Open(string role, string database, Func<Provider> provider, Func<JsonObject> context,
             Action<JsonObject, SessionModelInfo?> emit, Func<IEnumerable<AgentSkill>>? skills = null, Func<string, bool>? canReadChat = null,
-            TurnInbox? inbox = null)
+            TurnInbox? inbox = null, Workspace? presetWorkspace = null, MemoryDb? sharedAssets = null)
         {
             var profile = role switch
             {
@@ -41,10 +42,14 @@ public sealed partial class AgentSession
             var model = new ModelClient(port, provider, attachmentRoot);
             return new AgentSession(profile, database, model, emit, inbox, session =>
             {
-                if ((role is "chat" or "preset") && database != ":memory:") AgentContainer.RecoverJobs(session.Db);
+                if ((role is "chat" or "preset" or "plugin") && database != ":memory:") AgentContainer.RecoverJobs(session.Db);
                 var scoped = profile.Plugins == PluginAccess.Scoped;
+                var assetDb = sharedAssets ?? session.Db;
+                var presetResearch = presetWorkspace is null ? null : new PresetResearch(presetWorkspace, assetDb);
+                if (role == "preset" && presetWorkspace is not null)
+                    AgentAssets.ImportPluginGrants(assetDb, SessionFiles.PluginDirectory(presetWorkspace.Root, presetWorkspace.PresetId));
                 var assets = profile.Plugins != PluginAccess.None && plugins is not null && attachmentRoot is not null
-                    ? new AgentAssets(plugins, session.Db, attachmentRoot, context, role is "chat" or "search" or "preset" ? workspace : null) : null;
+                    ? new AgentAssets(plugins, assetDb, attachmentRoot, context, role is "chat" or "search" ? workspace : null, presetResearch) : null;
                 IEnumerable<AgentSkill> ResolveSkills(Provider selected, Action<JsonObject> attach)
                 {
                     if (assets is not null && attachmentRoot is not null && database != ":memory:")
@@ -58,14 +63,15 @@ public sealed partial class AgentSession
                                      assets: assets, showCard: profile.Cards ? session.ShowCard : null, provider: selected, attach: attach,
                                      sessionInfo: () => session.sessionInfo))
                             yield return skill;
-                    var container = role switch { "chat" => containers, "preset" => presetContainers, _ => null };
+                    var container = role switch { "chat" => containers, "preset" or "plugin" => presetContainers, _ => null };
                     if (container is not null && assets is not null && database != ":memory:")
                     {
                         var owner = context();
                         var preset = owner.GetString("preset");
-                        var room = role == "preset" ? preset : owner.GetString("room", owner.GetString("chat"));
+                        var room = role is "preset" or "plugin" ? preset : owner.GetString("room", owner.GetString("chat"));
                         if (WorkspaceIds.IsValid(preset) && WorkspaceIds.IsValid(room))
-                            yield return new AgentContainer(container, assets, session.Db, preset, room).Skill();
+                            yield return new AgentContainer(container, assets, session.Db, preset, room,
+                                presetWorkspace is null ? null : assetDb.Path).Skill();
                     }
                     if (skills is not null)
                         foreach (var skill in skills()) yield return skill;
