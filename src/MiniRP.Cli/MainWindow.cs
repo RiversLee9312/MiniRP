@@ -232,11 +232,6 @@ internal sealed partial class MainWindow : Runnable
             case "/preset-agent":
                 OpenSidebar("preset");
                 break;
-            case "/date-mode":
-                ShowChoices("预设日期", new JsonArray(new JsonObject { ["id"] = "real", ["name"] = "真实日期" },
-                    new JsonObject { ["id"] = "plugin", ["name"] = "由插件推进" }),
-                    mode => core.Send(new() { ["op"] = "save_date_mode", ["preset"] = presetId, ["mode"] = mode }));
-                break;
             case "/create-preset":
                 core.Send(new() { ["op"] = "create_preset", ["open"] = true,
                     ["name"] = argument.Length > 0 ? argument : "新预设", ["locale"] = "zh-Hans" });

@@ -13,7 +13,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.minirp.app.R
@@ -142,7 +141,7 @@ internal fun MemoryScreen(
         error?.let { message ->
             Text(message, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
         }
-        NavHost(navigation, startDestination = MemoryRoute.Notes, modifier = Modifier.weight(1f)) {
+        PageNavHost(navigation, startDestination = MemoryRoute.Notes, modifier = Modifier.weight(1f)) {
             composable<MemoryRoute.Editor> {
                 val current = note
                 if (current == null) {

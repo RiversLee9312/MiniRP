@@ -31,7 +31,8 @@ internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?
         switch (message.GetString("kind"))
         {
             case "http_request":
-                Start(message, token => Http(message, token), TimeSpan.FromMilliseconds(message.GetInt32("timeout_ms", 240000)));
+                Start(message, token => Http(message, token), message.GetBoolean("stream") ? null :
+                    TimeSpan.FromMilliseconds(message.GetInt32("timeout_ms", 240000)));
                 return true;
             case "browser_request":
                 Start(message, async token => Reply(message.GetString("id"), new() { ["result"] = await browser.Execute(message, token) }),

@@ -17,7 +17,6 @@ public sealed partial class Engine : IAsyncDisposable
     private readonly Task worker;
     private CancellationTokenSource? active;
     private TurnInbox? inbox;
-    private int operationFlowDepth;
     private string operationEnsembleChat = "";
     private sealed record Routing(Provider Default, JsonObject Agents, JsonObject Settings)
     {
@@ -77,7 +76,8 @@ public sealed partial class Engine : IAsyncDisposable
             {
                 Emit(new() { ["kind"] = "plugins", ["items"] = plugins.List() });
                 EmitPluginSettings();
-            }, lifetime.Token);
+            }, preset => commands.Writer.TryWrite(new() { ["op"] = "_plugin_agent_completed", ["preset"] = preset }),
+            lifetime.Token);
         Model = new(Port, () => Volatile.Read(ref routing).Default);
         worker = Task.Run(ProcessCommands);
         Dispatch(new() { ["op"] = "plugins_start" });
@@ -294,7 +294,6 @@ public sealed partial class Engine : IAsyncDisposable
                 || op == "select_chat" && command.GetString("id").Length == 0;
             var showsBusy = modifiesChat || op is "select_chat" or "create_preset" or "delete_chat" or "delete_preset";
             turnRouting = Volatile.Read(ref routing);
-            operationFlowDepth = command.GetInt32("_flow_depth");
             operationEnsembleChat = command.GetString("conversation");
             active = operation;
             if (showsBusy)
@@ -330,7 +329,6 @@ public sealed partial class Engine : IAsyncDisposable
             finally
             {
                 active = null;
-                operationFlowDepth = 0;
                 operationEnsembleChat = "";
                 try
                 {
@@ -523,6 +521,7 @@ public sealed partial class Engine : IAsyncDisposable
         {
             if (!session.HasHistory && previous?["history"] is JsonArray legacy)
                 session.Restore(legacy, previous.GetString("summary"));
+            if (role == "preset") session.DeliverSystemMessages();
             session.ConfigureWorldMode(role == "chat" ? workspace.AgenticSearch : null);
             return session;
         }
@@ -588,6 +587,9 @@ public sealed partial class Engine : IAsyncDisposable
                 return;
             case "_curl_available":
                 curlAvailable = true;
+                return;
+            case "_plugin_agent_completed":
+                DeliverPluginAgentNotifications(WorkspaceIds.Require(command.GetString("preset")));
                 return;
             case "list_chats":
                 Emit(new()
@@ -691,16 +693,6 @@ public sealed partial class Engine : IAsyncDisposable
             var settings = config.GetObject(key);
             if (settings.Parent is null) config[key] = settings;
             settings["system_prompt"] = text;
-            Workspace.CommitConfig(config);
-            EmitConfig();
-            return;
-        }
-        if (command.GetString("op") == "save_date_mode")
-        {
-            RequirePreset(command);
-            EnsurePresetSelected();
-            var config = (JsonObject)Workspace.Config.DeepClone();
-            WorldCalendar.Configure(config, command.GetString("mode"), WorldCalendar.Today);
             Workspace.CommitConfig(config);
             EmitConfig();
             return;
@@ -847,6 +839,7 @@ public sealed partial class Engine : IAsyncDisposable
         }
         attachments = await PrepareAttachments(attachments, PluginEnvironment(role), token);
         var session = sessions[role];
+        if (role == "preset") session.DeliverSystemMessages();
         if (role == "chat") session.ConfigureWorldMode(Workspace.AgenticSearch);
         var turn = new TurnInbox(Workspace.ChatId, role, message =>
         {
@@ -1057,11 +1050,9 @@ public sealed partial class Engine : IAsyncDisposable
             ["ensemble"] = ensembleRoom };
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-            timeout.CancelAfter(TimeSpan.FromSeconds(45));
             using var session = agentSessions.Open("title", ":memory:", () => selected,
                 () => new() { ["preset"] = preset, ["room"] = id }, _ => { });
-            result["title"] = await ConversationTitle.Generate(session, transcript, timeout.Token, instructions);
+            result["title"] = await ConversationTitle.Generate(session, transcript, lifetime.Token, instructions);
         }
         catch (OperationCanceledException) { }
         catch (Exception error)

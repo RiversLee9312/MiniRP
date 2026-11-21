@@ -3,6 +3,8 @@
 Android 和 Windows x64 的安装包包含同一份 x86-64 Alpine 镜像和各平台的无界面 QEMU。安装后，ChatAgent 可以激活 `container` 技能。
 
 - `shell(command, seconds?, memory_mib?, async?)` 在 `/workspace` 执行 Bash，返回退出码和合并输出。超过 8192 个 Unicode 码点的输出使用临时 `asset_url`，可用 `view_asset` 查看。`async: true` 立即返回输出的 `asset_url` 和 `db_key`，完成后可用同一 URL 读取输出。通过 `db_watch` 订阅下一轮模型调用前的更新，用 `db_read` 读取 `running`、`failed` 或 `success`。非零退出码、超时、输出达到 128 MiB 上限以及执行中断都会标记为 `failed`，可读取已捕获的输出。
+
+`shell` 和 `curl` 的 `seconds` 参数用于设置可选的执行期限，留空时运行到完成或取消。
 - 镜像内含 Alpine 的 `apk`、BusyBox、Bash、curl、FFmpeg、Node.js、npm、Python 3、pip、Git、jq、ripgrep（`rg`）、`sqlite3`、`pdftotext`、`unzip`、`zstd` 和 GNU diffutils。两端提供相同的用户态网络和工具参数。
 - `export_asset(url, path)` 将当前 Agent 会话已授权的 Asset 写入客户机文件。
 - `import_asset(url, path)` 将客户机普通文件写入当前会话已授权且声明为可写的 Asset。成功提交后复用现有 Asset 作用域和原子替换机制。

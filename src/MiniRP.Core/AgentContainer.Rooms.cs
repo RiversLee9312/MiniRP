@@ -114,6 +114,7 @@ internal sealed partial class AgentContainer
         internal bool Alive => !lifetime.IsCancellationRequested && runner is { IsCompleted: false };
         internal bool Retiring => Volatile.Read(ref retiring) != 0;
         internal void Interrupt() => Interlocked.Exchange(ref retiring, 1);
+        private bool supportsUnlimitedShell;
 
         internal async Task Start(CancellationToken ct)
         {
@@ -132,6 +133,7 @@ internal sealed partial class AgentContainer
             limit.CancelAfter(TimeSpan.FromSeconds(40));
             var ready = await WaitFor(reply => reply.ContainsKey("ready"), limit.Token);
             if (!ready.GetBoolean("ready")) throw new IOException(ready.GetString("error", "The container did not boot."));
+            supportsUnlimitedShell = ready.GetBoolean("unlimited_shell");
         }
 
         internal FileStream ReadOutput()
@@ -152,8 +154,12 @@ internal sealed partial class AgentContainer
                 request["size"] = stream.Position - HeaderSize;
             }
             ct.ThrowIfCancellationRequested();
-            var reply = await Exchange(request, request.GetInt32("seconds", 60) + 45,
-                request.GetString("op") == "shell" ? () => Retiring || ct.IsCancellationRequested : null);
+            var shell = request.GetString("op") == "shell";
+            // Older guests require a positive timeout even for commands without a requested deadline.
+            if (shell && !supportsUnlimitedShell && request.GetInt32("seconds") <= 0)
+                request["seconds"] = int.MaxValue;
+            var reply = await Exchange(request, shell ? null : 105,
+                shell ? () => Retiring || ct.IsCancellationRequested : null);
             if (reply.GetBoolean("frozen"))
             {
                 try
@@ -234,16 +240,17 @@ internal sealed partial class AgentContainer
             }
         }
 
-        private async Task<JsonObject> Exchange(JsonObject request, int seconds, Func<bool>? interrupted = null)
+        private async Task<JsonObject> Exchange(JsonObject request, int? seconds, Func<bool>? interrupted = null)
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-            timeout.CancelAfter(TimeSpan.FromSeconds(seconds));
+            using var timeout = seconds is null ? null : CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            if (seconds is int limit) timeout!.CancelAfter(TimeSpan.FromSeconds(limit));
+            var token = timeout?.Token ?? lifetime.Token;
             var requestId = JsonValues.NewId();
             request["id"] = requestId;
             try
             {
-                await Send(request, timeout.Token);
-                return await WaitFor(reply => reply.GetString("id") == requestId && !reply.ContainsKey("op"), timeout.Token,
+                await Send(request, token);
+                return await WaitFor(reply => reply.GetString("id") == requestId && !reply.ContainsKey("op"), token,
                     interrupted, requestId);
             }
             catch (OperationCanceledException) when (!lifetime.IsCancellationRequested)
@@ -269,6 +276,7 @@ internal sealed partial class AgentContainer
         {
             await using var stream = OpenMailbox(FileAccess.Read);
             var bytes = new byte[HeaderSize];
+            long? interruptedAt = null;
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
@@ -278,7 +286,10 @@ internal sealed partial class AgentContainer
                     control.Position = HeaderSize + MessageAttachments.MaxAssetBytes;
                     await control.WriteAsync(Encoding.ASCII.GetBytes(requestId), ct);
                     interrupted = null;
+                    interruptedAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 }
+                if (interruptedAt is long at && System.Diagnostics.Stopwatch.GetElapsedTime(at) > TimeSpan.FromSeconds(45))
+                    throw new IOException("The container did not acknowledge cancellation.");
                 stream.Position = 0;
                 await stream.ReadExactlyAsync(bytes, ct);
                 var length = Array.IndexOf(bytes, (byte)0);

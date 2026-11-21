@@ -8,7 +8,7 @@
 
 ## 选择日期来源
 
-在 Android 的预设编辑页选择日期来源，或在 Windows 客户端输入 `/date-mode`。也可以让 PresetAgent 用 `preset-editing` 的 `configure_date` 设置日期来源和插件模式的新 Room 起始日期。
+在预设对话里告诉 PresetAgent 日期应该怎样变化。例如「跟随现实日期」，或「从 2032 年 2 月 29 日开始，每次结束一幕由插件推进一天」。PresetAgent 用 `configure_date` 保存日期来源及新 Room 的起始日期。
 
 - **真实日期**随设备本地日历更新，是新预设的默认值。
 - **由插件推进**时，每个 Room 保存自己的日期。插件通过 Harness 读写日期。关闭并重开 Room、分支、导出存档和再导入都会保留对应的时间线。旧预设的模拟日期会沿用。

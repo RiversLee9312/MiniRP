@@ -138,6 +138,43 @@ public sealed class AgentRuntimeTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task LongToolRunsCanFinishOrBeCancelledBeyondTheOldRoundLimit(bool cancel)
+    {
+        const int steps = 45;
+        var executed = 0;
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        HostPort? port = null;
+        port = new(request =>
+        {
+            if (request.GetString("kind") != "http_request") return;
+            var delta = executed == steps ? new JsonObject { ["content"] = "Done." } : new JsonObject
+            {
+                ["tool_calls"] = new JsonArray(new JsonObject { ["index"] = 0, ["id"] = "step-" + executed,
+                    ["function"] = new JsonObject { ["name"] = "advance", ["arguments"] = "{}" } })
+            };
+            var response = new JsonObject { ["choices"] = new JsonArray(new JsonObject { ["delta"] = delta }) };
+            port!.Reply(new() { ["id"] = request.GetString("id"), ["data"] = "data: " + JsonValues.Serialize(response) + "\n\n",
+                ["done"] = true });
+        });
+        var model = new ModelClient(port, () => new("fixture", "Fixture", "openai", "http://fixture.invalid", "", "fixture",
+            ContextWindow: 128000));
+        using var session = TestAgentSession.Open("temporary", ":memory:", model, _ => { });
+        var skill = new AgentSkill("fixture", "Advance the task.", new JsonArray(Tools.Define("advance", "Advance the task.")),
+            (_, _, _) =>
+            {
+                executed++;
+                if (cancel && executed == steps) cancellation.Cancel();
+                return Task.FromResult<JsonNode?>(JsonValue.Create("Advanced."));
+            }, Required: true);
+        Task<JsonObject> Run() => session.Run("Instructions.", "Run the task.", skill, cancellation.Token);
+        if (cancel) await Assert.ThrowsExactlyAsync<OperationCanceledException>(Run);
+        else Assert.AreEqual("Done.", (await Run()).GetString("content"));
+        Assert.AreEqual(steps, executed);
+    }
+
+    [TestMethod]
     public void ClosingASessionInboxRetainsQueuedInputAndRejectsNewInput()
     {
         var model = new ModelClient(new HostPort(_ => { }), () => new("fixture", "Fixture", "openai", "http://fixture.invalid", "", "fixture"));

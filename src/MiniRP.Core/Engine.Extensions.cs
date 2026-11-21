@@ -67,7 +67,6 @@ public sealed partial class Engine
             ["session"] = agent == "preset" && workspace.PresetId.Length > 0 ? agent + "-" + workspace.PresetId :
                 agent.Length == 0 || container.Length == 0 ? null : agent + "-" + container,
             ["agent"] = agent.Length == 0 ? null : agent,
-            ["_flow_depth"] = operationFlowDepth,
             ["chat"] = chat.Length == 0 ? null : chat,
             ["room"] = container.Length == 0 ? null : container,
             ["_ensemble"] = ensemble is not null,
@@ -288,6 +287,21 @@ public sealed partial class Engine
         Dispatch(new() { ["op"] = "_maintain_storage" });
     }
 
+    private void DeliverPluginAgentNotifications(string preset)
+    {
+        if (Workspace.PresetId == preset && sessions.TryGetValue("preset", out var current))
+        {
+            current.DeliverSystemMessages();
+            return;
+        }
+
+        var database = SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(Workspace.Root, preset));
+        if (!File.Exists(database)) return;
+        using var session = agentSessions.Open("preset", database, () => turnRouting.For("preset"),
+            () => new() { ["agent"] = "preset", ["preset"] = preset }, _ => { });
+        session.DeliverSystemMessages();
+    }
+
     private async Task<JsonNode?> PluginApi(PluginPackage package, JsonObject context, string op, JsonObject args, CancellationToken ct)
     {
         foreach (var name in new[] { "preset", "room", "chat" })
@@ -300,8 +314,9 @@ public sealed partial class Engine
         {
             if (!package.BuiltIn || package.Id != "base") throw new UnauthorizedAccessException();
             var owner = context.GetString("agent") == "preset" ? presetConversation : null;
+            Action<string>? observed = owner is null ? null : sessions["preset"].AcknowledgeSystemMessageOnCommit;
             return await pluginAgents.Execute(context, args,
-                owner is null ? events.Enqueue : item => Record(item, workerOwner: owner), ct);
+                owner is null ? events.Enqueue : item => Record(item, workerOwner: owner), observed, ct);
         }
         var id = args.GetString("id");
         if (op == "generate")
@@ -310,7 +325,7 @@ public sealed partial class Engine
             var instructions = args.GetString("system");
             if (instructions.Length > 8192) throw new ArgumentException("Instructions are too long.");
             using var session = agentSessions.Open("plugin-generation", ":memory:", () => provider, () => context, _ => { });
-            var reply = await session.Run(instructions, RequireText(args), ct, maxRounds: 1, privateInput: true);
+            var reply = await session.Run(instructions, RequireText(args), ct, privateInput: true);
             return new JsonObject { ["text"] = reply.GetString("content") };
         }
         if (op == "listPresets")
@@ -354,7 +369,6 @@ public sealed partial class Engine
         {
             if (op == "createTemporarySession")
             {
-                if (temporary.Count >= 16) throw new InvalidOperationException("Too many temporary sessions.");
                 var key = JsonValues.NewId();
                 var temporaryContext = new JsonObject { ["session"] = key, ["agent"] = "temporary", ["preset"] = JsonValues.Clone(context["preset"]) };
                 var session = agentSessions.Open("temporary", ":memory:", () => Volatile.Read(ref routing).For("chat"),
@@ -375,7 +389,7 @@ public sealed partial class Engine
                 }
                 var result = await item.Session.Run(args.GetString("system", "You are a concise assistant."), RequireText(args),
                     new AgentSkill("temporary-task", "Complete the requested task.", new(), (_, _, _) => Task.FromResult<JsonNode?>(null)),
-                    ct, maxRounds: 10);
+                    ct);
                 return new JsonObject { ["text"] = result.GetString("content") };
             }
             finally { item.Gate.Release(); }
@@ -430,9 +444,6 @@ public sealed partial class Engine
         command.Remove("_character_origin");
         if (communicates && context.GetBoolean("_ensemble") && context.GetString("participant") is { Length: > 0 } member)
             command["_character_origin"] = new JsonObject { ["_ensemble"] = true, ["room"] = context.GetString("room"), ["participant"] = member };
-        var depth = context.GetInt32("_flow_depth");
-        if (depth >= 8) throw new InvalidOperationException("This automation chain has reached its event limit.");
-        command["_flow_depth"] = depth + 1;
         command["chat"] = op is "createChat" or "createRoom" or "createPreset" ? "" : target;
         command["conversation"] = conversation;
         command["preset"] = targetPreset;

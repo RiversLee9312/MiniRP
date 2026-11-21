@@ -43,7 +43,6 @@ import com.minirp.app.data.Preferences
 import com.minirp.app.core.CoreClient
 import com.minirp.app.ui.ChatViewModel
 import com.minirp.app.ui.MiniRP
-import com.minirp.app.ui.PresetDateMode
 import java.io.File
 import java.security.MessageDigest
 import java.util.Base64
@@ -151,22 +150,16 @@ class PlatformToolFlowTest {
                     model.state.value.presetEditorOpen && !model.state.value.busy &&
                         model.state.value.blocks.any { it.content == Interview }
                 }
-                val realDateLabel = label(R.string.preset_date_real)
-                val pluginDateLabel = label(R.string.preset_date_plugin)
-                fun dateChip(option: String) = compose.onNodeWithText(
-                    compose.activity.getString(R.string.preset_date_choice, option)
-                )
-                dateChip(realDateLabel).performClick()
-                compose.onNodeWithText(pluginDateLabel).performClick()
-                waitFor { model.state.value.dateMode == PresetDateMode.Plugin }
-                dateChip(pluginDateLabel).performClick()
-                compose.onNodeWithText(realDateLabel).performClick()
-                waitFor { model.state.value.dateMode == PresetDateMode.Real }
+                val savedPreset = directory.resolve("workspace/presets/${model.state.value.preset}.json")
+                assertEquals("real", JSONObject(savedPreset.readText()).getString("date_mode"))
                 send(SetupRequest, inPresetEditor = true)
                 waitFor {
                     !model.state.value.busy && model.state.value.blocks.any { it.content == SetupReply } &&
                         model.state.value.installedPlugins.any { it.name == ProjectName }
                 }
+                val calendar = JSONObject(savedPreset.readText())
+                assertEquals("plugin", calendar.getString("date_mode"))
+                assertEquals("2032-02-29", calendar.getString("sim_date"))
                 val worker = model.state.value.blocks.single { it.pluginStatus == "finished" }
                 assertEquals(ProjectName, worker.pluginAgentName)
                 assertTrue(model.state.value.blocks.any { it.pluginRun == worker.pluginRun && it.content == "Plugin published." })
@@ -345,16 +338,20 @@ class PlatformToolFlowTest {
 
         private fun presetReply(result: String): JSONObject = when (presetRound.getAndIncrement()) {
             0 -> tools(tool("configure_experience", "mode" to "tabletop", "agentic_search" to false))
-            1 -> tools(tool("activate_skill", "name" to "base-plugin-development"))
-            2 -> tools(tool("plugin_base_plugin_spawn", "name" to ProjectName, "message" to "Debug the draft, iterate on its card, then publish it."))
-            3 -> tools(tool("plugin_base_plugin_wait", "ids" to JSONArray().put(JSONObject(result).getString("id")), "seconds" to 20))
-            4 -> {
+            1 -> tools(tool("configure_date", "mode" to "plugin", "initial_date" to "2032-02-29"))
+            2 -> {
+                assertTrue(JSONObject(result).getBoolean("staged"))
+                tools(tool("activate_skill", "name" to "base-plugin-development"))
+            }
+            3 -> tools(tool("plugin_base_plugin_spawn", "name" to ProjectName, "message" to "Debug the draft, iterate on its card, then publish it."))
+            4 -> tools(tool("plugin_base_plugin_wait", "ids" to JSONArray().put(JSONObject(result).getString("id")), "seconds" to 20))
+            5 -> {
                 val child = JSONArray(result).getJSONObject(0)
                 assertEquals(child.optString("result"), "finished", child.getString("status"))
                 assertEquals("Plugin published.", child.getString("result"))
                 tools(tool("finish_preset_setup"))
             }
-            5 -> {
+            6 -> {
                 assertTrue(JSONObject(result).getBoolean("completed"))
                 json("content" to SetupReply)
             }
@@ -644,7 +641,7 @@ class PlatformToolFlowTest {
     private companion object {
         const val Interview = "What should your tabletop preset do?"
         const val ProjectName = "Signing flow fixture"
-        const val SetupRequest = "Create a tabletop preset and delegate a small plugin. Debug and publish it."
+        const val SetupRequest = "Create a tabletop preset whose plugin-managed calendar starts on 2032-02-29. Delegate, debug, and publish a small plugin."
         const val SetupReply = "The tabletop preset and plugin are ready."
         const val DiceRequest = "Roll thirty dice with a modifier of minus seven."
         const val DiceReply = "The dice results were checked."

@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasClickAction
@@ -66,6 +67,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -278,6 +280,7 @@ class NavigationTest {
         val composer = compose.onNodeWithTag("composer")
         compose.waitUntil(10_000) { composer.isDisplayed() }
         composer.performTextInput("Predictive back draft")
+        val chatX = gear.xInRoot()
         gear.performClick()
         val toolbar = compose.onNodeWithText(settings)
         val original = toolbar.fetchSemanticsNode().boundsInRoot
@@ -295,6 +298,8 @@ class NavigationTest {
             startGesture(NavigationEvent.EDGE_LEFT)
             compose.waitUntil(5_000) { gear.isDisplayed() }
             toolbar.assertIsDisplayed()
+            assertTrue(toolbar.xInRoot() > original.left)
+            assertTrue(gear.xInRoot() < chatX)
             compose.runOnIdle { input.backCancelled() }
             compose.onNodeWithText(providers).assertIsDisplayed()
             assertEquals(original, toolbar.fetchSemanticsNode().boundsInRoot)
@@ -302,12 +307,27 @@ class NavigationTest {
             startGesture(NavigationEvent.EDGE_RIGHT)
             compose.waitUntil(5_000) { gear.isDisplayed() }
             toolbar.assertIsDisplayed()
+            val outgoingAtRelease = toolbar.xInRoot()
+            val incomingAtRelease = gear.xInRoot()
             compose.mainClock.autoAdvance = false
             compose.runOnUiThread { input.backCompleted() }
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             toolbar.assertIsDisplayed()
             gear.assertIsDisplayed()
+            val outgoing = listOf(outgoingAtRelease, toolbar.xInRoot()).toMutableList()
+            val incoming = listOf(incomingAtRelease, gear.xInRoot()).toMutableList()
+            repeat(2) {
+                compose.mainClock.advanceTimeBy(48)
+                outgoing += toolbar.xInRoot()
+                incoming += gear.xInRoot()
+            }
+            val exitTravel = outgoing.zipWithNext { first, next -> next - first }
+            val enterTravel = incoming.zipWithNext { first, next -> next - first }
+            assertTrue("Outgoing page reversed after release: $outgoing", exitTravel.all { it >= 0 })
+            assertTrue("Incoming page reversed after release: $incoming", enterTravel.all { it >= 0 })
+            assertTrue("Outgoing page should speed up: $exitTravel", exitTravel[2] > exitTravel[1])
+            assertTrue("Incoming page should slow down: $enterTravel", enterTravel[1] > enterTravel[2] && enterTravel[2] > 0)
             compose.mainClock.autoAdvance = true
             gear.assertIsDisplayed()
             toolbar.assertDoesNotExist()
@@ -317,6 +337,38 @@ class NavigationTest {
             compose.runOnIdle { compose.activity.navigationEventDispatcher.removeInput(input) }
         }
     }
+
+    @Test
+    fun openingSettingsSlidesBothPagesLeftWithOppositeEasing() {
+        val settings = compose.activity.getString(R.string.settings)
+        val gear = compose.onNodeWithContentDescription(settings)
+        val toolbar = compose.onNodeWithText(settings)
+        compose.waitUntil(10_000) { gear.isDisplayed() }
+        val chatX = gear.xInRoot()
+        compose.mainClock.autoAdvance = false
+        try {
+            gear.performClick()
+            compose.mainClock.advanceTimeBy(48)
+            val outgoing = mutableListOf(gear.xInRoot())
+            val incoming = mutableListOf(toolbar.xInRoot())
+            repeat(2) {
+                compose.mainClock.advanceTimeBy(48)
+                outgoing += gear.xInRoot()
+                incoming += toolbar.xInRoot()
+            }
+            val exitTravel = outgoing.zipWithNext { first, next -> first - next }
+            val enterTravel = incoming.zipWithNext { first, next -> first - next }
+            assertTrue("Outgoing page should move left: $outgoing", outgoing.first() <= chatX && exitTravel.all { it > 0 })
+            assertTrue("Outgoing page should speed up: $exitTravel", exitTravel[1] > exitTravel[0])
+            assertTrue("Incoming page should move left and slow down: $enterTravel", enterTravel[0] > enterTravel[1] && enterTravel[1] > 0)
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+        toolbar.assertIsDisplayed()
+        gear.assertDoesNotExist()
+    }
+
+    private fun SemanticsNodeInteraction.xInRoot(): Float = fetchSemanticsNode().positionInRoot.x
 
     @Test
     fun settingsRoundTripPreservesTheComposerDraft() {

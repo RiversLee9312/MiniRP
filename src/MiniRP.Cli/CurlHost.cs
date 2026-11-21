@@ -30,19 +30,21 @@ internal sealed class CurlHost(string workspace)
 
         await using var output = File.Create(Path.Combine(directory, "stdout"), 65536, FileOptions.Asynchronous);
         using var process = Process.Start(info) ?? throw new IOException("Could not start curl.");
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromSeconds(request.GetInt32("seconds", 60)));
-        var sendInput = SendInput(process, Path.Combine(directory, "stdin"), timeout.Token);
-        var copy = process.StandardOutput.BaseStream.CopyToAsync(output, timeout.Token);
-        var errors = ReadErrors(process.StandardError, timeout.Token);
+        var seconds = request.GetInt32("seconds");
+        var started = Stopwatch.GetTimestamp();
+        var sendInput = SendInput(process, Path.Combine(directory, "stdin"), ct);
+        var copy = process.StandardOutput.BaseStream.CopyToAsync(output, ct);
+        var errors = ReadErrors(process.StandardError, ct);
         try
         {
-            var completion = process.WaitForExitAsync(timeout.Token);
+            var completion = process.WaitForExitAsync(ct);
             while (!completion.IsCompleted)
             {
+                if (seconds > 0 && Stopwatch.GetElapsedTime(started).TotalSeconds >= seconds)
+                    throw new IOException("curl timed out.");
                 if (Directory.EnumerateFiles(directory).Any(file => new FileInfo(file).Length > 128L * 1024 * 1024))
                     throw new IOException("curl exceeded the Asset size limit.");
-                await Task.Delay(40, timeout.Token);
+                await Task.Delay(40, ct);
             }
             await completion;
             await sendInput;
@@ -50,7 +52,6 @@ internal sealed class CurlHost(string workspace)
             var stderr = await errors;
             return new() { ["exit_code"] = process.ExitCode, ["stderr"] = stderr };
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { throw new IOException("curl timed out."); }
         finally
         {
             if (!process.HasExited)

@@ -199,7 +199,7 @@
       "agents": [
         "preset"
       ],
-      "instructions": "Give each PluginAgent its own task and project. Spawn independent projects in parallel, send follow-up messages by ID, wait for their findings, and archive inactive agents. If you need to resume work on an existing plugin, use the original agent's ID. Only PluginAgent operates plugin files and deployments. Deploy or remove a plugin only when requested by the user.\n\nFor automatic story progression, consider an event-driven flow when delegating a plugin. One example is to expose a trigger tool to ChatAgent and a world-state update tool to EnvAgent through their respective Skills and Action URLs. When ChatAgent detects the chosen story event, it calls the trigger tool. The plugin can notify EnvAgent with api.harness.send using agent env and stage true. After advancing the story, EnvAgent calls its tool to save the new world state with api.state.set. Expose the relevant entry through the ChatAgent Skill's stateEntries so ChatAgent can subscribe to the returned db_key with db_watch and read updates with db_read. Adapt the triggers, tool roles, hand-offs, and state to suit the story. Invent new patterns freely.",
+      "instructions": "Give each PluginAgent its own task and project. Spawn independent projects in parallel and send follow-up messages by ID. Use plugin_wait when you need the result now. If a worker is still running when you stop waiting, its result or error will arrive as a system message in the preset session, including after your turn ends. Archive inactive agents. To resume work on an existing plugin, use the original agent's ID. Only PluginAgent operates plugin files and deployments. Deploy or remove a plugin only when requested by the user.\n\nFor automatic story progression, consider an event-driven flow when delegating a plugin. One example is to expose a trigger tool to ChatAgent and a world-state update tool to EnvAgent through their respective Skills and Action URLs. When ChatAgent detects the chosen story event, it calls the trigger tool. The plugin can notify EnvAgent with api.harness.send using agent env and stage true. After advancing the story, EnvAgent calls its tool to save the new world state with api.state.set. Expose the relevant entry through the ChatAgent Skill's stateEntries so ChatAgent can subscribe to the returned db_key with db_watch and read updates with db_read. Adapt the triggers, tool roles, hand-offs, and state to suit the story. Invent new patterns freely.",
       "tools": [
         {
           "name": "plugin_spawn",
@@ -252,7 +252,7 @@
         },
         {
           "name": "plugin_wait",
-          "description": "Wait briefly for one or several agents. Returns each status and any finished result.",
+          "description": "Wait for one or several agents and return their current statuses and finished results. Late results and errors are delivered as system messages.",
           "handler": "minirp://actions/minirp.base/hooks/develop",
           "parameters": {
             "type": "object",

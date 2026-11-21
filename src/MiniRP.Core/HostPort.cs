@@ -51,12 +51,12 @@ public sealed class HostPort(Action<JsonObject> emit, CancellationToken lifetime
         request["id"] = id;
         request["kind"] = "http_request";
         emit(request);
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(request.GetInt32("timeout_ms", 240000), 1000, 600000)));
+        using var timeout = request.GetBoolean("stream") ? null : CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout?.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(request.GetInt32("timeout_ms", 240000), 1000, 600000)));
         var decoder = Encoding.UTF8.GetDecoder();
         try
         {
-            await foreach (var part in channel.Reader.ReadAllAsync(timeout.Token))
+            await foreach (var part in channel.Reader.ReadAllAsync(timeout?.Token ?? ct))
             {
                 if (part.GetString("error").Length > 0)
                 {

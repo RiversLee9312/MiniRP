@@ -45,6 +45,7 @@ class CoreClient(
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(180, TimeUnit.SECONDS)
             .build()
+    private val streamingHttp = http.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
     private val calls = ConcurrentHashMap<String, Call>()
     private val pluginJobs = ConcurrentHashMap<String, Job>()
     private val scripts = PluginScripts()
@@ -420,10 +421,11 @@ class CoreClient(
                 builder.post(
                     event.optString("body").toRequestBody("application/json".toMediaType())
                 )
-            val call = http.newCall(builder.build())
+            val streaming = event.optBoolean("stream")
+            val call = (if (streaming) streamingHttp else http).newCall(builder.build())
             calls[id] = call
             call.execute().use { response ->
-                if (!response.isSuccessful || !event.optBoolean("stream")) {
+                if (!response.isSuccessful || !streaming) {
                     reply(response.body.string(), true, response.code)
                 } else {
                     response.body.byteStream().use { reader ->

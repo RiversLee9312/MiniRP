@@ -80,7 +80,8 @@ def discard_output(stream):
 
 
 def shell(request, mailbox, cancelled):
-    deadline = time.monotonic() + request["seconds"]
+    seconds = request.get("seconds", 0)
+    deadline = time.monotonic() + seconds if seconds > 0 else None
     size = 0
     prefix = bytearray()
     error = None
@@ -123,24 +124,26 @@ def shell(request, mailbox, cancelled):
                 if process.poll() is not None:
                     if exit_deadline is None:
                         exit_deadline = now + 0.025
-                    if now >= exit_deadline or not ready.select(0):
+                    if now >= exit_deadline or not ready.get_map() or not ready.select(0):
                         break
-                elif now >= deadline:
-                    raise subprocess.TimeoutExpired(process.args, request["seconds"])
+                elif deadline is not None and now >= deadline:
+                    error = "Guest command timed out."
+                    break
                 elif cancelled():
                     error = "Guest command was interrupted."
                     break
-                elif not ready.select(min(0.05, deadline - now)):
+                elif not ready.get_map():
+                    time.sleep(0.05)
+                    continue
+                elif not ready.select(0.05):
                     continue
                 data = os.read(process.stdout.fileno(), 65536)
                 if not data:
-                    process.wait(timeout=max(0, deadline - time.monotonic()))
-                    break
+                    ready.unregister(process.stdout)
+                    continue
                 if not capture(data):
                     error = "Guest command exceeded the 128 MiB output limit."
                     break
-        except subprocess.TimeoutExpired:
-            error = "Guest command timed out."
         finally:
             if error or process.poll() is None:
                 try:
@@ -213,7 +216,7 @@ def serve(mailbox):
                 os.preadv(direct, [control], HEADER + MAX_ASSET)
                 return control[:12] == request["id"].encode("ascii")
 
-            reply(mailbox, {"ready": True})
+            reply(mailbox, {"ready": True, "unlimited_shell": True})
             while True:
                 os.preadv(direct, [first], 0)
                 if b'"op":' not in first[:]:

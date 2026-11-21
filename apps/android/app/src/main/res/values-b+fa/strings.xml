@@ -168,7 +168,4 @@
     <string name="export_preset">صادر کردن پیش‌تنظیم</string>
     <string name="export_save">صادر کردن ذخیره</string>
     <string name="import_save">وارد کردن ذخیره</string>
-    <string name="preset_date_choice">تاریخ · %1$s</string>
-    <string name="preset_date_real">تاریخ واقعی</string>
-    <string name="preset_date_plugin">تاریخ تحت مدیریت افزونه</string>
 </resources>

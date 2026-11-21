@@ -226,7 +226,6 @@ internal constructor(
                         preset = initial,
                         presetName = event.optString("preset_name", initial),
                         appearance = event.optJSONObject("config").presetAppearance(),
-                        dateMode = event.optJSONObject("config").presetDateMode(),
                         chatMode =
                             event.optJSONObject("config")?.optString("chat_mode", "character")
                                 ?: "character",
@@ -294,7 +293,6 @@ internal constructor(
                         preset = preset,
                         presetName = config?.optString("name", preset) ?: preset,
                         appearance = config.presetAppearance(),
-                        dateMode = config.presetDateMode(),
                         chatName = chat.optString("name"),
                         chatId = chat.optString("id"),
                         conversationViewKey =
@@ -336,7 +334,6 @@ internal constructor(
                     it.copy(
                         presetName = config.optString("name", it.presetName),
                         appearance = config.presetAppearance(),
-                        dateMode = config.presetDateMode(),
                         agenticSearch = config.optBoolean("agentic_search", true),
                         chatMode = config.optString("chat_mode", "character"),
                         chatGreeting = config.hasChatGreeting(),
@@ -801,7 +798,6 @@ internal constructor(
                 preset = preset,
                 presetName = config.optString("name", preset),
                 appearance = config.presetAppearance(),
-                dateMode = config.presetDateMode(),
                 presetEditor = if (editPreset) PresetEditorPhase.Open else PresetEditorPhase.Closed,
                 agenticSearch = config.optBoolean("agentic_search", true),
             )
@@ -863,7 +859,6 @@ internal constructor(
                                 },
                             presetName = config.optString("name", preset),
                             appearance = config.presetAppearance(),
-                            dateMode = config.presetDateMode(),
                             presetEditor = PresetEditorPhase.Open,
                             agenticSearch = config.optBoolean("agentic_search", true),
                         )
@@ -889,19 +884,6 @@ internal constructor(
         mutableState.update { it.copy(presetEditor = PresetEditorPhase.Closed) }
         if (editorOwnsTurn) cancelPresetTurn()
     }
-
-    fun setPresetDateMode(mode: PresetDateMode) {
-        val current = state.value
-        if (current.preset.isBlank() || current.dateMode == mode || current.busy || current.preparing) return
-        command("save_date_mode") {
-            put("preset", current.preset)
-            put("mode", mode.id)
-        }
-    }
-
-    private fun JSONObject?.presetDateMode(): PresetDateMode =
-        if (this == null || optString("date_mode") == PresetDateMode.Real.id) PresetDateMode.Real
-        else PresetDateMode.Plugin
 
     private fun cancelPresetTurn() = command("cancel") { put("agent", AgentRole.Preset.id) }
 

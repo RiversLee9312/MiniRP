@@ -17,7 +17,7 @@ internal sealed class TurnInbox(string chat, string session, Func<JsonObject, st
         lock (gate)
         {
             if (sealedInbox || role != session || conversation != targetConversation ||
-                (targetChat.Length > 0 && chat != targetChat) || queue.Count >= 32)
+                (targetChat.Length > 0 && chat != targetChat))
             {
                 return false;
             }

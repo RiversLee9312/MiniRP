@@ -67,13 +67,11 @@ internal sealed partial class PluginRuntime
                 throw new ArgumentException("State value must be a JSON object up to 32,768 characters.");
             if (!JsonNode.DeepEquals(previous, next))
             {
-                if (environment.GetInt32("_flow_depth") >= 8) throw new InvalidOperationException("This automation chain has reached its event limit.");
                 value = (JsonObject)next.DeepClone();
                 var changed = new JsonObject { ["name"] = "state.changed", ["key"] = key,
                     ["scope"] = scope, ["revision"] = checked(revision + 1), ["value"] = value.DeepClone(),
                     ["previous"] = previous, ["package"] = package.PackageName, ["signer"] = package.Signer };
                 var nextEnvironment = (JsonObject)environment.DeepClone();
-                nextEnvironment["_flow_depth"] = environment.GetInt32("_flow_depth") + 1;
                 var handler = package.Bind(declaration.GetString("onChange"));
                 // Reserve a queue slot before committing so backpressure cannot lose a revision.
                 var committed = handler.Length == 0 ? null : new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);

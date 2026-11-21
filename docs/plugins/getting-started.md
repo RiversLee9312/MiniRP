@@ -38,6 +38,8 @@
 
 在预设对话里描述要开发的插件，以及是否要部署。PresetAgent 通过内置 base 插件委派任务、给一个或多个 PluginAgent 发送后续指令、等待结果和存档。PluginAgent 与项目一一对应。其源文件、签名身份、聊天和记忆随预设持久化，存档后可恢复。
 
+`plugin_wait` 返回当时的状态。如果 PluginAgent 之后才完成或失败，结果或错误会以系统消息写入所属预设的会话。PresetAgent 在下一次模型请求时读取消息。已经由 `plugin_wait` 带回的结果会去重。
+
 PluginAgent 可以列出、读写或修改自己项目的文件，调用已声明的 Actions 处理器以测试事件，以及签名、部署或卸载自己的插件。预览使用单独的 V8 环境和调试数据。首次部署的作用域仅包含当前预设，更新会沿用配置过的作用域。调试时可以使用本地设置、数据库、资源和项目内 Actions。
 
 PresetAgent 和 PluginAgent 都能激活 `base-plugin-docs`，按页查询 `development`、`api`、`schema`、`preset` 和 `automation`，也可传 `query` 查找具体字段。 `preset` 解释对话分工与智能体搜索。 `automation` 提供从技能触发事件、更新世界、持久化状态到渲染卡片的完整流程。

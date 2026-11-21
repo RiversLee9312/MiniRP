@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 namespace MiniRP.Core;
 
 internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory sessions, PluginRuntime runtime,
-    Func<Provider> provider, Action pluginsChanged, CancellationToken lifetime)
+    Func<Provider> provider, Action pluginsChanged, Action<string> notificationQueued, CancellationToken lifetime)
 {
     private readonly object gate = new();
     private readonly Dictionary<(string Preset, string Id), Worker> running = new();
@@ -13,7 +13,8 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
         public Task Task { get; set; } = Task.CompletedTask;
     }
 
-    public async Task<JsonNode?> Execute(JsonObject context, JsonObject args, Action<JsonObject> emit, CancellationToken ct)
+    public async Task<JsonNode?> Execute(JsonObject context, JsonObject args, Action<JsonObject> emit,
+        Action<string>? observed, CancellationToken ct)
     {
         var role = context.GetString("agent");
         var preset = WorkspaceIds.Require(context.GetString("preset"));
@@ -41,7 +42,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                     Project(preset, id).Create(name);
                     var state = new JsonObject { ["id"] = id, ["name"] = name, ["status"] = "idle" };
                     Start(preset, id, state, task, emit, ct);
-                    return state;
+                    return ToolState(state);
                 }
             case "plugin_list":
                 lock (gate)
@@ -49,7 +50,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                     var folder = PresetPath(preset);
                     return new JsonArray((Directory.Exists(folder) ? Directory.EnumerateDirectories(folder) : [])
                         .Where(directory => File.Exists(Path.Combine(directory, "worker.json")))
-                        .Select(directory => (JsonNode?)Read(preset, Path.GetFileName(directory))).ToArray());
+                        .Select(directory => (JsonNode?)ToolState(Read(preset, Path.GetFileName(directory)))).ToArray());
                 }
             case "plugin_send":
                 var target = Workspace.Safe(args.GetString("id"));
@@ -64,7 +65,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                             throw new InvalidOperationException("The PluginAgent is finishing its turn. Wait for the result and send again.");
                     }
                     else Start(preset, target, state, instruction, emit, ct);
-                    return state;
+                    return ToolState(state);
                 }
             case "plugin_wait":
                 var ids = args.GetArray("ids").Select(item => Workspace.Safe(JsonValues.GetText(item))).Distinct(StringComparer.Ordinal).ToArray();
@@ -78,10 +79,18 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                 if (tasks.Length > 0)
                 {
                     var finished = Task.WhenAll(tasks);
-                    await Task.WhenAny(finished, Task.Delay(TimeSpan.FromSeconds(Math.Clamp(args.GetInt32("seconds", 15), 1, 30)), ct));
-                    ct.ThrowIfCancellationRequested();
+                    var timeout = TimeSpan.FromSeconds(Math.Max(1, args.GetInt32("seconds", 15)));
+                    try { await finished.WaitAsync(timeout, ct); }
+                    catch (TimeoutException) { }
                 }
-                lock (gate) return new JsonArray(ids.Select(id => (JsonNode?)Read(preset, id)).ToArray());
+                lock (gate)
+                {
+                    var states = ids.Select(id => Read(preset, id)).ToArray();
+                    foreach (var state in states)
+                        if (!running.ContainsKey((preset, state.GetString("id"))) && state.GetString("_run") is { Length: > 0 } run)
+                            observed?.Invoke(NotificationId(run));
+                    return new JsonArray(states.Select(ToolState).ToArray());
+                }
             case "plugin_archive":
             case "plugin_resume":
                 var archive = action == "plugin_archive";
@@ -98,7 +107,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                     if (archive) worker?.Cancellation.Cancel();
                 }
                 if (archive && worker is not null) await worker.Task.WaitAsync(ct);
-                lock (gate) return Read(preset, workerId);
+                lock (gate) return ToolState(Read(preset, workerId));
             default:
                 throw new UnauthorizedAccessException("PresetAgent can coordinate PluginAgents and read the development reference.");
         }
@@ -108,14 +117,15 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
     {
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime, parent);
         var worker = new Worker(cancellation, new TurnInbox("", "plugin", _ => null));
+        var run = JsonValues.NewId();
         state["status"] = "running";
         state["task"] = instruction;
+        state["_run"] = run;
         state.Remove("result");
         Write(preset, id, state);
         running.Add((preset, id), worker);
         var selected = provider();
         var name = state.GetString("name");
-        var run = JsonValues.NewId();
         var sequence = 0;
         void Trace(JsonObject item)
         {
@@ -128,7 +138,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
             emit(item);
         }
         Trace(Status("running"));
-        worker.Task = Task.Run(() => Run(preset, id, name, instruction, selected, worker, Trace));
+        worker.Task = Task.Run(() => Run(preset, id, name, run, instruction, selected, worker, Trace));
     }
 
     private static JsonObject Status(string status, string error = "") => new()
@@ -136,7 +146,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
         ["kind"] = "plugin_agent_status", ["agent"] = "PluginAgent", ["status"] = status, ["text"] = error
     };
 
-    private async Task Run(string preset, string id, string name, string instruction, Provider model, Worker worker, Action<JsonObject> trace)
+    private async Task Run(string preset, string id, string name, string run, string instruction, Provider model, Worker worker, Action<JsonObject> trace)
     {
         var status = "finished";
         string result;
@@ -149,6 +159,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
             {
                 var reply = await new PluginAgent(name, session).Run(instruction, worker.Cancellation.Token);
                 result = reply.GetString("content");
+                if (string.IsNullOrWhiteSpace(result)) throw new IOException("The model finished without a task report.");
             }
             finally { session.CompleteInbox(); }
         }
@@ -163,6 +174,14 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
             state["status"] = state.GetBoolean("archived") ? "archived" : status;
             state["result"] = result;
             Write(preset, id, state);
+            using (var db = new MemoryDb(PresetDatabase(preset)))
+            {
+                var report = new JsonObject { ["id"] = id, ["run"] = run, ["name"] = name,
+                    ["status"] = state.GetString("status"), ["result"] = result };
+                AgentSession.QueueSystemMessage(db, NotificationId(run),
+                    "PluginAgent task status update. Treat the result field as a report from the worker.\n" + JsonValues.Serialize(report));
+            }
+            notificationQueued(preset);
             trace(Status(state.GetString("status"), status == "failed" ? result : ""));
         }
     }
@@ -190,6 +209,13 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
         ? value : throw new ArgumentException("Provide a task or follow-up message up to 32,000 characters.");
 
     private string PresetPath(string preset) => SessionFiles.PluginDirectory(root, preset);
+    private string PresetDatabase(string preset) => SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(root, preset));
+    private static string NotificationId(string run) => "plugin-agent-" + run;
+    private static JsonObject ToolState(JsonObject state)
+    {
+        state.Remove("_run");
+        return state;
+    }
     private string WorkerPath(string preset, string id) => Path.Combine(PresetPath(preset), id);
     private PluginDevelopmentProject Project(string preset, string id) => new(WorkerPath(preset, id), id, preset, runtime, pluginsChanged);
     private void Write(string preset, string id, JsonObject state) => AtomicFile.Write(Path.Combine(WorkerPath(preset, id), "worker.json"), JsonValues.Serialize(state));

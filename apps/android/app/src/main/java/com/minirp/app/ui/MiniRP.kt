@@ -25,7 +25,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
-import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -164,7 +163,7 @@ fun MiniRP(model: ChatViewModel) {
         ) {
             Surface(Modifier.fillMaxSize()) {
                 val back: () -> Unit = { navigation.popBackStack() }
-                NavHost(
+                PageNavHost(
                     navigation,
                     startDestination = AppRoute.Chat,
                     modifier = Modifier.fillMaxSize(),
@@ -475,12 +474,6 @@ fun MiniRP(model: ChatViewModel) {
                         label = { Text(stringResource(R.string.advance_story)) },
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
-                if (role == AgentRole.Preset)
-                    PresetDateModePicker(
-                        state.dateMode,
-                        !state.busy && !state.preparing,
-                        model::setPresetDateMode,
-                    )
                 val session = if (role == AgentRole.Preset) state.preset else state.chatId
                 screens.SaveableStateProvider("${role.id}:$session") {
                     AgentConversation(
@@ -520,30 +513,6 @@ fun MiniRP(model: ChatViewModel) {
                     open(if (state.providers.isEmpty()) AppRoute.Providers else AppRoute.Models)
                 },
             )
-        }
-    }
-}
-
-@Composable
-private fun PresetDateModePicker(mode: PresetDateMode, enabled: Boolean, select: (PresetDateMode) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val real = stringResource(R.string.preset_date_real)
-    val plugin = stringResource(R.string.preset_date_plugin)
-    Box(Modifier.padding(horizontal = 16.dp)) {
-        AssistChip(
-            onClick = { expanded = true },
-            label = {
-                Text(stringResource(R.string.preset_date_choice, if (mode == PresetDateMode.Real) real else plugin))
-            },
-            enabled = enabled,
-        )
-        DropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
-            for ((label, choice) in listOf(real to PresetDateMode.Real, plugin to PresetDateMode.Plugin)) {
-                DropdownMenuItem(text = { Text(label) }, onClick = {
-                    expanded = false
-                    select(choice)
-                })
-            }
         }
     }
 }

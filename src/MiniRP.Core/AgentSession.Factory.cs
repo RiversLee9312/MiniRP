@@ -7,7 +7,7 @@ public sealed partial class AgentSession
     private enum PluginAccess { Scoped, BuiltIn, None }
 
     private sealed record Profile(string Name, PluginAccess Plugins = PluginAccess.Scoped,
-        bool Cards = false, bool InteractiveUi = false, bool Memory = true, bool FollowUp = true);
+        bool Cards = false, bool InteractiveUi = false, bool Memory = true, bool FollowUp = true, bool BackgroundMessages = false);
 
     private sealed record Bindings(Func<Provider, Action<JsonObject>, IEnumerable<AgentSkill>> Skills, Func<string, JsonObject?> State,
         AgentAssets? Assets, Func<string> OpenUi);
@@ -28,7 +28,7 @@ public sealed partial class AgentSession
             {
                 "chat" => new Profile("ChatAgent", Cards: true, InteractiveUi: true),
                 "env" => new Profile("EnvAgent", Cards: true),
-                "preset" => new Profile("PresetAgent", Cards: true),
+                "preset" => new Profile("PresetAgent", Cards: true, BackgroundMessages: true),
                 "search" => new Profile("SearchAgent"),
                 "fetch" => new Profile("FetchAgent", FollowUp: false),
                 "plugin" => new Profile("PluginAgent", PluginAccess.BuiltIn),

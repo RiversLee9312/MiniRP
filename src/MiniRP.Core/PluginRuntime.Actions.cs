@@ -16,13 +16,12 @@ internal sealed partial class PluginRuntime
         if (address.Package == AppActions && method == "actions.invoke")
             return OpenAppAction(address, caller.BuiltIn);
 
-        var next = NextAction(environment);
         var assets = args.GetObject("assets");
         if (assets.Count > 16) throw new ArgumentException("An Action supports up to 16 asset references.");
         foreach (var item in assets)
         {
             PluginPackage.Identifier(item.Key);
-            OpenAsset(JsonValues.GetText(item.Value), caller, new(), next);
+            OpenAsset(JsonValues.GetText(item.Value), caller, new(), environment);
         }
         var payload = new JsonObject { ["name"] = method, ["url"] = url, ["sender"] = caller.PackageName, ["assets"] = assets.DeepClone() };
         var installed = Volatile.Read(ref packages);
@@ -31,7 +30,7 @@ internal sealed partial class PluginRuntime
             if (address.Kind != "hooks") throw new ArgumentException("Invoke requires a Hook URL.");
             var target = installed.FirstOrDefault(item => item.PackageName == address.Package)
                 ?? throw new ArgumentException("Target plugin is unavailable.");
-            return InvokeAction(target, target.Bind(url), payload, next);
+            return InvokeAction(target, target.Bind(url), payload, (JsonObject)environment.DeepClone());
         }
         if (address.Kind != "events" || address.Package != caller.PackageName ||
             !caller.Manifest.GetObject("actions").GetArray("events").Any(item => JsonValues.GetText(item) == address.Id))
@@ -44,19 +43,10 @@ internal sealed partial class PluginRuntime
             if (listener is null) continue;
             var delivered = (JsonObject)payload.DeepClone();
             delivered["url"] = source;
-            if (EnqueueRoute(target, target.Bind(JsonValues.GetText(listener)), delivered, (JsonObject)next.DeepClone()))
+            if (EnqueueRoute(target, target.Bind(JsonValues.GetText(listener)), delivered, (JsonObject)environment.DeepClone()))
                 count++;
         }
         return new() { ["accepted"] = true, ["subscribers"] = count };
-    }
-
-    private static JsonObject NextAction(JsonObject environment)
-    {
-        var depth = environment.GetInt32("_action_depth");
-        if (depth >= 8) throw new InvalidOperationException("Too many nested Actions.");
-        var next = (JsonObject)environment.DeepClone();
-        next["_action_depth"] = depth + 1;
-        return next;
     }
 
     private JsonObject InvokeAction(PluginPackage target, string handler, JsonObject payload, JsonObject environment)

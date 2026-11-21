@@ -52,9 +52,6 @@
     <string name="describe_changes">Describe changes</string>
     <string name="system_prompt">System prompt</string>
     <string name="preset_name">Preset name</string>
-    <string name="preset_date_choice">Date · %1$s</string>
-    <string name="preset_date_real">Real date</string>
-    <string name="preset_date_plugin">Plugin-managed date</string>
     <string name="memory">Memory</string>
     <string name="search_entries">Search entries</string>
     <string name="entry_key">Key</string>

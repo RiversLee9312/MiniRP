@@ -34,10 +34,13 @@ internal class CurlHost(context: Context, private val workspace: File) {
                 }
             }.start()
         process.outputStream.close()
-        val deadline = SystemClock.elapsedRealtime() + TimeUnit.SECONDS.toMillis(event.getLong("seconds"))
+        val seconds = event.optInt("seconds")
+        val started = SystemClock.elapsedRealtime()
         try {
             while (process.isAlive) {
-                check(SystemClock.elapsedRealtime() <= deadline) { "curl timed out." }
+                check(seconds <= 0 || SystemClock.elapsedRealtime() - started < TimeUnit.SECONDS.toMillis(seconds.toLong())) {
+                    "curl timed out."
+                }
                 check(directory.listFiles().orEmpty().none { it.length() > 128L * 1024 * 1024 }) { "curl exceeded the Asset size limit." }
                 delay(40)
             }

@@ -30,7 +30,7 @@ internal sealed partial class AgentContainer(AgentContainer.Rooms rooms, AgentAs
         "Background processes keep running while this room is open. Redirect background output to a /workspace file to read it later. " +
         "The image includes apk, Bash, curl, FFmpeg, Node.js, npm, Python 3, pip, Git, jq, rg, sqlite3, pdftotext, unzip, zstd and GNU diff. " +
         "Use db_watch and db_read with an async shell's db_key to track running, failed or success. Read output Assets with view_asset. " +
-        "export_asset writes a guest file and import_asset replaces a writable Asset.");
+        "Set seconds only when a command needs a deadline. export_asset writes a guest file and import_asset replaces a writable Asset.");
 
     private static JsonObject AssetArguments() => new()
     {
@@ -45,7 +45,7 @@ internal sealed partial class AgentContainer(AgentContainer.Rooms rooms, AgentAs
         var url = arguments.GetString("url");
         if (tool == "shell" ? command.Length is 0 or > 12000 : path.Length is 0 or > 4096 || path.Contains('\0'))
             throw new ArgumentException(tool == "shell" ? "Provide a Bash command up to 12,000 characters." : "Provide a Linux file path.");
-        var seconds = Math.Clamp(arguments.GetInt32("seconds", 60), 1, 300);
+        var seconds = arguments.GetInt32("seconds");
         var memory = Math.Clamp(arguments.GetInt32("memory_mib", 2048), 256, 2048);
         if (tool == "shell" && arguments.GetBoolean("async")) return await StartShell(command, seconds, memory, ct);
         return await Run(tool, command, path, seconds, memory, assets.Output, null, ct,

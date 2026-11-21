@@ -16,7 +16,8 @@ internal sealed class AgentCurl(HostPort port, AgentAssets assets, string root)
         }, "args")), (_, args, ct) => Download(args, ct),
         Instructions: "Use standard curl arguments without the command name. List each input Asset in read_assets and each writable destination in write_assets. " +
         "Use the exact Asset URLs in curl options, for example -o <Asset URL> and --data-binary @<Asset URL>. " +
-        "Use file:///<Asset URL> as a URL to transfer an Asset through curl's file protocol. Stdout always goes to an Asset.");
+        "Use file:///<Asset URL> as a URL to transfer an Asset through curl's file protocol. Stdout always goes to an Asset. " +
+        "Set seconds only when the transfer needs a deadline.");
 
     private async Task<JsonNode?> Download(JsonObject args, CancellationToken ct)
     {
@@ -49,9 +50,8 @@ internal sealed class AgentCurl(HostPort port, AgentAssets assets, string root)
                 files.AddNode(new JsonObject { ["url"] = url, ["name"] = name, ["write"] = false });
             }
 
-            var seconds = Math.Clamp(args.GetInt32("seconds", 60), 1, 300);
             var reply = await port.CallHost("curl_download", new() { ["run"] = id, ["args"] = arguments.DeepClone(),
-                ["seconds"] = seconds, ["files"] = files }, ct, TimeSpan.FromSeconds(seconds + 15));
+                ["seconds"] = args.GetInt32("seconds"), ["files"] = files }, ct);
             var exit = reply.GetInt32("exit_code", -1);
             var written = new JsonArray();
             if (exit == 0)

@@ -524,6 +524,10 @@ public sealed class ExtensionTests
         await Until(engine, "home", scripts);
         engine.Dispatch(new() { ["op"] = "open_preset", ["preset"] = preset });
         var reopened = (await Until(engine, "preset_opened", scripts)).GetArray("blocks");
+        using var presetDb = MemoryDb.ReadOnly(SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(engine.Workspace.Root, preset)));
+        Assert.IsFalse(AgentSession.ReadHistory(presetDb).Any(message =>
+            message.GetString("content").StartsWith("PluginAgent task status update.", StringComparison.Ordinal)),
+            "A committed wait already included these results.");
         var panels = reopened.Where(block => block.GetString("agent") == "PluginAgent")
             .GroupBy(block => block.GetString("plugin_run")).ToArray();
         Assert.HasCount(2, panels);
@@ -541,6 +545,103 @@ public sealed class ExtensionTests
         }
 
         void Tool(JsonObject request, string name, JsonObject args) => ReplyTool(engine, request, name, args);
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public async Task PluginWorkerReportsAfterTheLastWait(bool fail, bool parentStillRunning)
+    {
+        var root = NewRoot();
+        var workspace = new Workspace(root);
+        var preset = workspace.InitialPreset().Id;
+        var other = workspace.CreatePreset("Other preset");
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "home", ["preset"] = preset });
+        await Until(engine, "home", scripts);
+        engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["preset"] = preset, ["text"] = "Delegate." });
+        ReplyTool(engine, await NextModel(engine, scripts), "activate_skill", new() { ["name"] = "base-plugin-development" });
+        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_plugin_spawn",
+            new() { ["name"] = "Late worker", ["message"] = "Run the delegated task." });
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        JsonObject? parent = null;
+        JsonObject? worker = null;
+        while (parent is null || worker is null)
+        {
+            foreach (var item in engine.Poll().OfType<JsonObject>())
+            {
+                if (item.GetString("kind") != "http_request") Process(engine, item, scripts, timeout.Token);
+                else if (Messages(item)[0].GetString("content").StartsWith("You are PluginAgent", StringComparison.Ordinal)) worker = item;
+                else parent = item;
+            }
+            if (parent is null || worker is null) await Task.Delay(8, timeout.Token);
+        }
+        var id = JsonValues.ParseObject(Messages(parent).Last(message => message.GetString("role") == "tool").GetString("content"))
+            .GetString("id");
+        ReplyTool(engine, parent, "plugin_base_plugin_wait", new() { ["ids"] = new JsonArray(id), ["seconds"] = 1 });
+        parent = await NextModel(engine, scripts);
+        var wait = (JsonArray)JsonNode.Parse(Messages(parent).Last(message => message.GetString("role") == "tool").GetString("content"))!;
+        Assert.AreEqual("running", wait.Single().GetString("status"));
+        if (!parentStillRunning)
+        {
+            Reply(engine, parent, "The worker is still running.");
+            await Until(engine, "completed", scripts);
+        }
+
+        if (fail)
+        {
+            engine.Dispatch(new() { ["op"] = "home", ["preset"] = other });
+            await Until(engine, "home", scripts);
+        }
+        var expectedStatus = fail ? "failed" : "finished";
+        var expectedResult = fail ? "The worker's model failed." : "The worker finished the project.";
+        if (fail) engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = worker.GetString("id"), ["error"] = expectedResult });
+        else Reply(engine, worker, expectedResult);
+        Assert.AreEqual(expectedStatus, (await Until(engine, "plugin_agent_status", scripts)).GetString("status"));
+
+        if (parentStillRunning)
+        {
+            ReplyTool(engine, parent, "inspect_preset", new());
+            var continuation = await NextModel(engine, scripts);
+            AssertNotice(Messages(continuation));
+            Reply(engine, continuation, "I received the update.");
+            await Until(engine, "completed", scripts);
+        }
+
+        // Wait for the serialized notification to finish before sending a new model request.
+        engine.Dispatch(new() { ["op"] = "open_preset", ["preset"] = fail ? other : preset });
+        await Until(engine, "preset_opened", scripts);
+        using (var db = MemoryDb.ReadOnly(SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(root, preset))))
+            AssertNotice(AgentSession.ReadHistory(db));
+        if (fail)
+        {
+            using var otherDb = MemoryDb.ReadOnly(SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(root, other)));
+            Assert.IsFalse(AgentSession.ReadHistory(otherDb).Any(message => message.GetString("content").Contains(expectedResult,
+                StringComparison.Ordinal)));
+            engine.Dispatch(new() { ["op"] = "home", ["preset"] = preset });
+            await Until(engine, "home", scripts);
+        }
+        engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["preset"] = preset, ["text"] = "Any update?" });
+        var next = await NextModel(engine, scripts);
+        AssertNotice(Messages(next));
+        Reply(engine, next, "I received the update.");
+        await Until(engine, "completed", scripts);
+
+        static JsonArray Messages(JsonObject request) => JsonValues.ParseObject(request.GetString("body")).GetArray("messages");
+        void AssertNotice(JsonArray messages)
+        {
+            var notice = messages.Single(message => message.GetString("content").StartsWith("PluginAgent task status update.",
+                StringComparison.Ordinal));
+            Assert.AreEqual("system", notice.GetString("role"));
+            var report = JsonValues.ParseObject(notice.GetString("content").Split('\n', 2)[1]);
+            Assert.AreEqual(id, report.GetString("id"));
+            Assert.AreEqual(expectedStatus, report.GetString("status"));
+            Assert.AreEqual(expectedResult, report.GetString("result"));
+        }
     }
 
     [TestMethod]

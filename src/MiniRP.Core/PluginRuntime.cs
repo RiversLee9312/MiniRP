@@ -573,9 +573,8 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         RequireInvocation(invocation);
         var loop = Loop(invocation.Package) ?? throw new InvalidOperationException("The plugin is no longer loaded.");
         var isolate = loop.EnsureIsolate(invocation.Package.Source);
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct, loop.Token, isolate.Token);
-        deadline.CancelAfter(binary || invocation.Research is not null ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(90));
-        var token = deadline.Token;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct, loop.Token, isolate.Token);
+        var token = cancellation.Token;
         try { await isolate.Ready.WaitAsync(token); }
         catch
         {
@@ -605,7 +604,6 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         try
         {
             token.ThrowIfCancellationRequested();
-            var budget = 48;
             long bytes = 0;
             while (true)
             {
@@ -658,7 +656,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                     request = new() { ["run"] = run, ["action"] = "pull" };
                     continue;
                 }
-                if (pending.Count is < 1 or > 24) throw new InvalidOperationException("Plugin waited without issuing a host request.");
+                if (pending.Count == 0) throw new InvalidOperationException("Plugin waited without issuing a host request.");
                 var replies = new JsonArray();
                 foreach (var item in pending)
                 {
@@ -669,8 +667,6 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                     {
                         var method = item.GetString("method");
                         var args = item.GetObject("args");
-                        if (method is not ("assets.pull" or "assets.close")) budget--;
-                        if (budget < 0) throw new InvalidOperationException("Plugin exceeded the API call budget.");
                         if (method == "assets.pull")
                         {
                             if (await readers.Pull(args.GetString("handle"), token) is { } bytesRead)
@@ -861,7 +857,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
             var handler = plugin.Manifest.GetObject("routes").GetString(parts[1]);
             if (handler.Length == 0) throw new ArgumentException("Target plugin does not declare this route.");
             return InvokeAction(plugin, handler, new() { ["name"] = "url.open", ["url"] = value, ["sender"] = sender, ["route"] = parts[1] },
-                NextAction(environment));
+                (JsonObject)environment.DeepClone());
         }
         throw new ArgumentException("Unknown URL Interaction host.");
     }

@@ -36,6 +36,7 @@ public sealed partial class AgentSession : IDisposable
     internal SessionModelInfo? SessionInfo => sessionInfo;
     private JsonObject instructionState;
     private bool delegatedSearch;
+    private HashSet<string>? acknowledgedMessages;
     internal TurnInbox? Inbox { get; set; }
     private AgentSession(Profile profile, string path, ModelClient model, Action<JsonObject, SessionModelInfo?> emit,
         TurnInbox? inbox, Func<AgentSession, Bindings> bind)
@@ -62,6 +63,7 @@ public sealed partial class AgentSession : IDisposable
     }
 
     private const string HistoryKey = "_context/history";
+    private const string PendingSystemPrefix = "_context/inbox/";
 
     internal static JsonArray ReadHistory(MemoryDb db) =>
         JsonNode.Parse(db.Get(HistoryKey) ?? "[]") as JsonArray ?? new();
@@ -159,8 +161,27 @@ public sealed partial class AgentSession : IDisposable
         if (Db.Get(key) is not null) return;
         if (history.Any(message => message.GetString("_inbox_id") == id))
             Db.Write(key, "1", internalWrite: true);
-        else
-            Insert(new JsonObject { ["role"] = "system", ["content"] = text, ["_inbox_id"] = id });
+        else Insert(SystemMessage(id, text));
+    }
+
+    private static JsonObject SystemMessage(string id, string text) => new() { ["role"] = "system", ["content"] = text, ["_inbox_id"] = id };
+
+    internal static void QueueSystemMessage(MemoryDb db, string id, string text) =>
+        db.Write(PendingSystemPrefix + id, text, internalWrite: true);
+
+    internal void AcknowledgeSystemMessageOnCommit(string id) => acknowledgedMessages?.Add(id);
+
+    private IEnumerable<(string Id, string Text)> PendingSystemMessages() =>
+        Db.Query("SELECT key,content FROM entries WHERE key GLOB ? ORDER BY updated_at,key", PendingSystemPrefix + "*")
+            .Select(row => (row["key"][PendingSystemPrefix.Length..], row["content"]));
+
+    internal void DeliverSystemMessages()
+    {
+        foreach (var (id, text) in PendingSystemMessages())
+        {
+            Receive(id, text);
+            Db.Execute("DELETE FROM entries WHERE key=?", PendingSystemPrefix + id);
+        }
     }
 
     internal void CompleteInbox()
@@ -185,15 +206,15 @@ public sealed partial class AgentSession : IDisposable
             bindings.Assets?.Published(content) is { Count: > 0 } links) item["asset_links"] = links;
     }
 
-    public Task<JsonObject> Run(string system, string input, AgentSkill skill, CancellationToken ct, Func<bool>? submitted = null, int maxRounds = 40, IReadOnlySet<string>? terminalTools = null, JsonArray? attachments = null, string? historyInput = null, Func<string?>? historySubmission = null, string inputRole = "user", string? reference = null, bool privateInput = false) =>
-        RunTurn(system, input, [skill], ct, submitted, maxRounds, terminalTools, attachments, historyInput, historySubmission,
+    public Task<JsonObject> Run(string system, string input, AgentSkill skill, CancellationToken ct, Func<bool>? submitted = null, IReadOnlySet<string>? terminalTools = null, JsonArray? attachments = null, string? historyInput = null, Func<string?>? historySubmission = null, string inputRole = "user", string? reference = null, bool privateInput = false) =>
+        RunTurn(system, input, [skill], ct, submitted, terminalTools, attachments, historyInput, historySubmission,
             inputRole, reference, privateInput);
 
-    internal Task<JsonObject> Run(string system, string input, CancellationToken ct, int maxRounds = 40, bool privateInput = false) =>
-        RunTurn(system, input, [], ct, null, maxRounds, null, null, null, null, "user", null, privateInput);
+    internal Task<JsonObject> Run(string system, string input, CancellationToken ct, bool privateInput = false) =>
+        RunTurn(system, input, [], ct, null, null, null, null, null, "user", null, privateInput);
 
     private async Task<JsonObject> RunTurn(string system, string input, IReadOnlyList<AgentSkill> taskSkills, CancellationToken ct,
-        Func<bool>? submitted, int maxRounds, IReadOnlySet<string>? terminalTools, JsonArray? attachments,
+        Func<bool>? submitted, IReadOnlySet<string>? terminalTools, JsonArray? attachments,
         string? historyInput, Func<string?>? historySubmission, string inputRole, string? reference, bool privateInput)
     {
         var working = (JsonArray)history.DeepClone();
@@ -229,7 +250,7 @@ public sealed partial class AgentSession : IDisposable
             ct.ThrowIfCancellationRequested();
             MeasureSessionInfo(definitions);
             instructions.RememberActiveSkills(activeSkills);
-            Save(working, summary, instructions.State, Deliveries());
+            Save(working, summary, instructions.State, Deliveries().Concat(acknowledgedMessages ?? []));
             historyCommitted = true;
             history = working;
             Summary = summary;
@@ -344,16 +365,21 @@ public sealed partial class AgentSession : IDisposable
 
         try
         {
-            for (var round = 0; round < maxRounds; round++)
+            if (profile.BackgroundMessages) acknowledgedMessages = new(StringComparer.Ordinal);
+            while (true)
             {
                 ct.ThrowIfCancellationRequested();
                 Inbox?.Drain(Append);
+                if (acknowledgedMessages is { } seen)
+                    foreach (var (id, text) in PendingSystemMessages())
+                        if (seen.Add(id) && Db.Get("_inbox/" + id) is null) Append(SystemMessage(id, text));
+                var firstRequest = previousSkills is null;
                 var enabled = new AgentSkill.Turn(Skills(), previousSkills?.ActiveNames ?? instructions.ActiveSkills);
                 previousSkills = enabled;
                 var definitions = enabled.Definitions();
                 if (instructions.Update(system, enabled, definitions) is { } update)
                 {
-                    if (round == 0) working.Insert(working.IndexOf(messageInput), update);
+                    if (firstRequest) working.Insert(working.IndexOf(messageInput), update);
                     else working.AddNode(update);
                 }
                 watches.AppendUpdates(working);
@@ -524,10 +550,10 @@ public sealed partial class AgentSession : IDisposable
                     return message;
                 }
             }
-            throw new InvalidOperationException($"{Name} reached its tool round limit. Changes were not committed.");
         }
         finally
         {
+            acknowledgedMessages = null;
             if (!historyCommitted && interruptions.Count > 0)
             {
                 // A steer has already been accepted by the host when it leaves the inbox.

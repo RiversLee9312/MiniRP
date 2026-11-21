@@ -24,7 +24,6 @@
         let closed = false;
         const call = (method, args) => new Promise((resolve, reject) => {
             if (closed) throw new Error("Plugin call is closed.");
-            if (pending.size >= 24) throw new Error("Too many outstanding plugin requests.");
             const id = ++nextId;
             pending.set(id, { resolve, reject });
             requests.push({ id, method, args });
