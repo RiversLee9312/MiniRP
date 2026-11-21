@@ -155,13 +155,22 @@ internal constructor(
                                     event.optString("preset").isNotBlank(),
                             )
                             receiveReady(event, showOnboarding)
-                            if (
-                                savedPreset.isNotBlank() && savedPreset != event.optString("preset")
-                            ) {
+                            val initial = event.optString("preset")
+                            val preferred = savedPreset.ifBlank { initial }
+                            if (preferred != initial || event.optJSONObject("config").presetSetupPending()) {
                                 command("home") {
-                                    put("preset", savedPreset)
+                                    put("preset", preferred)
                                     put("restore", true)
+                                    put("locale", workspace.resources.configuration.locales[0].toLanguageTag())
                                 }
+                            }
+                        }
+                        "preset_opened" -> {
+                            if (event.optBoolean("selected")) {
+                                val blocks = withContext(Dispatchers.Default) {
+                                    event.getJSONArray("blocks").objects().map { decodeBlock(it).finishMarkdown() }
+                                }
+                                showHome(event.getString("preset"), event.getJSONObject("config"), blocks, editPreset = true)
                             }
                         }
                         "loaded" -> {
@@ -229,6 +238,7 @@ internal constructor(
                 ready = true,
                 showOnboarding = showOnboarding,
                 preset = initial,
+                presetSetupPending = config.presetSetupPending(),
                 presetName = event.optString("preset_name", initial),
                 appearance = config.presetAppearance(),
                 chatMode = config?.optString("chat_mode", "character") ?: "character",
@@ -290,6 +300,7 @@ internal constructor(
                 mutableState.update {
                     it.copy(
                         preset = preset,
+                        presetSetupPending = config.presetSetupPending(),
                         presetName = config?.optString("name", preset) ?: preset,
                         appearance = config.presetAppearance(),
                         chatName = chat.optString("name"),
@@ -332,6 +343,7 @@ internal constructor(
                     val config = event.getJSONObject("config")
                     it.copy(
                         presetName = config.optString("name", it.presetName),
+                        presetSetupPending = config.presetSetupPending(),
                         appearance = config.presetAppearance(),
                         agenticSearch = config.optBoolean("agentic_search", true),
                         chatMode = config.optString("chat_mode", "character"),
@@ -704,15 +716,20 @@ internal constructor(
         command(if (id.isEmpty()) "home" else "select_chat") {
             put("preset", preset)
             put("id", id)
+            put("locale", workspace.resources.configuration.locales[0].toLanguageTag())
         }
 
     fun createEnsembleRoom(preset: String = state.value.preset) =
         command("select_chat") {
             put("preset", preset)
+            put("locale", workspace.resources.configuration.locales[0].toLanguageTag())
         }
 
     fun createChat(preset: String = state.value.preset) =
-        command("start_chat") { put("preset", preset) }
+        command("start_chat") {
+            put("preset", preset)
+            put("locale", workspace.resources.configuration.locales[0].toLanguageTag())
+        }
 
     private fun greetActiveChat(current: ChatState = state.value) {
         if (!current.chatGreeting || current.chatId.isBlank()) return
@@ -766,7 +783,7 @@ internal constructor(
 
     fun selectPreset(preset: String) {
         val current = state.value
-        if (current.chatId.isNotBlank() || current.preset != preset) chooseChat(preset)
+        if (current.chatId.isNotBlank() || current.preset != preset || current.presetSetupPending) chooseChat(preset)
     }
 
     private fun showHome(
@@ -795,6 +812,7 @@ internal constructor(
                 branchDraft = null,
                 replyError = null,
                 preset = preset,
+                presetSetupPending = config.presetSetupPending(),
                 presetName = config.optString("name", preset),
                 appearance = config.presetAppearance(),
                 presetEditor = if (editPreset) PresetEditorPhase.Open else PresetEditorPhase.Closed,
@@ -857,6 +875,7 @@ internal constructor(
                                     error.agent == AgentRole.Preset
                                 },
                             presetName = config.optString("name", preset),
+                            presetSetupPending = config.presetSetupPending(),
                             appearance = config.presetAppearance(),
                             presetEditor = PresetEditorPhase.Open,
                             agenticSearch = config.optBoolean("agentic_search", true),
@@ -885,6 +904,8 @@ internal constructor(
     }
 
     private fun cancelPresetTurn() = command("cancel") { put("agent", AgentRole.Preset.id) }
+
+    private fun JSONObject?.presetSetupPending(): Boolean = this?.optString("setup_status") == "draft"
 
     fun deleteChoice(preset: String, id: String, isPreset: Boolean) {
         command(if (isPreset) "delete_preset" else "delete_chat") {

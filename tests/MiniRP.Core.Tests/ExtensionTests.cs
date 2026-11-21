@@ -155,6 +155,51 @@ public sealed class ExtensionTests
     }
 
     [TestMethod]
+    public async Task ReopeningADraftRequiresPresetAgentToCompleteSetup()
+    {
+        await using var engine = new Engine(NewRoot(), seedDefaultPreset: false);
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "create_preset", ["open"] = true, ["name"] = "Draft" });
+        var preset = (await Until(engine, "preset_opened", scripts)).GetString("preset");
+        Reply(engine, await NextModel(engine, scripts), "What would you like to create?");
+        await Until(engine, "completed", scripts);
+
+        async Task AssertOpensDraft(string operation)
+        {
+            engine.Dispatch(new() { ["op"] = operation, ["preset"] = preset });
+            var opened = await Until(engine, "preset_opened", scripts);
+            Assert.IsTrue(opened.GetBoolean("selected"));
+            Assert.AreEqual("draft", opened.GetObject("config").GetString("setup_status"));
+            Assert.IsTrue(opened.GetArray("blocks").Any(item => item.GetString("content") == "What would you like to create?"));
+            Assert.AreEqual("", engine.Workspace.ChatId);
+        }
+
+        foreach (var operation in new[] { "home", "select_chat", "start_chat" }) await AssertOpensDraft(operation);
+        engine.Dispatch(new() { ["op"] = "message", ["preset"] = preset, ["text"] = "Try to start a chat." });
+        StringAssert.Contains((await Until(engine, "error", scripts)).GetString("message"), "Finish setting up the preset");
+        Assert.AreEqual("", engine.Workspace.ChatId);
+
+        engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["preset"] = preset, ["text"] = "Use a single character and delegated search." });
+        ReplyTool(engine, await NextModel(engine, scripts), "configure_experience",
+            new() { ["mode"] = "character", ["agentic_search"] = true });
+        Reply(engine, await NextModel(engine, scripts), "The experience is ready to review.");
+        await Until(engine, "completed", scripts);
+        await AssertOpensDraft("home");
+
+        engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["preset"] = preset, ["text"] = "Complete the setup." });
+        ReplyTool(engine, await NextModel(engine, scripts), "finish_preset_setup", new());
+        var finished = await NextModel(engine, scripts);
+        StringAssert.Contains(finished.GetString("body"), "completed");
+        Reply(engine, finished, "The preset is ready.");
+        await Until(engine, "completed", scripts);
+        engine.Dispatch(new() { ["op"] = "home", ["preset"] = preset });
+        Assert.AreEqual("complete", (await Until(engine, "home", scripts)).GetObject("config").GetString("setup_status"));
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
+        Assert.AreNotEqual("", (await Until(engine, "loaded", scripts)).GetObject("chat").GetString("id"));
+    }
+
+    [TestMethod]
     public async Task PresetReadsAnAttachedCardAndResearchesWithoutCreatingARoom()
     {
         var root = NewRoot();

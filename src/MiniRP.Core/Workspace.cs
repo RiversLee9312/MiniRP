@@ -11,6 +11,7 @@ public sealed class Workspace
     public string PresetId { get; private set; } = "";
     public string ChatId { get; private set; } = "";
     public JsonObject Config { get; private set; } = new();
+    internal bool SetupPending => Config.GetString("setup_status") == "draft";
     public JsonObject State { get; private set; } = new();
     public JsonObject Chat { get; private set; } = new();
     public bool AgenticSearch => Config.GetBoolean("agentic_search", true);
@@ -115,10 +116,16 @@ public sealed class Workspace
 
     public void UsePreset(string preset)
     {
-        var config = JsonValues.ParseObject(File.ReadAllText(Path.Combine(Root, "presets", WorkspaceIds.Require(preset) + ".json")));
+        var config = ReadPreset(preset);
         PresetId = preset;
         Config = config;
     }
+
+    internal bool PresetSetupPending(string preset) => preset.Length > 0 &&
+        (preset == PresetId ? SetupPending : ReadPreset(preset).GetString("setup_status") == "draft");
+
+    private JsonObject ReadPreset(string preset) =>
+        JsonValues.ParseObject(File.ReadAllText(Path.Combine(Root, "presets", WorkspaceIds.Require(preset) + ".json")));
 
     internal void Trash(string preset, string? chat)
     {

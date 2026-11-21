@@ -97,10 +97,17 @@ internal sealed partial class MainWindow : Runnable
                 ShowPresets();
                 break;
             case "chats":
+                if (item.GetBoolean("setup_pending"))
+                {
+                    core.Send(new() { ["op"] = "home", ["preset"] = item.GetString("preset"), ["locale"] = "zh-Hans" });
+                    break;
+                }
+                CloseSidebar("preset");
                 presetId = item.GetString("preset");
                 ShowChoices("对话", item.GetArray("items"), id => core.Send(new() { ["op"] = "select_chat", ["preset"] = presetId, ["id"] = id }), true);
                 break;
             case "home":
+                CloseSidebar("preset");
                 presetId = item.GetString("preset");
                 chatId = ensembleChatId = "";
                 ensembleChats = null;
@@ -148,7 +155,7 @@ internal sealed partial class MainWindow : Runnable
                     ["text"] = speaker.Length == 0 ? message.GetString("content") : speaker + ": " + message.GetString("content") });
                 break;
             case "preset_opened":
-                if (item.GetBoolean("created"))
+                if (item.GetBoolean("created") || item.GetBoolean("selected"))
                 {
                     presetId = item.GetString("preset");
                     chatId = ensembleChatId = "";

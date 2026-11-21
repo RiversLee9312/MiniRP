@@ -155,7 +155,7 @@ public sealed partial class Engine
                 index.Preset(imported, importedPreset.Config.GetString("name", imported));
                 foreach (var item in importedPreset.ChatEntries(imported))
                     index.Chat(imported, item.GetString("id"), item.GetString("name"), item.GetString("updated_at"));
-                ShowHome(imported);
+                OpenPresetHome(imported, command);
                 Emit(new() { ["kind"] = "library_changed", ["preset"] = imported, ["presets_changed"] = true });
                 Emit(new() { ["kind"] = "plugins", ["items"] = plugins.List() });
                 Emit(new() { ["kind"] = "archive_imported", ["request"] = request, ["preset"] = imported });
@@ -218,7 +218,9 @@ public sealed partial class Engine
             case "home":
                 var preset = command.GetString("preset");
                 if (!command.GetBoolean("restore") || Workspace.PresetEntries().Any(item => item.GetString("id") == preset))
-                    ShowHome(preset);
+                    OpenPresetHome(preset, command);
+                else if (Workspace.SetupPending)
+                    OpenPresetHome(Workspace.PresetId, command);
                 return true;
             case "delete_chat":
             case "delete_preset":
@@ -234,6 +236,20 @@ public sealed partial class Engine
         ["kind"] = "plugin_settings", ["request"] = request,
         ["preset"] = Workspace.PresetId, ["items"] = plugins.Settings(Workspace.PresetId)
     });
+
+    private void OpenPresetHome(string preset, JsonObject command)
+    {
+        ShowHome(preset, notify: false);
+        if (Workspace.SetupPending)
+        {
+            OpenPresetEditor("", selected: true);
+            QueuePresetInterview(command);
+        }
+        else EmitHome();
+    }
+
+    private void EmitHome() =>
+        Emit(new() { ["kind"] = "home", ["preset"] = Workspace.PresetId, ["config"] = Workspace.Config.DeepClone() });
 
     private void ShowHome(string preset, bool notify = true)
     {
@@ -254,8 +270,7 @@ public sealed partial class Engine
         ensemble = null;
         ensembleWeb = null;
         activeEnsembleChat = "";
-        if (notify)
-            Emit(new() { ["kind"] = "home", ["preset"] = next.PresetId, ["config"] = next.Config.DeepClone() });
+        if (notify) EmitHome();
     }
 
     private async Task Remove(JsonObject command)
@@ -265,7 +280,7 @@ public sealed partial class Engine
         var index = await catalog;
         if (command.GetString("op") == "delete_chat")
         {
-            if (Workspace.PresetId == preset && Workspace.ChatId == id) ShowHome(preset);
+            if (Workspace.PresetId == preset && Workspace.ChatId == id) OpenPresetHome(preset, command);
             titleRequests.Remove(id);
             Workspace.Trash(preset, id);
             index.RemoveChat(preset, id);
@@ -281,7 +296,7 @@ public sealed partial class Engine
             }
             await pluginAgents.StopPreset(preset);
             presetTraces.Remove(preset);
-            if (Workspace.PresetId == preset) ShowHome(next ?? "");
+            if (Workspace.PresetId == preset) OpenPresetHome(next ?? "", command);
             Workspace.Trash(preset, null);
             index.RemovePreset(preset);
             Emit(new() { ["kind"] = "preset_removed", ["id"] = preset, ["fallback"] = next ?? "" });

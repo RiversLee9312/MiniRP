@@ -570,7 +570,7 @@ public sealed partial class Engine : IAsyncDisposable
         presets = CreatePresetAgent(session);
     }
 
-    private void OpenPresetEditor(string request, bool created = false)
+    private void OpenPresetEditor(string request, bool created = false, bool selected = false)
     {
         EnsurePresetSession();
         lock (presetTraceGate)
@@ -580,6 +580,7 @@ public sealed partial class Engine : IAsyncDisposable
                 ["kind"] = "preset_opened",
                 ["request"] = request,
                 ["created"] = created,
+                ["selected"] = selected,
                 ["preset"] = Workspace.PresetId,
                 ["config"] = Workspace.Config.DeepClone(),
                 ["blocks"] = new JsonArray(presetConversation!.Blocks.OfType<JsonObject>().Select(LoadBlock).ToArray())
@@ -619,11 +620,13 @@ public sealed partial class Engine : IAsyncDisposable
                 DeliverPluginAgentNotifications(WorkspaceIds.Require(command.GetString("preset")));
                 return;
             case "list_chats":
+                var listedPreset = command.GetString("preset");
                 Emit(new()
                 {
                     ["kind"] = "chats",
-                    ["preset"] = command.GetString("preset"),
-                    ["items"] = Workspace.Chats(command.GetString("preset"))
+                    ["preset"] = listedPreset,
+                    ["setup_pending"] = Workspace.PresetSetupPending(listedPreset),
+                    ["items"] = Workspace.Chats(listedPreset)
                 });
                 return;
             case "list_presets":
@@ -634,11 +637,14 @@ public sealed partial class Engine : IAsyncDisposable
                 });
                 return;
             case "select_chat":
-                SelectConversation(command.GetString("preset"), command.GetString("id"));
+                var selectedPreset = command.GetString("preset");
+                if (RedirectToPresetSetup(selectedPreset, command)) return;
+                SelectConversation(selectedPreset, command.GetString("id"));
                 await GreetChat("", token);
                 return;
             case "start_chat":
-                await StartChat(command.GetString("preset", Workspace.PresetId), token);
+                var startingPreset = command.GetString("preset", Workspace.PresetId);
+                if (!RedirectToPresetSetup(startingPreset, command)) await StartChat(startingPreset, token);
                 return;
             case "select_ensemble_chat":
                 SelectEnsembleChat(command);
@@ -659,7 +665,7 @@ public sealed partial class Engine : IAsyncDisposable
             case "create_preset":
                 var name = command.GetString("name", "Preset");
                 var open = command.GetBoolean("open");
-                var preset = Workspace.CreatePreset(name, interview: open && command.GetBoolean("interview", true));
+                var preset = Workspace.CreatePreset(name, interview: command.GetBoolean("interview", true));
                 (await catalog).Preset(preset, name);
                 plugins.Publish("preset.created", new() { ["preset"] = preset, ["title"] = name },
                     new() { ["preset"] = preset }, exclude: "base");
@@ -684,7 +690,7 @@ public sealed partial class Engine : IAsyncDisposable
                 QueuePresetInterview(command);
                 return;
             case "_preset_interview":
-                if (command.GetString("preset") != Workspace.PresetId || Workspace.Config.GetString("setup_status") != "draft")
+                if (command.GetString("preset") != Workspace.PresetId || !Workspace.SetupPending)
                     return;
                 EnsurePresetSession();
                 if (PresetBlocks(presetConversation!).Any(block => block.GetString("content").Length > 0) ||
@@ -705,6 +711,8 @@ public sealed partial class Engine : IAsyncDisposable
         if (chat is null && command.GetString("op") is "message" or "system_message" && command.GetString("agent", "chat") == "chat")
         {
             var target = command.GetString("preset", Workspace.PresetId);
+            if (Workspace.PresetSetupPending(target))
+                throw new InvalidOperationException("Finish setting up the preset with PresetAgent before starting a chat.");
             SelectConversation(target, null, fromHomeSend: command.GetString("op") == "message");
         }
         if (command.GetString("op") == "save_prompt")
@@ -835,9 +843,16 @@ public sealed partial class Engine : IAsyncDisposable
 
     private void QueuePresetInterview(JsonObject command)
     {
-        if (Workspace.Config.GetString("setup_status") == "draft")
+        if (Workspace.SetupPending)
             Dispatch(new() { ["op"] = "_preset_interview", ["preset"] = Workspace.PresetId,
                 ["agent"] = "preset", ["locale"] = command.GetString("locale", "en") });
+    }
+
+    private bool RedirectToPresetSetup(string preset, JsonObject command)
+    {
+        if (!Workspace.PresetSetupPending(preset)) return false;
+        OpenPresetHome(preset, command);
+        return true;
     }
 
     private async Task RunMessage(string role, string input, bool stage, JsonArray attachments, CancellationToken token,

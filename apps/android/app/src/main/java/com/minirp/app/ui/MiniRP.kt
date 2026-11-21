@@ -282,6 +282,13 @@ fun MiniRP(model: ChatViewModel) {
                                 EnsembleChats(state.ensembleChats.orEmpty()) {
                                     open(AppRoute.EnsembleChat(state.chatId, it))
                                 }
+                            } else if (state.chatId.isBlank() && state.presetSetupPending) {
+                                HomeGreeting(
+                                    state.presetName,
+                                    Modifier.fillMaxSize(),
+                                    { model.openPresetEditor() },
+                                    enabled = state.ready && !state.busy && !state.preparing,
+                                )
                             } else if (
                                 state.chatId.isBlank() &&
                                     (state.chatMode == "ensemble" || state.chatGreeting)

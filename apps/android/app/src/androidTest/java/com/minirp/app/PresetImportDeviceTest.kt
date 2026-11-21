@@ -18,6 +18,7 @@ import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.core.app.ActivityOptionsCompat
@@ -145,6 +146,27 @@ class PresetImportDeviceTest {
                 assertEquals("", model.state.value.chatId)
                 assertFalse(directory.resolve("workspace/conversations").exists())
                 assertEquals(3, fixture.fetchRounds.get())
+
+                val presetId = model.state.value.preset
+                val close = compose.onNode(hasContentDescription(label(R.string.close)) and inEditor)
+                close.performClick()
+                waitFor { !model.state.value.presetEditorOpen }
+                compose.onNodeWithTag("composer").assertDoesNotExist()
+                compose.runOnIdle { model.selectPreset(presetId) }
+                waitFor {
+                    model.state.value.presetEditorOpen && model.state.value.presetSetupPending &&
+                        model.state.value.blocks.any { it.content == CardDone }
+                }
+                compose.onNode(hasTestTag("composer") and inEditor).performTextReplacement(CompleteSetup)
+                compose.onNode(hasContentDescription(label(R.string.send)) and inEditor).performClick()
+                waitFor {
+                    !model.state.value.busy && !model.state.value.presetSetupPending &&
+                        model.state.value.blocks.any { it.content == SetupDone }
+                }
+                assertEquals("complete", JSONObject(preset.readText()).getString("setup_status"))
+                close.performClick()
+                compose.runOnIdle { model.chooseChat(presetId) }
+                waitFor { !model.state.value.presetEditorOpen && compose.onNodeWithText(label(R.string.new_chat)).isDisplayed() }
             } finally {
                 scope.cancel()
             }
@@ -156,6 +178,7 @@ class PresetImportDeviceTest {
         val fetchRounds = AtomicInteger()
         private val settingRounds = AtomicInteger()
         private val cardRounds = AtomicInteger()
+        private val setupRounds = AtomicInteger()
         private val callIds = AtomicInteger()
         private lateinit var character: JSONObject
 
@@ -188,6 +211,12 @@ class PresetImportDeviceTest {
                 }
                 user.startsWith(ImportSetting) -> setting(user, result)
                 user.startsWith(ImportCard) -> card(user, result)
+                user == CompleteSetup -> when (setupRounds.getAndIncrement()) {
+                    0 -> tool("configure_experience", "mode" to "character", "agentic_search" to true)
+                    1 -> { assertTrue(JSONObject(result).getBoolean("staged")); tool("finish_preset_setup") }
+                    2 -> { assertTrue(JSONObject(result).getBoolean("completed")); json("content" to SetupDone) }
+                    else -> error("Unexpected setup completion step")
+                }
                 else -> {
                     assertTrue(history.any { it.optString("role") == "system" &&
                         it.optString("content").contains("SillyTavern") &&
@@ -279,6 +308,8 @@ class PresetImportDeviceTest {
         private const val CharacterGreeting = "Mira raises her lantern at the dock."
         private const val SettingDone = "I imported your harbor setting."
         private const val CardDone = "I imported Mira and checked the lore."
+        private const val CompleteSetup = "Confirm a single character with delegated search and finish setup."
+        private const val SetupDone = "The preset is ready to play."
         private const val CurlMarker = "Curl downloaded the tide ledger."
         private const val WebMarker = "Brown sails indicate a low tide."
 

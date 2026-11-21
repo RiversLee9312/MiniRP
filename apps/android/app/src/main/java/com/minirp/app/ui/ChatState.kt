@@ -118,6 +118,7 @@ data class ChatState(
     val showOnboarding: Boolean = false,
     val submitting: Boolean = false,
     val preset: String = "",
+    val presetSetupPending: Boolean = false,
     val chatName: String = "",
     val chatId: String = "",
     val conversationViewKey: String = "home",
