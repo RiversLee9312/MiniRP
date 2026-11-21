@@ -104,7 +104,7 @@ internal sealed class AgentAssetStorage(PluginRuntime runtime, MemoryDb db, stri
         },
         Instructions: "Use the exact URL returned by create_asset. In a reply use [Download filename](minirp://assets/…). Use edit_asset to change the file or container.import_asset to fill an empty file.");
 
-    private async Task<JsonObject> Create(JsonObject args, PluginRuntime.AssetContent source, CancellationToken ct)
+    internal async Task<JsonObject> Create(JsonObject args, PluginRuntime.AssetContent source, CancellationToken ct)
     {
         var name = Name(args);
         var mime = MessageAttachments.Mime(new JsonObject { ["mime"] = args.GetString("mime", source.MimeType) });

@@ -16,9 +16,13 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
     internal AgentToolOutput Output => new(storage);
     internal string DatabasePath => db.Path;
     internal PresetResearch? PresetResearch => presetResearch;
+    internal PluginProjectAssets? Project { get; private set; }
     internal sealed record Reading(JsonObject Result, JsonObject? Attachment = null);
     internal sealed record ResearchScope(SearchTurn Turn, PageSource Source);
     internal ResearchScope? Research { get; set; }
+
+    internal PluginProjectAssets BindProject(string root, string id, string preset, string name) =>
+        Project = new PluginProjectAssets(root, id, preset, name, db, storage, Open);
 
     private ResearchAssets? CurrentResearch()
     {

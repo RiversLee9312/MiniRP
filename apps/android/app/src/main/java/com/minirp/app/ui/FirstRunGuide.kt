@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -34,11 +35,13 @@ import kotlinx.coroutines.launch
 private enum class SetupStep { Welcome, Provider, Model, Effort }
 
 private const val MiniRPDocs = "https://github.com/RiversLee9312/MiniRP/blob/main/README.md"
+private const val MiniRPReleases = "https://github.com/RiversLee9312/MiniRP/releases/latest"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun FirstRunGuide(state: ChatState, model: ChatViewModel) {
     val provider = state.providers.lastOrNull()
+    val uriHandler = LocalUriHandler.current
     var step by rememberSaveable {
         mutableStateOf(if (provider == null) SetupStep.Welcome else SetupStep.Model)
     }
@@ -138,6 +141,14 @@ internal fun FirstRunGuide(state: ChatState, model: ChatViewModel) {
             when (step) {
                 SetupStep.Welcome -> {
                     item { Text(stringResource(R.string.setup_welcome_detail)) }
+                    item {
+                        Column {
+                            Text(stringResource(R.string.setup_download_notice), style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = { uriHandler.openUri(MiniRPReleases) }) {
+                                Text(stringResource(R.string.setup_official_download))
+                            }
+                        }
+                    }
                     item {
                         Button(onClick = { step = SetupStep.Provider }) {
                             Text(stringResource(R.string.setup_begin))

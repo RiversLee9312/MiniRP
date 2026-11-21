@@ -386,18 +386,22 @@ internal constructor(
                                 event.getJSONArray("items").objects().map(::decodeEnsembleChat)
                         )
                 }
+            "steer_queued",
             "ensemble_message" ->
                 mutableState.update {
-                    if (
-                        it.chatId != event.optString("chat") ||
-                            it.ensembleChatId != event.optString("conversation")
-                    )
-                        it
-                    else
-                        it.copy(
-                            ensembleBlocks =
-                                it.ensembleBlocks + decodeBlock(event.getJSONObject("item"))
+                    val conversation = event.optString("conversation")
+                    val preset = event.optString("preset")
+                    when {
+                        it.chatId != event.optString("chat") || (preset.isNotEmpty() && it.preset != preset) -> it
+                        conversation.isEmpty() -> it.copy(
+                            blocks = it.blocks.withMessage(decodeBlock(event.getJSONObject("item")))
                         )
+                        conversation == it.ensembleChatId -> it.copy(
+                            ensembleBlocks =
+                                it.ensembleBlocks.withMessage(decodeBlock(event.getJSONObject("item")))
+                        )
+                        else -> it
+                    }
                 }
             "reply_end" -> mutableState.update { it.copy(blocks = it.blocks + decodeBlock(event)) }
             "user",
@@ -405,7 +409,7 @@ internal constructor(
                 mutableState.update {
                     it.copy(
                         blocks =
-                            it.blocks +
+                            it.blocks.withMessage(
                                 TraceBlock(
                                     event.getString("block"),
                                     event.getString("agent"),
@@ -416,6 +420,7 @@ internal constructor(
                                     system = event.optString("kind") == "system",
                                     thumbnails = event.thumbnails(),
                                 )
+                            )
                     )
                 }
             "delta",
@@ -428,6 +433,11 @@ internal constructor(
             "tool_start",
             "tool_end" -> receiveTrace(event)
         }
+    }
+
+    private fun List<TraceBlock>.withMessage(block: TraceBlock): List<TraceBlock> {
+        val index = indexOfLast { it.id == block.id }
+        return if (index < 0) this + block else toMutableList().apply { set(index, block) }
     }
 
     private var presetOpeningTrace: MutableList<JSONObject>? = null

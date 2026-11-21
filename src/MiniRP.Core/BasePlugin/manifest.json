@@ -308,106 +308,12 @@
     },
     {
       "name": "plugin-project",
-      "description": "Read, edit, debug, publish and remove only the PluginAgent's own signed plugin project.",
+      "description": "Debug, publish and remove the PluginAgent's assigned plugin draft.",
       "agents": [
         "plugin"
       ],
-      "instructions": "Paths are relative to your source bundle. Preserve the assigned manifest id and packageName. Debugging runs a fixture event in an isolated V8 runtime. For OpenUI cards, read project_card_catalog and use project_card_preview on the draft before publishing. Inspect the diagnostics, rendered text, dimensions and controls. If your model accepts images, request screenshot: true to inspect the rendered PNG. Replay test interactions and verify the resulting state and action payloads. Edit the source and repeat until the card passes. Publishing validates the signed package and loads it for the current preset. Removing a deployment retains the local source.",
+      "instructions": "Use project_assets to associate Asset URLs with package paths. Preserve the assigned manifest id and packageName. Debugging runs a fixture event in an isolated V8 runtime. For OpenUI cards, read project_card_catalog and use project_card_preview on the draft before publishing. Inspect the diagnostics, rendered text, dimensions and controls. If your model accepts images, request screenshot: true to inspect the rendered PNG. Replay test interactions and verify the resulting state and action payloads. Edit the source and repeat until the card passes. Publishing validates the signed package and loads it for the current preset. Removing a deployment retains the draft.",
       "tools": [
-        {
-          "name": "project_files",
-          "description": "List files in the assigned plugin project.",
-          "handler": "minirp://actions/minirp.base/hooks/develop",
-          "parameters": {
-            "type": "object",
-            "properties": {}
-          }
-        },
-        {
-          "name": "project_read",
-          "description": "Read a text file in the plugin source directory with paging.",
-          "handler": "minirp://actions/minirp.base/hooks/develop",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "path": {
-                "type": "string"
-              },
-              "offset": {
-                "type": "integer"
-              },
-              "length": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "path"
-            ]
-          }
-        },
-        {
-          "name": "project_write",
-          "description": "Write UTF-8 source, manifest, or text assets. Existing files require explicit overwrite.",
-          "handler": "minirp://actions/minirp.base/hooks/develop",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "path": {
-                "type": "string"
-              },
-              "text": {
-                "type": "string"
-              },
-              "overwrite": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "path",
-              "text"
-            ]
-          }
-        },
-        {
-          "name": "project_edit",
-          "description": "Replace a unique exact text match in a plugin source file.",
-          "handler": "minirp://actions/minirp.base/hooks/develop",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "path": {
-                "type": "string"
-              },
-              "before": {
-                "type": "string"
-              },
-              "after": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "path",
-              "before",
-              "after"
-            ]
-          }
-        },
-        {
-          "name": "project_delete",
-          "description": "Delete a file from this plugin's source directory.",
-          "handler": "minirp://actions/minirp.base/hooks/develop",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "path": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "path"
-            ]
-          }
-        },
         {
           "name": "project_debug",
           "description": "Validate the signed draft. Optionally call a declared Action URL in this draft's isolated environment with a fixture event.",

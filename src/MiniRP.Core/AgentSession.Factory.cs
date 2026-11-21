@@ -55,6 +55,8 @@ public sealed partial class AgentSession
                     if (assets is not null && attachmentRoot is not null && database != ":memory:")
                     {
                         yield return assets.StorageSkill();
+                        if (role == "plugin" && assets.Project is { } project)
+                            yield return project.Skill();
                         if (curlAvailable?.Invoke() == true)
                             yield return new AgentCurl(port, assets, Path.GetDirectoryName(attachmentRoot)!).Skill();
                     }

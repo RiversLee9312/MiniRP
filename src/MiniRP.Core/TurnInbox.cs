@@ -4,8 +4,9 @@ namespace MiniRP.Core;
 
 /// <summary>Messages addressed to the active turn. Only the model stream is interrupted.</summary>
 internal sealed class TurnInbox(string chat, string session, Func<JsonObject, string?> accept, bool keepOpen = false,
-    string conversation = "", string preset = "")
+    string conversation = "", string preset = "", Action<JsonObject>? queued = null)
 {
+    internal const string QueuedBlockId = "_steer_block";
     public string Agent => session;
     private readonly object gate = new();
     private readonly Queue<JsonObject> queue = new();
@@ -22,7 +23,9 @@ internal sealed class TurnInbox(string chat, string session, Func<JsonObject, st
             {
                 return false;
             }
+            if (queued is not null) message[QueuedBlockId] = JsonValues.NewId();
             queue.Enqueue(message);
+            queued?.Invoke(message);
             generation?.Cancel();
             return true;
         }

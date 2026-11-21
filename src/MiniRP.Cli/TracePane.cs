@@ -111,13 +111,17 @@ internal sealed class TracePane : View
         var kind = item.GetString("kind");
         if (kind == "user")
         {
-            blocks.Add(new()
+            var id = item.GetString("block", JsonValues.NewId());
+            var block = new JsonObject
             {
-                ["id"] = item.GetString("block", JsonValues.NewId()),
+                ["id"] = id,
                 ["kind"] = "user",
                 ["agent"] = item.GetString("agent"),
                 ["content"] = item.GetString("text")
-            });
+            };
+            var index = blocks.FindIndex(existing => existing.GetString("id") == id);
+            if (index < 0) blocks.Add(block);
+            else blocks[index] = block;
         }
         else if (kind == "ensemble_assistant")
         {

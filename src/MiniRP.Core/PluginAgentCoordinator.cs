@@ -12,6 +12,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
     private sealed record Worker(CancellationTokenSource Cancellation, TurnInbox Inbox)
     {
         public Task Task { get; set; } = Task.CompletedTask;
+        public PluginProjectAssets? Draft { get; set; }
     }
 
     public async Task<JsonNode?> Execute(JsonObject context, JsonObject args, Action<JsonObject> emit,
@@ -25,9 +26,11 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
         if (role == "plugin")
         {
             var id = Workspace.Safe(context.GetString("session"));
+            PluginProjectAssets draft;
             lock (gate)
-                if (!running.ContainsKey((preset, id))) throw new InvalidOperationException("This PluginAgent is no longer running.");
-            return await Project(preset, id).Execute(action, args, ct, context.GetString(PluginRuntime.CardPreviewOutput));
+                draft = running.GetValueOrDefault((preset, id))?.Draft ??
+                    throw new InvalidOperationException("This PluginAgent has no active draft.");
+            return await Project(preset, id).Execute(draft, action, args, ct, context.GetString(PluginRuntime.CardPreviewOutput));
         }
 
         switch (action)
@@ -40,7 +43,6 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                         throw new ArgumentException("Provide a short project name.");
                     var id = JsonValues.NewId();
                     var task = Instruction(args);
-                    Project(preset, id).Create(name);
                     var state = new JsonObject { ["id"] = id, ["name"] = name, ["status"] = "idle" };
                     Start(preset, id, state, task, emit, ct);
                     return ToolState(state);
@@ -161,6 +163,8 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                 () => model, () => context, trace, inbox: worker.Inbox, presetWorkspace: workspace, sharedAssets: sharedAssets);
             try
             {
+                var assets = session.Assets ?? throw new InvalidOperationException("PluginAgent Assets are unavailable.");
+                lock (gate) worker.Draft = assets.BindProject(WorkerPath(preset, id), id, preset, name);
                 var reply = await new PluginAgent(name, session, pageSource(workspace, trace)).Run(instruction, worker.Cancellation.Token);
                 result = reply.GetString("content");
                 if (string.IsNullOrWhiteSpace(result)) throw new IOException("The model finished without a task report.");
