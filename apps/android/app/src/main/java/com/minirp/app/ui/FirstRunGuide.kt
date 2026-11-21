@@ -296,9 +296,11 @@ internal fun SetupHelpDialog(close: () -> Unit) {
     val region = deviceLocale.regionCode().ifBlank { locale.regionCode() }
         .ifBlank { stringResource(R.string.setup_unknown_region) }
     val prompt = listOf(
+        stringResource(R.string.setup_help_harness),
         stringResource(R.string.setup_help_intro, language, region, MiniRPDocs),
         stringResource(if (webTools) R.string.setup_help_web_prompt else R.string.setup_help_model_prompt),
         stringResource(R.string.setup_help_research),
+        stringResource(R.string.setup_help_coaching),
         stringResource(R.string.setup_help_privacy),
     ).joinToString("\n\n")
     val copy = stringResource(R.string.setup_copy_prompt)

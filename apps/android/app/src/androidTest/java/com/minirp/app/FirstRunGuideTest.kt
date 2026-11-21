@@ -92,7 +92,13 @@ class FirstRunGuideTest {
                 }
                 fun label(id: Int) = compose.activity.getString(id)
                 fun text(id: Int) = compose.onNodeWithText(label(id))
-                fun assertSubscriptionGuidance() {
+                fun assertSetupGuidance() {
+                    val harness = label(R.string.setup_help_harness)
+                    assertTrue(copied.startsWith("$harness\n\n"))
+                    assertTrue(harness.contains("Agentic RP Harness", ignoreCase = true))
+                    assertTrue(harness.contains("Agent Loop", ignoreCase = true))
+                    assertTrue(copied.contains(label(R.string.setup_help_coaching)))
+                    assertTrue(copied.contains(label(R.string.setup_help_privacy)))
                     assertTrue(copied.contains(label(R.string.setup_help_research)))
                     assertTrue(copied.contains("coding plan", ignoreCase = true))
                     assertTrue(copied.contains("agent plan", ignoreCase = true))
@@ -108,10 +114,8 @@ class FirstRunGuideTest {
                 text(R.string.copied).assertIsDisplayed()
                 compose.runOnIdle {
                     assertTrue(copied.contains("MiniRP") && copied.contains("Base URL"))
-                    assertTrue(copied.contains("Agentic RP Harness", ignoreCase = true))
-                    assertTrue(copied.contains(label(R.string.setup_help_privacy)))
                     assertTrue(copied.contains("https://github.com/RiversLee9312/MiniRP/blob/main/README.md"))
-                    assertSubscriptionGuidance()
+                    assertSetupGuidance()
                 }
                 text(R.string.setup_help_web).performClick()
                 text(R.string.setup_copy_prompt).performClick()
@@ -120,7 +124,7 @@ class FirstRunGuideTest {
                     assertTrue(copied.contains("real_search") && copied.contains("real_fetch"))
                     assertTrue(copied.contains("Mwmbl") && copied.contains("DeepSeek"))
                     assertTrue(listOf("Tavily", "Exa", "Brave Search").all(copied::contains))
-                    assertSubscriptionGuidance()
+                    assertSetupGuidance()
                 }
                 text(R.string.close).performClick()
                 text(R.string.add_provider).performClick()
