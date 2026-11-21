@@ -9,6 +9,7 @@
     <string name="setup_choose_model">选择模型</string>
     <string name="setup_model_detail">从 %1$s 选择一个模型，作为聊天时默认使用的模型。</string>
     <string name="setup_model_fallback">检查 API 地址和密钥后重试。如果服务不提供模型列表，可以输入官网给出的完整模型 ID。</string>
+    <string name="add_model_by_id">按 ID 添加模型</string>
     <string name="setup_use_model">使用这个模型</string>
     <string name="setup_next">继续</string>
     <string name="setup_effort_title">要让它想多少？</string>
@@ -21,8 +22,8 @@
     <string name="setup_copy_prompt">复制提示词</string>
     <string name="setup_help_web">搜索与网页抓取</string>
     <string name="setup_help_intro">我是 MiniRP 安卓版的新手。请用 %1$s 回复。设备地区是 %2$s。请先阅读 MiniRP 的官方说明 %3$s。如果打不开，请告诉我。</string>
-    <string name="setup_help_model_prompt">请帮我选择和接入模型提供商。先问我实际使用的地区、用途和预算。告诉我在哪里注册、如何创建 API 密钥，以及在 MiniRP 里该选哪个提供商模板，填什么名称、协议、API 地址（Base URL）和入门模型 ID。MiniRP 支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Google Gemini 和 Ollama。带我完成添加提供商、保存和选择模型。</string>
+    <string name="setup_help_model_prompt">我是完全不懂技术的新手，请帮我为 MiniRP 接入模型。MiniRP 是采用 Coding Agent 范式的原生 Agentic RP Harness。它的 Agent 能分多步调用工具、处理代码和文件，也能让子 Agent 协作。查套餐时，请按第三方 Agent Harness 来判断。只要套餐提供兼容的模型 API，MiniRP 在技术上就能直接接入 Coding Plan、Agent Plan 等 AI 订阅。还要核实提供商是否允许我用这个客户端做我想做的事。MiniRP 支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Google Gemini 和 Ollama。请帮我核对正确的协议、套餐专用 API 地址（Base URL）和模型 ID。告诉我去哪里注册、在 MiniRP 选哪个模板或填什么名称、每一栏填什么，以及保存后怎么选中模型。</string>
     <string name="setup_help_web_prompt">请帮我判断是否需要配置 MiniRP Android 的网页搜索（real_search）和网页抓取（real_fetch）。在「设置 → 搜索和抓取 API」可以分别选择服务并填入密钥。搜索支持 DeepSeek、Tavily、Exa 和 Brave Search。抓取支持 DeepSeek、Tavily 和 Exa。选择 DeepSeek 时可以沿用已保存的 DeepSeek 模型提供商密钥。没有搜索密钥时会依次尝试 Mwmbl 和内置浏览器，网页抓取也可以使用本地浏览器。请联网查阅最新官方文档和开发者的真实评价，根据我的账号和地区推荐方案，最后用公开网页示范如何验证搜索与抓取。</string>
-    <string name="setup_help_research">所有推荐都必须靠实时联网搜索。若无法联网，请先让我启用联网功能，别用内置知识代替查证。查阅最新的官方定价、订阅说明和 API 接入文档，同时阅读近期程序员亲自接入后的真实评价，再比较一两家适合我的服务。把我所在地区可用、开发者口碑好的 Coding Plan、Agent Plan，以及包含直接 API 调用权限的 AI 订阅也纳入比较。推荐这类套餐前，先核实条款是否允许 MiniRP 这类第三方客户端调用 API、套餐接口能否用于我正在配置的功能，并说明用量限制和超额后的计费方式。区分官方条款和个人体验，说明地区限制、免费和付费方案、订阅是否含 API 额度以及 API 是否另行按量收费。给出你实际查看过的官方文档和开发者讨论链接及日期。用通俗的话，每次只教我做一步。</string>
+    <string name="setup_help_research">每项推荐都必须用今天的实时联网资料。无法联网时，先请我打开联网功能。先问我在哪儿使用、想做什么、预算多少。涉及中国大陆时，分别查能否在大陆注册和实际使用。查最新官方条款、接入文档和定价，也要找近期真正接入过的开发者实测。把支持直接调用 API 的 Coding Plan、Agent Plan 等订阅，以及适用的免费和按量方案都纳入比较。逐个标注套餐是「官方明确允许」「官方没有表态，但有开发者实测能用」「官方明确禁止」还是「无法核实」。实测只能说明技术上能接通，使用许可要看提供商规定。核对套餐地址和普通按量地址是否一样，讲清月费、API 额度、使用限制和超额后怎么处理。附上实际查过的官方来源和开发者实测链接及日期。用大白话优先推荐官方许可最明确、配置最省事的一两家，然后每次只教我做一步。</string>
     <string name="setup_help_privacy">密钥等隐私信息只让我在服务官网或 MiniRP 内填写。请不要让我把密钥、验证码或支付信息发给你。</string>
 </resources>

@@ -21,6 +21,7 @@ internal sealed partial class MainWindow : Runnable
     private readonly Label footer = new() { Text = Commands, X = 1, Y = Pos.AnchorEnd(1), Width = Dim.Fill() };
     private readonly CancellationTokenSource lifetime = new();
     private JsonArray presetItems = new();
+    private JsonArray providerTemplates = new();
     private string presetId = "";
     private bool cot;
     private string generating = "";
@@ -90,6 +91,8 @@ internal sealed partial class MainWindow : Runnable
         {
             case "ready":
                 presetId = item.GetString("preset");
+                providerTemplates = item.GetArray("catalog");
+                foreach (var template in providerTemplates.OfType<JsonObject>()) template["id"] = template.GetString("name");
                 core.Send(new() { ["op"] = "list_presets" });
                 break;
             case "presets":
@@ -503,7 +506,9 @@ internal sealed partial class MainWindow : Runnable
 
     private void ShowSettings()
     {
-        using var dialog = new ConfigurationDialog(settings, SaveSettings);
+        using var dialog = new ConfigurationDialog(settings, SaveSettings, providerTemplates.Count == 0 ? null : apply =>
+            ShowChoices("提供商模板", providerTemplates, id =>
+                apply(providerTemplates.OfType<JsonObject>().First(item => item.GetString("id") == id))));
         App!.Run(dialog);
     }
 

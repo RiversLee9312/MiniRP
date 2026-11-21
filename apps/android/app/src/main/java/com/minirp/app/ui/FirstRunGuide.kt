@@ -47,12 +47,13 @@ internal fun FirstRunGuide(state: ChatState, model: ChatViewModel) {
     var modelSearch by rememberSaveable(provider?.id) { mutableStateOf("") }
     var selectedModel by rememberSaveable(provider?.id) { mutableStateOf("") }
     var manualId by rememberSaveable(provider?.id) { mutableStateOf("") }
+    var addingById by rememberSaveable(provider?.id) { mutableStateOf(false) }
     var requestedEffort by rememberSaveable(provider?.id, selectedModel.ifBlank { manualId.trim() }) { mutableStateOf("") }
     val snackbars = remember { SnackbarHostState() }
 
     val catalog = state.modelCatalogs[provider?.id]
     val choice = catalog?.choices?.find { it.id == selectedModel }
-        ?: manualId.trim().takeIf { catalog?.choices.isNullOrEmpty() && it.isNotEmpty() }?.let {
+        ?: manualId.trim().takeIf { it.isNotEmpty() }?.let {
             Choice(it, it)
         }
     val (effortLevels, effortLoadFailed) = rememberThinkingEffortOptions(
@@ -205,6 +206,12 @@ internal fun FirstRunGuide(state: ChatState, model: ChatViewModel) {
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                             )
+                            TextButton(onClick = { addingById = true }) {
+                                Text(stringResource(R.string.add_model_by_id))
+                            }
+                            if (selectedModel.isEmpty() && manualId.isNotBlank()) {
+                                Text(manualId, style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                         items(
                             catalog.choices.filter { it.name.contains(modelSearch, true) || it.id.contains(modelSearch, true) },
@@ -218,6 +225,7 @@ internal fun FirstRunGuide(state: ChatState, model: ChatViewModel) {
                                 colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                                 modifier = Modifier.selectable(checked, role = Role.RadioButton) {
                                     selectedModel = entry.id
+                                    manualId = ""
                                 },
                             )
                         }
@@ -230,6 +238,13 @@ internal fun FirstRunGuide(state: ChatState, model: ChatViewModel) {
                     }
                 }
             }
+        }
+    }
+    if (addingById) {
+        AddModelByIdDialog(onDismiss = { addingById = false }) { id ->
+            selectedModel = catalog?.choices?.find { it.id == id }?.id.orEmpty()
+            manualId = if (selectedModel.isEmpty()) id else ""
+            addingById = false
         }
     }
     if (editing) {

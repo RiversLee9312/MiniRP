@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -96,7 +97,10 @@ class FirstRunGuideTest {
                     assertTrue(copied.contains("coding plan", ignoreCase = true))
                     assertTrue(copied.contains("agent plan", ignoreCase = true))
                 }
-                compose.waitUntil(10_000) { text(R.string.setup_welcome).isDisplayed() }
+                compose.waitUntil(10_000) {
+                    compose.onAllNodesWithText(label(R.string.setup_welcome))
+                        .fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty()
+                }
                 text(R.string.setup_begin).performClick()
                 text(R.string.setup_unsure).performClick()
                 text(R.string.setup_help_title).assertIsDisplayed()
@@ -104,6 +108,8 @@ class FirstRunGuideTest {
                 text(R.string.copied).assertIsDisplayed()
                 compose.runOnIdle {
                     assertTrue(copied.contains("MiniRP") && copied.contains("Base URL"))
+                    assertTrue(copied.contains("Agentic RP Harness", ignoreCase = true))
+                    assertTrue(copied.contains(label(R.string.setup_help_privacy)))
                     assertTrue(copied.contains("https://github.com/RiversLee9312/MiniRP/blob/main/README.md"))
                     assertSubscriptionGuidance()
                 }
@@ -118,6 +124,10 @@ class FirstRunGuideTest {
                 }
                 text(R.string.close).performClick()
                 text(R.string.add_provider).performClick()
+                compose.runOnIdle {
+                    assertTrue(model.state.value.catalog.any { it.name == "OpenCode Go" })
+                    assertTrue(model.state.value.catalog.any { it.name == "Command Code Provider API · GOAT" })
+                }
                 val providerUrl = server.url("/v1").toString()
                 text(R.string.provider_name).performTextReplacement("Guide provider")
                 text(R.string.provider_name).assertTextContains("Guide provider")

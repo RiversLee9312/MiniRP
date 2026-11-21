@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
 using MiniRP.Protocol;
@@ -8,6 +9,9 @@ namespace MiniRP.Cli;
 internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?> takeBinary, Action<string, byte[]> writeBinary,
     BrowserHost browser, string workspace) : IAsyncDisposable
 {
+    private static readonly string ApiUserAgent = "Mini Agent Harness/" +
+        typeof(PlatformHost).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+', 2)[0];
+
     public Func<JsonObject, CancellationToken, Task<JsonObject>>? Picker { get; set; }
     private readonly HttpClient http = new(new SocketsHttpHandler
     {
@@ -134,6 +138,8 @@ internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?
                 request.Content?.Headers.TryAddWithoutValidation(header.Key, JsonValues.GetText(header.Value));
             }
         }
+        request.Headers.Remove("User-Agent");
+        request.Headers.TryAddWithoutValidation("User-Agent", ApiUserAgent);
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
         var status = (int)response.StatusCode;
         if (!response.IsSuccessStatusCode || !message.GetBoolean("stream"))

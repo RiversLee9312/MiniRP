@@ -30,6 +30,7 @@ internal fun ModelsScreen(
     var providerId by rememberSaveable { mutableStateOf("") }
     var query by rememberSaveable { mutableStateOf("") }
     var editingModel by rememberSaveable { mutableStateOf<String?>(null) }
+    var addingById by rememberSaveable { mutableStateOf(false) }
     val provider = state.providers.find { it.id == providerId } ?: state.providers.firstOrNull()
     LaunchedEffect(provider?.id) {
         if (provider != null && provider.id !in state.modelCatalogs) model.refreshModels(provider)
@@ -111,6 +112,9 @@ internal fun ModelsScreen(
                     singleLine = true,
                     label = { Text(stringResource(R.string.search_models)) },
                 )
+                TextButton(onClick = { addingById = true }) {
+                    Text(stringResource(R.string.add_model_by_id))
+                }
             }
             if (models.isEmpty() && !catalog.loading && catalog.error == null)
                 item { SectionLabel(R.string.no_models) }
@@ -137,6 +141,15 @@ internal fun ModelsScreen(
             }
         }
     }
+    if (addingById && provider != null) {
+        AddModelByIdDialog(onDismiss = { addingById = false }) { id ->
+            val choice = catalog.choices.find { it.id == id } ?: Choice(id, id)
+            if (state.savedModels.none { it.provider == provider.id && it.choice.id == id })
+                model.enableModel(SavedModel(provider.id, choice), true)
+            editingModel = id
+            addingById = false
+        }
+    }
     val selected = state.savedModels.find { it.provider == provider?.id && it.choice.id == editingModel }
     if (selected != null && provider != null) {
         ModelSettingsDialog(
@@ -151,6 +164,28 @@ internal fun ModelsScreen(
             },
         )
     }
+}
+
+@Composable
+internal fun AddModelByIdDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
+    var id by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.add_model_by_id)) },
+        text = {
+            OutlinedTextField(
+                id, { id = it }, singleLine = true,
+                label = { Text(stringResource(R.string.model_id)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+        confirmButton = {
+            TextButton(onClick = { onAdd(id.trim()) }, enabled = id.isNotBlank()) {
+                Text(stringResource(R.string.save))
+            }
+        },
+    )
 }
 
 @Composable

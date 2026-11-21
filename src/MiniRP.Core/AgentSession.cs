@@ -26,6 +26,7 @@ public sealed partial class AgentSession : IDisposable
         get; private set;
     }
     readonly ModelClient model;
+    private readonly Lazy<string> openCodeSession;
     readonly Action<JsonObject> emit;
     private readonly SessionHistory transcript;
     private readonly ContextCompactor compactor;
@@ -45,6 +46,14 @@ public sealed partial class AgentSession : IDisposable
         Name = profile.Name;
         Inbox = inbox;
         Db = new(path);
+        openCodeSession = new(() =>
+        {
+            var id = Db.Get(ProviderPlans.OpenCodeSessionKey);
+            if (id is not null) return id;
+            id = $"ses_{Guid.NewGuid():N}";
+            Db.Write(ProviderPlans.OpenCodeSessionKey, id, internalWrite: true);
+            return id;
+        });
         this.model = model;
         this.emit = item => emit(item, sessionInfo);
         history = ReadHistory(Db);

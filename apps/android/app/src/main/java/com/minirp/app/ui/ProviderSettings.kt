@@ -118,6 +118,7 @@ internal fun ProviderEditor(
                                             name = template.name,
                                             protocol = template.protocol,
                                             url = template.url,
+                                            key = provider.key.takeIf { provider.url == template.url }.orEmpty(),
                                         )
                                     showTemplates = false
                                 },

@@ -80,12 +80,18 @@ class PluginAgentResourcesDeviceTest {
         @Volatile private var pageAsset = ""
 
         override fun dispatch(request: RecordedRequest): MockResponse = try {
+            if (request.url.encodedPath in setOf("/v1/chat/completions", "/v1/tools/search")) {
+                assertEquals("Mini Agent Harness/${BuildConfig.VERSION_NAME}", request.headers["User-Agent"])
+            }
             when (request.url.encodedPath) {
                 "/artifact" -> MockResponse.Builder().body("Curl download fixture").build()
-                "/page" -> MockResponse.Builder().setHeader("Content-Type", "text/html; charset=utf-8")
-                    .body("<html><head><title>Shared browser page</title></head><body><main>" +
-                        "<h1>Shared browser page</h1><p>" + "Browser fixture paragraph. ".repeat(20) +
-                        "</p></main></body></html>").build()
+                "/page" -> {
+                    assertTrue(request.headers["User-Agent"].orEmpty().startsWith("Mozilla/"))
+                    MockResponse.Builder().setHeader("Content-Type", "text/html; charset=utf-8")
+                        .body("<html><head><title>Shared browser page</title></head><body><main>" +
+                            "<h1>Shared browser page</h1><p>" + "Browser fixture paragraph. ".repeat(20) +
+                            "</p></main></body></html>").build()
+                }
                 "/favicon.ico" -> MockResponse.Builder().code(404).build()
                 "/v1/tools/search" -> MockResponse.Builder().setHeader("Content-Type", "application/json")
                     .body(obj("results" to JSONArray().put(obj("url" to server.url("/page").toString(),

@@ -17,7 +17,9 @@ public sealed record Provider(string Id, string Name, string Protocol, string Ur
         p.GetBoolean("background_compaction", true), Math.Clamp(p.GetInt32("background_compact_at_percent", 70), 1, 99),
         (p["input_modalities"] ?? p.GetObject("architecture")["input_modalities"]) is JsonArray modalities
             ? modalities.Select(item => JsonValues.GetText(item).ToLowerInvariant()).ToArray() : null);
-    public static JsonArray Catalog() => new(
+    public static JsonArray Catalog()
+    {
+        var items = new JsonArray(
         Item("OpenAI", "responses", "https://api.openai.com/v1"), Item("OpenAI Chat Completions", "openai", "https://api.openai.com/v1"), Item("Anthropic", "anthropic", "https://api.anthropic.com/v1"),
         Item("Google Gemini", "gemini", "https://generativelanguage.googleapis.com/v1beta"), Item("DeepSeek", "openai", "https://api.deepseek.com"),
         Item("OpenRouter", "openai", "https://openrouter.ai/api/v1"), Item("Groq", "openai", "https://api.groq.com/openai/v1"),
@@ -28,6 +30,10 @@ public sealed record Provider(string Id, string Name, string Protocol, string Ur
         Item("Cerebras", "openai", "https://api.cerebras.ai/v1"), Item("SambaNova", "openai", "https://api.sambanova.ai/v1"),
         Item("Perplexity", "openai", "https://api.perplexity.ai"), Item("NVIDIA", "openai", "https://integrate.api.nvidia.com/v1"),
         Item("GitHub Models", "openai", "https://models.github.ai/inference"), Item("Ollama", "ollama", "http://localhost:11434"),
-        Item("LM Studio", "openai", "http://localhost:1234/v1"), Item("Custom", "openai", ""));
+        Item("LM Studio", "openai", "http://localhost:1234/v1"));
+        foreach (var plan in ProviderPlans.Catalog()) items.AddNode(plan);
+        items.AddNode(Item("Custom", "openai", ""));
+        return items;
+    }
     static JsonObject Item(string name, string protocol, string url) => new() { ["name"] = name, ["protocol"] = protocol, ["url"] = url };
 }

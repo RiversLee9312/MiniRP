@@ -1,4 +1,6 @@
 using System.Drawing;
+using System.Text.Json.Nodes;
+using MiniRP.Protocol;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 
@@ -29,7 +31,7 @@ internal sealed class ConfigurationDialog : Dialog
         ("MINIRP_BRAVE_SEARCH_API_KEY", "Brave Search API Key（可选）")
     ];
 
-    public ConfigurationDialog(EnvironmentSettings settings, Action save)
+    public ConfigurationDialog(EnvironmentSettings settings, Action save, Action<Action<JsonObject>>? chooseTemplate)
     {
         Title = "模型与 API";
         Width = Dim.Percent(85);
@@ -37,6 +39,12 @@ internal sealed class ConfigurationDialog : Dialog
         var form = new View { CanFocus = true, Width = Dim.Fill(), Height = Dim.Fill(2), ViewportSettings = ViewportSettingsFlags.HasScrollBars };
         var fields = new Dictionary<string, TextField>(StringComparer.Ordinal);
         var row = 0;
+        if (chooseTemplate is not null)
+        {
+            var template = new Button { Text = "选择提供商模板", X = 1, Y = row++ };
+            template.Accepted += (_, _) => chooseTemplate(ApplyTemplate);
+            form.Add(template);
+        }
         foreach (var (key, label) in Definitions)
         {
             form.Add(new Label { Text = label, X = 1, Y = row++ });
@@ -60,5 +68,18 @@ internal sealed class ConfigurationDialog : Dialog
         };
         AddButton(cancel);
         AddButton(confirm);
+
+        void ApplyTemplate(JsonObject template)
+        {
+            var url = template.GetString("url");
+            var protocol = template.GetString("protocol");
+            if (!StringComparer.Ordinal.Equals(fields["DEEPSEEK_BASE_URL"].Value?.TrimEnd('/'), url))
+                fields["DEEPSEEK_API_KEY"].Value = "";
+            fields["MINIRP_PROVIDER_PROTOCOL"].Value = protocol;
+            fields["DEEPSEEK_BASE_URL"].Value = url;
+            fields["DEEPSEEK_MODEL"].Value = template.GetString("model");
+            fields["DEEPSEEK_THINKING"].Value = "";
+            fields["DEEPSEEK_REASONING_EFFORT"].Value = "";
+        }
     }
 }

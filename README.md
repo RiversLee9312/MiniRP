@@ -90,6 +90,8 @@ UI 文案使用 Android 字符串资源，支持英文及另外 29 种语言；�
 
 原生协议包含 OpenAI Responses、OpenAI Chat Completions、Anthropic Messages、Gemini 和 Ollama。OpenAI 兼容配置覆盖 DeepSeek、OpenRouter、Groq、Mistral、xAI、Together、Fireworks、SiliconFlow、Alibaba Cloud、Moonshot、Z.ai、Cerebras、SambaNova、Perplexity、NVIDIA、GitHub Models、LM Studio，以及自定义地址。
 
+Android 的提供商设置和桌面的 `/config` 都可以选择 [Coding Plan、Agent Plan 和模型订阅模板](docs/project/provider-plans.md)。
+
 兼容程度取决于服务实际支持的模型、工具调用和思考参数。协议回归使用本地夹具验证，没有逐个使用真实服务密钥联调。平台专有的云账号登录和签名认证不在当前密钥配置范围内。
 
 网页搜索支持 DeepSeek、Tavily、Exa 和 Brave Search。网页抓取支持 DeepSeek、Tavily 和 Exa。Android 可在「设置 → 搜索和抓取 API」分别选择两项服务并填写密钥。同一服务的密钥可用于搜索和抓取。DeepSeek 默认沿用已保存模型提供商的密钥。

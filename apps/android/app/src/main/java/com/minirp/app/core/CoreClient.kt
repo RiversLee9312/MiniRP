@@ -2,6 +2,7 @@ package com.minirp.app.core
 
 import android.content.Context
 import android.widget.FrameLayout
+import com.minirp.app.BuildConfig
 import com.minirp.app.ui.OpenUiPreview
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -418,6 +419,7 @@ class CoreClient(
             val headers = event.optJSONObject("headers") ?: JSONObject()
             val builder = Request.Builder().url(event.getString("url"))
             headers.keys().forEach { builder.header(it, headers.getString(it)) }
+            builder.header("User-Agent", "Mini Agent Harness/${BuildConfig.VERSION_NAME}")
             if (event.optString("method") == "POST")
                 builder.post(
                     event.optString("body").toRequestBody("application/json".toMediaType())

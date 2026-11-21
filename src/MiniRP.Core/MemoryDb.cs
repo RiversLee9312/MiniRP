@@ -132,7 +132,8 @@ public sealed partial class MemoryDb : IDisposable
             try
             {
                 Execute("CREATE TABLE branch." + EntrySchema);
-                Execute("INSERT INTO branch.entries SELECT key,content,revision,updated_at FROM main.entries");
+                Execute("INSERT INTO branch.entries SELECT key,content,revision,updated_at FROM main.entries WHERE key<>?",
+                    ProviderPlans.OpenCodeSessionKey);
             }
             finally { Execute("DETACH DATABASE branch"); }
         }

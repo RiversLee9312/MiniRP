@@ -21,13 +21,16 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
         var provider = SelectedProvider;
         return ContextBudget.Estimate(Build(provider, messages, tools, includeMediaData: false).Body);
     }
-    static JsonObject Headers(Provider p)
+    static JsonObject Headers(Provider p, ProviderPlans.Gateway gateway)
     {
         var h = new JsonObject { ["Content-Type"] = "application/json" };
         if (p.Protocol == "anthropic")
         {
-            h["x-api-key"] = p.Key;
             h["anthropic-version"] = "2023-06-01";
+            if (gateway is ProviderPlans.Gateway.OpenCodeGo or ProviderPlans.Gateway.CommandCode)
+                h["Authorization"] = "Bearer " + p.Key;
+            else
+                h["x-api-key"] = p.Key;
         }
         else if (p.Protocol == "gemini")
         {
@@ -42,35 +45,63 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
     }
     public async Task<JsonArray> Models(Provider p, CancellationToken ct)
     {
-        var suffix = p.Protocol == "ollama" ? "/api/tags" : "/models";
+        var plan = ProviderPlans.Find(p);
+        var gateway = plan?.Wire ?? ProviderPlans.Gateway.Standard;
+        var catalogUrl = gateway == ProviderPlans.Gateway.OpenCodeGo ? "https://opencode.ai/inference/go/v1/models" :
+            p.Url + (p.Protocol == "ollama" ? "/api/tags" : "/models");
         var result = new JsonArray();
-        var url = p.Url + suffix;
+        var url = catalogUrl;
         do
         {
-            var response = await port.Request(new()
+            JsonObject response;
+            try
             {
-                ["url"] = url,
-                ["method"] = "GET",
-                ["headers"] = Headers(p),
-                ["stream"] = false
-            }, ct);
+                response = await port.Request(new()
+                {
+                    ["url"] = url,
+                    ["method"] = "GET",
+                    ["headers"] = Headers(p, gateway),
+                    ["stream"] = false
+                }, ct);
+            }
+            catch (HostPort.HttpError e) when (plan?.Model.Length > 0 && url == catalogUrl && e.Status is 404 or 405 or 501)
+            {
+                break;
+            }
             foreach (var model in response.GetArray(p.Protocol is "gemini" or "ollama" ? "models" : "data"))
             {
+                if (gateway == ProviderPlans.Gateway.CommandCode && !CommandCodeSupports(model, p.Protocol)) continue;
                 var id = model.GetString(p.Protocol == "gemini" ? "name" : p.Protocol == "ollama" ? "model" : "id").Replace("models/", "");
                 if (id.Length > 0)
                 {
                     var metadata = (JsonObject)model!.DeepClone();
                     metadata["id"] = id;
                     metadata["name"] = model.GetString("displayName", model.GetString("display_name", model.GetString("name", id)));
+                    if (gateway == ProviderPlans.Gateway.OpenCodeGo)
+                    {
+                        var limit = metadata.GetObject("limit");
+                        if (limit["context"] is { } context) metadata["context_length"] = context.DeepClone();
+                        if (limit["output"] is { } output) metadata["max_output_tokens"] = output.DeepClone();
+                        if (metadata.GetObject("modalities")["input"] is { } input) metadata["input_modalities"] = input.DeepClone();
+                    }
                     result.AddNode(metadata);
                 }
             }
             var next = response.GetString("nextPageToken");
-            url = next.Length > 0 ? p.Url + suffix + "?pageToken=" + Uri.EscapeDataString(next) :
+            url = next.Length > 0 ? catalogUrl + "?pageToken=" + Uri.EscapeDataString(next) :
                 p.Protocol == "anthropic" && response.GetBoolean("has_more") && response.GetString("last_id") is { Length: > 0 } cursor
-                    ? p.Url + suffix + "?after_id=" + Uri.EscapeDataString(cursor) : "";
+                    ? catalogUrl + "?after_id=" + Uri.EscapeDataString(cursor) : "";
         } while (url.Length > 0);
+        if (result.Count == 0 && plan?.Model is { Length: > 0 } fallback)
+            result.AddNode(new JsonObject { ["id"] = fallback, ["name"] = fallback });
         return result;
+    }
+
+    private static bool CommandCodeSupports(JsonNode? model, string protocol)
+    {
+        var path = protocol switch { "anthropic" => "/messages", "responses" => "/responses", _ => "/chat/completions" };
+        return model.GetArray("supported_endpoints").Select(value => JsonValues.GetText(value))
+            .Any(endpoint => endpoint == path || endpoint == "/v1" + path);
     }
 
     internal async Task<JsonArray> EffortLevels(Provider p, CancellationToken ct)
@@ -80,7 +111,7 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
         {
             ["url"] = p.Url + "/api/show",
             ["method"] = "POST",
-            ["headers"] = Headers(p),
+            ["headers"] = Headers(p, ProviderPlans.Gateway.Standard),
             ["body"] = JsonValues.Serialize(new JsonObject { ["model"] = p.Model }),
             ["stream"] = false
         }, ct);
@@ -88,10 +119,14 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
     }
     internal HostPort Port => port;
 
-    internal JsonObject Request(Provider provider, JsonArray messages, AgentSkill.Turn? skills)
+    internal JsonObject Request(Provider provider, JsonArray messages, AgentSkill.Turn? skills, string? openCodeSession = null)
     {
         var (path, body) = Build(provider, messages, skills?.Definitions() ?? new(), includeMediaData: true);
-        return new() { ["url"] = provider.Url + path, ["method"] = "POST", ["headers"] = Headers(provider),
+        var gateway = ProviderPlans.Find(provider)?.Wire ?? ProviderPlans.Gateway.Standard;
+        var headers = Headers(provider, gateway);
+        if (gateway == ProviderPlans.Gateway.OpenCodeGo && openCodeSession is not null)
+            headers["x-opencode-session"] = openCodeSession;
+        return new() { ["url"] = provider.Url + path, ["method"] = "POST", ["headers"] = headers,
             ["body"] = JsonValues.Serialize(body), ["stream"] = true };
     }
 
@@ -259,6 +294,7 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
 
             return ($"/models/{Uri.EscapeDataString(p.Model)}:streamGenerateContent?alt=sse", body);
         }
+        var gateway = ProviderPlans.Find(p)?.Wire ?? ProviderPlans.Gateway.Standard;
         var normalized = new JsonArray();
         foreach (var message in messages)
         {
@@ -283,7 +319,9 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
                 }
             }
 
-            if (message?["reasoning_content"] is not null && (p.Url.Contains("deepseek", StringComparison.OrdinalIgnoreCase) || p.Model.Contains("deepseek", StringComparison.OrdinalIgnoreCase)))
+            if (message?["reasoning_content"] is not null &&
+                ((gateway == ProviderPlans.Gateway.KimiCode && message.GetArray("tool_calls").Count > 0) ||
+                p.Url.Contains("deepseek", StringComparison.OrdinalIgnoreCase) || p.Model.Contains("deepseek", StringComparison.OrdinalIgnoreCase)))
             {
                 clean["reasoning_content"] = JsonValues.Clone(message["reasoning_content"]);
             }
@@ -326,9 +364,12 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
             else
                 open["reasoning_effort"] = effort;
         }
-        var modernOpenAi = p.Model.StartsWith("gpt-5", StringComparison.Ordinal) || (p.Model.Length > 1 && p.Model[0] == 'o' && char.IsAsciiDigit(p.Model[1]));
-        open[modernOpenAi ? "max_completion_tokens" : "max_tokens"] = p.MaxOutput;
-        if (Uri.TryCreate(p.Url, UriKind.Absolute, out var endpoint) && endpoint.Host == "api.openai.com")
+        var modelName = p.Model.AsSpan(p.Model.LastIndexOf('/') + 1);
+        var modernOpenAi = modelName.StartsWith("gpt-5", StringComparison.Ordinal) || modelName.StartsWith("gpt-6", StringComparison.Ordinal) ||
+            (modelName.Length > 1 && modelName[0] == 'o' && char.IsAsciiDigit(modelName[1]));
+        open[modernOpenAi || gateway == ProviderPlans.Gateway.MiniMax ? "max_completion_tokens" : "max_tokens"] = p.MaxOutput;
+        if (gateway == ProviderPlans.Gateway.MiniMax) open["reasoning_split"] = true;
+        if (gateway == ProviderPlans.Gateway.CommandCode || (Uri.TryCreate(p.Url, UriKind.Absolute, out var endpoint) && endpoint.Host == "api.openai.com"))
             open["stream_options"] = new JsonObject { ["include_usage"] = true };
 
         return ("/chat/completions", open);

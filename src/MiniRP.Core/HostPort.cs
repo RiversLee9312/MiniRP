@@ -66,7 +66,7 @@ public sealed class HostPort(Action<JsonObject> emit, CancellationToken lifetime
                 var status = part.GetInt32("status", 200);
                 if (status >= 400)
                 {
-                    throw new IOException($"HTTP {status}: {part.GetString("data")}");
+                    throw new HttpError(status, part.GetString("data"));
                 }
 
                 if (part.GetString("data").Length > 0)
@@ -101,6 +101,11 @@ public sealed class HostPort(Action<JsonObject> emit, CancellationToken lifetime
         }
 
         return JsonValues.ParseObject(body.ToString());
+    }
+
+    internal sealed class HttpError(int status, string body) : IOException($"HTTP {status}: {body}")
+    {
+        internal int Status { get; } = status;
     }
     public async Task<JsonObject> Browser(string job, string tool, JsonObject args, CancellationToken ct)
     {

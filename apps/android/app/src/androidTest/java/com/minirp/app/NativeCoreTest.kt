@@ -49,6 +49,7 @@ class NativeCoreTest {
         MockWebServer().use { server ->
             server.dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse = try {
+                    assertEquals("Mini Agent Harness/${BuildConfig.VERSION_NAME}", request.headers["User-Agent"])
                     val body = JSONObject(checkNotNull(request.body).utf8())
                     if (request.url.encodedPath == "/v1/tools/fetch") {
                         assertEquals(url, body.getString("url"))

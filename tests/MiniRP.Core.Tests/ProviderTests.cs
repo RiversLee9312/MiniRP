@@ -44,6 +44,115 @@ public sealed class ProviderTests
     }
 
     [TestMethod]
+    [DataRow("openai", "gpt-6-astra", "/chat/completions")]
+    [DataRow("responses", "responses", "/responses")]
+    [DataRow("anthropic", "claude", "/messages")]
+    public async Task CommandCodeSelectsModelsForTheConfiguredProtocol(string protocol, string id, string suffix)
+    {
+        const string url = "https://api.commandcode.ai/provider/v1";
+        var provider = new Provider("fixture", "Fixture", protocol, url, "fixture-key", id);
+        var model = Fixture(protocol, (request, _) =>
+        {
+            Assert.AreEqual(url + "/models", request.GetString("url"));
+            Assert.AreEqual("Bearer fixture-key", request.GetObject("headers").GetString("Authorization"));
+            return """
+                {"data":[{"id":"gpt-6-astra","supported_endpoints":["/chat/completions"]},
+                {"id":"responses","supported_endpoints":["/v1/responses"]},
+                {"id":"claude","supported_endpoints":["/messages"]},
+                {"id":"decision","supported_endpoints":["/systemone"]}]}
+                """;
+        });
+        Assert.AreEqual(id, (await model.Models(provider, default)).Single().GetString("id"));
+        var request = model.Request(provider, new(), null);
+        Assert.AreEqual(url + suffix, request.GetString("url"));
+        Assert.AreEqual("Bearer fixture-key", request.GetObject("headers").GetString("Authorization"));
+        Assert.IsFalse(request.GetObject("headers").ContainsKey("x-api-key"));
+        if (protocol == "openai") Assert.AreEqual(provider.MaxOutput, JsonValues.ParseObject(request.GetString("body")).GetInt32("max_completion_tokens"));
+    }
+
+    [TestMethod]
+    public async Task OpenCodeGoUsesThePublicCatalogAndPersistsItsSessionAcrossTurnsAndReopen()
+    {
+        const string url = "https://opencode.ai/inference/go/openai/v1";
+        var provider = new Provider("fixture", "Fixture", "openai", url, "fixture-key", "go-test");
+        var requests = new List<string>();
+        var fixture = Fixture("openai", (request, _) =>
+        {
+            if (request.GetString("method") == "GET")
+            {
+                Assert.AreEqual("https://opencode.ai/inference/go/v1/models", request.GetString("url"));
+                return """{"data":[{"id":"go-test","limit":{"context":262144,"output":32768},"modalities":{"input":["text","image"]}}]}""";
+            }
+            Assert.AreEqual(url + "/chat/completions", request.GetString("url"));
+            requests.Add(request.GetObject("headers").GetString("x-opencode-session"));
+            return "data: {\"choices\":[{\"delta\":{\"content\":\"Done.\"}}]}\n\ndata: [DONE]\n\n";
+        });
+        var choice = (await fixture.Models(provider, default)).Single();
+        Assert.AreEqual(262144, choice.GetInt32("context_length"));
+        Assert.AreEqual(32768, choice.GetInt32("max_output_tokens"));
+        Assert.HasCount(2, choice.GetArray("input_modalities"));
+
+        var directory = Directory.CreateTempSubdirectory();
+        try
+        {
+            var database = Path.Combine(directory.FullName, "session.sqlite");
+            var branch = Path.Combine(directory.FullName, "branch.sqlite");
+            var model = fixture.Bind(provider);
+            using (var session = TestAgentSession.Open("title", database, model, _ => { }))
+            {
+                await session.Run("Fixture", "One", default);
+                await session.Run("Fixture", "Two", default);
+                session.Db.SnapshotSession(branch);
+            }
+            using (var session = TestAgentSession.Open("title", database, model, _ => { }))
+                await session.Run("Fixture", "Three", default);
+            using (var session = TestAgentSession.Open("title", branch, model, _ => { }))
+                await session.Run("Fixture", "Branch", default);
+        }
+        finally { directory.Delete(recursive: true); }
+        Assert.HasCount(4, requests);
+        Assert.StartsWith("ses_", requests[0]);
+        Assert.IsTrue(requests.Take(3).All(id => id == requests[0]));
+        Assert.AreNotEqual(requests[0], requests[3]);
+    }
+
+    [TestMethod]
+    public void KimiCodeReplaysTheReasoningReturnedWithToolCalls()
+    {
+        var provider = new Provider("fixture", "Kimi Code", "openai", "https://api.kimi.com/coding/v1", "fixture-key", "k3.1-pro");
+        var model = new ModelClient(new HostPort(_ => { }), () => provider);
+        var messages = JsonNode.Parse("""
+            [{"role":"assistant","reasoning_content":"Need the fixture.","tool_calls":[{"id":"call","function":{"name":"get","arguments":"{}"}}]},
+             {"role":"tool","tool_call_id":"call","content":"fixture result"}]
+            """)!.AsArray();
+        var request = model.Request(provider, messages, null);
+        var body = JsonValues.ParseObject(request.GetString("body"));
+        Assert.AreEqual("Need the fixture.", body.GetArray("messages")[0].GetString("reasoning_content"));
+        Assert.AreEqual("Bearer fixture-key", request.GetObject("headers").GetString("Authorization"));
+        Assert.IsFalse(body.ContainsKey("thinking"));
+    }
+
+    [TestMethod]
+    public async Task ArkPlanOffersItsDocumentedAliasOnMissingCatalogButSurfacesAuthErrors()
+    {
+        const string url = "https://ark.cn-beijing.volces.com/api/plan/v3";
+        var provider = new Provider("fixture", "Fixture", "openai", url, "fixture-key", "");
+        var status = 404;
+        HostPort? port = null;
+        port = new(request =>
+        {
+            if (request.GetString("kind") != "http_request") return;
+            Assert.AreEqual(url + "/models", request.GetString("url"));
+            port!.Reply(new() { ["id"] = request.GetString("id"), ["status"] = status, ["done"] = true });
+        });
+        var model = new ModelClient(port, () => provider);
+        Assert.AreEqual("ark-code-latest", (await model.Models(provider, default)).Single().GetString("id"));
+        status = 401;
+        var error = await Assert.ThrowsExactlyAsync<HostPort.HttpError>(() => model.Models(provider, default));
+        Assert.AreEqual(401, error.Status);
+    }
+
+    [TestMethod]
     public async Task Utf8SurvivesEveryPossibleByteBoundary()
     {
         var expected = "中文🙂é مرحبا";
