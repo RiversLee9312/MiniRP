@@ -47,6 +47,47 @@ public sealed class AgentCapabilityTests
     }
 
     [TestMethod]
+    public async Task PresetAgentCanReadButCannotChangeSharedPluginDraftAssets()
+    {
+        var root = Directory.CreateTempSubdirectory("minirp-draft-assets-").FullName;
+        try
+        {
+            var port = new HostPort(_ => { });
+            await using var runtime = new PluginRuntime(root, port, _ => { },
+                (_, _, _, _, _) => throw new InvalidOperationException());
+            var preset = WorkspaceIds.New();
+            using var db = new MemoryDb(Path.Combine(root, "preset.sqlite"));
+            using var connection = MemoryDb.OpenScratch(db.Path);
+            var directory = Path.Combine(root, "attachments");
+            var parent = new AgentAssets(runtime, db, directory, () => new() { ["preset"] = preset, ["agent"] = "preset" },
+                protectDraftAssets: true);
+            var worker = new AgentAssets(runtime, connection, directory, () => new() { ["preset"] = preset, ["agent"] = "plugin" });
+            var parentTools = new AgentSkill.Turn([parent.StorageSkill()], ["asset_storage"]);
+            var created = await parentTools.Invoke("create_asset", new() { ["name"] = "fixture.txt", ["text"] = "original" },
+                CancellationToken.None);
+            var url = created.GetString("url");
+            Assert.IsTrue(parent.Open(url, new()).Writable);
+
+            var draft = worker.BindProject(Path.Combine(root, "draft"), WorkspaceIds.New(), preset, "Fixture");
+            var draftTools = new AgentSkill.Turn([draft.Skill()], ["project_assets"]);
+            await draftTools.Invoke("project_asset_add", new() { ["path"] = "fixture.txt", ["url"] = url }, CancellationToken.None);
+
+            Assert.AreEqual(8L, parent.Open(url, new()).Length);
+            Assert.IsFalse(parent.Open(url, new()).Writable);
+            Assert.ThrowsExactly<UnauthorizedAccessException>(() => parent.PrepareWrite(url));
+            var edit = new JsonObject { ["old_string"] = "original", ["new_string"] = "edited" };
+            await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() =>
+                parent.Edit("textEdit", url, edit, CancellationToken.None));
+            await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() =>
+                parentTools.Invoke("rename_asset", new() { ["url"] = url, ["name"] = "changed.txt" }, CancellationToken.None));
+            await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(() =>
+                parentTools.Invoke("delete_asset", new() { ["url"] = url }, CancellationToken.None));
+            Assert.AreEqual(1, (await worker.Edit("textEdit", url, edit, CancellationToken.None)).GetInt32("changes"));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
     public async Task DirectMediaUsesTheSelectedModelAndKeepsASampleUrl()
     {
         var root = Directory.CreateTempSubdirectory("minirp-media-").FullName;

@@ -96,6 +96,7 @@
     <string name="invalid_url">유효한 API 주소를 입력하세요.</string>
     <string name="native_core_error">채팅 엔진을 시작할 수 없습니다.</string>
     <string name="export_chat">채팅 내보내기</string>
+    <string name="export_transcript">대화 기록 내보내기 (JSONL)</string>
     <string name="import_preset">사전 설정 가져오기</string>
     <string name="show_key">API 키 표시</string>
     <string name="hide_key">API 키 숨기기</string>
@@ -176,8 +177,8 @@
     <string name="export_preset">프리셋 내보내기</string>
     <string name="export_save">저장 데이터 내보내기</string>
     <string name="import_save">저장 데이터 가져오기</string>
-    <string name="plugin_agent">플러그인 에이전트</string>
-    <string name="plugin_agent_activity">플러그인 에이전트 활동</string>
+    <string name="plugin_agent">플러그인 하위 에이전트</string>
+    <string name="plugin_agent_activity">플러그인 하위 에이전트 활동</string>
     <string name="use_preset_model">프리셋 모델 사용</string>
     <string name="plugin_run">실행 %1$d</string>
     <string name="plugin_run_finished">완료</string>
@@ -190,4 +191,21 @@
     <string name="research_apis">검색 및 가져오기 API</string>
     <string name="research_search_provider">웹 검색 API</string>
     <string name="research_fetch_provider">페이지 가져오기 API</string>
+    <string name="background_turns">백그라운드 응답</string>
+    <string name="background_turns_description">MiniRP를 벗어나도 응답을 계속 생성합니다. 응답을 생성하는 동안 알림이 표시됩니다.</string>
+    <string name="background_turns_prompt_title">백그라운드에서 응답을 계속할까요?</string>
+    <string name="background_turns_interrupted">응답이 중단되었습니다. 백그라운드 응답을 켜면 다음에는 MiniRP를 벗어나도 응답을 계속 생성할 수 있습니다.</string>
+    <string name="background_turns_enable">켜기</string>
+    <string name="background_turns_later">나중에</string>
+    <string name="background_turn_running">MiniRP가 응답을 생성하는 중</string>
+    <string name="background_turn_battery">배터리 최적화</string>
+    <string name="background_turn_battery_exempt">MiniRP는 Android 배터리 최적화에서 제외되어 있습니다.</string>
+    <string name="background_turn_battery_description">화면을 끄면 응답이 중단되는 경우 MiniRP를 배터리 최적화에서 제외할 수 있습니다.</string>
+    <string name="background_turn_app_info">앱 정보</string>
+    <string name="background_turn_app_info_description">기기가 MiniRP의 백그라운드 활동을 제한하는지 확인하세요.</string>
+    <string name="background_turn_live_updates">실시간 업데이트</string>
+    <string name="background_turn_live_updates_on">시스템 설정에서 허용됨</string>
+    <string name="background_turn_live_updates_description">지원 기기에서 상태 표시줄이나 잠금 화면으로 응답 상태를 확인하세요.</string>
+    <string name="background_turn_notifications">알림 설정</string>
+    <string name="background_turn_notifications_description">백그라운드 응답을 켜려면 알림을 허용하세요.</string>
 </resources>

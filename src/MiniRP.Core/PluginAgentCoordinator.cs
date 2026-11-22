@@ -22,7 +22,16 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
         var preset = WorkspaceIds.Require(context.GetString("preset"));
         if (role is not ("preset" or "plugin")) throw new UnauthorizedAccessException("This skill belongs to the preset development agents.");
         var action = args.GetString("action");
-        if (action == "plugin_docs") return PluginDevelopmentDocs.Read(args);
+        if (action == "plugin_docs")
+        {
+            if (role != "plugin") throw new UnauthorizedAccessException("Plugin development belongs to PluginAgent.");
+            return PluginDevelopmentDocs.Read(args);
+        }
+        if (action == "preset_docs")
+        {
+            if (role != "preset") throw new UnauthorizedAccessException("This reference belongs to PresetAgent.");
+            return PluginDevelopmentDocs.Read(args, presetOnly: true);
+        }
         if (role == "plugin")
         {
             var id = Workspace.Safe(context.GetString("session"));
@@ -112,7 +121,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                 if (archive && worker is not null) await worker.Task.WaitAsync(ct);
                 lock (gate) return ToolState(Read(preset, workerId));
             default:
-                throw new UnauthorizedAccessException("PresetAgent can coordinate PluginAgents and read the development reference.");
+                throw new UnauthorizedAccessException("PresetAgent can coordinate PluginAgents. PluginAgent manages the draft and deployment.");
         }
     }
 
@@ -164,7 +173,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
             try
             {
                 var assets = session.Assets ?? throw new InvalidOperationException("PluginAgent Assets are unavailable.");
-                lock (gate) worker.Draft = assets.BindProject(WorkerPath(preset, id), id, preset, name);
+                lock (gate) worker.Draft = assets.BindProject(WorkerPath(preset, id), id, preset, name, Project(preset, id));
                 var reply = await new PluginAgent(name, session, pageSource(workspace, trace)).Run(instruction, worker.Cancellation.Token);
                 result = reply.GetString("content");
                 if (string.IsNullOrWhiteSpace(result)) throw new IOException("The model finished without a task report.");

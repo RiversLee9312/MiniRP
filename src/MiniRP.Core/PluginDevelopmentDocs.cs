@@ -8,6 +8,7 @@ internal static class PluginDevelopmentDocs
     {
         ["development"] = ["plugins.getting-started", "plugins.packaging"],
         ["api"] = ["plugins.runtime", "plugins.actions-assets", "plugins.harness", "plugins.state", "plugins.skills-settings"],
+        ["assets"] = ["plugins.actions-assets"],
         ["schema"] = ["schema"],
         ["preset"] = ["presets.modes", "presets.search", "presets.workflows"],
         ["automation"] = ["plugins.automation"],
@@ -16,9 +17,11 @@ internal static class PluginDevelopmentDocs
         ["state"] = ["plugins.state"],
     };
 
-    public static JsonObject Read(JsonObject args)
+    public static JsonObject Read(JsonObject args, bool presetOnly = false)
     {
-        var topic = args.GetString("topic", "development");
+        var topic = args.GetString("topic", presetOnly ? "preset" : "development");
+        if (presetOnly && topic is not ("preset" or "search" or "rooms"))
+            throw new ArgumentException("Choose preset, search, or rooms.");
         if (!Topics.TryGetValue(topic, out var pages)) throw new ArgumentException("Choose " + string.Join(", ", Topics.Keys) + ".");
         var text = string.Join("\n\n", pages.Select(ReadPage));
         var start = Math.Clamp(args.GetInt32("offset"), 0, text.Length);

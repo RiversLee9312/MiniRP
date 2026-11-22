@@ -107,6 +107,13 @@ public sealed class HostPort(Action<JsonObject> emit, CancellationToken lifetime
     {
         internal int Status { get; } = status;
     }
+
+    internal sealed class PlatformError(string operation, string message, bool timedOut = false) : IOException(message)
+    {
+        internal string Operation { get; } = operation;
+        internal bool TimedOut { get; } = timedOut;
+    }
+
     public async Task<JsonObject> Browser(string job, string tool, JsonObject args, CancellationToken ct)
     {
         var id = JsonValues.NewId();
@@ -127,10 +134,14 @@ public sealed class HostPort(Action<JsonObject> emit, CancellationToken lifetime
             var result = await channel.Reader.ReadAsync(timeout.Token);
             if (result.GetString("error").Length > 0)
             {
-                throw new IOException(result.GetString("error"));
+                throw new PlatformError(tool, result.GetString("error"));
             }
 
             return result.GetObject("result");
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && timeout.IsCancellationRequested)
+        {
+            throw new PlatformError(tool, "The browser operation timed out.", timedOut: true);
         }
         finally { pending.TryRemove(id, out _); emit(new() { ["kind"] = "cancel_io", ["id"] = id }); }
     }
@@ -151,7 +162,7 @@ public sealed class HostPort(Action<JsonObject> emit, CancellationToken lifetime
         {
             var reply = await channel.Reader.ReadAsync(deadline?.Token ?? ct);
             received = true;
-            if (reply.GetString("error") is { Length: > 0 } error) throw new IOException(error);
+            if (reply.GetString("error") is { Length: > 0 } error) throw new PlatformError(kind, error);
             var result = reply.GetObject("result");
             // The caller can embed this result directly in a reply to V8.
             reply.Remove("result");
@@ -159,7 +170,7 @@ public sealed class HostPort(Action<JsonObject> emit, CancellationToken lifetime
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && deadline?.IsCancellationRequested == true)
         {
-            throw new IOException($"Platform request {kind} timed out.");
+            throw new PlatformError(kind, $"Platform request {kind} timed out.", timedOut: true);
         }
         finally
         {

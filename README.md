@@ -2,7 +2,7 @@
 
 **原生 Agentic 角色扮演。用一句话交代你想玩什么。**
 
-在 MiniRP 里，你可以把设定文档或角色卡发进对话，也可以直接描述脑海里的世界。Agent 会读取资料、搭建预设、操作工具并保存结果。遇到需要你决定的玩法，它会在对话里问你。
+在 MiniRP 里，你可以把设定文档或角色卡发进对话，也可以直接描述脑海里的世界。智能体会读取资料、搭建预设、操作工具并保存结果。遇到需要你决定的玩法，它会在对话里问你。
 
 [下载 Android 和 Windows 版](https://github.com/RiversLee9312/MiniRP/releases) · [预设玩法](docs/presets/workflows.md) · [插件开发](docs/plugins/getting-started.md)
 
@@ -14,24 +14,24 @@
 - **当场做出能用的界面。**「做一张补给计算卡，改人数和天数时马上算出要带多少食物。」Android 对话里可以生成可直接操作的 OpenUI 卡片。
 - **给预设加一项长期玩法。**「给这个预设做一个线索板，把找到的线索保存下来。」PresetAgent 可以委派 PluginAgent 开发和调试，并按你的要求为该预设部署。
 
-展开工具轨迹就能看到 Agent 查了哪些来源、用了哪些工具。你可以随时取消当前任务。想尝试另一条剧情时，可以从已有对话分支，带上当时的世界和 Agent 状态一起继续。
+展开工具轨迹就能看到智能体查了哪些来源、用了哪些工具。你可以随时取消当前任务。想尝试另一条剧情时，可以从已有对话分支，带上当时的世界和智能体状态一起继续。
 
 ## 安装
 
 Android ARM64 下载 `MiniRP.apk`，可直接覆盖升级。Windows x64 解压 `MiniRP-Windows-x64.zip` 后运行 `minirp.exe`，也可以传入旧工作区路径，继续使用已有对话、预设和模型配置。旧的 `MINICHAT_*` 配置键仍可读取，新配置建议使用 `MINIRP_*`。
 
-## Agent 如何分工
+## 智能体如何分工
 
 - **ChatAgent**：主对话，调用 agentic 搜索和网页工具；system prompt 可按预设配置，支持 `{date}`。
 - **EnvAgent**：编辑事实、世界状态和剧情日期。修改暂存，完成后提交。
 - **PresetAgent**：用精确工具编辑预设，也能读取设定文档和角色卡，整理角色、世界规则和开场。Android 在预设对话中用文件选择器发送，桌面打开预设面板后用 `/attach`。未完成的预设打开时会继续进入 PresetAgent，直到它调用工具完成设置。
 - **SearchAgent**：每轮完成一次搜索或网页请求，自主决定是否搜索、搜索多少轮、抓取哪些页面，以及召回、编辑和缓存哪些材料。最终结果数量不设上限。
-- **FetchAgent**：临时浏览器 Agent，操作网页、采集全文、在 DB 中精修 Markdown，再提交正文和单独的摘要。
+- **FetchAgent**：临时浏览器智能体，操作网页、采集全文、在 DB 中精修 Markdown，再提交正文和单独的摘要。
 - **PluginAgent**：接手 PresetAgent 委派的插件开发，编写、调试、签名和部署属于该预设的插件。
 
-Agent 共用 `AgentSession` 的流式事件、工具循环、取消、上下文压缩和记忆工具。UI 展开/折叠只影响展示，不修改模型请求中的思考设置。
+智能体共用 `AgentSession` 的流式事件、工具循环、取消、上下文压缩和记忆工具。UI 展开/折叠只影响展示，不修改模型请求中的思考设置。
 
-ChatAgent、PresetAgent 和 PluginAgent 可激活 `container` 技能运行 x86-64 Alpine 命令，并在 Asset 和客户机文件间传递数据。同一预设下的 PresetAgent 和 PluginAgent 共用 Asset URL 和容器工作目录。Android 和 Windows x64 随包提供运行时和镜像，工作目录随分支和存档迁移。构建前准备同一份 [Agent 容器镜像和两端运行时](docs/project/agent-container.md)。
+ChatAgent、PresetAgent 和 PluginAgent 可激活 `container` 技能运行 x86-64 Alpine 命令，并在 Asset 和客户机文件间传递数据。同一预设下的 PresetAgent 和 PluginAgent 共用 Asset URL 和容器工作目录。Android 和 Windows x64 随包提供运行时和镜像，工作目录随分支和存档迁移。构建前准备同一份 [智能体容器镜像和两端运行时](docs/project/agent-container.md)。
 
 ## 运行桌面版
 
@@ -55,10 +55,10 @@ pwsh -File eng/build-desktop.ps1
 - `/save 对话名`：保存并可选重命名；对话也会自动保存。
 - `/models`：从配置的提供商读取模型列表。
 - `/cot on`、`/cot off`：设置新思考块的默认展开状态；已有块仍可单独点击展开或折叠。
-- `/memory 关键词`：检索当前 Agent 的记忆；省略关键词列出索引。
+- `/memory 关键词`：检索当前智能体的记忆；省略关键词列出索引。
 - `/stop`、`/quit`：取消当前任务或退出。
 
-Enter 发送，Alt+Enter 换行。输入框随换行和软换行增高，最多八行，之后在框内滚动。命令提示固定在底部。网络、浏览器和 Agent 工作不在 UI 线程执行。
+Enter 发送，Alt+Enter 换行。输入框随换行和软换行增高，最多八行，之后在框内滚动。命令提示固定在底部。网络、浏览器和智能体工作不在 UI 线程执行。
 
 ## Android
 
@@ -72,7 +72,7 @@ pwsh -File eng/build-android.ps1 -Install
 
 输出 `artifacts/MiniRP.apk`。也可用 Android Studio 打开 `apps/android`；先运行 `eng/build-native.ps1 -Runtime linux-bionic-arm64` 生成本地库。
 
-Android 的世界、预设和记忆面板打开即全屏。对话页支持流式 Markdown、可折叠的工具轨迹和附件；搜索轨迹缩进展示。长按支持分支的用户消息可从发送前的世界与 Agent 状态创建新对话。旧消息没有历史快照，不能分支。标题只根据主聊天生成，点击标题可编辑或重新生成。
+Android 的世界、预设和记忆面板打开即全屏。对话页支持流式 Markdown、可折叠的工具轨迹和附件；搜索轨迹缩进展示。长按支持分支的用户消息可从发送前的世界与智能体状态创建新对话。旧消息没有历史快照，不能分支。标题只根据主聊天生成，点击标题可编辑或重新生成。
 
 预设可以给 ChatAgent 配置一条隐藏的开场系统消息。有开场的预设在首页使用「新建对话」按钮，创建后由 ChatAgent 生成欢迎语。详见 [为新对话设置开场](docs/presets/workflows.md#为新对话设置开场)。
 
@@ -80,11 +80,11 @@ ChatAgent 可按需激活 `interactive-ui` 技能，在 Markdown 中插入流式
 
 首次打开 Android 版时，引导会带你添加提供商、获取模型列表并选好默认模型。点「我不懂」可复制模型服务或搜索与网页抓取的求助提示词，请助手查找当地可用的服务、核对订阅和 API 的费用，再按官方文档指导接入。
 
-在「提供商」设置名称、协议、地址和 API 密钥；在「模型」自动获取可用模型、保存常用模型、为 Agent 和标题指定模型。对话输入框下也可切换该页相关的 Agent 模型。提供商配置存入 DataStore，密钥用 Android Keystore AES-GCM 加密。附件可选图片、音频、PDF 和视频，能否发送取决于当前协议及模型。对话抽屉使用 Paging 3 按预设分页，默认打开聊天列表，收起预设列表。
+在「提供商」设置名称、协议、地址和 API 密钥；在「模型」自动获取可用模型、保存常用模型、为智能体和标题指定模型。对话输入框下也可切换该页相关的智能体模型。提供商配置存入 DataStore，密钥用 Android Keystore AES-GCM 加密。附件可选图片、音频、PDF 和视频，能否发送取决于当前协议及模型。对话抽屉使用 Paging 3 按预设分页，默认打开聊天列表，收起预设列表。
 
 UI 文案使用 Android 字符串资源，支持英文及另外 29 种语言；语言列表由 AGP 自动生成，使用系统按应用语言设置，低版本通过 AppCompat 适配。支持 RTL，方向图标会镜像。图标使用 Google Fonts Material Symbols 官方子集；应用图标由 GPT-image 生成，前景安全区和来源记录保存在 `assets/branding`。
 
-.NET 的 Android/bionic NativeAOT 目前仍是实验支持。Android 与桌面的网络和浏览器请求由各平台适配层执行，Agent 编排、协议转换和存储由 C# 核心处理。项目已验证 Windows 和 Android ARM64 构建。Linux 与 macOS 可使用各自的标准 NativeAOT 工具链构建核心。
+.NET 的 Android/bionic NativeAOT 目前仍是实验支持。Android 与桌面的网络和浏览器请求由各平台适配层执行，智能体编排、协议转换和存储由 C# 核心处理。项目已验证 Windows 和 Android ARM64 构建。Linux 与 macOS 可使用各自的标准 NativeAOT 工具链构建核心。
 
 ## 提供商
 
@@ -115,7 +115,7 @@ API 没有可靠的完整性字段时记录为 `unknown`。本地采集不加正
 
 内置 base 插件的 `research` 技能提供真实搜索、抓取和缓存。候选项附有当前轮次的 `ref` 以及 `asset_url`。网页 Asset 提供 Markdown，搜索条目 Asset 提供 JSON。用 `view_asset` 查询全文，用 `edit_asset` 编辑，再按 `ref` 缓存或提交。缓存随对话分支和存档恢复。ChatAgent 的 `open_url` 同时返回 Markdown 和 Asset URL。
 
-Agent 可用 `asset_storage` 创建和管理会话文件，并在回答中提供 Markdown 下载链接。Android 的 OpenUI 卡片也支持 Asset 图片和下载链接。
+智能体可用 `asset_storage` 创建和管理会话文件，并在回答中提供 Markdown 下载链接。Android 的 OpenUI 卡片也支持 Asset 图片和下载链接。
 
 调研后采用语义工具和稳定元素引用：`browser_navigate`、`browser_snapshot`、`browser_click`、`browser_type`、`browser_press_key`、`browser_scroll`、`browser_wait`，再用 `capture_page` / `finish_fetch` 提交。桌面复用官方 Playwright MCP 和 C# MCP SDK；Android 用 WebView 实现相同平台接口。页面 JavaScript 仅由固定采集代码执行，模型没有宿主代码执行工具。
 
@@ -123,13 +123,13 @@ Agent 可用 `asset_storage` 创建和管理会话文件，并在回答中提供
 
 ## 上下文与存储
 
-ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conversations/<preset>/<chat>/agents`，彼此独立。PresetAgent 的会话和 DB 保存在 `preset_sessions/<preset>`，供该预设的所有聊天共享。临时 FetchAgent 的 DB 保存在该对话的 `fetch` 目录。Android 记忆面板按 Agent 显示、搜索和编辑普通笔记。
+ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conversations/<preset>/<chat>/agents`，彼此独立。PresetAgent 的会话和 DB 保存在 `preset_sessions/<preset>`，供该预设的所有聊天共享。临时 FetchAgent 的 DB 保存在该对话的 `fetch` 目录。Android 记忆面板按智能体显示、搜索和编辑普通笔记。
 
 工具包括 `db_list`、`db_read`、`db_write`、`db_patch`、`db_delete`、`db_search`。索引是字符串；写入/删除校验 revision，修改使用精确文本替换。搜索采用 FTS5 trigram；短查询使用文本扫描，不使用向量和 RAG。分页以 UTF-16 偏移计数，并保留完整 Unicode 字符。
 
-所有 Agent 都会被提示主动记录值得保留的信息，并及时更新过期笔记。`history_search` 和 `history_recall` 用于在自己的会话中搜索和分页读取原始消息，无需依赖模型的上下文。压缩滚动更新任务、事实、引用和 DB key 的摘要，在预算内保留当前请求、最近消息和成组的工具调用及结果。应用摘要时将被覆盖的历史和上一个检查点归档。世界进度和搜索缓存按聊天隔离，分支时恢复对应版本。
+所有智能体都会被提示主动记录值得保留的信息，并及时更新过期笔记。`history_search` 和 `history_recall` 用于在自己的会话中搜索和分页读取原始消息，无需依赖模型的上下文。压缩滚动更新任务、事实、引用和 DB key 的摘要，在预算内保留当前请求、最近消息和成组的工具调用及结果。应用摘要时将被覆盖的历史和上一个检查点归档。世界进度和搜索缓存按聊天隔离，分支时恢复对应版本。
 
-各 Agent 通过同一会话路径构建请求、估算输入和应用压缩。输入估算基于协议实际会发送的指令、消息、附件和工具定义。提供商返回输入 token 数时，后续请求沿用仍然匹配的用量基准，只估算新增内容。压缩、历史改写和模型切换会使旧用量基准失效。PresetAgent 用 `inspect_preset` 读取当前配置，预设快照留在预设存储中。
+各智能体通过同一会话路径构建请求、估算输入和应用压缩。输入估算基于协议实际会发送的指令、消息、附件和工具定义。提供商返回输入 token 数时，后续请求沿用仍然匹配的用量基准，只估算新增内容。压缩、历史改写和模型切换会使旧用量基准失效。PresetAgent 用 `inspect_preset` 读取当前配置，预设快照留在预设存储中。
 
 异步压缩默认开启。用量到上下文窗口的 70% 时后台生成检查点，到 80% 时校验并应用，接回这期间新增的消息。应用检查点后会按保留的内容重新估算。Android 在「设置 → 模型」的已保存模型旁可编辑两个阈值和异步开关。窗口优先取模型 API 返回的大小，缺少时使用提供商配置，调度会为模型输出预留空间。
 
@@ -137,6 +137,8 @@ ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conve
 
 ### 导出与导入
 
+- Android 可从普通聊天和群像聊天的「更多选项」导出 JSONL 转录。世界、预设和插件子智能体转录页的下载按钮也可导出。插件子智能体导出当前选中的运行。该转录中的回复或工具仍在生成时，等它完成或停止后再导出。桌面在当前对话或面板的输入框运行 `/export-transcript 文件名.jsonl`。
+- JSONL 使用 UTF-8。首行记录转录类型和来源，之后每行记录一条消息、思考过程、工具调用与回执、卡片或子智能体状态。附件只附带文件名与媒体类型。导出的内容可能包含私人对话，分享前请检查。
 - 在 Android 聊天列表长按 Room 导出单个 Room，群像 Room 包含其中所有聊天。
 - 在预设列表长按预设导出预设或存档。预设文件包含配置和归属插件。存档另外包含该预设的 Room、会话、附件、分支快照和作用域内的插件数据。两个文件都可以从预设列表导入。
 - 桌面可在选定预设或 Room 后运行 `/export-room <文件>`、`/export-preset <文件>`、`/export-save <文件>`。恢复使用 `/import-preset <文件>` 或 `/import-save <文件>`。
@@ -145,7 +147,7 @@ ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conve
 
 ## 插件
 
-Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己的 V8 isolate。清单声明 Actions、Assets、Skill、附件和设置。Actions 通过 URL 投递事件，Assets 以 WHATWG 字节流读取，跨包访问按资源可见性和签名证书校验。内置 `base` 插件提供应用设置、预设创建引导、开源许可证页和 `view_asset` 技能。Agent 通过 Asset URL 接收附件和工具资源，按需调用 `view_asset` 查看内容。
+Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己的 V8 isolate。清单声明 Actions、Assets、Skill、附件和设置。Actions 通过 URL 投递事件，Assets 以 WHATWG 字节流读取，跨包访问按资源可见性和签名证书校验。内置 `base` 插件提供应用设置、预设创建引导、开源许可证页和 `view_asset` 技能。智能体通过 Asset URL 接收附件和工具资源，按需调用 `view_asset` 查看内容。
 
 [开发、签名与安装](docs/plugins/getting-started.md) · [完整 API 参考](docs/plugins/README.md) · [插件 SDK](sdk/javascript/) · [示例插件](examples/stream-assets/plugin/) · [MIT 许可证](LICENSE)
 

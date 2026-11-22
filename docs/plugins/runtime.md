@@ -7,7 +7,7 @@
 - 启动时宿主加载已安装包，验证签名，随后向启用的插件投递 `app.ready`。内置插件随应用发布，拥有保留身份。启用的插件在手动安装、更新或由 PluginAgent 部署后收到 `plugin.enabled`，重新启用时也会收到该事件。如果当前预设在允许的范围内，事件会使用它的上下文。限定预设的插件没有匹配上下文时，宿主会使用一个允许的预设。作用域为空时，启用事件可以运行，但无法访问工作区。停用、更新和卸载都会取消旧实例的调用、关闭它的 Asset 句柄并拒绝它仍在排队的 Harness 写入。已提交的数据按包名和证书指纹保留。停用状态由宿主持久化，签名包仍可导出。当前没有卸载 Hook。
 - 每个已加载插件按需创建一个 V8 isolate。入口脚本每次 isolate 初始化执行一次，定义 `globalThis.handlers`。同一 isolate 内可以复用全局缓存和内存状态，升级、卸载、应用退出或 isolate 因异常重建时会丢失它们。
 - 每个插件有独立且有界的事件队列。普通 Hook 和 Actions 按入队顺序运行。技能工具、附件处理和动态资源由各自的调用方等待，可以在同一 isolate 内和普通 Hook 交错执行。每次调用拥有自己的参数、环境和待完成 Promise。单次 V8 执行仍是单线程，两个调用可在 `await` 边界交错。
-- V8 步骤和宿主 I/O 在后台运行。一个插件等待模型、文件选择或网络时，别的插件照常接收事件。普通 Hook 有 90 秒调用期限。动态资源在首次拉取时执行，生成期限为 5 分钟。单次 V8 步骤和 JS 清理均有 2 秒执行限制。取消宿主 I/O 后，宿主会清理对应调用。同一个 isolate 上的 V8 执行如果被中断、超时或未能完成清理，宿主会关闭它并在下一次调用时重新加载入口脚本。独立 isolate 继续运行。队列容量为 128，宿主流式事件在队列满时可能被丢弃，Actions 有明确的接受回执。
+- V8 步骤和宿主 I/O 在后台运行。一个插件等待模型、文件选择或网络时，别的插件照常接收事件。动态资源在首次拉取时执行。打开的 Asset 句柄 5 分钟后过期。单次 V8 步骤和 JS 清理均有 2 秒执行限制。取消宿主 I/O 后，宿主会清理对应调用。同一个 isolate 上的 V8 执行如果被中断、超时或未能完成清理，宿主会关闭它并在下一次调用时重新加载入口脚本。独立 isolate 继续运行。队列容量为 128，宿主流式事件在队列满时可能被丢弃，Actions 有明确的接受回执。
 - JavaScript 基线是 ECMAScript 2022，宿主提供 WHATWG Streams。可以用原生 `Uint8Array`、`ArrayBuffer`、`DataView` 和 Promise。运行环境是内嵌 V8，可用能力以本文所列为准。HTTP、文件选择、模型和持久化通过各自的宿主 API 完成。
 ## 清单
 
@@ -19,21 +19,25 @@
 | `packageName` | URL 和签名身份使用的反域名，如 `com.example.notes`。各段以小写字母开头，允许小写字母、数字和下划线。总长至多 150 字符。`minirp.*` 与旧前缀 `minichat.*` 均保留。 |
 | `name` | 安装界面显示的名称，1–120 字符。 |
 | `apiVersion` | 宿主契约版本，当前为 `2`。 |
-| `entry` | ZIP 内入口脚本路径，扩展名为 `.js`，UTF-8，最大 2 MiB。 |
+| `entry` | ZIP 内的 UTF-8 入口路径。`.js` 是单脚本，最大 2 MiB。`.mjs` 是 ES 模块入口，包内 `.js` 和 `.mjs` 文件合计至多 2 MiB。 |
 | `permissions` | 可选。声明 `db`、`harness.read`、`harness.write`、`http`、`model`、`picker`、`settings`。 |
 | `network` | 使用 HTTP 时列出精确 HTTP(S) origin，例如 `https://example.com`。路径、通配符和自动重定向不参与授权。 |
 | `actions` | `handlers` 把 Hook ID 映射到 JS 导出名，`events` 声明本包的事件源 ID，`subscriptions` 将事件源 URL 映射到本包的 Hook URL。 |
 | `hooks` | 宿主事件名到本包 Hook URL 的映射。 |
 | `assets` | 资源声明数组，详见 Assets。 |
-| `skills` | Agent 技能声明数组，详见 Skills。 |
+| `skills` | 智能体技能声明数组，详见 Skills。 |
 | `stateEntries` | 插件维护的结构化状态声明，可按角色技能投影为会话 DB 的只读项。 |
-| `cards` | 可由 Agent 引用的 OpenUI 卡片声明。 |
+| `cards` | 可由智能体引用的 OpenUI 卡片声明。 |
 | `attachments` | 附件类型声明数组。 |
 | `settings` | 设置节点数组。 |
 
 Hook 的实现以 `handlers[导出名](event, api)` 被调用，可返回 Promise。清单中只有 `actions.handlers` 填写 JS 导出名。宿主事件、技能 Hook、技能工具、附件类型和动态 Asset 里的回调均使用本包的 Hook URL。
 
-`api.environment` 是调用时的只读快照，可能含有 `session`、`room`、`chat`、`preset`、`agent` 和群像角色 `participant`。无上下文的字段可能为 `null` 或缺失，例如 `app.ready` 没有会话。普通会话的 Chat 和 Room 使用同一个 UUID。群像的 Env 会话属于 Room，每个角色的 Chat 和 Search 会话也保存在 Room 内，事件的 `chat` 则指当前发生交互的那条 Chat。Preset 会话按预设共享，Fetch 和临时 Agent 按任务建立会话。作用域详见 [数据库与状态](state.md)。
+`actions.handlers` 的键是 URL 里的 Hook ID，例如 `show-count`。值是 `globalThis.handlers` 里的 JS 名，例如 `showCount`。JS 名最多 64 字符，可用 ASCII 字母、数字、`_` 和 `$`。需要宿主 API 的处理器在第二个参数接收 `api`，再按需传给其他模块。
+
+模块在各自的 isolate 中按包内路径加载。同一文件在一个 isolate 中只求值一次，入口负责将回调登记到 `globalThis.handlers`。使用静态 `import` 和 `export`，用 `./` 或 `../` 指向同一签名包内的 `.js` 或 `.mjs` 文件，保留扩展名和大小写。包外依赖可在本地打包进输出。模块顶层用于同步初始化，异步宿主 API 放在回调里调用。见[多文件 JavaScript](getting-started.md#多文件-javascript)。
+
+`api.environment` 是调用时的只读快照，可能含有 `session`、`room`、`chat`、`preset`、`agent` 和群像角色 `participant`。无上下文的字段可能为 `null` 或缺失，例如 `app.ready` 没有会话。普通会话的 Chat 和 Room 使用同一个 UUID。群像的 Env 会话属于 Room，每个角色的 Chat 和 Search 会话也保存在 Room 内，事件的 `chat` 则指当前发生交互的那条 Chat。Preset 会话按预设共享，Fetch 和临时智能体按任务建立会话。作用域详见 [数据库与状态](state.md)。
 
 用户可在插件管理中设置预设作用域。第三方插件默认在所有预设中运行，可仅启用所选预设，也可排除所选预设。仅启用所选预设时，插件也会跳过无预设上下文的事件。排除模式仍接收无预设上下文的事件。内置插件固定为全局。宿主保存此配置，签名包及其 `manifest.json` 保持只读。
 
@@ -57,14 +61,14 @@ Hook 的实现以 `handlers[导出名](event, api)` 被调用，可返回 Promis
 | `preset.created` | 预设建档后。事件环境带新预设 ID。拥有 `harness.read` 时还可读取 `preset` 和 `title`。 |
 | `message.user` | 用户消息已写入，`agent`、`block`、`text`，可附检查点或附件。 |
 | `message.system` | 系统消息已写入，`agent`、`block`、`text`。 |
-| `message.completed` | Agent 完成回复，`agent`、`text`。 |
+| `message.completed` | 智能体完成回复，`agent`、`text`。 |
 | `turn.started` | 开始一次模型请求，`agent`、`block`。 |
 | `turn.delta` | 流式正文增量，`block`、`text`。 |
 | `turn.finished` | 模型请求结束，`agent`、`block`、`interrupted`。 |
 | `turn.cancelled` | 工作区操作取消，可含 `request`。 |
 | `tool.started` | 工具执行开始，`agent`、`block`、`name`（事件名覆盖原字段）、`arguments`。 |
 | `tool.finished` | 工具结束，`agent`、`block`、`text`。 |
-| `context.compacted` | Agent 历史完成压缩。 |
+| `context.compacted` | 智能体历史完成压缩。 |
 | `world.changed` | Room 世界状态已保存，`calendar` 为 `{mode,date}`。由 Harness 日期写入触发时，`request` 与排队结果对应。 |
 | `settings.changed` | 本包设置保存，`key`、`value`。 |
 

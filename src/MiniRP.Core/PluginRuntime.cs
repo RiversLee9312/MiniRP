@@ -86,7 +86,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
             worker = Task.Run(() => owner.ReadEvents(Queue.Reader, Token));
         }
 
-        public Isolate EnsureIsolate(string script)
+        public Isolate EnsureIsolate(PluginPackage package)
         {
             lock (loadGate)
             {
@@ -97,7 +97,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                     Reset(current);
                 }
                 var id = JsonValues.NewId();
-                return isolate = new(id, LoadIsolate(id, script));
+                return isolate = new(id, LoadIsolate(id, package));
             }
         }
 
@@ -117,15 +117,24 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
             previous.Retire();
         }
 
-        private async Task LoadIsolate(string id, string script)
+        private async Task LoadIsolate(string id, PluginPackage package)
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(Token);
             deadline.CancelAfter(TimeSpan.FromSeconds(15));
-            await owner.port.CallHost("plugin_script", new()
+            var request = new JsonObject
             {
                 ["action"] = "load", ["isolate"] = id,
-                ["bootstrap"] = Bootstrap.Value, ["source"] = script
-            }, deadline.Token);
+                ["bootstrap"] = Bootstrap.Value
+            };
+            if (package.Modules is { } sources)
+            {
+                request["entry"] = package.Manifest.GetString("entry");
+                var modules = new JsonObject();
+                foreach (var (path, source) in sources) modules[path] = source;
+                request["modules"] = modules;
+            }
+            else request["source"] = package.Source;
+            await owner.port.CallHost("plugin_script", request, deadline.Token);
         }
 
         public async Task Stop()
@@ -465,7 +474,8 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                         var invocation = new Invocation(package, handlers[name], new()
                         { ["name"] = "skill.tool", ["skill"] = key, ["tool"] = name, ["arguments"] = args.DeepClone() }, SessionContext(),
                             SkillTool: true,
-                            OpenSuppliedAsset: (url, options) => supplied?.Contains(url) == true ? assets!.Open(url, options) : null,
+                            OpenSuppliedAsset: (url, options) => supplied?.Contains(url) == true ? assets!.Open(url, options) :
+                                assetView ? assets?.Development?.OpenPublicAsset(url, options) : null,
                             PresentAsset: assetView ? PresentAsset : null,
                             EditSuppliedAsset: assetEdit ? assets!.Edit : null,
                             Research: research, Output: package.UsesActions ? assets?.Output : null);
@@ -572,7 +582,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
     {
         RequireInvocation(invocation);
         var loop = Loop(invocation.Package) ?? throw new InvalidOperationException("The plugin is no longer loaded.");
-        var isolate = loop.EnsureIsolate(invocation.Package.Source);
+        var isolate = loop.EnsureIsolate(invocation.Package);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct, loop.Token, isolate.Token);
         var token = cancellation.Token;
         try { await isolate.Ready.WaitAsync(token); }
@@ -642,7 +652,20 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                 }
                 if (result.GetBoolean("done"))
                 {
-                    if (result.GetString("error") is { Length: > 0 } error) throw new InvalidOperationException(error);
+                    if (result.GetString("error") is { Length: > 0 } error)
+                    {
+                        if (invocation.SkillTool)
+                        {
+                            var diagnostic = result.GetObject("diagnostic");
+                            var details = diagnostic.GetObject("details");
+                            details["package"] = invocation.Package.PackageName;
+                            details["handler"] = invocation.Handler;
+                            throw new ToolFailure(error, diagnostic.GetString("code", "plugin_handler_error"),
+                                diagnostic.GetString("phase", "handler"),
+                                diagnostic.GetString("next_step", "Check the handler error and its fixture or required permissions."), details);
+                        }
+                        throw new InvalidOperationException(error);
+                    }
                     finished = true;
                     var output = result["result"];
                     if (output is not null && JsonValues.Serialize(output).Length > 1024 * 1024)
@@ -663,9 +686,9 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                     token.ThrowIfCancellationRequested();
                     if (!loop.IsCurrent(isolate)) throw new IOException("Plugin isolate was retired.");
                     var reply = new JsonObject { ["id"] = item.GetInt32("id") };
+                    var method = item.GetString("method");
                     try
                     {
-                        var method = item.GetString("method");
                         var args = item.GetObject("args");
                         if (method == "assets.pull")
                         {
@@ -680,7 +703,21 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                         else
                             reply["result"] = await Api(invocation, method, args, grantedFiles, readers, codecs, token);
                     }
-                    catch (Exception error) when (error is not OperationCanceledException) { reply["error"] = error.Message; }
+                    catch (Exception error) when (error is not OperationCanceledException)
+                    {
+                        reply["error"] = error.Message;
+                        if (invocation.SkillTool)
+                        {
+                            var failure = ToolDiagnostics.FromException(invocation.Event.GetString("tool"), null, error);
+                            reply["error"] = failure.GetString("error");
+                            var diagnostic = (JsonObject)failure.GetObject("diagnostic").DeepClone();
+                            if (diagnostic.GetString("phase") == "execution") diagnostic["phase"] = "host_api";
+                            if (diagnostic["details"] is not JsonObject details)
+                                diagnostic["details"] = details = new();
+                            details["api"] = method;
+                            reply["diagnostic"] = diagnostic;
+                        }
+                    }
                     replies.AddNode(reply);
                 }
                 request = new() { ["run"] = run, ["action"] = "resume", ["replies"] = replies };
@@ -832,7 +869,8 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
 
         AssetContent ResolveAsset(string url, JsonObject options) => invocation.OpenSuppliedAsset?.Invoke(url, options) ??
             (invocation.PresentAsset is not null
-                ? throw new UnauthorizedAccessException("Use an Asset URL supplied in this session.")
+                ? throw new UnauthorizedAccessException(
+                    "Use an Asset URL supplied in this session. Copy the exact minirp://assets/ URL from an attachment or an authorised tool result.")
                 : MessageAttachments.IsAttachmentUrl(url)
                     ? throw new UnauthorizedAccessException("This workspace Asset was not supplied to the handler.")
                     : OpenAsset(url, package, options, ctx));
@@ -890,16 +928,25 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         return db.Call(method, query);
     }
 
-    private static string DatabaseScope(JsonObject environment, string scope) => scope switch
-    {
-        "session" or "chat" or "room" or "preset" => environment.GetString(scope),
-        _ => "",
-    };
+    private static readonly string[] DatabaseScopes = ["session", "chat", "room", "preset"];
+
+    private static string DatabaseScope(JsonObject environment, string scope) =>
+        DatabaseScopes.Contains(scope, StringComparer.Ordinal) ? environment.GetString(scope) : "";
 
     private string ScopedDatabase(string area, string plugin, JsonObject environment, string scope)
     {
-        var id = DatabaseScope(environment, scope);
-        if (id.Length == 0) throw new InvalidOperationException("This event does not have the requested database scope.");
+        if (!DatabaseScopes.Contains(scope, StringComparer.Ordinal))
+            throw new ArgumentException("Unknown database scope. Choose session, chat, room, or preset.");
+        var id = environment.GetString(scope);
+        if (id.Length == 0)
+        {
+            var available = string.Join(", ", DatabaseScopes.Where(value => environment.GetString(value).Length > 0));
+            var guidance = preview && scope is ("chat" or "room")
+                ? " To test a card with chat or room data, pass the Action fixture to project_card_preview. To test the installed Action, invoke it from its real entry point."
+                : " Invoke the handler from an entry point with the required scope.";
+            throw new InvalidOperationException(
+                $"Database scope '{scope}' is unavailable for this event. Available scopes: {(available.Length == 0 ? "none" : available)}.{guidance}");
+        }
         var grouped = environment.GetBoolean("_ensemble");
         if (grouped && scope == "chat")
             return Path.Combine(root, area, plugin, "chat", WorkspaceIds.Require(environment.GetString("room")), WorkspaceIds.Require(id) + ".sqlite");

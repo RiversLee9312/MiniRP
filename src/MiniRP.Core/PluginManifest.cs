@@ -7,7 +7,7 @@ namespace MiniRP.Core;
 internal sealed record PluginPackage(string Id, string Name, string Source, JsonObject Manifest, bool BuiltIn = false,
     IReadOnlyDictionary<string, string>? Pages = null, string Signer = "", string ArchivePath = "",
     IReadOnlyDictionary<string, string>? Hashes = null, IReadOnlyDictionary<string, PluginAsset>? Assets = null,
-    IReadOnlyDictionary<string, string>? Resources = null)
+    IReadOnlyDictionary<string, string>? Resources = null, IReadOnlyDictionary<string, string>? Modules = null)
 {
     public const int MaxPackageBytes = 128 * 1024 * 1024;
     private const int MaxScriptBytes = 2 * 1024 * 1024;
@@ -45,8 +45,9 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
         if (manifest.ContainsKey("presetId")) WorkspaceIds.Require(manifest.GetString("presetId"));
         var (certificate, hashes) = signed ? PluginSignature.Verify(archive, platformVerifier) : ("", null);
         var entry = manifest.GetString("entry");
-        if (!SafePath(entry) || !entry.EndsWith(".js", StringComparison.Ordinal))
-            throw new InvalidDataException("Plugin entry must be a bundle inside the archive.");
+        var isModule = signed && entry.EndsWith(".mjs", StringComparison.Ordinal);
+        if (!SafePath(entry) || !isModule && !entry.EndsWith(".js", StringComparison.Ordinal))
+            throw new InvalidDataException("Plugin entry must be a .js script or a .mjs module inside the archive.");
         var assets = signed ? ReadAssets(manifest, hashes!.ContainsKey) : new(StringComparer.Ordinal);
         if (signed) PluginActions.Validate(manifest);
         PluginRuntime.ValidateStateDeclarations(manifest, signed);
@@ -144,8 +145,9 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
             Identifier(route);
             Handler(JsonValues.GetText(handler));
         }
-        return new(id, name, ReadEntry(archive, entry, MaxScriptBytes), manifest, Pages: pages,
-            Signer: certificate, ArchivePath: archivePath, Hashes: hashes, Assets: assets);
+        var modules = isModule ? ReadModules(archive, entry) : null;
+        return new(id, name, isModule ? "" : ReadEntry(archive, entry, MaxScriptBytes), manifest, Pages: pages,
+            Signer: certificate, ArchivePath: archivePath, Hashes: hashes, Assets: assets, Modules: modules);
     }
 
     public static IEnumerable<JsonObject> Settings(JsonArray items, int depth = 0)
@@ -241,16 +243,39 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
     private static string ReadEntry(ZipArchive archive, string name, int limit)
     {
         var entry = archive.GetEntry(name) ?? throw new InvalidDataException("Missing " + name);
-        if (entry.Length > limit) throw new InvalidDataException("Plugin entry is too large.");
+        return ReadText(entry, limit, out _);
+    }
+
+    private static Dictionary<string, string> ReadModules(ZipArchive archive, string entry)
+    {
+        var modules = new Dictionary<string, string>(StringComparer.Ordinal);
+        var remaining = MaxScriptBytes;
+        foreach (var file in archive.Entries)
+        {
+            var path = file.FullName;
+            if (!(path.EndsWith(".js", StringComparison.Ordinal) || path.EndsWith(".mjs", StringComparison.Ordinal))) continue;
+            modules.Add(path, ReadText(file, remaining, out var size));
+            remaining -= size;
+        }
+        if (!modules.ContainsKey(entry)) throw new InvalidDataException("Missing " + entry);
+        return modules;
+    }
+
+    private static string ReadText(ZipArchiveEntry entry, int limit, out int size)
+    {
+        if (entry.Length > limit) throw new InvalidDataException("Plugin text size limit exceeded while reading " + entry.FullName + ".");
         using var source = entry.Open();
         using var buffer = new MemoryStream();
         var chunk = new byte[8192];
         for (var count = source.Read(chunk); count > 0; count = source.Read(chunk))
         {
-            if (buffer.Length + count > limit) throw new InvalidDataException("Plugin entry is too large.");
+            if (buffer.Length + count > limit)
+                throw new InvalidDataException("Plugin text size limit exceeded while reading " + entry.FullName + ".");
             buffer.Write(chunk, 0, count);
         }
-        return new UTF8Encoding(false, true).GetString(buffer.GetBuffer(), 0, (int)buffer.Length).TrimStart('\uFEFF');
+        size = (int)buffer.Length;
+        try { return new UTF8Encoding(false, true).GetString(buffer.GetBuffer(), 0, size).TrimStart('\uFEFF'); }
+        catch (DecoderFallbackException error) { throw new InvalidDataException("Invalid UTF-8 in " + entry.FullName + ".", error); }
     }
 }
 

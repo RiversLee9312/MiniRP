@@ -154,9 +154,13 @@ public sealed partial class AgentSession : IDisposable
             return JsonValues.Serialize(preview);
         }
 
-        return JsonValues.Serialize(new JsonObject { ["content_key"] = Archive(text), ["total_chars"] = text.Length,
+        var archived = new JsonObject { ["content_key"] = Archive(text), ["total_chars"] = text.Length,
             ["preview"] = ContextCompactor.FitText(text, limit / 2, "\n[More in the archived result.]\n"),
-            ["instruction"] = "Full result retained. Use db_read in pages to read remaining content." });
+            ["instruction"] = "Full result retained. Use db_read in pages to read remaining content." };
+        if ((value as JsonObject)?["diagnostic"] is JsonObject diagnostic) archived["diagnostic"] = diagnostic.DeepClone();
+        if (value.GetObject("verification")["diagnostic"] is JsonObject verification)
+            archived["verification_diagnostic"] = verification.DeepClone();
+        return JsonValues.Serialize(archived);
     }
     internal void Insert(string text, string role) => Insert(new JsonObject { ["role"] = role, ["content"] = text });
 
@@ -529,6 +533,7 @@ public sealed partial class AgentSession : IDisposable
                     JsonNode? result;
                     var id = call.GetString("id");
                     var offered = enabled.Offers(name);
+                    var owner = enabled.OwnerOf(name);
                     if (offered) MeasureSessionInfo(definitions);
                     if (offered) emit(new()
                     {
@@ -540,19 +545,25 @@ public sealed partial class AgentSession : IDisposable
                     });
                     try
                     {
-                        var args = JsonValues.ParseObject(call.GetObject("function").GetString("arguments", "{}"));
+                        ct.ThrowIfCancellationRequested();
+                        var args = ToolDiagnostics.ReadArguments(call.GetObject("function").GetString("arguments", "{}"));
                         if (terminalTools?.Contains(name) == true && callIndex != calls.Count - 1)
                         {
-                            throw new InvalidOperationException("A submission must be the final tool in its batch. No changes submitted.");
+                            throw new ToolFailure("A submission must be the final tool in its batch. No changes submitted.",
+                                "submission_order", "execution", "Make any prerequisite calls first and submit last.");
                         }
                         if (submitted?.Invoke() == true)
                         {
-                            throw new InvalidOperationException("Submission must be the final tool in a batch.");
+                            throw new ToolFailure("Submission must be the final tool in a batch.",
+                                "submission_order", "execution", "Make any prerequisite calls before the submission.");
                         }
 
-                        result = await enabled.Invoke(name, args, ct);
+                        result = ToolDiagnostics.AnnotateResult(name, owner, await enabled.Invoke(name, args, ct));
                     }
-                    catch (Exception error) when (error is not OperationCanceledException) { result = JsonValues.Error(error.Message); }
+                    catch (Exception error) when (error is not OperationCanceledException || !ct.IsCancellationRequested)
+                    {
+                        result = ToolDiagnostics.FromException(name, owner, error);
+                    }
                     var text = name is "db_read" or "history_recall" ? JsonValues.Serialize(result) : ToolText(result, budget);
                     if (offered) emit(new()
                     {

@@ -100,6 +100,7 @@ public sealed partial class Engine : IAsyncDisposable
     public void Dispatch(JsonObject command)
     {
         var operationName = command.GetString("op");
+        if (IsTranscriptExport(command)) RequireIdleTranscript();
         if (operationName == "home" && command.GetBoolean("restore") &&
             command.GetString("preset") is { Length: > 0 } savedPreset && !WorkspaceIds.IsValid(savedPreset))
             command["preset"] = WorkspaceIds.Preset(savedPreset);
@@ -875,7 +876,8 @@ public sealed partial class Engine : IAsyncDisposable
     }
 
     private async Task RunMessage(string role, string input, bool stage, JsonArray attachments, CancellationToken token,
-        string inputRole = "user", string request = "", JsonObject? openUiAction = null, bool editorTurn = false, bool hiddenInput = false)
+        string inputRole = "user", string request = "", JsonObject? openUiAction = null, bool editorTurn = false,
+        bool hiddenInput = false, bool userInitiated = true)
     {
         if (role is not ("chat" or "env" or "preset"))
         {
@@ -908,9 +910,10 @@ public sealed partial class Engine : IAsyncDisposable
             return null;
         }, preset: Workspace.PresetId, queued: message => PreviewSteer(role, message));
         session.Inbox = turn;
-        BeginInteractiveTurn(turn, editorTurn);
+        BeginInteractiveTurn(turn, editorTurn, userInitiated);
         var turnStart = Workspace.Chat.GetArray("blocks").Count;
         string answer;
+        var completed = false;
         try
         {
             if (!hiddenInput)
@@ -945,10 +948,11 @@ public sealed partial class Engine : IAsyncDisposable
                 EmitConfig();
             }
             if (role == "chat" && !hiddenInput) StartTitle(force: false);
+            completed = true;
         }
         finally
         {
-            EndInteractiveTurn(turn, session);
+            EndInteractiveTurn(turn, session, interrupted: !completed && !token.IsCancellationRequested);
         }
         if (role == "chat") RecordReplyEnd(turnStart, answer);
     }
@@ -961,13 +965,14 @@ public sealed partial class Engine : IAsyncDisposable
         return files;
     }
 
-    private void BeginInteractiveTurn(TurnInbox turn, bool editorTurn = false)
+    private void BeginInteractiveTurn(TurnInbox turn, bool editorTurn = false, bool userInitiated = true)
     {
         Volatile.Write(ref inbox, turn);
-        Emit(new() { ["kind"] = "generating", ["agent"] = turn.Agent, ["value"] = true, ["editor_turn"] = editorTurn });
+        Emit(new() { ["kind"] = "generating", ["agent"] = turn.Agent, ["value"] = true, ["editor_turn"] = editorTurn,
+            ["user_initiated"] = userInitiated });
     }
 
-    private void EndInteractiveTurn(TurnInbox turn, AgentSession? session = null)
+    private void EndInteractiveTurn(TurnInbox turn, AgentSession? session = null, bool interrupted = false)
     {
         try
         {
@@ -977,7 +982,7 @@ public sealed partial class Engine : IAsyncDisposable
         finally
         {
             Volatile.Write(ref inbox, null);
-            Emit(new() { ["kind"] = "generating", ["agent"] = turn.Agent, ["value"] = false });
+            Emit(new() { ["kind"] = "generating", ["agent"] = turn.Agent, ["value"] = false, ["interrupted"] = interrupted });
         }
     }
 

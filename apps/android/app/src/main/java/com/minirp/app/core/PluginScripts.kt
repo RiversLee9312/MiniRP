@@ -124,7 +124,9 @@ internal class PluginScripts(
                 if (!loaded) {
                     runtime.allowEval(false)
                     runtime.getExecutor(request.getString("bootstrap")).executeVoid()
-                    runtime.getExecutor(request.getString("source")).executeVoid()
+                    val modules = request.optJSONObject("modules")
+                    if (modules != null) PluginModules(modules).load(runtime, request.getString("entry"))
+                    else runtime.getExecutor(request.getString("source")).executeVoid()
                 }
                 return JSONObject()
             }

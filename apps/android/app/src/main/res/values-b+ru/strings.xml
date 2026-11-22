@@ -96,6 +96,7 @@
     <string name="invalid_url">Введите корректный адрес API.</string>
     <string name="native_core_error">Не удалось запустить движок чата.</string>
     <string name="export_chat">Экспорт чата</string>
+    <string name="export_transcript">Экспортировать запись разговора (JSONL)</string>
     <string name="import_preset">Импорт пресета</string>
     <string name="show_key">Показать ключ API</string>
     <string name="hide_key">Скрыть ключ API</string>
@@ -182,8 +183,8 @@
     <string name="export_preset">Экспортировать пресет</string>
     <string name="export_save">Экспортировать сохранение</string>
     <string name="import_save">Импортировать сохранение</string>
-    <string name="plugin_agent">Агент плагинов</string>
-    <string name="plugin_agent_activity">Активность агента плагинов</string>
+    <string name="plugin_agent">Субагент для плагинов</string>
+    <string name="plugin_agent_activity">Активность субагентов для плагинов</string>
     <string name="use_preset_model">Использовать модель пресета</string>
     <string name="plugin_run">Запуск %1$d</string>
     <string name="plugin_run_finished">Завершён</string>
@@ -196,4 +197,21 @@
     <string name="research_apis">API поиска и получения страниц</string>
     <string name="research_search_provider">API веб-поиска</string>
     <string name="research_fetch_provider">API загрузки страниц</string>
+    <string name="background_turns">Ответы в фоновом режиме</string>
+    <string name="background_turns_description">Генерация ответов продолжается после выхода из MiniRP. Во время генерации отображается уведомление.</string>
+    <string name="background_turns_prompt_title">Продолжать генерацию ответов в фоновом режиме?</string>
+    <string name="background_turns_interrupted">Генерация ответа прервалась. Включите фоновый режим, чтобы следующий ответ мог завершиться после выхода из MiniRP.</string>
+    <string name="background_turns_enable">Включить</string>
+    <string name="background_turns_later">Не сейчас</string>
+    <string name="background_turn_running">MiniRP генерирует ответ</string>
+    <string name="background_turn_battery">Оптимизация батареи</string>
+    <string name="background_turn_battery_exempt">Для MiniRP отключена оптимизация батареи Android.</string>
+    <string name="background_turn_battery_description">Если генерация прерывается при выключенном экране, отключите оптимизацию батареи для MiniRP.</string>
+    <string name="background_turn_app_info">О приложении</string>
+    <string name="background_turn_app_info_description">Проверьте, ограничивает ли устройство фоновую работу MiniRP.</string>
+    <string name="background_turn_live_updates">Обновления в реальном времени</string>
+    <string name="background_turn_live_updates_on">Разрешены в настройках системы.</string>
+    <string name="background_turn_live_updates_description">На поддерживаемых устройствах ход генерации виден в строке состояния или на экране блокировки.</string>
+    <string name="background_turn_notifications">Настройки уведомлений</string>
+    <string name="background_turn_notifications_description">Разрешите уведомления, чтобы включить ответы в фоновом режиме.</string>
 </resources>

@@ -96,6 +96,7 @@
     <string name="invalid_url">Gib eine gültige API-Adresse ein.</string>
     <string name="native_core_error">Chat-Engine konnte nicht gestartet werden.</string>
     <string name="export_chat">Chat exportieren</string>
+    <string name="export_transcript">Transkript exportieren (JSONL)</string>
     <string name="import_preset">Voreinstellung importieren</string>
     <string name="show_key">API-Schlüssel anzeigen</string>
     <string name="hide_key">API-Schlüssel ausblenden</string>
@@ -178,8 +179,8 @@
     <string name="export_preset">Voreinstellung exportieren</string>
     <string name="export_save">Spielstand exportieren</string>
     <string name="import_save">Spielstand importieren</string>
-    <string name="plugin_agent">Plugin-Agent</string>
-    <string name="plugin_agent_activity">Plugin-Agent-Aktivität</string>
+    <string name="plugin_agent">Plugin-Subagent</string>
+    <string name="plugin_agent_activity">Aktivität der Plugin-Subagenten</string>
     <string name="use_preset_model">Modell der Vorlage verwenden</string>
     <string name="plugin_run">Lauf %1$d</string>
     <string name="plugin_run_finished">Abgeschlossen</string>
@@ -192,4 +193,21 @@
     <string name="research_apis">Such- und Abruf-APIs</string>
     <string name="research_search_provider">Websuch-API</string>
     <string name="research_fetch_provider">Seitenabruf-API</string>
+    <string name="background_turns">Antworten im Hintergrund</string>
+    <string name="background_turns_description">Antworten werden auch nach dem Verlassen von MiniRP weiter erstellt. Währenddessen wird eine Benachrichtigung angezeigt.</string>
+    <string name="background_turns_prompt_title">Antworten im Hintergrund fortsetzen?</string>
+    <string name="background_turns_interrupted">Eine Antwort wurde unterbrochen. Aktiviere Antworten im Hintergrund, damit die nächste Antwort auch nach dem Verlassen von MiniRP fertig werden kann.</string>
+    <string name="background_turns_enable">Aktivieren</string>
+    <string name="background_turns_later">Nicht jetzt</string>
+    <string name="background_turn_running">MiniRP erstellt eine Antwort</string>
+    <string name="background_turn_battery">Akkuoptimierung</string>
+    <string name="background_turn_battery_exempt">MiniRP ist von der Akkuoptimierung von Android ausgenommen.</string>
+    <string name="background_turn_battery_description">Wenn Antworten bei ausgeschaltetem Bildschirm abbrechen, kannst du MiniRP von der Akkuoptimierung ausnehmen.</string>
+    <string name="background_turn_app_info">App-Info</string>
+    <string name="background_turn_app_info_description">Prüfe, ob dein Gerät die Hintergrundaktivität von MiniRP einschränkt.</string>
+    <string name="background_turn_live_updates">Live-Updates</string>
+    <string name="background_turn_live_updates_on">In den Systemeinstellungen erlaubt.</string>
+    <string name="background_turn_live_updates_description">Verfolge die Antwort auf unterstützten Geräten in der Statusleiste oder auf dem Sperrbildschirm.</string>
+    <string name="background_turn_notifications">Benachrichtigungseinstellungen</string>
+    <string name="background_turn_notifications_description">Erlaube Benachrichtigungen, um Antworten im Hintergrund zu aktivieren.</string>
 </resources>

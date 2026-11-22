@@ -96,6 +96,7 @@
     <string name="invalid_url">Geçerli bir API adresi girin.</string>
     <string name="native_core_error">Sohbet motoru başlatılamadı.</string>
     <string name="export_chat">Sohbeti dışa aktar</string>
+    <string name="export_transcript">Konuşma dökümünü dışa aktar (JSONL)</string>
     <string name="import_preset">Hazır ayarı içe aktar</string>
     <string name="show_key">API anahtarını göster</string>
     <string name="hide_key">API anahtarını gizle</string>
@@ -176,8 +177,8 @@
     <string name="export_preset">Ön ayarı dışa aktar</string>
     <string name="export_save">Kaydı dışa aktar</string>
     <string name="import_save">Kaydı içe aktar</string>
-    <string name="plugin_agent">Eklenti aracısı</string>
-    <string name="plugin_agent_activity">Eklenti aracısı etkinliği</string>
+    <string name="plugin_agent">Eklenti alt ajanı</string>
+    <string name="plugin_agent_activity">Eklenti alt ajanlarının etkinliği</string>
     <string name="use_preset_model">Ön ayarın modelini kullan</string>
     <string name="plugin_run">Çalıştırma %1$d</string>
     <string name="plugin_run_finished">Tamamlandı</string>
@@ -190,4 +191,21 @@
     <string name="research_apis">Arama ve getirme API leri</string>
     <string name="research_search_provider">Web arama API si</string>
     <string name="research_fetch_provider">Sayfa getirme API si</string>
+    <string name="background_turns">Arka planda yanıtlar</string>
+    <string name="background_turns_description">MiniRP’den çıktığında yanıtların oluşturulması sürer. Yanıt hazırlanırken bir bildirim görünür.</string>
+    <string name="background_turns_prompt_title">Yanıtlar arka planda devam etsin mi?</string>
+    <string name="background_turns_interrupted">Bir yanıt kesintiye uğradı. Sonraki yanıtın MiniRP’den çıktıktan sonra tamamlanabilmesi için arka planda yanıtları aç.</string>
+    <string name="background_turns_enable">Aç</string>
+    <string name="background_turns_later">Şimdi değil</string>
+    <string name="background_turn_running">MiniRP yanıt oluşturuyor</string>
+    <string name="background_turn_battery">Pil optimizasyonu</string>
+    <string name="background_turn_battery_exempt">MiniRP, Android pil optimizasyonundan muaf.</string>
+    <string name="background_turn_battery_description">Ekran kapandığında yanıtlar kesiliyorsa MiniRP’yi pil optimizasyonundan muaf tutabilirsin.</string>
+    <string name="background_turn_app_info">Uygulama bilgileri</string>
+    <string name="background_turn_app_info_description">Cihazının MiniRP’nin arka plan etkinliğini kısıtlayıp kısıtlamadığını kontrol et.</string>
+    <string name="background_turn_live_updates">Canlı güncellemeler</string>
+    <string name="background_turn_live_updates_on">Sistem ayarlarında izin verildi.</string>
+    <string name="background_turn_live_updates_description">Desteklenen cihazlarda yanıtı durum çubuğundan veya kilit ekranından takip et.</string>
+    <string name="background_turn_notifications">Bildirim ayarları</string>
+    <string name="background_turn_notifications_description">Arka planda yanıtları açmak için bildirimlere izin ver.</string>
 </resources>

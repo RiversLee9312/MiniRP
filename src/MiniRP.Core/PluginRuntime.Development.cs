@@ -62,6 +62,21 @@ internal sealed partial class PluginRuntime
     {
         using var stream = File.OpenRead(path);
         var package = ReadPackage(stream, path, ct: ct);
+        return await Debug(package, workspace, preset, url, input, ct, card, options, imageOutput);
+    }
+
+    internal async Task<JsonNode?> VerifyDeployment(PluginPackage package, string workspace, string preset,
+        string url, JsonObject input, CancellationToken ct)
+    {
+        RequireCurrent(package);
+        var result = await Debug(package with { Enabled = true }, workspace, preset, url, input, ct);
+        RequireCurrent(package);
+        return result;
+    }
+
+    private async Task<JsonNode?> Debug(PluginPackage package, string workspace, string preset, string url, JsonObject input,
+        CancellationToken ct, string? card = null, JsonObject? options = null, string imageOutput = "")
+    {
         await using var runtime = new PluginRuntime(workspace, port, emit,
             (_, _, _, _, _) => throw new UnauthorizedAccessException(), preview: true, mediaFiles: mediaFiles);
         runtime.SetPackages([package]);
@@ -78,7 +93,7 @@ internal sealed partial class PluginRuntime
         JsonNode? result;
         if (url.Length == 0)
         {
-            await runtime.Loop(package)!.EnsureIsolate(package.Source).Ready.WaitAsync(ct);
+            await runtime.Loop(package)!.EnsureIsolate(package).Ready.WaitAsync(ct);
             result = new JsonObject { ["loaded"] = true, ["packageName"] = package.PackageName };
         }
         else
@@ -118,15 +133,45 @@ internal sealed partial class PluginRuntime
     public PluginPackage Deploy(string path, string preset) => Install(path, inspect: false,
         PluginScope.Include(preset), new() { ["preset"] = preset });
 
+    internal PluginPackage DevelopmentDeployment(string id, string signer)
+    {
+        var package = Installed(id);
+        RequireDevelopmentSigner(package, signer);
+        return package;
+    }
+
+    internal AssetContent OpenDevelopmentPublicAsset(string id, string signer, string url, JsonObject options, string preset)
+    {
+        lock (packageGate)
+        {
+            var package = DevelopmentDeployment(id, signer);
+            var (packageName, assetId) = ParseAssetUrl(url);
+            if (package.PackageName != packageName)
+                throw new UnauthorizedAccessException("Choose a public Asset declared by this project's deployed package.");
+            var asset = package.Assets?.GetValueOrDefault(assetId);
+            if (asset is null)
+                throw new ArgumentException("The installed generation does not declare this Asset ID. Check the manifest's assets declarations and the installed generation.");
+            if (asset.Accessibility != "public")
+                throw new UnauthorizedAccessException(
+                    "Choose a public Asset declared by this project's deployed package. This Asset requires an access grant.");
+            return OpenAsset(url, null, options, new() { ["preset"] = preset }) with { Writable = false };
+        }
+    }
+
     public void RemoveDevelopment(string id, string signer)
     {
         lock (packageGate)
         {
             var package = Volatile.Read(ref packages).FirstOrDefault(item => item.Id == id);
             if (package is null) return;
-            if (package.BuiltIn || !package.Signed || package.Signer != signer)
-                throw new UnauthorizedAccessException("Only this project's deployed plugin can be removed.");
+            RequireDevelopmentSigner(package, signer);
             Uninstall(id);
         }
+    }
+
+    private static void RequireDevelopmentSigner(PluginPackage package, string signer)
+    {
+        if (package.BuiltIn || !package.Signed || package.Signer != signer)
+            throw new UnauthorizedAccessException("Only this project's signed deployment is accessible.");
     }
 }

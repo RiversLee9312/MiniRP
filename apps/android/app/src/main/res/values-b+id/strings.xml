@@ -96,6 +96,7 @@
     <string name="invalid_url">Masukkan alamat API yang valid.</string>
     <string name="native_core_error">Tidak dapat memulai mesin obrolan.</string>
     <string name="export_chat">Ekspor obrolan</string>
+    <string name="export_transcript">Ekspor transkrip (JSONL)</string>
     <string name="import_preset">Impor preset</string>
     <string name="show_key">Tampilkan kunci API</string>
     <string name="hide_key">Sembunyikan kunci API</string>
@@ -176,8 +177,8 @@
     <string name="export_preset">Ekspor preset</string>
     <string name="export_save">Ekspor simpanan</string>
     <string name="import_save">Impor simpanan</string>
-    <string name="plugin_agent">Agen plugin</string>
-    <string name="plugin_agent_activity">Aktivitas agen plugin</string>
+    <string name="plugin_agent">Subagen plugin</string>
+    <string name="plugin_agent_activity">Aktivitas subagen plugin</string>
     <string name="use_preset_model">Gunakan model prasetel</string>
     <string name="plugin_run">Eksekusi %1$d</string>
     <string name="plugin_run_finished">Selesai</string>
@@ -190,4 +191,21 @@
     <string name="research_apis">API pencarian dan pengambilan</string>
     <string name="research_search_provider">API pencarian web</string>
     <string name="research_fetch_provider">API pengambilan halaman</string>
+    <string name="background_turns">Balasan di latar belakang</string>
+    <string name="background_turns_description">Pembuatan balasan berlanjut saat Anda meninggalkan MiniRP. Notifikasi muncul selama balasan dibuat.</string>
+    <string name="background_turns_prompt_title">Lanjutkan balasan di latar belakang?</string>
+    <string name="background_turns_interrupted">Pembuatan balasan terhenti. Aktifkan balasan di latar belakang agar balasan berikutnya dapat selesai setelah Anda meninggalkan MiniRP.</string>
+    <string name="background_turns_enable">Aktifkan</string>
+    <string name="background_turns_later">Nanti saja</string>
+    <string name="background_turn_running">MiniRP sedang membuat balasan</string>
+    <string name="background_turn_battery">Pengoptimalan baterai</string>
+    <string name="background_turn_battery_exempt">MiniRP dikecualikan dari pengoptimalan baterai Android.</string>
+    <string name="background_turn_battery_description">Jika balasan terhenti saat layar mati, Anda dapat mengecualikan MiniRP dari pengoptimalan baterai.</string>
+    <string name="background_turn_app_info">Info aplikasi</string>
+    <string name="background_turn_app_info_description">Periksa apakah perangkat Anda membatasi aktivitas MiniRP di latar belakang.</string>
+    <string name="background_turn_live_updates">Update Langsung</string>
+    <string name="background_turn_live_updates_on">Diizinkan di setelan sistem.</string>
+    <string name="background_turn_live_updates_description">Pantau progres balasan di bilah status atau layar kunci pada perangkat yang mendukungnya.</string>
+    <string name="background_turn_notifications">Setelan notifikasi</string>
+    <string name="background_turn_notifications_description">Izinkan notifikasi untuk mengaktifkan balasan di latar belakang.</string>
 </resources>

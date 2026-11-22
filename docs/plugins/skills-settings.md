@@ -4,11 +4,11 @@
 
 技能声明 `{name, description, agents, instructions?, tools?, hooks?}`。技能可以有多个工具，也可以只提供指令。每个工具都声明在所属技能的 `tools` 中。 `agents` 可包含 `chat`、`env`、`preset`、`search`、`fetch`、`temporary`。内置 base 插件还为 `plugin` 角色提供技能。工具声明为 `{name, description, parameters, handler, returnType?}`，`parameters` 是顶层 `type:"object"` 的 JSON Schema，`handler` 是本包 Hook URL。工具名在模型侧是 `plugin_<id>_<name>`，长度最多 64，同一插件的工具名全局唯一。
 
-Agent 先看到技能说明，通过 `activate_skill` 激活后，下一次模型请求才包含这个技能的工具。模型调用工具时，宿主调用其声明的 Action，并提供 `event.name = "skill.tool"` 以及 `skill`、`tool`、`arguments`。插件也可以通过 `actions.invoke` 调用同一个 Action URL。此时处理器收到 `actions.invoke` 事件，按普通 Action 授权处理。`skills[].hooks` 可绑定 `skill.activated`、`turn.started`、`turn.finished`、`tool.started`、`tool.finished`。回调值统一写本包 Actions Hook URL。
+智能体先看到技能说明，通过 `activate_skill` 激活后，下一次模型请求才包含这个技能的工具。模型调用工具时，宿主调用其声明的 Action，并提供 `event.name = "skill.tool"` 以及 `skill`、`tool`、`arguments`。插件也可以通过 `actions.invoke` 调用同一个 Action URL。此时处理器收到 `actions.invoke` 事件，按普通 Action 授权处理。`skills[].hooks` 可绑定 `skill.activated`、`turn.started`、`turn.finished`、`tool.started`、`tool.finished`。回调值统一写本包 Actions Hook URL。
 
-`returnType` 默认是 `"json"`。声明 `"asset-url"` 时，处理器直接返回一个 Asset URL 字符串或字符串数组，例如 `return [api.assets.url("report"), api.assets.url("cover")]`。宿主检查插件能否访问每个资源，向调用该工具的 Agent session 授权，并在每次读取时复查签名、可见性和预设作用域。
+`returnType` 默认是 `"json"`。声明 `"asset-url"` 时，处理器直接返回一个 Asset URL 字符串或字符串数组，例如 `return [api.assets.url("report"), api.assets.url("cover")]`。宿主检查插件能否访问每个资源，向调用该工具的智能体会话 授权，并在每次读取时复查签名、可见性和预设作用域。
 
-消息附件和工具返回的资源都以 Asset URL 交给 Agent。消息附件的 URI 形如 `minirp://assets/minirp.attachments/<id>`。模型可以激活 base 的 `view_asset`，也可把 URL 原样填入其他技能工具的参数。接收工具通过 `api.assets.open(url)` 或 `api.assets.read(url)` 读取本次传入的资源。工作区附件和经 Agent 转交的资源授权都限于本次工具调用。工具可以声明 `returnType: "asset-url"` 并把已传入的 URL 返回给同一 Agent。
+消息附件和工具返回的资源都以 Asset URL 交给智能体。消息附件的 URI 形如 `minirp://assets/minirp.attachments/<id>`。模型可以激活 base 的 `view_asset`，也可把 URL 原样填入其他技能工具的参数。接收工具通过 `api.assets.open(url)` 或 `api.assets.read(url)` 读取本次传入的资源。工作区附件和经智能体转交的资源授权都限于本次工具调用。工具可以声明 `returnType: "asset-url"` 并把已传入的 URL 返回给同一智能体。
 
 宿主按会话能力公开工具。返回 Asset URL 的工具出现在有 Asset 读取权限的会话中。生成卡片的工具出现在可显示卡片的 Chat、Env 和 Preset 会话中，调用时会重新核对插件是否仍然安装并对当前预设可用。
 

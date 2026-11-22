@@ -66,7 +66,10 @@ internal sealed class PluginScripts : IDisposable
                 try
                 {
                     var loaded = engine is not null;
-                    var runtime = engine ??= new(V8ScriptEngineFlags.DisableGlobalMembers)
+                    var flags = V8ScriptEngineFlags.DisableGlobalMembers;
+                    if (args["modules"] is JsonObject)
+                        flags |= V8ScriptEngineFlags.EnableTaskPromiseConversion;
+                    var runtime = engine ??= new(flags)
                     {
                         MaxRuntimeHeapSize = new UIntPtr(48 * 1024 * 1024),
                         RuntimeHeapSizeSampleInterval = TimeSpan.FromMilliseconds(50),
@@ -95,7 +98,8 @@ internal sealed class PluginScripts : IDisposable
                 if (!loaded)
                 {
                     engine.Execute(args.GetString("bootstrap"));
-                    engine.Execute("plugin.js", args.GetString("source"));
+                    if (args["modules"] is JsonObject modules) PluginModules.Load(engine, args.GetString("entry"), modules);
+                    else engine.Execute("plugin.js", args.GetString("source"));
                 }
                 return new();
             }

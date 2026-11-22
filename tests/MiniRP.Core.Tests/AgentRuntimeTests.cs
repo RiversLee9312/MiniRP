@@ -88,7 +88,12 @@ public sealed class AgentRuntimeTests
         var executions = 0;
         var activations = 0;
         var skill = new AgentSkill("fixture", "Run the owned tool.", new JsonArray(Tools.Define(owned, "Call the fixture.")),
-            (_, _, _) => Task.FromResult<JsonNode?>(JsonValue.Create(++executions)), OnActivate: () => activations++);
+            (_, args, _) => Task.FromResult<JsonNode?>(args.GetString("mode") switch
+            {
+                "timeout" => throw new HostPort.PlatformError("fixture_platform", "The fixture timed out.", timedOut: true),
+                "reported" => JsonValues.Error("The fixture rejected the operation.", "fixture_rejected"),
+                _ => JsonValue.Create(++executions),
+            }), OnActivate: () => activations++);
         HostPort? port = null;
         port = new(request =>
         {
@@ -99,13 +104,17 @@ public sealed class AgentRuntimeTests
                 1 => JsonValues.ParseObject("""
                     {"tool_calls":[
                         {"index":0,"id":"activate","function":{"name":"activate_skill","arguments":"{\"name\":\"fixture\"}"}},
-                        {"index":1,"id":"too_soon","function":{"name":"owned_tool","arguments":"{}"}}
+                        {"index":1,"id":"too_soon","function":{"name":"owned_tool","arguments":"{}"}},
+                        {"index":2,"id":"unknown","function":{"name":"unknown_tool","arguments":"{}"}}
                     ]}
                     """),
                 2 => JsonValues.ParseObject("""
                     {"tool_calls":[
                         {"index":0,"id":"allowed","function":{"name":"owned_tool","arguments":"{}"}},
-                        {"index":1,"id":"not_offered","function":{"name":"activate_skill","arguments":"{\"name\":\"fixture\"}"}}
+                        {"index":1,"id":"not_offered","function":{"name":"activate_skill","arguments":"{\"name\":\"fixture\"}"}},
+                        {"index":2,"id":"malformed","function":{"name":"owned_tool","arguments":"{\"mode\":"}},
+                        {"index":3,"id":"timeout","function":{"name":"owned_tool","arguments":"{\"mode\":\"timeout\"}"}},
+                        {"index":4,"id":"reported","function":{"name":"owned_tool","arguments":"{\"mode\":\"reported\"}"}}
                     ]}
                     """),
                 _ => new JsonObject { ["content"] = "Done." }
@@ -119,13 +128,22 @@ public sealed class AgentRuntimeTests
 
         string[] ToolNames(int request) => requests[request].GetArray("tools").Select(tool => tool.GetObject("function").GetString("name")).ToArray();
         string Response(string id) => requests[2].GetArray("messages").Single(item => item.GetString("tool_call_id") == id).GetString("content");
+        JsonObject Diagnostic(string id) => JsonValues.ParseObject(Response(id)).GetObject("diagnostic");
         CollectionAssert.AreEqual(new[] { "activate_skill" }, ToolNames(0));
         CollectionAssert.AreEqual(new[] { owned }, ToolNames(1));
         StringAssert.Contains(Response("too_soon"), "not offered");
+        Assert.AreEqual("fixture", Diagnostic("too_soon").GetString("skill"));
         StringAssert.Contains(Response("not_offered"), "not offered");
+        Assert.AreEqual("tool_unavailable", Diagnostic("unknown").GetString("code"));
+        Assert.AreEqual("arguments", Diagnostic("malformed").GetString("phase"));
+        Assert.AreEqual(1, Diagnostic("malformed").GetObject("details").GetInt32("line"));
+        Assert.AreEqual("timeout", Diagnostic("timeout").GetString("code"));
+        Assert.AreEqual("fixture_platform", Diagnostic("timeout").GetObject("details").GetString("operation"));
+        Assert.AreEqual("fixture_rejected", JsonValues.ParseObject(Response("reported")).GetString("code"));
+        Assert.AreEqual("fixture_rejected", Diagnostic("reported").GetString("code"));
         Assert.AreEqual(1, executions);
         Assert.AreEqual(1, activations);
-        CollectionAssert.AreEqual(new[] { "activate", "allowed" }, events.Where(item => item.GetString("kind") == "tool_start")
+        CollectionAssert.AreEqual(new[] { "activate", "allowed", "malformed", "timeout", "reported" }, events.Where(item => item.GetString("kind") == "tool_start")
             .Select(item => item.GetString("block")).ToArray());
     }
 
@@ -138,11 +156,13 @@ public sealed class AgentRuntimeTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task LongToolRunsCanFinishOrBeCancelledBeyondTheOldRoundLimit(bool cancel)
+    [DataRow("temporary", false)]
+    [DataRow("temporary", true)]
+    [DataRow("plugin", false)]
+    [DataRow("plugin", true)]
+    public async Task LongToolRunsFinishOrHonorCancellation(string role, bool cancel)
     {
-        const int steps = 45;
+        const int steps = 64;
         var executed = 0;
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         HostPort? port = null;
@@ -160,7 +180,7 @@ public sealed class AgentRuntimeTests
         });
         var model = new ModelClient(port, () => new("fixture", "Fixture", "openai", "http://fixture.invalid", "", "fixture",
             ContextWindow: 128000));
-        using var session = TestAgentSession.Open("temporary", ":memory:", model, _ => { });
+        using var session = TestAgentSession.Open(role, ":memory:", model, _ => { });
         var skill = new AgentSkill("fixture", "Advance the task.", new JsonArray(Tools.Define("advance", "Advance the task.")),
             (_, _, _) =>
             {

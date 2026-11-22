@@ -138,6 +138,12 @@ public sealed partial class Engine
         switch (command.GetString("op"))
         {
             case "archive_export":
+                if (IsTranscriptExport(command))
+                {
+                    await ExportTranscript(command, token);
+                    Emit(new() { ["kind"] = "archive_exported", ["request"] = request });
+                    return true;
+                }
                 if (command.GetString("type") is "room" or "save")
                     await containers.Flush(command.GetString("preset"), command.GetString("room"), token);
                 if (command.GetString("type") == "save")
@@ -337,7 +343,7 @@ public sealed partial class Engine
         {
             await RunMessage("preset",
                 "Respond to the PluginAgent status updates above. Continue the user's outstanding request when appropriate and tell the user what completed or what needs attention.",
-                false, new(), token, inputRole: "system", hiddenInput: true);
+                false, new(), token, inputRole: "system", hiddenInput: true, userInitiated: false);
         }
         finally
         {

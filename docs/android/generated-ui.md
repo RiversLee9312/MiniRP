@@ -1,6 +1,6 @@
 # Android 交互式回复
 
-ChatAgent 在 Android 上能按需激活 `interactive-ui` 技能。技能的说明由实际运行的 OpenUI 组件库生成。Agent 可以在同一条回复中组合 Markdown 和 OpenUI Lang，应用随模型流更新对应的聊天条目。这个流程沿用已配置的模型和流式协议。
+ChatAgent 在 Android 上能按需激活 `interactive-ui` 技能。技能的说明由实际运行的 OpenUI 组件库生成。智能体可以在同一条回复中组合 Markdown 和 OpenUI Lang，应用随模型流更新对应的聊天条目。这个流程沿用已配置的模型和流式协议。
 
 PresetAgent 成功保存新预设后会显示「回到首页」卡片。该按钮返回当前预设的首页，方便开始新对话。预设智能体或插件智能体仍在工作时，按钮保留当前会话并提示用户等待。
 

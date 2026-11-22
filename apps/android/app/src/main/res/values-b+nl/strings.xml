@@ -96,6 +96,7 @@
     <string name="invalid_url">Voer een geldig API-adres in.</string>
     <string name="native_core_error">Chat-engine starten mislukt.</string>
     <string name="export_chat">Chat exporteren</string>
+    <string name="export_transcript">Transcript exporteren (JSONL)</string>
     <string name="import_preset">Preset importeren</string>
     <string name="show_key">API-sleutel tonen</string>
     <string name="hide_key">API-sleutel verbergen</string>
@@ -178,8 +179,8 @@
     <string name="export_preset">Voorinstelling exporteren</string>
     <string name="export_save">Opgeslagen gegevens exporteren</string>
     <string name="import_save">Opgeslagen gegevens importeren</string>
-    <string name="plugin_agent">Plug-inagent</string>
-    <string name="plugin_agent_activity">Activiteit van de plug-inagent</string>
+    <string name="plugin_agent">Subagent voor plug-ins</string>
+    <string name="plugin_agent_activity">Activiteit van subagenten voor plug-ins</string>
     <string name="use_preset_model">Model van de voorinstelling gebruiken</string>
     <string name="plugin_run">Uitvoering %1$d</string>
     <string name="plugin_run_finished">Voltooid</string>
@@ -192,4 +193,21 @@
     <string name="research_apis">APIs voor zoeken en ophalen</string>
     <string name="research_search_provider">Webzoek-API</string>
     <string name="research_fetch_provider">Pagina-ophaal-API</string>
+    <string name="background_turns">Antwoorden op de achtergrond</string>
+    <string name="background_turns_description">Laat antwoorden verder genereren als je MiniRP verlaat. Tijdens het genereren verschijnt er een melding.</string>
+    <string name="background_turns_prompt_title">Antwoorden op de achtergrond voortzetten?</string>
+    <string name="background_turns_interrupted">Een antwoord is onderbroken. Zet antwoorden op de achtergrond aan zodat het volgende antwoord kan worden voltooid als je MiniRP verlaat.</string>
+    <string name="background_turns_enable">Aanzetten</string>
+    <string name="background_turns_later">Niet nu</string>
+    <string name="background_turn_running">MiniRP genereert een antwoord</string>
+    <string name="background_turn_battery">Batterijoptimalisatie</string>
+    <string name="background_turn_battery_exempt">MiniRP is vrijgesteld van Android-batterijoptimalisatie.</string>
+    <string name="background_turn_battery_description">Als antwoorden stoppen wanneer het scherm uitgaat, kun je MiniRP vrijstellen van batterijoptimalisatie.</string>
+    <string name="background_turn_app_info">App-info</string>
+    <string name="background_turn_app_info_description">Controleer of je apparaat de achtergrondactiviteit van MiniRP beperkt.</string>
+    <string name="background_turn_live_updates">Live-updates</string>
+    <string name="background_turn_live_updates_on">Toegestaan in de systeeminstellingen.</string>
+    <string name="background_turn_live_updates_description">Volg de voortgang op de statusbalk of het vergrendelscherm op ondersteunde apparaten.</string>
+    <string name="background_turn_notifications">Meldingsinstellingen</string>
+    <string name="background_turn_notifications_description">Sta meldingen toe om antwoorden op de achtergrond aan te zetten.</string>
 </resources>

@@ -96,6 +96,7 @@
     <string name="invalid_url">有効なAPIアドレスを入力してください。</string>
     <string name="native_core_error">チャットエンジンを起動できませんでした。</string>
     <string name="export_chat">チャットをエクスポート</string>
+    <string name="export_transcript">会話ログをエクスポート (JSONL)</string>
     <string name="import_preset">プリセットをインポート</string>
     <string name="show_key">APIキーを表示</string>
     <string name="hide_key">APIキーを非表示</string>
@@ -176,8 +177,8 @@
     <string name="export_preset">プリセットをエクスポート</string>
     <string name="export_save">セーブをエクスポート</string>
     <string name="import_save">セーブをインポート</string>
-    <string name="plugin_agent">プラグインエージェント</string>
-    <string name="plugin_agent_activity">プラグインエージェントのアクティビティ</string>
+    <string name="plugin_agent">プラグイン用サブエージェント</string>
+    <string name="plugin_agent_activity">プラグイン用サブエージェントのアクティビティ</string>
     <string name="use_preset_model">プリセットのモデルを使用</string>
     <string name="plugin_run">実行 %1$d</string>
     <string name="plugin_run_finished">完了</string>
@@ -190,4 +191,21 @@
     <string name="research_apis">検索・取得 API</string>
     <string name="research_search_provider">ウェブ検索 API</string>
     <string name="research_fetch_provider">ページ取得 API</string>
+    <string name="background_turns">バックグラウンドで返信</string>
+    <string name="background_turns_description">MiniRP を離れても返信の生成を続けます。生成中は通知が表示されます。</string>
+    <string name="background_turns_prompt_title">バックグラウンドで返信を続けますか？</string>
+    <string name="background_turns_interrupted">返信が中断されました。バックグラウンドでの返信を有効にすると、次回は MiniRP を離れても返信を続けられます。</string>
+    <string name="background_turns_enable">有効にする</string>
+    <string name="background_turns_later">今はしない</string>
+    <string name="background_turn_running">MiniRP が返信を生成中</string>
+    <string name="background_turn_battery">バッテリーの最適化</string>
+    <string name="background_turn_battery_exempt">MiniRP は Android のバッテリー最適化の対象外です。</string>
+    <string name="background_turn_battery_description">画面をオフにすると返信が中断される場合は、MiniRP をバッテリー最適化の対象外にできます。</string>
+    <string name="background_turn_app_info">アプリ情報</string>
+    <string name="background_turn_app_info_description">端末が MiniRP のバックグラウンド動作を制限していないか確認できます。</string>
+    <string name="background_turn_live_updates">ライブアップデート</string>
+    <string name="background_turn_live_updates_on">システム設定で許可されています。</string>
+    <string name="background_turn_live_updates_description">対応端末では、ステータスバーやロック画面で返信の進行状況を確認できます。</string>
+    <string name="background_turn_notifications">通知設定</string>
+    <string name="background_turn_notifications_description">バックグラウンドで返信するには、通知を許可してください。</string>
 </resources>

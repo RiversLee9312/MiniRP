@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 
 namespace MiniRP.Core;
 
-internal sealed class AgentAssetStorage(PluginRuntime runtime, MemoryDb db, string directory)
+internal sealed class AgentAssetStorage(PluginRuntime runtime, MemoryDb db, string directory, bool protectDraftAssets = false)
 {
     internal const string EntryPrefix = "_context/owned-asset/";
     internal const string FilePrefix = "asset-owned-";
@@ -27,10 +27,10 @@ internal sealed class AgentAssetStorage(PluginRuntime runtime, MemoryDb db, stri
     internal PluginRuntime.AssetContent Open(string url)
     {
         var file = Find(url) ?? throw new UnauthorizedAccessException("This Asset is unavailable in the session.");
-        return runtime.OpenAttachmentAsset(file) with { Writable = !file.ContainsKey("expires_at") };
+        return runtime.OpenAttachmentAsset(file) with { Writable = !file.ContainsKey("expires_at") && CanEdit(url) };
     }
 
-    internal AgentAssetStorage WithDatabase(MemoryDb connection) => new(runtime, connection, directory);
+    internal AgentAssetStorage WithDatabase(MemoryDb connection) => new(runtime, connection, directory, protectDraftAssets);
     internal void RequireWritable(string url) => _ = Require(url);
 
     internal async Task<JsonObject> StoreOutput(string name, string mime, string? url,
@@ -179,6 +179,7 @@ internal sealed class AgentAssetStorage(PluginRuntime runtime, MemoryDb db, stri
         JsonObject? record = null;
         db.UpdateInternal(EntryPrefix + url[Prefix.Length..], stored =>
         {
+            if (protectDraftAssets) PluginProjectAssets.RequireWritable(db, url);
             if (string.IsNullOrEmpty(stored)) throw MissingWritableAsset();
             record = JsonValues.ParseObject(stored);
             return update(record) ? JsonValues.Serialize(record) : "";
@@ -189,10 +190,12 @@ internal sealed class AgentAssetStorage(PluginRuntime runtime, MemoryDb db, stri
     private static UnauthorizedAccessException MissingWritableAsset() => new("This session has no writable Asset at that URL.");
     private void Save(string url, JsonObject record) => db.Write(EntryPrefix + url[Prefix.Length..], JsonValues.Serialize(record), internalWrite: true);
 
-    private static JsonObject Describe(string url, JsonObject file) => new()
+    private bool CanEdit(string url) => !protectDraftAssets || !PluginProjectAssets.ContainsAsset(db, url);
+
+    private JsonObject Describe(string url, JsonObject file) => new()
     {
         ["url"] = url, ["name"] = file.GetString("name"), ["mime"] = file.GetString("mime"),
-        ["size"] = JsonValues.Clone(file["size"]), ["writable"] = true
+        ["size"] = JsonValues.Clone(file["size"]), ["writable"] = CanEdit(url)
     };
 
     private static string Name(JsonObject args)

@@ -96,6 +96,7 @@
     <string name="invalid_url">Anna kelvollinen API-osoite.</string>
     <string name="native_core_error">Keskustelumoottoria ei voitu käynnistää.</string>
     <string name="export_chat">Vie keskustelu</string>
+    <string name="export_transcript">Vie keskustelutallenne (JSONL)</string>
     <string name="import_preset">Tuo esiasetus</string>
     <string name="show_key">Näytä API-avain</string>
     <string name="hide_key">Piilota API-avain</string>
@@ -178,8 +179,8 @@
     <string name="export_preset">Vie esiasetus</string>
     <string name="export_save">Vie tallennus</string>
     <string name="import_save">Tuo tallennus</string>
-    <string name="plugin_agent">Lisäosa-agentti</string>
-    <string name="plugin_agent_activity">Lisäosa-agentin toiminta</string>
+    <string name="plugin_agent">Lisäosien aliagentti</string>
+    <string name="plugin_agent_activity">Lisäosien aliagenttien toiminta</string>
     <string name="use_preset_model">Käytä esiasetuksen mallia</string>
     <string name="plugin_run">Suoritus %1$d</string>
     <string name="plugin_run_finished">Valmis</string>
@@ -192,4 +193,21 @@
     <string name="research_apis">Haku- ja noutorajapinnat</string>
     <string name="research_search_provider">Verkkohakurajapinta</string>
     <string name="research_fetch_provider">Sivun noutorajapinta</string>
+    <string name="background_turns">Vastaukset taustalla</string>
+    <string name="background_turns_description">Vastausten luonti jatkuu, kun poistut MiniRP:stä. Vastauksen luonnin aikana näkyy ilmoitus.</string>
+    <string name="background_turns_prompt_title">Jatketaanko vastausten luontia taustalla?</string>
+    <string name="background_turns_interrupted">Vastauksen luonti keskeytyi. Ota taustavastaukset käyttöön, jotta seuraava vastaus voi valmistua MiniRP:stä poistumisen jälkeen.</string>
+    <string name="background_turns_enable">Ota käyttöön</string>
+    <string name="background_turns_later">Ei nyt</string>
+    <string name="background_turn_running">MiniRP luo vastausta</string>
+    <string name="background_turn_battery">Akun optimointi</string>
+    <string name="background_turn_battery_exempt">MiniRP on vapautettu Androidin akun optimoinnista.</string>
+    <string name="background_turn_battery_description">Jos vastaukset keskeytyvät näytön sammuessa, voit vapauttaa MiniRP:n akun optimoinnista.</string>
+    <string name="background_turn_app_info">Sovelluksen tiedot</string>
+    <string name="background_turn_app_info_description">Tarkista, rajoittaako laitteesi MiniRP:n toimintaa taustalla.</string>
+    <string name="background_turn_live_updates">Reaaliaikaiset päivitykset</string>
+    <string name="background_turn_live_updates_on">Sallittu järjestelmäasetuksissa.</string>
+    <string name="background_turn_live_updates_description">Seuraa vastausta tilapalkissa tai lukitusnäytöllä tuetuilla laitteilla.</string>
+    <string name="background_turn_notifications">Ilmoitusasetukset</string>
+    <string name="background_turn_notifications_description">Salli ilmoitukset, jotta voit ottaa taustavastaukset käyttöön.</string>
 </resources>

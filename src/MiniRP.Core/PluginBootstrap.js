@@ -16,6 +16,7 @@
         let nextId = 0;
         const pending = new Map();
         const assetHandles = new WeakMap();
+        const hostFailures = new WeakMap();
         const requests = [];
         let state = { done: false };
         let output;
@@ -72,7 +73,9 @@
             } finally { await source.cancel(); }
         }
 
-        function fail(error) { state = { done: true, error: String(error?.message ?? error) }; }
+        function fail(error) {
+            state = { done: true, error: String(error?.message ?? error), diagnostic: hostFailures.get(error) };
+        }
         return freeze({
             start(payload) {
                 const info = parse(payload);
@@ -159,11 +162,15 @@
                 }).catch(fail);
             },
             reply(payload, chunk) {
-                const { id, result, error } = parse(payload);
+                const { id, result, error, diagnostic } = parse(payload);
                 const responder = pending.get(id);
                 if (!responder) throw new Error("Unknown plugin API request");
                 pending.delete(id);
-                if (error) responder.reject(new Error(error)); else responder.resolve(chunk ?? result);
+                if (error) {
+                    const failure = new Error(error);
+                    if (diagnostic) hostFailures.set(failure, diagnostic);
+                    responder.reject(failure);
+                } else responder.resolve(chunk ?? result);
             },
             pull() {
                 state = {};

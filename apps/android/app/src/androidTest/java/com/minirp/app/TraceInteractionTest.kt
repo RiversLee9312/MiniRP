@@ -11,11 +11,13 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
+import androidx.compose.ui.test.swipeDown
 import androidx.test.core.app.ApplicationProvider
 import com.minirp.app.ui.AgentConversation
 import com.minirp.app.ui.AgentRole
@@ -108,7 +110,7 @@ class TraceInteractionTest {
             )
         lateinit var list: LazyListState
         compose.setContent {
-            list = rememberLazyListState()
+            list = rememberLazyListState(initialFirstVisibleItemIndex = Int.MAX_VALUE)
             MaterialExpressiveTheme { TraceLog(blocks.value, expandThoughts = true, list = list) }
         }
         compose.onNodeWithText(label(R.string.search_agent)).performClick()
@@ -129,7 +131,7 @@ class TraceInteractionTest {
         }
         compose.waitUntil(5_000) { search.isDisplayed() }
         fun readingAnchor() = compose.runOnIdle {
-            assertTrue(list.canScrollBackward)
+            assertTrue(list.canScrollForward)
             val first =
                 list.layoutInfo.visibleItemsInfo.single { it.index == list.firstVisibleItemIndex }
             first.key to list.firstVisibleItemScrollOffset
@@ -145,6 +147,36 @@ class TraceInteractionTest {
         search.assertDoesNotExist()
         compose.onNodeWithText("Chat reasoning").assertIsDisplayed()
         compose.onNodeWithText("More results").assertDoesNotExist()
+    }
+
+    @Test
+    fun growingVisibleTraceKeepsItsReadingPositionUntilReturningToLatest() {
+        val trace = TraceBlock("live-trace", reasoning = "Thinking line\n".repeat(160), streaming = true)
+        val blocks = mutableStateOf(listOf(trace))
+        val list = LazyListState(firstVisibleItemIndex = Int.MAX_VALUE)
+        compose.setContent {
+            MaterialExpressiveTheme { TraceLog(blocks.value, expandThoughts = true, list = list) }
+        }
+        val transcript = compose.onNodeWithTag("transcript")
+        transcript.performTouchInput { swipeDown(durationMillis = 600) }
+        fun traceOffset() = compose.runOnIdle {
+            assertTrue(list.canScrollForward)
+            list.layoutInfo.visibleItemsInfo.single { it.key == "activity-step:live-trace" }.offset
+        }
+        val offset = traceOffset()
+        repeat(3) {
+            compose.runOnIdle {
+                blocks.value = listOf(trace.copy(reasoning = trace.reasoning + "New line\n".repeat(8 * (it + 1))))
+            }
+            assertEquals(offset, traceOffset())
+        }
+        val latest = compose.onNodeWithContentDescription(label(R.string.latest_message))
+        latest.performClick()
+        compose.waitUntil(5_000) { !latest.isDisplayed() }
+        compose.runOnIdle {
+            blocks.value = listOf(trace.copy(reasoning = trace.reasoning + "More at the end\n".repeat(30)))
+        }
+        compose.runOnIdle { assertTrue(!list.canScrollForward) }
     }
 
     @Test

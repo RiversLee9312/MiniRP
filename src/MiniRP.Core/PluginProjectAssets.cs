@@ -6,8 +6,19 @@ namespace MiniRP.Core;
 internal sealed class PluginProjectAssets(string root, string id, string preset, string name,
     MemoryDb db, AgentAssetStorage storage, Func<string, JsonObject, PluginRuntime.AssetContent> open)
 {
-    private string Key => "_context/plugin-project-assets/" + id;
+    private const string KeyPrefix = "_context/plugin-project-assets/";
+    private string Key => KeyPrefix + id;
     private string LegacySource => Path.Combine(root, "source");
+
+    internal static bool ContainsAsset(MemoryDb db, string url) =>
+        db.Query("SELECT content FROM entries WHERE key GLOB ?", KeyPrefix + "*").Any(row =>
+            JsonValues.ParseObject(row["content"]).GetObject("files").Any(file => JsonValues.GetText(file.Value) == url));
+
+    internal static void RequireWritable(MemoryDb db, string url)
+    {
+        if (ContainsAsset(db, url))
+            throw new UnauthorizedAccessException("Plugin draft Assets are read-only for PresetAgent. Send the change to the project's PluginAgent.");
+    }
 
     internal AgentSkill Skill() => new(
         "project_assets", "Associate Asset URLs with files in the assigned plugin draft.",
@@ -54,7 +65,7 @@ internal sealed class PluginProjectAssets(string root, string id, string preset,
                     throw new InvalidOperationException("Unknown project Asset tool.");
             }
         },
-        Instructions: "Use asset_storage to create or copy a file, then associate its exact Asset URL with a package-relative path. Use view_asset and edit_asset on that URL. Unlinking a URL keeps the original Asset. For a durable draft, copy expiring Assets with create_asset before linking them.");
+        Instructions: "Start with project_asset_list. Read and edit existing files, including manifest.json, through their listed Asset URLs. For a new file, use create_asset and link its returned URL to a relative package path. For .mjs imports, link every source at the path the import resolves to. If replacing an association, unlink the old URL first. Unlinking keeps the old Asset.");
 
     internal async Task Stage(string destination, CancellationToken ct)
     {
@@ -139,6 +150,7 @@ internal sealed class PluginProjectAssets(string root, string id, string preset,
             var mime = Path.GetExtension(path).ToLowerInvariant() switch
             {
                 ".json" => "application/json",
+                ".js" or ".mjs" => "text/javascript",
                 ".xml" => "application/xml",
                 ".png" => "image/png",
                 ".jpg" or ".jpeg" => "image/jpeg",

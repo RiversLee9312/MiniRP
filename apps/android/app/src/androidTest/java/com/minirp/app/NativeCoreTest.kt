@@ -315,6 +315,29 @@ class NativeCoreTest {
     }
 
     @Test
+    fun installedModuleSuppliesAnAssetThroughTheNativeCore() = runBlocking {
+        val fixture = InstrumentationRegistry.getArguments().getString("pluginFixture")
+        assumeTrue("Pass the signed stream-assets example with -e pluginFixture", fixture != null)
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = temporary.newFolder()
+        val context = object : ContextWrapper(app) { override fun getFilesDir() = directory }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val core = CoreClient(context, scope)
+        try {
+            withTimeout(25_000) {
+                val installed = core.query(JSONObject().put("op", "plugin_install").put("path", fixture))
+                assertEquals("stream-example", installed.getJSONObject("item").getString("id"))
+                val bytes = core.readAsset("minirp://assets/example.minichat.stream/sample", 2 * 1024 * 1024)
+                assertEquals(1_000_003, bytes.size)
+                assertTrue(bytes.all { it == 42.toByte() })
+            }
+        } finally {
+            core.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun nativePackageVerifiesSignerAndStreamsAssets() = runBlocking {
         val fixture = InstrumentationRegistry.getArguments().getString("pluginFixture")
         assumeTrue("Pass a signed stream-assets example with -e pluginFixture", fixture != null)

@@ -367,7 +367,8 @@ private fun timeline(
                 val step = activity[start]
                 val run = pluginRuns[step.pluginRun]
                 if (run != null) {
-                    addChild(run, "plugin-activity:${step.pluginRun}", name = step.pluginAgentName.ifBlank { "PluginAgent" })
+                    addChild(run, "plugin-activity:${step.pluginRun}", agent = AgentRole.Plugin,
+                        name = step.pluginAgentName.takeIf(String::isNotBlank))
                     start++
                 } else if (step.isSearchTrace) {
                     var end = start + 1
@@ -427,7 +428,6 @@ private fun timeline(
     }
     flush()
 }
-    .asReversed()
 
 @Composable
 internal fun TraceLog(
@@ -437,7 +437,7 @@ internal fun TraceLog(
     onBranch: ((String) -> Unit)? = null,
     waiting: Boolean = false,
     replyError: String? = null,
-    list: LazyListState = rememberLazyListState(),
+    list: LazyListState = rememberLazyListState(initialFirstVisibleItemIndex = Int.MAX_VALUE),
     loadThumbnail: (suspend (AttachmentThumbnail) -> ByteArray)? = null,
     openUi: OpenUiInteractions? = null,
     displayAssets: DisplayAssets? = null,
@@ -471,15 +471,43 @@ internal fun TraceLog(
         remember(blocks, streamed, expandThoughts, expanded, standalonePluginTrace) {
             timeline(blocks, streamed, expandThoughts, expanded, standalonePluginTrace)
         }
+    // Keep the visible row anchored at its top as it grows. Pin to the end only
+    // when the reader was already there before the content changed.
+    val content = Triple(entries, waiting, replyError)
+    var previousContent by remember(list) { mutableStateOf(content) }
+    var followingLatest by rememberSaveable { mutableStateOf(list.firstVisibleItemIndex == Int.MAX_VALUE) }
+    val latestIndex by rememberUpdatedState(entries.size)
+    LaunchedEffect(list) {
+        var previousAnchor: Any? = null
+        snapshotFlow {
+            val anchor = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == list.firstVisibleItemIndex }?.key
+            Triple(list.isScrollInProgress, list.canScrollForward, anchor)
+        }.collect { (scrolling, away, anchor) ->
+            when {
+                scrolling -> followingLatest = false
+                !away -> followingLatest = true
+                anchor != previousAnchor -> followingLatest = false
+                followingLatest -> list.requestScrollToItem(latestIndex)
+            }
+            previousAnchor = anchor
+        }
+    }
+    SideEffect {
+        if (previousContent != content) {
+            if (followingLatest && !list.isScrollInProgress) {
+                list.requestScrollToItem(entries.size)
+            }
+            previousContent = content
+        }
+    }
     val itemsByKey = remember(entries) { entries.associateBy { it.id } }
     val pinned by
         remember(list, itemsByKey) {
             derivedStateOf {
                 val layout = list.layoutInfo
                 val top =
-                    layout.visibleItemsInfo
-                        .filter { it.offset < layout.viewportEndOffset }
-                        .maxByOrNull { it.offset } ?: return@derivedStateOf emptyList()
+                    layout.visibleItemsInfo.firstOrNull { it.offset + it.size > layout.viewportStartOffset }
+                        ?: return@derivedStateOf emptyList()
                 val entry = itemsByKey[top.key]
                 when (entry) {
                     is TimelineItem.ActivityStep -> listOfNotNull(entry.group, entry.child)
@@ -488,7 +516,7 @@ internal fun TraceLog(
                             entry.header.parent?.let(::add)
                             if (
                                 entry.header.expanded &&
-                                    top.offset + top.size > layout.viewportEndOffset
+                                    top.offset < layout.viewportStartOffset
                             )
                                 add(entry.header)
                         }
@@ -497,16 +525,16 @@ internal fun TraceLog(
             }
         }
     fun toggleTrace(header: TraceHeader, pinnedHeader: Boolean = false) {
-        if (pinnedHeader && list.canScrollBackward) {
+        if (pinnedHeader && list.canScrollForward) {
             val remaining =
                 timeline(blocks, streamed, expandThoughts, expanded + (header.id to false), standalonePluginTrace)
             val index = remaining.indexOfFirst { it.id == header.id }
-            if (index >= 0) list.requestScrollToItem(index + 1)
+            if (index >= 0) list.requestScrollToItem((index - 1).coerceAtLeast(0))
         }
         expansion[header.id] = !header.expanded
     }
     val canReturn by remember {
-        derivedStateOf { list.canScrollBackward && list.layoutInfo.totalItemsCount > 1 }
+        derivedStateOf { list.canScrollForward && list.layoutInfo.totalItemsCount > 1 }
     }
     val scope = rememberCoroutineScope()
     val openUiPages = remember(openUi) { OpenUiPageCache() }
@@ -515,28 +543,9 @@ internal fun TraceLog(
         LazyColumn(
             Modifier.fillMaxSize().testTag("transcript"),
             state = list,
-            reverseLayout = true,
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.Bottom,
         ) {
-            // Keep a permanent bottom item. Stable keys let LazyColumn hold this anchor at the
-            // latest edge and preserve the user's reading position elsewhere without a scroll jump.
-            item(key = "latest-edge", contentType = "status") {
-                Box(Modifier.fillMaxWidth().heightIn(min = 1.dp)) {
-                    if (replyError != null)
-                        Text(
-                            replyError,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(vertical = 8.dp),
-                        )
-                    else if (waiting)
-                        Text(
-                            stringResource(R.string.running),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 8.dp),
-                        )
-                }
-            }
             items(entries, key = { it.id }, contentType = { it.type }) { item ->
                 val spacing =
                     if (
@@ -613,13 +622,29 @@ internal fun TraceLog(
                     }
                 }
             }
+            item(key = "latest-edge", contentType = "status") {
+                Box(Modifier.fillMaxWidth().heightIn(min = 1.dp)) {
+                    if (replyError != null)
+                        Text(
+                            replyError,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    else if (waiting)
+                        Text(
+                            stringResource(R.string.running),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                }
+            }
         }
         if (pinned.isNotEmpty()) {
             Surface(
                 modifier =
                     Modifier.align(Alignment.TopCenter)
                         .fillMaxWidth()
-                        .scrollable(list, Orientation.Vertical),
+                        .scrollable(list, Orientation.Vertical, reverseDirection = true),
                 color = MaterialTheme.colorScheme.surface,
             ) {
                 Column(Modifier.padding(horizontal = 16.dp)) {
@@ -634,7 +659,11 @@ internal fun TraceLog(
         if (canReturn)
             FilledTonalIconButton(
                 onClick = {
-                    scope.launch { list.animateScrollToItem(0) }
+                    scope.launch {
+                        list.animateScrollToItem(entries.size)
+                        followingLatest = true
+                        list.requestScrollToItem(latestIndex)
+                    }
                 },
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
             ) {

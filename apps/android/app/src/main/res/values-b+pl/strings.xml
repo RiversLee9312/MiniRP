@@ -96,6 +96,7 @@
     <string name="invalid_url">Wpisz prawidłowy adres API.</string>
     <string name="native_core_error">Nie udało się uruchomić silnika czatu.</string>
     <string name="export_chat">Eksportuj czat</string>
+    <string name="export_transcript">Eksportuj zapis rozmowy (JSONL)</string>
     <string name="import_preset">Importuj preset</string>
     <string name="show_key">Pokaż klucz API</string>
     <string name="hide_key">Ukryj klucz API</string>
@@ -182,8 +183,8 @@
     <string name="export_preset">Eksportuj ustawienie</string>
     <string name="export_save">Eksportuj zapis</string>
     <string name="import_save">Importuj zapis</string>
-    <string name="plugin_agent">Agent wtyczek</string>
-    <string name="plugin_agent_activity">Aktywność agenta wtyczek</string>
+    <string name="plugin_agent">Subagent wtyczek</string>
+    <string name="plugin_agent_activity">Aktywność subagentów wtyczek</string>
     <string name="use_preset_model">Użyj modelu ustawienia wstępnego</string>
     <string name="plugin_run">Uruchomienie %1$d</string>
     <string name="plugin_run_finished">Ukończono</string>
@@ -196,4 +197,21 @@
     <string name="research_apis">API wyszukiwania i pobierania</string>
     <string name="research_search_provider">API wyszukiwania w sieci</string>
     <string name="research_fetch_provider">API pobierania stron</string>
+    <string name="background_turns">Odpowiedzi w tle</string>
+    <string name="background_turns_description">Kontynuuj tworzenie odpowiedzi po opuszczeniu MiniRP. W trakcie generowania odpowiedzi pojawi się powiadomienie.</string>
+    <string name="background_turns_prompt_title">Kontynuować odpowiedzi w tle?</string>
+    <string name="background_turns_interrupted">Tworzenie odpowiedzi zostało przerwane. Włącz odpowiedzi w tle, aby następna mogła zostać dokończona po opuszczeniu MiniRP.</string>
+    <string name="background_turns_enable">Włącz</string>
+    <string name="background_turns_later">Nie teraz</string>
+    <string name="background_turn_running">MiniRP tworzy odpowiedź</string>
+    <string name="background_turn_battery">Optymalizacja baterii</string>
+    <string name="background_turn_battery_exempt">MiniRP jest wykluczone z optymalizacji baterii Androida.</string>
+    <string name="background_turn_battery_description">Jeśli odpowiedzi są przerywane po wyłączeniu ekranu, możesz wykluczyć MiniRP z optymalizacji baterii.</string>
+    <string name="background_turn_app_info">Informacje o aplikacji</string>
+    <string name="background_turn_app_info_description">Sprawdź, czy urządzenie ogranicza działanie MiniRP w tle.</string>
+    <string name="background_turn_live_updates">Aktualizacje na żywo</string>
+    <string name="background_turn_live_updates_on">Dozwolone w ustawieniach systemu.</string>
+    <string name="background_turn_live_updates_description">Sprawdzaj postęp na pasku stanu lub ekranie blokady na obsługiwanych urządzeniach.</string>
+    <string name="background_turn_notifications">Ustawienia powiadomień</string>
+    <string name="background_turn_notifications_description">Zezwól na powiadomienia, aby włączyć odpowiedzi w tle.</string>
 </resources>

@@ -154,14 +154,14 @@
     {
       "name": "plugin-docs",
       "description": "Read or search the built-in plugin development guide, API reference and manifest schema.",
+      "instructions": "Search the exact heading or field in the narrowest topic. Query ## Assets in assets for package resources, or 声明状态和卡片 in automation for the card and state manifest example. Use schema for field types. To continue a result, pass next_offset as offset with the same topic and omit query.",
       "agents": [
-        "preset",
         "plugin"
       ],
       "tools": [
         {
           "name": "plugin_docs",
-          "description": "Read or search the plugin development guide, API reference, or manifest schema.",
+          "description": "Read a focused topic. Use assets for declared resources and Actions, automation for state and card previews, and development for drafts and publishing.",
           "handler": "minirp://actions/minirp.base/hooks/develop",
           "parameters": {
             "type": "object",
@@ -171,6 +171,7 @@
                 "enum": [
                   "development",
                   "api",
+                  "assets",
                   "schema",
                   "preset",
                   "automation",
@@ -194,12 +195,33 @@
       ]
     },
     {
+      "name": "preset-docs",
+      "description": "Look up preset modes, delegated search and ensemble rooms.",
+      "agents": ["preset"],
+      "tools": [
+        {
+          "name": "preset_docs",
+          "description": "Read or search the preset guide.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "topic": { "type": "string", "enum": ["preset", "search", "rooms"] },
+              "query": { "type": "string" },
+              "offset": { "type": "integer" },
+              "length": { "type": "integer" }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "plugin-development",
-      "description": "Delegate plugin development and deployment to independent PluginAgents scoped to the current preset.",
+      "description": "Delegate and track plugin projects in the current preset.",
       "agents": [
         "preset"
       ],
-      "instructions": "Give each PluginAgent its own task and project. Spawn independent projects in parallel and send follow-up messages by ID. Use plugin_wait when you need the result now. If a worker is still running when you stop waiting, its result or error will arrive as a system message in the preset session, including after your turn ends. Archive inactive agents. To resume work on an existing plugin, use the original agent's ID. Only PluginAgent operates plugin files and deployments. Deploy or remove a plugin only when requested by the user.\n\nFor automatic story progression, consider an event-driven flow when delegating a plugin. One example is to expose a trigger tool to ChatAgent and a world-state update tool to EnvAgent through their respective Skills and Action URLs. When ChatAgent detects the chosen story event, it calls the trigger tool. The plugin can notify EnvAgent with api.harness.send using agent env and stage true. After advancing the story, EnvAgent calls its tool to save the new world state with api.state.set. Expose the relevant entry through the ChatAgent Skill's stateEntries so ChatAgent can subscribe to the returned db_key with db_watch and read updates with db_read. Adapt the triggers, tool roles, hand-offs, and state to suit the story. Invent new patterns freely.",
+      "instructions": "Delegate each project to its own PluginAgent. Describe the user entry point, the expected result, important constraints, and any deployment authorization. Pass exact Asset URLs for reference material. Use the existing agent ID for revisions and fixes. Use plugin_wait when you need a result now. Later results arrive in the preset session, including after this turn. Archive inactive agents. Review the report and verify any available installed entry point. Assign all implementation, draft tests, fixes, and deployment to PluginAgent.",
       "tools": [
         {
           "name": "plugin_spawn",
@@ -312,7 +334,7 @@
       "agents": [
         "plugin"
       ],
-      "instructions": "Use project_assets to associate Asset URLs with package paths. Preserve the assigned manifest id and packageName. Debugging runs a fixture event in an isolated V8 runtime. For OpenUI cards, read project_card_catalog and use project_card_preview on the draft before publishing. Inspect the diagnostics, rendered text, dimensions and controls. If your model accepts images, request screenshot: true to inspect the rendered PNG. Replay test interactions and verify the resulting state and action payloads. Edit the source and repeat until the card passes. Publishing validates the signed package and loads it for the current preset. Removing a deployment retains the draft.",
+      "instructions": "Call project_debug with the declared Action URL and a fixture event. Inspect the first result before adding an assertion. For Android cards, use project_card_catalog for unfamiliar components, then project_card_preview to check rendered text, diagnostics and relevant controls. Preview can seed state with an Action and provides virtual chat and room IDs. After changes, rerun the affected fixture. When authorized to publish, pass handler, event and expected_result_json to project_publish. Encode the inner result as JSON text, for example {\"count\":2}. Check verification.ok for the installed generation. project_verify repeats that isolated check. For a real public text Asset, use view_asset and plugin_base_grep on the installed minirp://assets/ URL. Use the appropriate chat, settings or attachment entry for other live tests. Removal keeps the draft.",
       "tools": [
         {
           "name": "project_debug",
@@ -326,7 +348,9 @@
               },
               "event": {
                 "type": "object"
-              }
+              },
+              "expected_result_json": { "type": "string", "description": "Optional JSON text for the exact handler result. Copy only the inner result. Omit on the first test." },
+              "expected_result": { "description": "Optional direct JSON value for existing callers. Supply only one expected result field." }
             }
           }
         },
@@ -376,11 +400,30 @@
         },
         {
           "name": "project_publish",
-          "description": "Validate the draft and deploy its signed plugin. A new deployment is enabled only in this preset.",
+          "description": "Test and install the signed draft, then check the installed generation in isolation. A new deployment is scoped to this preset.",
           "handler": "minirp://actions/minirp.base/hooks/develop",
           "parameters": {
             "type": "object",
-            "properties": {}
+            "properties": {
+              "handler": { "type": "string", "description": "A declared Action URL to test before and after install. Omit for a load check." },
+              "event": { "type": "object" },
+              "expected_result_json": { "type": "string", "description": "JSON text for the exact handler result. Copy only the inner result of a successful draft test. A mismatch blocks deployment." },
+              "expected_result": { "description": "Optional direct JSON value for existing callers. Supply only one expected result field." }
+            }
+          }
+        },
+        {
+          "name": "project_verify",
+          "description": "Retest this project's installed generation in isolation, with a fixture or a load check. Leaves the live plugin and its data alone.",
+          "handler": "minirp://actions/minirp.base/hooks/develop",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "handler": { "type": "string" },
+              "event": { "type": "object" },
+              "expected_result_json": { "type": "string", "description": "Optional JSON text for the exact handler result. Copy only the inner result." },
+              "expected_result": { "description": "Optional direct JSON value for existing callers. Supply only one expected result field." }
+            }
           }
         },
         {

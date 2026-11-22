@@ -40,7 +40,7 @@
     <string name="preset_return_home">กลับไปที่หน้าหลัก</string>
     <string name="preset_return_home_detail">แตะปุ่มเพื่อออกจากตัวแก้ไขพรีเซ็ต คุณสามารถเริ่มแชตใหม่จากหน้าหลักของพรีเซ็ตนี้ได้</string>
     <string name="preset_return_home_setup_pending">ตั้งค่าพรีเซ็ตให้เสร็จก่อนกลับไปที่หน้าหลัก</string>
-    <string name="preset_return_home_working">คุณจะกลับไปที่หน้าหลักได้เมื่อตัวแทนทำงานเสร็จ</string>
+    <string name="preset_return_home_working">คุณจะกลับไปที่หน้าหลักได้เมื่อเอเจนต์ทำงานเสร็จ</string>
     <string name="error">ข้อผิดพลาด</string>
     <string name="retry">ลองอีกครั้ง</string>
     <string name="select_model">เลือกโมเดล</string>
@@ -96,6 +96,7 @@
     <string name="invalid_url">ป้อนที่อยู่ API ที่ถูกต้อง</string>
     <string name="native_core_error">เริ่มระบบแชตไม่สำเร็จ</string>
     <string name="export_chat">ส่งออกแชต</string>
+    <string name="export_transcript">ส่งออกบันทึกการสนทนา (JSONL)</string>
     <string name="import_preset">นำเข้าพรีเซ็ต</string>
     <string name="show_key">แสดงคีย์ API</string>
     <string name="hide_key">ซ่อนคีย์ API</string>
@@ -176,8 +177,8 @@
     <string name="export_preset">ส่งออกค่าที่ตั้งไว้</string>
     <string name="export_save">ส่งออกข้อมูลบันทึก</string>
     <string name="import_save">นำเข้าข้อมูลบันทึก</string>
-    <string name="plugin_agent">เอเจนต์ปลั๊กอิน</string>
-    <string name="plugin_agent_activity">กิจกรรมของเอเจนต์ปลั๊กอิน</string>
+    <string name="plugin_agent">เอเจนต์ย่อยของปลั๊กอิน</string>
+    <string name="plugin_agent_activity">กิจกรรมเอเจนต์ย่อยของปลั๊กอิน</string>
     <string name="use_preset_model">ใช้โมเดลของค่าที่ตั้งไว้</string>
     <string name="plugin_run">การทำงานครั้งที่ %1$d</string>
     <string name="plugin_run_finished">เสร็จแล้ว</string>
@@ -190,4 +191,21 @@
     <string name="research_apis">API ค้นหาและดึงข้อมูล</string>
     <string name="research_search_provider">API ค้นหาเว็บ</string>
     <string name="research_fetch_provider">API ดึงหน้าเว็บ</string>
+    <string name="background_turns">ตอบกลับในเบื้องหลัง</string>
+    <string name="background_turns_description">สร้างคำตอบต่อได้แม้ออกจาก MiniRP ระบบจะแสดงการแจ้งเตือนระหว่างสร้างคำตอบ</string>
+    <string name="background_turns_prompt_title">ต้องการสร้างคำตอบต่อในเบื้องหลังไหม</string>
+    <string name="background_turns_interrupted">การสร้างคำตอบถูกขัดจังหวะ เปิดการตอบกลับในเบื้องหลังเพื่อให้คำตอบถัดไปสร้างจนเสร็จได้เมื่อออกจาก MiniRP</string>
+    <string name="background_turns_enable">เปิดใช้</string>
+    <string name="background_turns_later">ไว้ทีหลัง</string>
+    <string name="background_turn_running">MiniRP กำลังสร้างคำตอบ</string>
+    <string name="background_turn_battery">การเพิ่มประสิทธิภาพแบตเตอรี่</string>
+    <string name="background_turn_battery_exempt">MiniRP ได้รับการยกเว้นจากการเพิ่มประสิทธิภาพแบตเตอรี่ของ Android</string>
+    <string name="background_turn_battery_description">หากคำตอบหยุดสร้างเมื่อปิดหน้าจอ คุณสามารถยกเว้น MiniRP จากการเพิ่มประสิทธิภาพแบตเตอรี่ได้</string>
+    <string name="background_turn_app_info">ข้อมูลแอป</string>
+    <string name="background_turn_app_info_description">ตรวจสอบว่าอุปกรณ์จำกัดกิจกรรมเบื้องหลังของ MiniRP หรือไม่</string>
+    <string name="background_turn_live_updates">การอัปเดตสด</string>
+    <string name="background_turn_live_updates_on">อนุญาตในการตั้งค่าระบบแล้ว</string>
+    <string name="background_turn_live_updates_description">ติดตามสถานะคำตอบในแถบสถานะหรือหน้าจอล็อกบนอุปกรณ์ที่รองรับ</string>
+    <string name="background_turn_notifications">การตั้งค่าการแจ้งเตือน</string>
+    <string name="background_turn_notifications_description">อนุญาตการแจ้งเตือนเพื่อเปิดใช้การตอบกลับในเบื้องหลัง</string>
 </resources>

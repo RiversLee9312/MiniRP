@@ -96,6 +96,7 @@
     <string name="invalid_url">نشانی API معتبر وارد کنید.</string>
     <string name="native_core_error">موتور گفت‌وگو شروع نشد.</string>
     <string name="export_chat">خروجی گرفتن از گفت‌وگو</string>
+    <string name="export_transcript">صادر کردن متن گفتگو (JSONL)</string>
     <string name="import_preset">واردکردن قالب</string>
     <string name="show_key">نمایش کلید API</string>
     <string name="hide_key">پنهان‌کردن کلید API</string>
@@ -178,8 +179,8 @@
     <string name="export_preset">صادر کردن پیش‌تنظیم</string>
     <string name="export_save">صادر کردن ذخیره</string>
     <string name="import_save">وارد کردن ذخیره</string>
-    <string name="plugin_agent">عامل افزونه</string>
-    <string name="plugin_agent_activity">فعالیت عامل افزونه</string>
+    <string name="plugin_agent">عامل فرعی افزونه</string>
+    <string name="plugin_agent_activity">فعالیت عامل‌های فرعی افزونه</string>
     <string name="use_preset_model">استفاده از مدل پیش‌تنظیم</string>
     <string name="plugin_run">اجرای %1$d</string>
     <string name="plugin_run_finished">تکمیل شد</string>
@@ -192,4 +193,21 @@
     <string name="research_apis">APIهای جستجو و دریافت</string>
     <string name="research_search_provider">API جستجوی وب</string>
     <string name="research_fetch_provider">API دریافت صفحه</string>
+    <string name="background_turns">پاسخ‌ها در پس‌زمینه</string>
+    <string name="background_turns_description">تولید پاسخ‌ها پس از خروج از \u2066MiniRP\u2069 ادامه پیدا می‌کند. هنگام تولید پاسخ، اعلانی نمایش داده می‌شود.</string>
+    <string name="background_turns_prompt_title">پاسخ‌ها در پس‌زمینه ادامه پیدا کنند؟</string>
+    <string name="background_turns_interrupted">تولید یک پاسخ قطع شد. این گزینه را فعال کنید تا پاسخ بعدی بتواند پس از خروج از \u2066MiniRP\u2069 کامل شود.</string>
+    <string name="background_turns_enable">فعال کردن</string>
+    <string name="background_turns_later">فعلاً نه</string>
+    <string name="background_turn_running">در حال تولید پاسخ در \u2066MiniRP\u2069</string>
+    <string name="background_turn_battery">بهینه‌سازی باتری</string>
+    <string name="background_turn_battery_exempt">بهینه‌سازی باتری اندروید برای \u2066MiniRP\u2069 اعمال نمی‌شود.</string>
+    <string name="background_turn_battery_description">اگر پاسخ‌ها هنگام خاموش شدن صفحه قطع می‌شوند، می‌توانید \u2066MiniRP\u2069 را از بهینه‌سازی باتری مستثنا کنید.</string>
+    <string name="background_turn_app_info">اطلاعات برنامه</string>
+    <string name="background_turn_app_info_description">بررسی کنید که دستگاهتان فعالیت \u2066MiniRP\u2069 در پس‌زمینه را محدود می‌کند یا نه.</string>
+    <string name="background_turn_live_updates">به‌روزرسانی‌های زنده</string>
+    <string name="background_turn_live_updates_on">در تنظیمات سیستم مجاز است.</string>
+    <string name="background_turn_live_updates_description">اجازه دهید پیشرفت پاسخ در نوار وضعیت یا صفحهٔ قفل دستگاه‌های سازگار نمایش داده شود.</string>
+    <string name="background_turn_notifications">تنظیمات اعلان‌ها</string>
+    <string name="background_turn_notifications_description">برای فعال کردن پاسخ‌گویی در پس‌زمینه، به اعلان‌ها اجازه دهید.</string>
 </resources>

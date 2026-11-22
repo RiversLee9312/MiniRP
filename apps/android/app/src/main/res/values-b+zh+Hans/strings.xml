@@ -40,7 +40,7 @@
     <string name="preset_return_home">回到首页</string>
     <string name="preset_return_home_detail">点击按钮离开预设编辑器。你可以从此预设的首页开始新聊天。</string>
     <string name="preset_return_home_setup_pending">请先完成预设设置，再回到首页。</string>
-    <string name="preset_return_home_working">代理完成工作后，你就可以回到首页。</string>
+    <string name="preset_return_home_working">智能体完成工作后，你就可以回到首页。</string>
     <string name="error">出错</string>
     <string name="retry">重试</string>
     <string name="select_model">选择模型</string>
@@ -104,6 +104,7 @@
     <string name="invalid_url">请输入有效的API地址。</string>
     <string name="native_core_error">无法启动聊天引擎。</string>
     <string name="export_chat">导出聊天记录</string>
+    <string name="export_transcript">导出转录 (JSONL)</string>
     <string name="import_preset">导入预设</string>
     <string name="show_key">显示API密钥</string>
     <string name="hide_key">隐藏API密钥</string>
@@ -176,9 +177,9 @@
     <string name="export_preset">导出预设</string>
     <string name="export_save">导出存档</string>
     <string name="import_save">导入存档</string>
-    <string name="plugin_agent">插件子代理</string>
-    <string name="plugin_agent_activity">插件子代理活动</string>
-    <string name="use_preset_model">使用预设代理的模型</string>
+    <string name="plugin_agent">插件子智能体</string>
+    <string name="plugin_agent_activity">插件子智能体活动</string>
+    <string name="use_preset_model">使用预设智能体的模型</string>
     <string name="plugin_run">第 %1$d 次运行</string>
     <string name="plugin_run_finished">已完成</string>
     <string name="plugin_run_failed">失败</string>
@@ -190,4 +191,21 @@
     <string name="research_apis">搜索和抓取 API</string>
     <string name="research_search_provider">网页搜索 API</string>
     <string name="research_fetch_provider">页面抓取 API</string>
+    <string name="background_turns">后台回复</string>
+    <string name="background_turns_description">离开 MiniRP 后继续生成回复。生成期间会显示通知。</string>
+    <string name="background_turns_prompt_title">要在后台继续生成回复吗？</string>
+    <string name="background_turns_interrupted">回复生成中断了。开启后台回复，下次离开 MiniRP 时也能继续生成回复。</string>
+    <string name="background_turns_enable">开启</string>
+    <string name="background_turns_later">暂不开启</string>
+    <string name="background_turn_running">MiniRP 正在生成回复</string>
+    <string name="background_turn_battery">电池优化</string>
+    <string name="background_turn_battery_exempt">MiniRP 已获准忽略 Android 电池优化。</string>
+    <string name="background_turn_battery_description">如果锁屏后回复中断，可以允许 MiniRP 忽略电池优化。</string>
+    <string name="background_turn_app_info">应用信息</string>
+    <string name="background_turn_app_info_description">查看设备是否限制 MiniRP 的后台活动。</string>
+    <string name="background_turn_live_updates">实时更新</string>
+    <string name="background_turn_live_updates_on">已在系统设置中允许。</string>
+    <string name="background_turn_live_updates_description">允许在支持的设备上通过状态栏或锁屏查看回复进度。</string>
+    <string name="background_turn_notifications">通知设置</string>
+    <string name="background_turn_notifications_description">请允许通知，以开启后台回复。</string>
 </resources>

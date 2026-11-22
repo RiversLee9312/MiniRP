@@ -1,12 +1,16 @@
 package com.minirp.app.data
 
 import android.content.Context
+import android.os.Process
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences as StoredPreferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import java.security.KeyStore
@@ -27,6 +31,46 @@ class Preferences internal constructor(private val store: DataStore<StoredPrefer
     private val providersKey = stringPreferencesKey("providers_encrypted")
     private val optionsKey = stringPreferencesKey("options")
     private val researchKeys = stringPreferencesKey("research_keys_encrypted")
+    private val backgroundTurnsKey = booleanPreferencesKey("background_turns_enabled")
+    private val backgroundTurnsAskedKey = booleanPreferencesKey("background_turns_asked")
+    private val activeTurnPidKey = intPreferencesKey("active_turn_pid")
+    private val activeTurnStartedKey = longPreferencesKey("active_turn_started")
+
+    internal data class TurnProtectionSettings(
+        val enabled: Boolean,
+        val asked: Boolean,
+        val previousPid: Int?,
+        val previousStartedAt: Long?,
+    )
+
+    internal suspend fun loadTurnProtection(): TurnProtectionSettings {
+        val stored = store.data.first()
+        return TurnProtectionSettings(
+            stored[backgroundTurnsKey] == true,
+            stored[backgroundTurnsAskedKey] == true,
+            stored[activeTurnPidKey],
+            stored[activeTurnStartedKey],
+        )
+    }
+
+    internal suspend fun saveTurnProtection(enabled: Boolean) {
+        store.edit {
+            it[backgroundTurnsKey] = enabled
+            it[backgroundTurnsAskedKey] = true
+        }
+    }
+
+    internal suspend fun saveActiveTurn(startedAt: Long?) {
+        store.edit {
+            if (startedAt == null) {
+                it.remove(activeTurnPidKey)
+                it.remove(activeTurnStartedKey)
+            } else {
+                it[activeTurnPidKey] = Process.myPid()
+                it[activeTurnStartedKey] = startedAt
+            }
+        }
+    }
 
     private val secretKey: SecretKey by lazy {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }

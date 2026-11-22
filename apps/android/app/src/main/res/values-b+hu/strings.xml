@@ -96,6 +96,7 @@
     <string name="invalid_url">Adj meg érvényes API-címet.</string>
     <string name="native_core_error">Nem sikerült elindítani a csevegőmotort.</string>
     <string name="export_chat">Csevegés exportálása</string>
+    <string name="export_transcript">Átirat exportálása (JSONL)</string>
     <string name="import_preset">Előbeállítás importálása</string>
     <string name="show_key">API-kulcs megjelenítése</string>
     <string name="hide_key">API-kulcs elrejtése</string>
@@ -178,8 +179,8 @@
     <string name="export_preset">Előbeállítás exportálása</string>
     <string name="export_save">Mentés exportálása</string>
     <string name="import_save">Mentés importálása</string>
-    <string name="plugin_agent">Bővítményügynök</string>
-    <string name="plugin_agent_activity">A bővítményügynök tevékenysége</string>
+    <string name="plugin_agent">Bővítmények segédügynöke</string>
+    <string name="plugin_agent_activity">A bővítmények segédügynökeinek tevékenysége</string>
     <string name="use_preset_model">A beállításkészlet modelljének használata</string>
     <string name="plugin_run">%1$d. futtatás</string>
     <string name="plugin_run_finished">Befejeződött</string>
@@ -192,4 +193,21 @@
     <string name="research_apis">Keresési és lekérési API-k</string>
     <string name="research_search_provider">Webes keresési API</string>
     <string name="research_fetch_provider">Oldalbetöltési API</string>
+    <string name="background_turns">Válaszok a háttérben</string>
+    <string name="background_turns_description">A válaszok a MiniRP elhagyása után is készülhetnek. A válasz készítése közben értesítés jelenik meg.</string>
+    <string name="background_turns_prompt_title">Folytatódjon a válaszadás a háttérben?</string>
+    <string name="background_turns_interrupted">Egy válasz megszakadt. Kapcsold be a háttérben készülő válaszokat, hogy a következő válasz a MiniRP elhagyása után is elkészülhessen.</string>
+    <string name="background_turns_enable">Bekapcsolás</string>
+    <string name="background_turns_later">Most nem</string>
+    <string name="background_turn_running">A MiniRP választ készít</string>
+    <string name="background_turn_battery">Akkumulátoroptimalizálás</string>
+    <string name="background_turn_battery_exempt">A MiniRP mentesül az Android akkumulátoroptimalizálása alól.</string>
+    <string name="background_turn_battery_description">Ha a válaszok a képernyő kikapcsolásakor megszakadnak, mentesítheted a MiniRP-t az akkumulátoroptimalizálás alól.</string>
+    <string name="background_turn_app_info">Alkalmazásinformáció</string>
+    <string name="background_turn_app_info_description">Ellenőrizd, hogy a készülék korlátozza-e a MiniRP háttérbeli működését.</string>
+    <string name="background_turn_live_updates">Élő frissítések</string>
+    <string name="background_turn_live_updates_on">Engedélyezve a rendszerbeállításokban.</string>
+    <string name="background_turn_live_updates_description">Támogatott készüléken az állapotsávon vagy a zárolási képernyőn követheted a válasz állapotát.</string>
+    <string name="background_turn_notifications">Értesítési beállítások</string>
+    <string name="background_turn_notifications_description">Engedélyezd az értesítéseket a háttérben készülő válaszok bekapcsolásához.</string>
 </resources>

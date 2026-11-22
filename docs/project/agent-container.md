@@ -1,4 +1,4 @@
-# Agent 容器
+# 智能体容器
 
 Android 和 Windows x64 的安装包包含同一份 x86-64 Alpine 镜像和各平台的无界面 QEMU。ChatAgent、PresetAgent 和 PluginAgent 可以激活 `container` 技能。PresetAgent 和所属的 PluginAgent 共用同一预设容器、`/workspace` 和 Asset URL。容器在第一次调用时启动，切换容器时按预设保存工作盘。插件项目可以使用各自的子目录。
 
@@ -8,9 +8,9 @@ Android 和 Windows x64 的安装包包含同一份 x86-64 Alpine 镜像和各�
 - 镜像内含 Alpine 的 `apk`、BusyBox、Bash、curl、FFmpeg、Node.js、npm、Python 3、pip、Git、jq、ripgrep（`rg`）、`sqlite3`、`pdftotext`、`unzip`、`zstd` 和 GNU diffutils。两端提供相同的用户态网络和工具参数。
 - `export_asset(url, path)` 将当前会话或所属预设已授权的 Asset 写入客户机文件。
 - `import_asset(url, path)` 将客户机普通文件写入已授权且声明为可写的 Asset。成功提交后复用现有 Asset 作用域和原子替换机制。
-- Agent 可单独激活 `curl` Skill，使用 `curl(args, read_assets?, write_assets?, stdin_asset?, asset_url?, seconds?)`。`args` 是原始 curl 参数数组，省略命令名。把命令里的文件参数写成 Asset URL，并在 `read_assets` 或 `write_assets` 中声明。`-o` 等显式目的地只在 curl 成功后提交。标准输入可来自 `stdin_asset`，标准输出保存为 Asset。可用 `asset_url` 指定已有的可写文件。单个 Asset 上限为 128 MiB。宿主内置单独从 curl 源码构建的工具，启动 Skill 时无需等待 Room 虚拟机。
+- 智能体可单独激活 `curl` Skill，使用 `curl(args, read_assets?, write_assets?, stdin_asset?, asset_url?, seconds?)`。`args` 是原始 curl 参数数组，省略命令名。把命令里的文件参数写成 Asset URL，并在 `read_assets` 或 `write_assets` 中声明。`-o` 等显式目的地只在 curl 成功后提交。标准输入可来自 `stdin_asset`，标准输出保存为 Asset。可用 `asset_url` 指定已有的可写文件。单个 Asset 上限为 128 MiB。宿主内置单独从 curl 源码构建的工具，启动 Skill 时无需等待 Room 虚拟机。
 
-系统盘是使用 XZ 压缩的只读 SquashFS，`/workspace` 是独立的 ext4 日志盘，也用作 Agent 的主目录。打开 Room 时异步引导虚拟机。后续调用复用来宾内核、进程和临时目录。后台进程的输出可重定向到 `/workspace`，供后续命令读取。离开 Room 后保存工作盘检查点并退出虚拟机。保存检查点期间短暂冻结 ext4，完成后恢复后台写入。
+系统盘是使用 XZ 压缩的只读 SquashFS，`/workspace` 是独立的 ext4 日志盘，也用作智能体的主目录。打开 Room 时异步引导虚拟机。后续调用复用来宾内核、进程和临时目录。后台进程的输出可重定向到 `/workspace`，供后续命令读取。离开 Room 后保存工作盘检查点并退出虚拟机。保存检查点期间短暂冻结 ext4，完成后恢复后台写入。
 
 每个 Room 的来宾内存上限为 2 GiB。QEMU 使用按需分配的内存后端。来宾支持 cgroup v2 内存控制时，可用 `memory_mib` 为单条命令及其子进程设置更低的上限。镜像重建与 Alpine 包对应的 musl，将默认 pthread 栈设为 8 MiB。Android ARM64 使用 microVM 和 TCG。Windows x64 优先使用可用的 WHPX，并可使用 TCG。
 

@@ -4,25 +4,30 @@ using System.Text.RegularExpressions;
 namespace MiniRP.Core;
 
 internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string directory,
-    Func<JsonObject> environment, Func<Workspace>? workspace = null, PresetResearch? presetResearch = null)
+    Func<JsonObject> environment, Func<Workspace>? workspace = null, PresetResearch? presetResearch = null,
+    bool protectDraftAssets = false)
 {
     private const string Grants = "_context/asset-grants";
     private const string FileGrants = "_context/asset-file/";
     private const string ResearchGrants = "_context/research-asset/";
     private readonly MessageAttachments files = new(directory);
-    private readonly AgentAssetStorage storage = new(runtime, db, directory);
+    private readonly AgentAssetStorage storage = new(runtime, db, directory, protectDraftAssets);
     private static readonly Regex AssetLinks = new(@"minirp://assets/[a-z0-9._]+/[A-Za-z0-9_.-]+", RegexOptions.NonBacktracking);
     internal AgentSkill StorageSkill() => storage.Skill(Open);
     internal AgentToolOutput Output => new(storage);
     internal string DatabasePath => db.Path;
     internal PresetResearch? PresetResearch => presetResearch;
     internal PluginProjectAssets? Project { get; private set; }
+    internal PluginDevelopmentProject? Development { get; private set; }
     internal sealed record Reading(JsonObject Result, JsonObject? Attachment = null);
     internal sealed record ResearchScope(SearchTurn Turn, PageSource Source);
     internal ResearchScope? Research { get; set; }
 
-    internal PluginProjectAssets BindProject(string root, string id, string preset, string name) =>
-        Project = new PluginProjectAssets(root, id, preset, name, db, storage, Open);
+    internal PluginProjectAssets BindProject(string root, string id, string preset, string name, PluginDevelopmentProject? development = null)
+    {
+        Development = development;
+        return Project = new PluginProjectAssets(root, id, preset, name, db, storage, Open);
+    }
 
     private ResearchAssets? CurrentResearch()
     {
@@ -147,6 +152,7 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
 
     internal Task<JsonObject> Edit(string method, string url, JsonObject args, CancellationToken ct)
     {
+        if (protectDraftAssets) PluginProjectAssets.RequireWritable(db, url);
         if (AgentAssetStorage.IsUrl(url)) return storage.Edit(method, url, args, ct);
         if (ResearchAssets.IsUrl(url)) return ResearchFor(url).Edit(method, url, args, ct);
         var grant = Load()[url] as JsonObject ?? throw MissingGrant();
@@ -155,6 +161,7 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
 
     internal Func<Stream, CancellationToken, Task<JsonObject>> PrepareWrite(string url)
     {
+        if (protectDraftAssets) PluginProjectAssets.RequireWritable(db, url);
         if (AgentAssetStorage.IsUrl(url))
         {
             storage.RequireWritable(url);

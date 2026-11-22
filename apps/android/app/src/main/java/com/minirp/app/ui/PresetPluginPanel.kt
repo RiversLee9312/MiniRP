@@ -7,7 +7,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -48,6 +50,8 @@ internal fun PresetPluginPanel(
     onClose: () -> Unit,
     locked: Boolean,
     canSwitchPreset: Boolean,
+    canExportTranscript: Boolean,
+    onExportTranscript: (String, String) -> Unit,
     onSettings: () -> Unit,
     library: @Composable (DrawerState) -> Unit,
     snackbarHost: @Composable () -> Unit,
@@ -68,6 +72,8 @@ internal fun PresetPluginPanel(
     })
     val currentConversation by rememberUpdatedState(conversation)
     val currentAssets by rememberUpdatedState(displayAssets)
+    val exportTranscript by rememberUpdatedState(onExportTranscript)
+    val exportEnabled by rememberUpdatedState(canExportTranscript)
     val navigation = rememberNavController()
     val entry by navigation.currentBackStackEntryAsState()
     val showActivity = entry?.destination?.hasRoute<PresetRoute.PluginActivity>() == true
@@ -89,6 +95,11 @@ internal fun PresetPluginPanel(
         title,
         onClose,
         onBack = back.takeIf { showActivity || trace != null },
+        actions = {
+            if (!showActivity && trace == null) {
+                ExportTranscriptButton({ onExportTranscript("", "") }, canExportTranscript && canSwitchPreset)
+            }
+        },
         draftControls = DraftPresetControls(
             locked,
             canSwitchPreset,
@@ -108,18 +119,23 @@ internal fun PresetPluginPanel(
                         ListItem(
                             content = { Text(stringResource(R.string.plugin_agent_activity)) },
                             supportingContent = if (running) {
-                                { Text(stringResource(R.string.running)) }
+                                {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                        Text(stringResource(R.string.running))
+                                    }
+                                }
                             } else null,
-                            leadingContent = if (running) {
-                                { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) }
-                            } else null,
+                            leadingContent = { Symbol("extension") },
                             trailingContent = { Symbol("chevron_right") },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.testTag("plugin-agent-activity").clickable {
                                 focus.clearFocus()
                                 keyboard?.hide()
                                 navigation.navigate(PresetRoute.PluginActivity) { launchSingleTop = true }
                             },
                         )
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     }
                     currentConversation(Modifier.weight(1f).fillMaxWidth())
                 }
@@ -136,17 +152,20 @@ internal fun PresetPluginPanel(
                                 )
                             },
                             supportingContent = { Text(pluginRunStatus(worker.latest.status)) },
+                            leadingContent = { Symbol("extension") },
                             trailingContent = { Symbol("chevron_right") },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.testTag("plugin-agent:${worker.id}").clickable {
                                 navigation.navigate(PresetRoute.PluginTrace(worker.id)) { launchSingleTop = true }
                             },
                         )
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     }
                 }
             }
             composable<PresetRoute.PluginTrace> { page ->
                 val id = page.toRoute<PresetRoute.PluginTrace>().workerId
-                workers.find { it.id == id }?.let { PluginTrace(it, currentAssets) }
+                workers.find { it.id == id }?.let { PluginTrace(it, currentAssets, exportEnabled, exportTranscript) }
             }
         }
         snackbarHost()
@@ -154,7 +173,12 @@ internal fun PresetPluginPanel(
 }
 
 @Composable
-private fun PluginTrace(worker: PluginWorker, displayAssets: DisplayAssets) {
+private fun PluginTrace(
+    worker: PluginWorker,
+    displayAssets: DisplayAssets,
+    canExportTranscript: Boolean,
+    onExportTranscript: (String, String) -> Unit,
+) {
     var selectedRun by rememberSaveable { mutableStateOf<String?>(null) }
     var choosingRun by remember { mutableStateOf(false) }
     val run = worker.runs.find { it.id == selectedRun } ?: worker.latest
@@ -189,11 +213,13 @@ private fun PluginTrace(worker: PluginWorker, displayAssets: DisplayAssets) {
                 }
             }
         }
-        Text(
-            status,
-            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelLarge,
-        )
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(status, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+            ExportTranscriptButton(
+                onClick = { onExportTranscript(worker.name, run.id) },
+                enabled = canExportTranscript && run.status != "running",
+            )
+        }
         key(run.id) {
             TraceLog(
                 steps,

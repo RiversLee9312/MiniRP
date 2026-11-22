@@ -23,6 +23,34 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PluginScriptsLifecycleTest {
     @Test
+    fun modulesResolveRelativeImportsAndReportMissingFiles() = runBlocking {
+        val scripts = PluginScripts()
+        try {
+            fun load(id: String, entry: String) = request(id, "load")
+                .put("bootstrap", "")
+                .put("entry", "src/index.mjs")
+                .put("modules", JSONObject()
+                    .put("src/index.mjs", entry)
+                    .put("src/lib/count.js", "export let count = 40; export function increment() { count++; }")
+                    .put("step.js", "export function step(increment) { increment(); increment(); }"))
+            scripts.execute(load("valid", """
+                import { count, increment } from './lib/count.js';
+                import { step } from '../step.js';
+                globalThis.__minirp = {
+                    start() { step(increment); },
+                    poll() { return JSON.stringify({ count }); },
+                };
+            """.trimIndent()))
+            assertEquals(42, scripts.run("valid"))
+            val failure = runCatching { scripts.execute(load("missing", "import './missing.js';")) }.exceptionOrNull()
+            assertTrue(failure.toString(), failure?.message.orEmpty().contains("./missing.js"))
+            assertEquals(44, scripts.run("valid"))
+        } finally {
+            scripts.close()
+        }
+    }
+
+    @Test
     fun cancellingAnActiveV8StepDoesNotInterruptAnotherIsolate() = runBlocking {
         val runtimes = mutableListOf<V8Runtime>()
         val scripts = PluginScripts {

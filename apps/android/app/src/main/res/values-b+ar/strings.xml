@@ -96,6 +96,7 @@
     <string name="invalid_url">أدخل عنوان API صالحًا.</string>
     <string name="native_core_error">تعذّر بدء محرك المحادثة.</string>
     <string name="export_chat">تصدير المحادثة</string>
+    <string name="export_transcript">تصدير سجل المحادثة (JSONL)</string>
     <string name="import_preset">استيراد قالب</string>
     <string name="show_key">إظهار مفتاح API</string>
     <string name="hide_key">إخفاء مفتاح API</string>
@@ -186,8 +187,8 @@
     <string name="export_preset">تصدير القالب</string>
     <string name="export_save">تصدير الحفظ</string>
     <string name="import_save">استيراد الحفظ</string>
-    <string name="plugin_agent">وكيل الإضافات</string>
-    <string name="plugin_agent_activity">نشاط وكيل الإضافات</string>
+    <string name="plugin_agent">وكيل فرعي للإضافات</string>
+    <string name="plugin_agent_activity">نشاط الوكلاء الفرعيين للإضافات</string>
     <string name="use_preset_model">استخدم نموذج الإعداد المسبق</string>
     <string name="plugin_run">التشغيل %1$d</string>
     <string name="plugin_run_finished">اكتمل</string>
@@ -200,4 +201,21 @@
     <string name="research_apis">واجهات البحث والجلب</string>
     <string name="research_search_provider">واجهة بحث الويب</string>
     <string name="research_fetch_provider">واجهة جلب الصفحات</string>
+    <string name="background_turns">الردود في الخلفية</string>
+    <string name="background_turns_description">واصِل إنشاء الردود عند مغادرة \u2066MiniRP\u2069. سيظهر إشعار أثناء إنشاء الرد.</string>
+    <string name="background_turns_prompt_title">هل تريد متابعة الردود في الخلفية؟</string>
+    <string name="background_turns_interrupted">انقطع أحد الردود. فعّل الردود في الخلفية للمساعدة في إكمال الرد التالي عند مغادرة \u2066MiniRP\u2069.</string>
+    <string name="background_turns_enable">تفعيل</string>
+    <string name="background_turns_later">ليس الآن</string>
+    <string name="background_turn_running">ينشئ \u2066MiniRP\u2069 ردًا</string>
+    <string name="background_turn_battery">تحسين البطارية</string>
+    <string name="background_turn_battery_exempt">يعمل \u2066MiniRP\u2069 دون قيود تحسين البطارية في \u2066Android\u2069.</string>
+    <string name="background_turn_battery_description">إذا توقفت الردود عند إطفاء الشاشة، يمكنك السماح لـ \u2066MiniRP\u2069 بالعمل دون تحسين البطارية.</string>
+    <string name="background_turn_app_info">معلومات التطبيق</string>
+    <string name="background_turn_app_info_description">تحقق مما إذا كان جهازك يقيّد نشاط \u2066MiniRP\u2069 في الخلفية.</string>
+    <string name="background_turn_live_updates">التحديثات المباشرة</string>
+    <string name="background_turn_live_updates_on">مسموح بها في إعدادات النظام.</string>
+    <string name="background_turn_live_updates_description">اسمح بعرض تقدّم الرد في شريط الحالة أو شاشة القفل على الأجهزة المدعومة.</string>
+    <string name="background_turn_notifications">إعدادات الإشعارات</string>
+    <string name="background_turn_notifications_description">اسمح بالإشعارات لتفعيل الردود في الخلفية.</string>
 </resources>

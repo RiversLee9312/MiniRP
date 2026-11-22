@@ -219,7 +219,7 @@ class OpenUiRendererTest {
             repeat(60) { add(TraceBlock("message-$it", content = "Message $it", user = true)) }
             add(TraceBlock("trip", openUi = program))
         }
-        val scroll = LazyListState()
+        val scroll = LazyListState(firstVisibleItemIndex = Int.MAX_VALUE)
         compose.setContent { MaterialExpressiveTheme { TraceLog(blocks, false, list = scroll) } }
         compose.waitUntil(15_000) { textContains("Trip calculator") }
         click("Add a day")

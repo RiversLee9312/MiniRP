@@ -96,6 +96,7 @@
     <string name="invalid_url">Ange en giltig API-adress.</string>
     <string name="native_core_error">Det gick inte att starta chattmotorn.</string>
     <string name="export_chat">Exportera chatt</string>
+    <string name="export_transcript">Exportera samtalslogg (JSONL)</string>
     <string name="import_preset">Importera förinställning</string>
     <string name="show_key">Visa API-nyckel</string>
     <string name="hide_key">Dölj API-nyckel</string>
@@ -178,8 +179,8 @@
     <string name="export_preset">Exportera förinställning</string>
     <string name="export_save">Exportera sparfil</string>
     <string name="import_save">Importera sparfil</string>
-    <string name="plugin_agent">Pluginagent</string>
-    <string name="plugin_agent_activity">Pluginagentens aktivitet</string>
+    <string name="plugin_agent">Underagent för insticksprogram</string>
+    <string name="plugin_agent_activity">Aktivitet för underagenter för insticksprogram</string>
     <string name="use_preset_model">Använd förinställningens modell</string>
     <string name="plugin_run">Körning %1$d</string>
     <string name="plugin_run_finished">Slutförd</string>
@@ -192,4 +193,21 @@
     <string name="research_apis">API:er för sökning och hämtning</string>
     <string name="research_search_provider">API för webbsökning</string>
     <string name="research_fetch_provider">API för hämtning av sidor</string>
+    <string name="background_turns">Svar i bakgrunden</string>
+    <string name="background_turns_description">Fortsätt skapa svar när du lämnar MiniRP. En avisering visas medan svaret skapas.</string>
+    <string name="background_turns_prompt_title">Fortsätta skapa svar i bakgrunden?</string>
+    <string name="background_turns_interrupted">Ett svar avbröts. Aktivera svar i bakgrunden så att nästa svar kan bli klart när du lämnar MiniRP.</string>
+    <string name="background_turns_enable">Aktivera</string>
+    <string name="background_turns_later">Inte nu</string>
+    <string name="background_turn_running">MiniRP skapar ett svar</string>
+    <string name="background_turn_battery">Batterioptimering</string>
+    <string name="background_turn_battery_exempt">MiniRP är undantaget från Androids batterioptimering.</string>
+    <string name="background_turn_battery_description">Om svar avbryts när skärmen släcks kan du undanta MiniRP från batterioptimeringen.</string>
+    <string name="background_turn_app_info">Appinformation</string>
+    <string name="background_turn_app_info_description">Kontrollera om enheten begränsar MiniRPs aktivitet i bakgrunden.</string>
+    <string name="background_turn_live_updates">Liveuppdateringar</string>
+    <string name="background_turn_live_updates_on">Tillåtet i systeminställningarna.</string>
+    <string name="background_turn_live_updates_description">Följ svaret i statusfältet eller på låsskärmen på enheter som stöder det.</string>
+    <string name="background_turn_notifications">Aviseringsinställningar</string>
+    <string name="background_turn_notifications_description">Tillåt aviseringar för att aktivera svar i bakgrunden.</string>
 </resources>

@@ -49,7 +49,8 @@ public sealed partial class AgentSession
                 if (role == "preset" && presetWorkspace is not null)
                     AgentAssets.ImportPluginGrants(assetDb, SessionFiles.PluginDirectory(presetWorkspace.Root, presetWorkspace.PresetId));
                 var assets = profile.Plugins != PluginAccess.None && plugins is not null && attachmentRoot is not null
-                    ? new AgentAssets(plugins, assetDb, attachmentRoot, context, role is "chat" or "search" ? workspace : null, presetResearch) : null;
+                    ? new AgentAssets(plugins, assetDb, attachmentRoot, context, role is "chat" or "search" ? workspace : null,
+                        presetResearch, protectDraftAssets: role == "preset") : null;
                 IEnumerable<AgentSkill> ResolveSkills(Provider selected, Action<JsonObject> attach)
                 {
                     if (assets is not null && attachmentRoot is not null && database != ":memory:")

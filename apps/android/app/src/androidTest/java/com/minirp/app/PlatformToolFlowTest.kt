@@ -20,7 +20,10 @@ import androidx.activity.result.contract.ActivityResultContract
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertTextContains
@@ -40,7 +43,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
-import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.printToString
@@ -140,6 +143,7 @@ class PlatformToolFlowTest {
                         val chooser = contract.createIntent(compose.activity, input)
                         if (chooser.action == Intent.ACTION_CREATE_DOCUMENT) {
                             assertEquals(selected.extension, chooser.getStringExtra(Intent.EXTRA_TITLE)?.substringAfterLast('.'))
+                            if (selected.extension == "jsonl") assertEquals("application/x-ndjson", chooser.type)
                         } else {
                             assertEquals(Intent.ACTION_OPEN_DOCUMENT, chooser.action)
                         }
@@ -154,6 +158,15 @@ class PlatformToolFlowTest {
                     compose.waitUntil(30_000) {
                         fixture.failure.get()?.let { throw AssertionError("Tool flow failed", it) }
                         condition()
+                    }
+                }
+                fun exportTranscript(scope: String, button: SemanticsNodeInteraction): List<JSONObject> {
+                    val file = directory.resolve("$scope-transcript.jsonl")
+                    document.set(file)
+                    button.assertIsEnabled().performClick()
+                    waitFor { file.isFile && file.length() > 0 && !model.state.value.archiveBusy }
+                    return file.readLines().map(::JSONObject).also {
+                        assertEquals(scope, it.first().getString("scope"))
                     }
                 }
                 fun send(message: String, inPresetEditor: Boolean = false) {
@@ -218,6 +231,9 @@ class PlatformToolFlowTest {
                     .assertTextContains(label(R.string.running)).performClick()
                 val trace = compose.onNodeWithTag("plugin-agent-trace")
                 waitFor { trace.isDisplayed() }
+                val exportRun = compose.onNode(hasContentDescription(label(R.string.export_transcript)) and
+                    hasAnyAncestor(hasTestTag("plugin-agent-trace")))
+                exportRun.assertIsNotEnabled()
                 waitFor {
                     if (steer) fixture.parentAnswerStarted.count == 0L && model.state.value.generating?.id == "preset"
                     else !model.state.value.busy && model.state.value.blocks.any { it.content == WaitingForWorker }
@@ -228,10 +244,22 @@ class PlatformToolFlowTest {
                         model.state.value.installedPlugins.any { it.name == ProjectName }
                 }
                 if (steer) assertFalse(model.state.value.blocks.any { it.content == WaitingForWorker })
-                waitFor {
-                    compose.onNodeWithText("Plugin published.").isDisplayed() &&
-                        compose.onNodeWithText(label(R.string.plugin_run_finished)).isDisplayed()
+                val workerReply = compose.onNodeWithText("Plugin published.")
+                val finishedStatus = compose.onNodeWithText(label(R.string.plugin_run_finished))
+                try {
+                    waitFor { workerReply.isDisplayed() && finishedStatus.isDisplayed() }
+                } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+                    val latest = compose.onNodeWithContentDescription(label(R.string.latest_message))
+                    throw AssertionError(
+                        "Worker transcript after completion. Reply visible=${workerReply.isDisplayed()}, " +
+                            "status visible=${finishedStatus.isDisplayed()}, return-to-latest visible=${latest.isDisplayed()}",
+                        failure,
+                    )
                 }
+                val transcriptRecords = exportTranscript("plugin", exportRun)
+                assertEquals(running.pluginRun, transcriptRecords.first().getString("run"))
+                assertTrue(transcriptRecords.drop(1).any { it.optString("content") == "Plugin published." })
+                assertTrue(transcriptRecords.drop(1).all { it.optString("plugin_run") == running.pluginRun })
                 pressedBack()
                 try {
                     compose.waitUntil(5_000) { workerRow.isDisplayed() }
@@ -286,13 +314,13 @@ class PlatformToolFlowTest {
                         return complete.await(3, TimeUnit.SECONDS) && result.get() == "true"
                     }
                     val transcript = compose.onNode(hasTestTag("transcript") and hasAnyAncestor(isDialog()))
-                    transcript.performScrollToIndex(0)
+                    transcript.performScrollToKey("open-ui:${card.id}")
                     waitFor { cardButton(click = false) }
                     send(PresetLockRequest, inPresetEditor = true)
                     waitFor { fixture.presetLockStarted.count == 0L && model.state.value.generating?.id == "preset" }
                     sheetIcon(R.string.close).assertDoesNotExist()
                     pressedBack()
-                    transcript.performScrollToIndex(0)
+                    transcript.performScrollToKey("open-ui:${card.id}")
                     waitFor { cardButton(click = true) }
                     compose.waitForIdle()
                     assertTrue(model.state.value.presetEditorOpen)
@@ -303,14 +331,14 @@ class PlatformToolFlowTest {
                     sheetIcon(R.string.close).assertDoesNotExist()
                     sheetHandle.assertDoesNotExist()
                     pressedBack()
-                    transcript.performScrollToIndex(0)
+                    transcript.performScrollToKey("open-ui:${card.id}")
                     waitFor { cardButton(click = true) }
                     compose.waitForIdle()
                     assertTrue(model.state.value.presetEditorOpen)
                     fixture.releaseWorkerLock.countDown()
                     waitFor { model.state.value.blocks.any { it.content == PresetLockReply } &&
                         !model.state.value.presetExitLocked }
-                    transcript.performScrollToIndex(0)
+                    transcript.performScrollToKey("open-ui:${card.id}")
                     waitFor { cardButton(click = true) }
                 } else sheetIcon(R.string.close).performClick()
                 waitFor { !model.state.value.presetEditorOpen }
@@ -354,6 +382,9 @@ class PlatformToolFlowTest {
                     compose.onNodeWithContentDescription(label(R.string.more_options)).performClick()
                     compose.onNodeWithText(label(R.string.preset)).performClick()
                     waitFor { sheetIcon(R.string.close).isDisplayed() }
+                    val presetTranscript = exportTranscript("preset", sheetIcon(R.string.export_transcript))
+                    assertTrue(presetTranscript.any { it.optString("content") == SetupReply })
+                    assertFalse(presetTranscript.any { it.optString("content") == DiceReply })
                     sheetIcon(R.string.close).performClick()
                     waitFor { !model.state.value.presetEditorOpen }
                     assertTrue(model.state.value.presetChatHintSeen)
@@ -362,11 +393,20 @@ class PlatformToolFlowTest {
                     waitFor { sheetIcon(R.string.close).isDisplayed() }
                     send(EnvLockRequest, inPresetEditor = true)
                     waitFor { fixture.envStarted.count == 0L && model.state.value.generating?.id == "env" }
+                    sheetIcon(R.string.export_transcript).assertIsNotEnabled()
                     sheetIcon(R.string.close).performClick()
                     waitFor { !sheetIcon(R.string.close).isDisplayed() }
                     assertEquals("env", model.state.value.generating?.id)
                     fixture.releaseEnv.countDown()
                     waitFor { !model.state.value.busy && model.state.value.blocks.any { it.content == EnvLockReply } }
+                    compose.onNodeWithContentDescription(label(R.string.more_options)).performClick()
+                    compose.onNodeWithText(label(R.string.world)).performClick()
+                    waitFor { sheetIcon(R.string.close).isDisplayed() }
+                    val worldTranscript = exportTranscript("env", sheetIcon(R.string.export_transcript))
+                    assertTrue(worldTranscript.any { it.optString("content") == EnvLockReply })
+                    assertFalse(worldTranscript.any { it.optString("content") == DiceReply })
+                    sheetIcon(R.string.close).performClick()
+                    waitFor { !sheetIcon(R.string.close).isDisplayed() }
                 }
                 val pdf = directory.resolve("asset-probe.pdf")
                 val fixturePdf = PdfDocument()
@@ -384,6 +424,13 @@ class PlatformToolFlowTest {
                 waitFor {
                     !model.state.value.busy && model.state.value.blocks.any { it.content == AssetReply }
                 }
+                compose.onNodeWithContentDescription(label(R.string.more_options)).performClick()
+                val chatTranscript = exportTranscript("chat", compose.onNodeWithText(label(R.string.export_transcript)))
+                assertTrue(chatTranscript.any { it.optString("content") == AssetReply })
+                val attachment = chatTranscript.single { it.has("attachments") }.getJSONArray("attachments").getJSONObject(0)
+                assertEquals(pdf.name, attachment.getString("name"))
+                assertEquals("application/pdf", attachment.getString("mime"))
+                assertEquals(2, attachment.length())
                 assertTrue(model.state.value.chatId.isNotBlank())
                 val preset = model.state.value.preset
                 val room = model.state.value.chatId
@@ -781,6 +828,7 @@ class PlatformToolFlowTest {
             }
             13 -> {
                 val published = JSONObject(result)
+                assertTrue(result, published.getJSONObject("verification").getBoolean("ok"))
                 assertEquals(result, manifest.getString("id"), published.getString("id"))
                 assertEquals(signer, published.getString("signer"))
                 assertEquals("include", published.getJSONObject("scope").getString("mode"))
@@ -856,7 +904,12 @@ class PlatformToolFlowTest {
             0 -> tools(tool("activate_skill", "name" to "tabletop"))
             1 -> tools(tool("roll_dice", "count" to 0, "sides" to 6))
             2 -> {
-                assertTrue(result, JSONObject(result).has("error"))
+                val failure = JSONObject(result)
+                assertTrue(result, failure.has("error"))
+                val diagnostic = failure.getJSONObject("diagnostic")
+                assertEquals("roll_dice", diagnostic.getString("tool"))
+                assertEquals("tabletop", diagnostic.getString("skill"))
+                assertEquals("invalid_arguments", diagnostic.getString("code"))
                 tools(tool("roll_dice", "count" to 30, "sides" to 1000, "modifier" to -7))
             }
             3 -> {

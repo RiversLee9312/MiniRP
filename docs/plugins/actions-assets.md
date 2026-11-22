@@ -23,7 +23,7 @@ Actions 是异步投递。需要回复时在协议里约定第二个 Hook 或事
 
 ### 长工具输出
 
-把网页正文、命令日志和生成的报告交给 `api.actions.publishOutput`。返回值可以与退出码、标题或来源 URL 等摘要字段合并。临时 Asset 保留完整 UTF-8 内容，最大 128 MiB，仅本次 Agent 会话可读，七天后由宿主回收。Agent 用 `view_asset` 查找内容，也可以在回复中提供下载链接。已经发给用户的下载链接保留发布时的文件版本。
+把网页正文、命令日志和生成的报告交给 `api.actions.publishOutput`。返回值可以与退出码、标题或来源 URL 等摘要字段合并。临时 Asset 保留完整 UTF-8 内容，最大 128 MiB，仅本次智能体会话可读，七天后由宿主回收。智能体用 `view_asset` 查找内容，也可以在回复中提供下载链接。已经发给用户的下载链接保留发布时的文件版本。
 
 ```js
 return {
@@ -36,7 +36,7 @@ return {
 };
 ```
 
-后台操作可以先返回已授权的输出 Asset URL 和一个 `db_key`。通过 `running`、`failed`、`success` 表达操作状态，完成写入输出后再更新状态。Agent 可以用 `db_watch` 订阅该键，并用 `db_read` 读取当前状态。插件需要给 Agent 暴露自己的进度时，可在 Skill 的 `stateEntries` 声明进度项，使其获得可观察的会话 DB 投影。
+后台操作可以先返回已授权的输出 Asset URL 和一个 `db_key`。通过 `running`、`failed`、`success` 表达操作状态，完成写入输出后再更新状态。智能体可以用 `db_watch` 订阅该键，并用 `db_read` 读取当前状态。插件需要给智能体暴露自己的进度时，可在 Skill 的 `stateEntries` 声明进度项，使其获得可观察的会话 DB 投影。
 
 ## Assets
 
@@ -46,28 +46,48 @@ Asset URL 为 `minirp://assets/<packageName>/<id>`。清单中每项填写 `id`�
 - `type: "dynamic"` 填写本包 Actions `handler` URL。处理器收到 `asset.requested`，字段为 `url`、`request`（读取参数）、`sender`（调用包名或宿主的 `null`），以及附件预览请求的 `attachment`。返回 `Uint8Array`、`ReadableStream<Uint8Array>` 或相应 Promise。
 - `private` 为默认，仅资源所有者插件和宿主可访问。 `protected` 另允许使用同一 X.509 证书签名的包访问。 `public` 可被其他插件读取。相同包名、证书主题或相同公钥都不能代替同一证书指纹校验。
 
+### 发布并读取一份动态文本
+
+把示例里的 `com.example.notes` 换成清单里的 `packageName`。在 `actions.handlers` 声明 `"summary": "summary"`，再添加这项 `assets` 声明。
+
+```json
+{"id":"summary","type":"dynamic","mimeType":"text/plain","accessibility":"public","handler":"minirp://actions/com.example.notes/hooks/summary"}
+```
+
+在入口登记处理器。宿主将 `api` 作为处理器的第二个参数传入。辅助模块可把 `api` 作为参数接收。
+
+```js
+globalThis.handlers = {
+    summary(_event, api) {
+        return api.text.encode("Ready");
+    },
+};
+```
+
+发布后，负责该项目的 PluginAgent 激活 `view_asset`，用 `plugin_base_grep` 打开 `minirp://assets/com.example.notes/summary` 并匹配 `Ready`。读取会执行当前预设中已安装的资源处理器。项目自检入口只开放本项目已安装的公开资源。
+
 | API | 参数与结果 |
 | --- | --- |
 | `assets.url(id)` | 同步生成本包资源的 URL。ID 语法无效时抛错。 |
 | `assets.open(url, options?)` | 返回 `{mimeType, length, body}`。长度未知为 `null`，`body` 为 WHATWG 可读字节流。支持默认 reader、BYOB reader、异步迭代和取消。调用方负责消费、释放或取消。 |
 | `assets.read(url, options?)` | 返回 `{mimeType, bytes:Uint8Array}`。适合小资源，最多读 8 MiB。更大资源用 `open`。 |
 
-Agent 可把已获授权的 Asset URL 传给技能工具。对于这种调用，`assets.open` 和 `assets.read` 可打开本次参数中传入的资源，包括工作区附件和来自其他工具的资源。宿主在打开时复查原始授权。Agent 工具传递方式见 [技能文档](skills-settings.md)。
+智能体可把已获授权的 Asset URL 传给技能工具。对于这种调用，`assets.open` 和 `assets.read` 可打开本次参数中传入的资源，包括工作区附件和来自其他工具的资源。宿主在打开时复查原始授权。智能体工具传递方式见 [技能文档](skills-settings.md)。
 
-Agent 可在 Markdown 回答里链接到已获授权的 Asset，点击后打开系统保存窗口。OpenUI 的 `Link` 和 `@OpenUrl` 支持相同的下载方式，`Image` 可以加载 PNG、JPEG、GIF、WebP、AVIF 等栅格图片。读取范围限定在对应的回复或卡片。会话自建文件和已分享的文件版本随 Room 或存档导出。
+智能体可在 Markdown 回答里链接到已获授权的 Asset，点击后打开系统保存窗口。OpenUI 的 `Link` 和 `@OpenUrl` 支持相同的下载方式，`Image` 可以加载 PNG、JPEG、GIF、WebP、AVIF 等栅格图片。读取范围限定在对应的回复或卡片。会话自建文件和已分享的文件版本随 Room 或存档导出。
 
 base 插件的 `research` 技能为抓取页和搜索条目分配私有 Asset URL。页正文是 Markdown，条目是 JSON，两者都能通过 `view_asset` 和 `edit_asset` 操作。当前会话通过工具结果获得授权，分支从其快照解析对应的版本。暂存候选只在研究轮次可用，缓存后的资源随 Room 或预设存档导出。宿主按内容哈希保存正文，并在导入时校验。
 
 ## 预设聊天背景
 
-在预设所属的签名插件中声明图片、GIF 或短视频 Asset。插件清单的 `presetId` 必须与预设 UUID 一致，插件作用域也须覆盖该预设。预设 Agent 使用 `preset-editing` 中的 `list_chat_backgrounds` 查找资源，再用 `configure_chat_appearance` 配置背景。常用格式包括 PNG、JPEG、WebP、GIF、MP4 和 WebM。视频按静音循环播放。
+在预设所属的签名插件中声明图片、GIF 或短视频 Asset。插件清单的 `presetId` 必须与预设 UUID 一致，插件作用域也须覆盖该预设。预设智能体使用 `preset-editing` 中的 `list_chat_backgrounds` 查找资源，再用 `configure_chat_appearance` 配置背景。常用格式包括 PNG、JPEG、WebP、GIF、MP4 和 WebM。视频按静音循环播放。
 
 预设保存在 `appearance` 中。`background_url` 是已声明的 Asset URL，`background_blur` 默认开启，`theme_color` 可用 `#RRGGBB` 覆盖从背景提取的主题色。动图和视频使用预览帧取色，播放时主题色保持稳定。`background_url` 或 `theme_color` 传空字符串可清除对应设置。Android 12 及以上支持背景模糊。聊天页还会按浅色或深色模式调整背景明暗。背景资源也会随其所属插件一起导出。
 
 ## 查看和转换资源
 
 - `api.assets.describe(url)` 返回已授权资源的 MIME 类型、来源、名称和已知大小。
-- `api.text.encode(text, {encoding?})` 返回 `Uint8Array`。`api.text.decode(bytes, {encoding?})` 解码字节。支持 UTF-8、UTF-16LE、UTF-16BE，每次最多 64 KiB；非法字符序列报错。`api.text.read(url, {encoding?, offset?, length?})` 分页读取文本，优先使用附件处理器提取的文本，文件读取可按字节顺序标记选择编码。
+- `await api.text.encode(text, {encoding?})` 返回 `Uint8Array`，`await api.text.decode(bytes, {encoding?})` 返回字符串。使用 `.trim()` 等字符串方法前先等待 Promise。支持 UTF-8、UTF-16LE、UTF-16BE，每次最多 64 KiB，非法字符序列会报错。`await api.text.read(url, {encoding?, offset?, length?})` 分页读取文本，优先使用附件处理器提取的文本，文件读取可按字节顺序标记选择编码。
 - `api.image.metadata(url)` 查询尺寸及可用格式信息。`api.image.decode(url)` 返回 `AssetBody`，另含 `width`、`height`、`pixel_format:"rgba8"`。流是按行排列的 RGBA 字节。`api.image.encode(url, {format?, quality?})` 将来源图片编码为 PNG、JPEG 或 WebP。解码与重新编码最长边限制为 2048 像素。
 - `api.media.videoMetadata(url)` 查询视频属性。`api.media.decodeFrame(url, {start_ms?})` 输出 PNG。`api.media.decodeAudio(url, {start_ms?, duration_ms?})` 从音频或视频音轨读取一段 PCM WAV。`api.media.encodeAudio` 也可将同一段音频导出为 PCM WAV。`api.media.encodeVideo` 以相同的时间参数输出 H.264/AAC MP4。每段默认 10 秒，最长 30 秒。
 - `api.pdf.metadata(url)` 查询页数等文档信息。`api.pdf.renderPage(url, {page?})` 将单页渲染为 PNG，页号从 1 开始。`api.pdf.createPage(imageUrl)` 从一张图片生成单页 PDF。

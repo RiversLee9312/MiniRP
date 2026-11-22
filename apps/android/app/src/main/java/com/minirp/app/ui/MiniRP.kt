@@ -1,11 +1,15 @@
 package com.minirp.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.widget.FrameLayout
 import android.widget.Toast
 import android.os.Build
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
@@ -36,12 +40,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.minirp.app.R
+import com.minirp.app.core.TurnProtection
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
@@ -69,6 +75,24 @@ internal sealed interface AppRoute {
 @Composable
 fun MiniRP(model: ChatViewModel) {
     val state by model.state.collectAsStateWithLifecycle()
+    val protection = model.turnProtection?.state?.collectAsStateWithLifecycle()?.value
+    val permissionContext = LocalContext.current
+    var requestingNotifications by rememberSaveable { mutableStateOf(false) }
+    val requestNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        requestingNotifications = false
+        model.authorizeBackgroundTurns(it)
+    }
+    val authorizeBackgroundTurns: (Boolean) -> Unit = { enabled ->
+        if (enabled && Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(permissionContext, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            requestingNotifications = true
+            requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            model.authorizeBackgroundTurns(enabled)
+        }
+    }
     val view = LocalView.current
     DisposableEffect(model, view) {
         model.setPreviewWindow(view.rootView.findViewById<FrameLayout>(android.R.id.content))
@@ -79,6 +103,9 @@ fun MiniRP(model: ChatViewModel) {
         if (state.showOnboarding) {
             FirstRunGuide(state, model)
             return@MiniRPTheme
+        }
+        if (state.ready && protection?.prompt != null && !requestingNotifications) {
+            BackgroundTurnsPrompt(protection.prompt, authorizeBackgroundTurns)
         }
         val navigation = rememberNavController()
         val destination by navigation.currentBackStackEntryAsState()
@@ -217,6 +244,8 @@ fun MiniRP(model: ChatViewModel) {
                                 onResearch = {
                                     if (navigation.currentBackStackEntry == entry) open(AppRoute.Research)
                                 },
+                                backgroundTurns = protection?.enabled,
+                                onBackgroundTurns = authorizeBackgroundTurns.takeUnless { requestingNotifications },
                             )
                         }
                     }
@@ -316,6 +345,9 @@ fun MiniRP(model: ChatViewModel) {
                                     onPanel = {
                                         if (it == "preset") model.openPresetEditor() else panel = it
                                     },
+                                    onExportTranscript = {
+                                        archives.exportTranscript(state.chatName, TranscriptTarget(state.preset, AgentRole.Chat, state.chatId))
+                                    }.takeIf { state.chatId.isNotBlank() && state.ensembleChats == null },
                                     onPresetHintSeen = chatHint.takeIf { isChat },
                                 )
                             },
@@ -445,6 +477,10 @@ fun MiniRP(model: ChatViewModel) {
                                     onPanel = {
                                         if (it == "preset") model.openPresetEditor() else panel = it
                                     },
+                                    onExportTranscript = {
+                                        archives.exportTranscript(info?.name.orEmpty(),
+                                            TranscriptTarget(state.preset, AgentRole.Chat, room, conversation))
+                                    }.takeIf { state.chatId == room && state.ensembleChatId == conversation },
                                     onPresetHintSeen = chatHint.takeUnless { isChat },
                                 )
                             },
@@ -570,6 +606,12 @@ fun MiniRP(model: ChatViewModel) {
                         ::closePanel,
                         locked = state.presetExitLocked,
                         canSwitchPreset = !state.presetWorking,
+                        canExportTranscript = state.canExportTranscript,
+                        onExportTranscript = { name, run ->
+                            val targetRole = if (run.isEmpty()) AgentRole.Preset else AgentRole.Plugin
+                            archives.exportTranscript(name.ifBlank { state.presetName },
+                                TranscriptTarget(state.preset, targetRole, run = run))
+                        },
                         onSettings = { open(AppRoute.Settings) },
                         library = { library(it, true) },
                         snackbarHost = { SnackbarHost(snackbars) },
@@ -577,7 +619,15 @@ fun MiniRP(model: ChatViewModel) {
                     )
                 }
             } else {
-                FullSheet(stringResource(role.label), ::closePanel) {
+                FullSheet(stringResource(role.label), ::closePanel, actions = {
+                    ExportTranscriptButton(
+                        onClick = {
+                            archives.exportTranscript(state.chatName,
+                                TranscriptTarget(state.preset, AgentRole.World, state.chatId))
+                        },
+                        enabled = state.canExportTranscript && state.chatId.isNotBlank(),
+                    )
+                }) {
                     FilterChip(
                         stage,
                         { stage = !stage },
@@ -647,6 +697,7 @@ internal fun ChatToolbar(
     onBack: (() -> Unit)? = null,
     conversationTitle: String? = null,
     onPresetHintSeen: (() -> Unit)? = null,
+    onExportTranscript: (() -> Unit)? = null,
 ) {
     val hasChat = state.chatId.isNotEmpty()
     val motion = MaterialTheme.motionScheme
@@ -691,7 +742,8 @@ internal fun ChatToolbar(
                     shrinkHorizontally(motion.fastSpatialSpec(), shrinkTowards = Alignment.End) +
                         fadeOut(motion.fastEffectsSpec()),
             ) {
-                ConversationActions(hasChat, open = onPanel, onPresetHintSeen = onPresetHintSeen)
+                ConversationActions(hasChat, open = onPanel, onPresetHintSeen = onPresetHintSeen,
+                    onExportTranscript = onExportTranscript, canExportTranscript = state.canExportTranscript)
             }
         },
     )
@@ -745,7 +797,13 @@ private fun List<PluginSetting>.findSetting(plugin: String, key: String): Plugin
 }
 
 @Composable
-private fun ConversationActions(enabled: Boolean, open: (String) -> Unit, onPresetHintSeen: (() -> Unit)? = null) {
+private fun ConversationActions(
+    enabled: Boolean,
+    open: (String) -> Unit,
+    onPresetHintSeen: (() -> Unit)? = null,
+    onExportTranscript: (() -> Unit)? = null,
+    canExportTranscript: Boolean = false,
+) {
     var menu by remember { mutableStateOf(false) }
     LaunchedEffect(enabled) { if (!enabled) menu = false }
     PresetEntryHint(stringResource(R.string.preset_chat_hint), onPresetHintSeen.takeUnless { menu }) {
@@ -770,6 +828,17 @@ private fun ConversationActions(enabled: Boolean, open: (String) -> Unit, onPres
                     },
                 )
             }
+        if (onExportTranscript != null) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.export_transcript)) },
+                leadingIcon = { Symbol("download") },
+                enabled = canExportTranscript,
+                onClick = {
+                    menu = false
+                    onExportTranscript()
+                },
+            )
+        }
     }
 }
 
@@ -825,6 +894,7 @@ internal fun FullSheet(
     onDismiss: () -> Unit,
     onBack: (() -> Unit)? = null,
     draftControls: DraftPresetControls? = null,
+    actions: @Composable () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val locked = draftControls?.locked == true
@@ -864,7 +934,7 @@ internal fun FullSheet(
                         }
                     }
                 }
-                SheetHeading(title, onBack, draftControls) {
+                SheetHeading(title, onBack, draftControls, actions) {
                     scope.launch {
                         state.hide()
                         if (currentLock) state.show() else dismiss()
@@ -914,6 +984,7 @@ private fun SheetHeading(
     title: String,
     onBack: (() -> Unit)?,
     draftControls: DraftPresetControls?,
+    actions: @Composable () -> Unit,
     close: () -> Unit,
 ) {
     val locked = draftControls?.locked == true
@@ -944,6 +1015,7 @@ private fun SheetHeading(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        actions()
         if (onBack == null) {
             IconButton(onClick = if (locked) checkNotNull(draftControls).settings else close) {
                 AnimatedContent(

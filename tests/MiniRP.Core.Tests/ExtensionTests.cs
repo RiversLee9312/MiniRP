@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json.Nodes;
+using Microsoft.ClearScript;
 using MiniRP.Cli;
 using MiniRP.Core;
 
@@ -10,6 +11,26 @@ namespace MiniRP.Core.Tests;
 [TestClass]
 public sealed class ExtensionTests
 {
+    [TestMethod]
+    [DataRow("./missing.js")]
+    [DataRow("../../helper.js")]
+    [DataRow("helper.js")]
+    [DataRow("file:///helper.js")]
+    public void ModuleImportsRequireRelativePathsInsideThePackage(string specifier)
+    {
+        using var scripts = new PluginScripts();
+        var failure = Assert.Throws<ScriptEngineException>(() => scripts.Step(new()
+        {
+            ["action"] = "load", ["isolate"] = "module", ["entry"] = "src/index.mjs", ["bootstrap"] = "",
+            ["modules"] = new JsonObject
+            {
+                ["src/index.mjs"] = $"import '{specifier}';",
+                ["helper.js"] = "export const value = 42;"
+            }
+        }, CancellationToken.None));
+        StringAssert.Contains(failure.Message, specifier);
+    }
+
     [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
@@ -94,6 +115,21 @@ public sealed class ExtensionTests
         await OpenChild("Bridge", "Ada");
         var saved = JsonValues.ParseObject(File.ReadAllText(Path.Combine(root, "conversations", preset, roomId + ".json")));
         CollectionAssert.AreEquivalent(new[] { "ada", "bryn" }, saved.GetArray("greeted_participants").Select(item => JsonValues.GetText(item)).ToArray());
+
+        var lab = children.Single(entry => entry.GetString("name") == "Lab").GetString("id");
+        engine.Dispatch(new() { ["op"] = "select_ensemble_chat", ["chat"] = roomId, ["conversation"] = lab });
+        await Until(engine, "ensemble_chat_loaded", scripts);
+        var path = Path.Combine(root, "lab.jsonl");
+        engine.Dispatch(new()
+        {
+            ["op"] = "archive_export", ["type"] = "transcript", ["agent"] = "chat", ["preset"] = preset,
+            ["chat"] = roomId, ["conversation"] = lab, ["path"] = path,
+        });
+        await Until(engine, "archive_exported", scripts);
+        var transcript = File.ReadAllLines(path).Select(JsonValues.ParseObject).ToArray();
+        Assert.AreEqual(lab, transcript[0].GetString("chat"));
+        Assert.IsTrue(transcript.Any(row => row.GetString("content") == "Welcome from Bryn." && row.GetString("speaker") == "Bryn"));
+        Assert.IsFalse(transcript.Any(row => row.GetString("content") is "Welcome from Ada." or "Give a private station welcome."));
     }
 
     [TestMethod]
@@ -580,6 +616,7 @@ public sealed class ExtensionTests
                 if (role == "preset")
                 {
                     Assert.IsFalse(body.GetArray("tools").Any(tool => tool.GetObject("function").GetString("name").StartsWith("project_asset_", StringComparison.Ordinal)));
+                    Assert.IsFalse(system.Contains("base-plugin-docs", StringComparison.Ordinal));
                     switch (round)
                     {
                         case 0: Tool(item, "activate_skill", new() { ["name"] = "base-plugin-development" }); break;
@@ -621,6 +658,10 @@ public sealed class ExtensionTests
                         case 1: Tool(item, "plugin_base_plugin_docs", new() { ["topic"] = "schema", ["query"] = "returnType" }); break;
                         case 2:
                             StringAssert.Contains(result, "asset-url");
+                            Tool(item, "plugin_base_plugin_docs", new() { ["topic"] = "assets", ["query"] = "## Assets", ["length"] = 2400 });
+                            break;
+                        case 3:
+                            StringAssert.Contains(JsonValues.ParseObject(result).GetString("text"), "api.text.encode");
                             Reply(engine, item, "Schema read.");
                             break;
                         default: Assert.Fail("Unexpected reader request."); break;
@@ -640,16 +681,25 @@ public sealed class ExtensionTests
                             AtomicFile.Write(Path.Combine(source, "manifest.json"), JsonValues.Serialize(new JsonObject
                             {
                                 ["id"] = "draft-" + workerId, ["packageName"] = "local.minichat.p" + workerId,
-                                ["name"] = "Writer", ["entry"] = "index.js", ["apiVersion"] = 2,
-                                ["actions"] = new JsonObject { ["handlers"] = new JsonObject() }
+                                ["name"] = "Writer", ["entry"] = "index.mjs", ["apiVersion"] = 2,
+                                ["actions"] = new JsonObject { ["handlers"] = new JsonObject { ["echo"] = "echo" } },
+                                ["assets"] = new JsonArray(
+                                    new JsonObject { ["id"] = "live-notes", ["type"] = "file", ["mimeType"] = "text/plain",
+                                        ["path"] = "legacy.txt", ["accessibility"] = "public" },
+                                    new JsonObject { ["id"] = "private-notes", ["type"] = "file", ["mimeType"] = "text/plain", ["path"] = "legacy.txt" })
                             }));
-                            AtomicFile.Write(Path.Combine(source, "index.js"), "globalThis.handlers = {};");
+                            AtomicFile.Write(Path.Combine(source, "index.mjs"),
+                                "import { echo } from './lib/echo.js'; globalThis.handlers = { echo };");
+                            AtomicFile.Write(Path.Combine(source, "lib", "echo.js"),
+                                "import { format } from '../format.mjs'; export function echo(event) { return format(event.arguments); }");
+                            AtomicFile.Write(Path.Combine(source, "format.mjs"), "export const format = value => value;");
                             AtomicFile.Write(Path.Combine(source, "legacy.txt"), "Retain this draft file.");
                             Tool(item, "project_asset_list", new());
                             break;
                         case 2:
                             var files = JsonValues.ParseObject(result).GetArray("files");
-                            CollectionAssert.AreEqual(new[] { "index.js", "legacy.txt", "manifest.json" }, files.Select(file => file.GetString("path")).ToArray());
+                            CollectionAssert.AreEqual(new[] { "format.mjs", "index.mjs", "legacy.txt", "lib/echo.js", "manifest.json" },
+                                files.Select(file => file.GetString("path")).ToArray());
                             Assert.IsTrue(files.All(file => file.GetString("url").StartsWith("minirp://assets/minirp.agent/", StringComparison.Ordinal)));
                             Tool(item, "activate_skill", new() { ["name"] = "asset_storage" });
                             break;
@@ -685,13 +735,62 @@ public sealed class ExtensionTests
                             break;
                         case 11:
                             Assert.IsTrue(JsonValues.ParseObject(result).GetBoolean("ok"), result);
-                            Tool(item, "plugin_base_project_publish", new());
+                            Tool(item, "plugin_base_project_publish", Fixture(expected: "different"));
                             break;
                         case 12:
+                            StringAssert.Contains(result, "Draft check before installation");
+                            StringAssert.Contains(result, "expected_result");
+                            StringAssert.Contains(result, "Expected (Object)");
+                            StringAssert.Contains(result, "Actual handler result");
+                            StringAssert.Contains(result, "different");
+                            StringAssert.Contains(result, "observed");
+                            var installedDirectory = Path.Combine(engine.Workspace.Root, "plugins");
+                            Assert.IsFalse(Directory.Exists(installedDirectory) &&
+                                Directory.EnumerateFiles(installedDirectory, "draft-*.plugin").Any());
+                            var badJson = Fixture(expected: "observed", serialized: true);
+                            badJson["expected_result_json"] = "{";
+                            Tool(item, "plugin_base_project_publish", badJson);
+                            break;
+                        case 13:
+                            StringAssert.Contains(result, "expected_result_json must contain valid JSON");
+                            StringAssert.Contains(result, "line 1, byte");
+                            Tool(item, "plugin_base_project_publish", Fixture(expected: "observed", serialized: true));
+                            break;
+                        case 14:
                             var deployment = JsonValues.ParseObject(result);
                             deployed = deployment.GetString("id");
                             Assert.AreEqual("include", deployment.GetObject("scope").GetString("mode"), result);
                             Assert.AreEqual(engine.Workspace.PresetId, JsonValues.GetText(deployment.GetObject("scope").GetArray("presets")[0]));
+                            var verification = deployment.GetObject("verification");
+                            Assert.IsTrue(verification.GetBoolean("ok"), result);
+                            Assert.AreEqual(deployment.GetString("generation"), verification.GetString("generation"));
+                            Assert.AreEqual("observed", verification.GetObject("result").GetString("status"));
+                            Tool(item, "plugin_base_project_verify", Fixture(expected: "observed"));
+                            break;
+                        case 15:
+                            Assert.IsTrue(JsonValues.ParseObject(result).GetBoolean("ok"), result);
+                            Tool(item, "activate_skill", new() { ["name"] = "view_asset" });
+                            break;
+                        case 16:
+                            Tool(item, "plugin_base_grep", new() { ["url"] = "minirp://assets/local.minichat.p" + children[0] + "/live-notes",
+                                ["pattern"] = "Retain this draft file", ["literal"] = true });
+                            break;
+                        case 17:
+                            Assert.AreEqual(1, JsonValues.ParseObject(result).GetInt32("match_count"), result);
+                            Tool(item, "plugin_base_grep", new() { ["url"] = "minirp://assets/local.minichat.p" + children[0] + "/private-notes",
+                                ["pattern"] = "Retain this draft file", ["literal"] = true });
+                            break;
+                        case 18:
+                            StringAssert.Contains(result, "public Asset declared by this project");
+                            Tool(item, "plugin_base_grep", new() { ["url"] = "minirp://assets/minirp.base/project-license",
+                                ["pattern"] = "MIT License", ["literal"] = true });
+                            break;
+                        case 19:
+                            StringAssert.Contains(result, "Use an Asset URL supplied in this session");
+                            var diagnostic = JsonValues.ParseObject(result).GetObject("diagnostic");
+                            Assert.AreEqual("access_denied", diagnostic.GetString("code"));
+                            Assert.AreEqual("host_api", diagnostic.GetString("phase"));
+                            Assert.AreEqual("assetView.grep", diagnostic.GetObject("details").GetString("api"));
                             Reply(engine, item, "Published: " + draftAsset);
                             break;
                         default: Assert.Fail("Unexpected writer request."); break;
@@ -734,6 +833,15 @@ public sealed class ExtensionTests
             Assert.IsTrue(panel.Any(block => block.GetString("content") == reply));
             Assert.IsTrue(panel.Any(block => block.GetString("tool") == tool));
         }
+
+        JsonObject Fixture(string expected, bool serialized = false) => new()
+        {
+            ["handler"] = "minirp://actions/local.minichat.p" + children[0] + "/hooks/echo",
+            ["event"] = new JsonObject { ["arguments"] = new JsonObject { ["status"] = "observed" } },
+            [serialized ? "expected_result_json" : "expected_result"] = serialized
+                ? JsonValue.Create(JsonValues.Serialize(new JsonObject { ["status"] = expected }))
+                : new JsonObject { ["status"] = expected },
+        };
 
         void Tool(JsonObject request, string name, JsonObject args) => ReplyTool(engine, request, name, args);
     }

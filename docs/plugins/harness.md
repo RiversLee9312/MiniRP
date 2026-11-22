@@ -16,19 +16,19 @@ Preset、Room 和 Chat 都使用标准小写 UUID，例如 `7844467a-14ae-48eb-8
 | `harness.readRoom` | `harness.read` | `{preset?,room?,offset?,limit?}` → `{id,preset,name,chats}`，其中 `chats` 是该 Room 的 Chat 列表。 |
 | `harness.getWorldDate` | `harness.read` | `{preset?,room?}` → `{mode,date}`。`mode` 为 `real` 或 `plugin`，`date` 为 `YYYY-MM-DD`。 |
 | `harness.setWorldDate` | `harness.write` | `{preset?,room?,date}` → `{queued:true,request}`。目标为当前打开的 Room，预设使用 `plugin` 日期模式。 |
-| `harness.readSession` | `harness.read` | `{preset?,room?,chat?,agent?,id?,participant?,offset?,limit?}` → 指定 Agent 当前上下文中的可见消息。群像的 Chat/Search 会话以 Room 和角色 ID `participant` 定位。Fetch 和临时 Agent 可提供任务 ID，临时会话只向所有者开放。 |
+| `harness.readSession` | `harness.read` | `{preset?,room?,chat?,agent?,id?,participant?,offset?,limit?}` → 指定智能体当前上下文中的可见消息。群像的 Chat/Search 会话以 Room 和角色 ID `participant` 定位。Fetch 和临时智能体可提供任务 ID，临时会话只向所有者开放。 |
 | `harness.getSessionInfo()` | `harness.read` | 当前回调绑定到模型会话时，返回 `{model,provider,contextWindow,usedTokens,remainingTokens}`。没有已计算上下文的会话时返回 `null`。 |
 | `harness.createChat` | `harness.write` | `{preset?}` → 在普通预设中新建聊天并选中。 |
 | `harness.createRoom` | `harness.write` | `{preset?}` → 在群像预设中新建 Room，用预设定义初始化角色和 Chat。Room 内新增 Chat 或改变成员由 EnvAgent 处理。 |
 | `harness.createPreset` | `harness.write` | `{name?}` → 新建预设草稿，省略时用默认名称。打开后由 PresetAgent 完成设置。 |
-| `harness.send` | `harness.write` | `{chat?,room?,agent?,text?,role?,stage?,attachments?}` → 发送并请求模型回复。Agent 可选 `chat`、`env`、`preset`。Env 的 `stage:true` 请求推进剧情。群像聊天发送给 `chat` 时提供房间，事件有房间时可沿用。附件必须由当前调用获得授权。 |
+| `harness.send` | `harness.write` | `{chat?,room?,agent?,text?,role?,stage?,attachments?}` → 发送并请求模型回复。智能体可选 `chat`、`env`、`preset`。Env 的 `stage:true` 请求推进剧情。群像聊天发送给 `chat` 时提供房间，事件有房间时可沿用。附件必须由当前调用获得授权。 |
 | `harness.steer` | `harness.write` | `{room?,chat?,agent?,text,system?}` → `{accepted:true}`，在目标 Chat 生成中插话并打断当前模型流。已执行的工具可以继续完成。 |
-| `harness.insertSystemMessage` | `harness.write` | `{chat?,room?,participant?,agent?,text}` → 普通 Agent 生成时可插入系统消息，返回 `{accepted:true}`。空闲时入队写入历史。群像模式给 `chat` 发消息时用 `participant` 选择单个角色，或用 `room` 通知房间。 |
+| `harness.insertSystemMessage` | `harness.write` | `{chat?,room?,participant?,agent?,text}` → 普通智能体生成时可插入系统消息，返回 `{accepted:true}`。空闲时入队写入历史。群像模式给 `chat` 发消息时用 `participant` 选择单个角色，或用 `room` 通知房间。 |
 | `harness.renameChat` | `harness.write` | `{room?,chat?,name}` → 手动更新普通 Chat 或群像 Room 中指定 Chat 的标题。 |
 | `harness.renameRoom` | `harness.write` | `{room?,name}` → 手动更新 Room 的标题。 |
 | `harness.generateTitle` | `harness.write` | `{chat?}` → 用标题模型根据 ChatAgent 会话重生成标题。 |
-| `harness.setSearchMode` | `harness.write` | `{chat?,enabled}` → 更新当前预设的代理搜索开关。 |
-| `harness.setPrompt` | `harness.write` | `{chat?,agent?,text}` → 保存该 Agent 的系统提示，最多 16000 字符。另支持 `search`、`fetch`、`title`。 |
+| `harness.setSearchMode` | `harness.write` | `{chat?,enabled}` → 更新当前预设的智能体搜索开关。 |
+| `harness.setPrompt` | `harness.write` | `{chat?,agent?,text}` → 保存该智能体的系统提示，最多 16000 字符。另支持 `search`、`fetch`、`title`。 |
 | `harness.branchChat` | `harness.write` | `{chat?,block}` → 从带检查点的用户消息 ID 分支，并重新执行该条消息。 |
 | `harness.createTemporarySession` | `harness.write` | `{}` → `{id}`。使用当前 Chat 模型创建内存会话，不进入会话列表。宿主总数上限 16。 |
 | `harness.runTemporary` | `harness.write` | `{id,text,system?}` → `{text}`。在插件自己的临时会话中运行，保留同一临时会话的前文。 |

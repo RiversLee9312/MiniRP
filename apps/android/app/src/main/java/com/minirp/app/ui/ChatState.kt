@@ -159,6 +159,9 @@ data class ChatState(
     val preparing
         get() = submitting || presetEditor == PresetEditorPhase.Opening
 
+    val canExportTranscript
+        get() = ready && generating == null && !preparing && !archiveBusy
+
     val presetEditorOpen
         get() = presetEditor == PresetEditorPhase.Open
 

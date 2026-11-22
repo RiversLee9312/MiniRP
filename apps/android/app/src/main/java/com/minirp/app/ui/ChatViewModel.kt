@@ -13,9 +13,11 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.mikepenz.markdown.model.State as MarkdownState
 import com.mikepenz.markdown.model.parseMarkdown
+import com.minirp.app.MiniRPApplication
 import com.minirp.app.R
 import com.minirp.app.core.BrowserHost
 import com.minirp.app.core.CoreClient
+import com.minirp.app.core.TurnProtection
 import com.minirp.app.data.AttachmentStore
 import com.minirp.app.data.LibraryPagingSource
 import com.minirp.app.data.Preferences
@@ -35,8 +37,15 @@ internal constructor(
     application: Application,
     private val workspace: Context,
     private val preferences: Preferences,
+    internal val turnProtection: TurnProtection? = null,
 ) : AndroidViewModel(application) {
-    constructor(application: Application) : this(application, application, Preferences(application))
+    constructor(application: Application) : this(
+        application, application, Preferences(application), (application as? MiniRPApplication)?.turnProtection,
+    )
+
+    internal fun authorizeBackgroundTurns(enabled: Boolean) {
+        viewModelScope.launch { turnProtection?.authorize(enabled) }
+    }
 
     private val mutableState = MutableStateFlow(ChatState())
     val state = mutableState.asStateFlow()
@@ -87,6 +96,7 @@ internal constructor(
     init {
         viewModelScope.launch {
             try {
+                turnProtection?.initialize()
                 val (profiles, options) = withContext(Dispatchers.IO) { preferences.load() }
                 val providers = profiles.objects().map(::decodeProvider)
                 val saved =
@@ -196,6 +206,28 @@ internal constructor(
                             val finished =
                                 withContext(Dispatchers.Default) { block?.finishMarkdown() }
                             receiveTrace(event, finished)
+                        }
+                        "generating" -> {
+                            turnProtection?.turnChanged(
+                                "conversation",
+                                running = event.optBoolean("value"),
+                                interrupted = event.optBoolean("interrupted"),
+                                userInitiated = event.optBoolean("user_initiated"),
+                            )
+                            receive(event)
+                        }
+                        "plugin_agent_status" -> {
+                            val run = event.optString("plugin_run")
+                            val status = event.optString("status")
+                            if (run.isNotBlank()) {
+                                turnProtection?.turnChanged(
+                                    run,
+                                    running = status == "running",
+                                    interrupted = status == "failed",
+                                    userInitiated = false,
+                                )
+                            }
+                            receive(event)
                         }
                         else -> receive(event)
                     }

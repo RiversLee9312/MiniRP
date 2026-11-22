@@ -96,6 +96,7 @@
     <string name="invalid_url">יש להזין כתובת API תקינה.</string>
     <string name="native_core_error">הפעלת מנוע הצ׳אט נכשלה.</string>
     <string name="export_chat">ייצוא צ׳אט</string>
+    <string name="export_transcript">ייצוא תמליל (JSONL)</string>
     <string name="import_preset">ייבוא תבנית</string>
     <string name="show_key">הצגת מפתח API</string>
     <string name="hide_key">הסתרת מפתח API</string>
@@ -180,8 +181,8 @@
     <string name="export_preset">ייצוא תבנית</string>
     <string name="export_save">ייצוא שמירה</string>
     <string name="import_save">ייבוא שמירה</string>
-    <string name="plugin_agent">סוכן תוספים</string>
-    <string name="plugin_agent_activity">פעילות סוכן התוספים</string>
+    <string name="plugin_agent">סוכן משנה לתוספים</string>
+    <string name="plugin_agent_activity">פעילות סוכני משנה לתוספים</string>
     <string name="use_preset_model">שימוש במודל של התבנית</string>
     <string name="plugin_run">הרצה %1$d</string>
     <string name="plugin_run_finished">הושלמה</string>
@@ -194,4 +195,21 @@
     <string name="research_apis">ממשקי חיפוש ואחזור</string>
     <string name="research_search_provider">ממשק חיפוש באינטרנט</string>
     <string name="research_fetch_provider">ממשק אחזור דפים</string>
+    <string name="background_turns">תשובות ברקע</string>
+    <string name="background_turns_description">אפשר להמשיך ליצור תשובות גם אחרי שיוצאים מ־\u2066MiniRP\u2069. תוצג התראה בזמן יצירת התשובה.</string>
+    <string name="background_turns_prompt_title">להמשיך ליצור תשובות ברקע?</string>
+    <string name="background_turns_interrupted">יצירת תשובה נקטעה. אפשר להפעיל תשובות ברקע כדי שהתשובה הבאה תוכל להסתיים גם אחרי שיוצאים מ־\u2066MiniRP\u2069.</string>
+    <string name="background_turns_enable">הפעלה</string>
+    <string name="background_turns_later">לא עכשיו</string>
+    <string name="background_turn_running">יצירת תשובה ב־\u2066MiniRP\u2069</string>
+    <string name="background_turn_battery">מיטוב הסוללה</string>
+    <string name="background_turn_battery_exempt">מיטוב הסוללה של \u2066Android\u2069 לא חל על \u2066MiniRP\u2069.</string>
+    <string name="background_turn_battery_description">אם תשובות נקטעות כשהמסך כבוי, אפשר להחריג את \u2066MiniRP\u2069 ממיטוב הסוללה.</string>
+    <string name="background_turn_app_info">פרטי האפליקציה</string>
+    <string name="background_turn_app_info_description">כאן אפשר לבדוק אם המכשיר מגביל את הפעילות של \u2066MiniRP\u2069 ברקע.</string>
+    <string name="background_turn_live_updates">עדכונים בזמן אמת</string>
+    <string name="background_turn_live_updates_on">מותרים בהגדרות המערכת.</string>
+    <string name="background_turn_live_updates_description">אפשר להציג את התקדמות יצירת התשובה בשורת המצב או במסך הנעילה במכשירים תומכים.</string>
+    <string name="background_turn_notifications">הגדרות התראות</string>
+    <string name="background_turn_notifications_description">יש לאפשר התראות כדי להפעיל תשובות ברקע.</string>
 </resources>

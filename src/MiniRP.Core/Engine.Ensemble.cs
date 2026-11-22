@@ -93,11 +93,12 @@ public sealed partial class Engine
             return EnsembleConversation.DeliveryId(posted);
         }, keepOpen: true, conversation: conversation, queued: message => PreviewSteer("chat", message, conversation));
         BeginInteractiveTurn(turn);
-        var request = command.GetString("request");
-        if (request.Length > 0)
-            Emit(new() { ["kind"] = "message_accepted", ["request"] = request, ["chat"] = Workspace.ChatId });
+        var completedTurn = false;
         try
         {
+            var request = command.GetString("request");
+            if (request.Length > 0)
+                Emit(new() { ["kind"] = "message_accepted", ["request"] = request, ["chat"] = Workspace.ChatId });
             foreach (var member in members)
             {
                 token.ThrowIfCancellationRequested();
@@ -155,10 +156,11 @@ public sealed partial class Engine
                 }
             }
             if (opening is null) StartTitle(force: false);
+            completedTurn = true;
         }
         finally
         {
-            EndInteractiveTurn(turn);
+            EndInteractiveTurn(turn, interrupted: !completedTurn && !token.IsCancellationRequested);
         }
     }
 

@@ -96,6 +96,7 @@
     <string name="invalid_url">Introdu o adresă API validă.</string>
     <string name="native_core_error">Motorul de chat nu a putut porni.</string>
     <string name="export_chat">Exportă chat-ul</string>
+    <string name="export_transcript">Exportă transcrierea (JSONL)</string>
     <string name="import_preset">Importă presetarea</string>
     <string name="show_key">Afișează cheia API</string>
     <string name="hide_key">Ascunde cheia API</string>
@@ -180,8 +181,8 @@
     <string name="export_preset">Exportă presetarea</string>
     <string name="export_save">Exportă salvarea</string>
     <string name="import_save">Importă salvarea</string>
-    <string name="plugin_agent">Agent de extensii</string>
-    <string name="plugin_agent_activity">Activitatea agentului de extensii</string>
+    <string name="plugin_agent">Subagent pentru extensii</string>
+    <string name="plugin_agent_activity">Activitatea subagenților pentru extensii</string>
     <string name="use_preset_model">Folosește modelul presetării</string>
     <string name="plugin_run">Rularea %1$d</string>
     <string name="plugin_run_finished">Finalizată</string>
@@ -194,4 +195,21 @@
     <string name="research_apis">API-uri de căutare și preluare</string>
     <string name="research_search_provider">API de căutare web</string>
     <string name="research_fetch_provider">API de preluare a paginilor</string>
+    <string name="background_turns">Răspunsuri în fundal</string>
+    <string name="background_turns_description">Continuă generarea răspunsurilor după ce părăsești MiniRP. În timpul generării apare o notificare.</string>
+    <string name="background_turns_prompt_title">Continui răspunsurile în fundal?</string>
+    <string name="background_turns_interrupted">Un răspuns a fost întrerupt. Activează răspunsurile în fundal pentru ca următorul să se poată termina după ce părăsești MiniRP.</string>
+    <string name="background_turns_enable">Activează</string>
+    <string name="background_turns_later">Nu acum</string>
+    <string name="background_turn_running">MiniRP generează un răspuns</string>
+    <string name="background_turn_battery">Optimizarea bateriei</string>
+    <string name="background_turn_battery_exempt">MiniRP este exceptată de la optimizarea bateriei din Android.</string>
+    <string name="background_turn_battery_description">Dacă răspunsurile se întrerup când ecranul se stinge, poți exclude MiniRP de la optimizarea bateriei.</string>
+    <string name="background_turn_app_info">Informații despre aplicație</string>
+    <string name="background_turn_app_info_description">Verifică dacă dispozitivul limitează activitatea MiniRP în fundal.</string>
+    <string name="background_turn_live_updates">Actualizări în timp real</string>
+    <string name="background_turn_live_updates_on">Permise în setările sistemului.</string>
+    <string name="background_turn_live_updates_description">Urmărește răspunsul în bara de stare sau pe ecranul de blocare pe dispozitivele compatibile.</string>
+    <string name="background_turn_notifications">Setări pentru notificări</string>
+    <string name="background_turn_notifications_description">Permite notificările pentru a activa răspunsurile în fundal.</string>
 </resources>

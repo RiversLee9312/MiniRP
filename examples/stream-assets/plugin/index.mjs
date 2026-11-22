@@ -1,3 +1,5 @@
+import { countBytes, makeSample } from "./lib/bytes.js";
+
 globalThis.handlers = {
     async announce(_event, api) {
         await api.actions.publish({
@@ -7,25 +9,12 @@ globalThis.handlers = {
     },
 
     produce() {
-        let remaining = 1_000_003;
-        return new ReadableStream({
-            pull(controller) {
-                if (remaining === 0) {
-                    controller.close();
-                    return;
-                }
-                const chunk = new Uint8Array(Math.min(remaining, 65536));
-                chunk.fill(42);
-                remaining -= chunk.length;
-                controller.enqueue(chunk);
-            },
-        });
+        return makeSample();
     },
 
     async consume(event, api) {
         const { body } = await api.assets.open(event.assets.sample);
-        let bytes = 0;
-        for await (const chunk of body) bytes += chunk.byteLength;
+        const bytes = await countBytes(body);
         if (api.environment.chat) {
             const key = "stream-example/last-size";
             const entry = await api.db.get({ scope: "chat", key });
@@ -44,9 +33,7 @@ globalThis.handlers = {
 
     async measure(event, api) {
         const { body } = await api.assets.open(event.arguments.url);
-        let bytes = 0;
-        for await (const chunk of body) bytes += chunk.byteLength;
-        return { bytes };
+        return { bytes: await countBytes(body) };
     },
 
     async encodeAbout(_event, api) {

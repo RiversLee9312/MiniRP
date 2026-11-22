@@ -185,6 +185,53 @@ public sealed class ConversationFlowTests
     }
 
     [TestMethod]
+    public async Task TranscriptExportKeepsOnlyTheSelectedPaneAndRefusesActiveTurns()
+    {
+        var root = NewRoot();
+        await using var engine = new Engine(root);
+        Configure(engine);
+        var preset = engine.Workspace.PresetId;
+        await Run(engine, new() { ["op"] = "select_chat", ["preset"] = preset });
+        var chat = engine.Workspace.ChatId;
+        await Run(engine, new() { ["op"] = "rename", ["name"] = "Transcript fixture" });
+        await Run(engine, new() { ["op"] = "message", ["text"] = "第一行\nSecond line" },
+            "checkpoint_note", "Chat answer");
+        await Run(engine, new() { ["op"] = "message", ["agent"] = "env", ["text"] = "World question" }, "World answer");
+        await Run(engine, new() { ["op"] = "message", ["agent"] = "preset", ["text"] = "Preset question" }, "Preset answer");
+
+        var normal = await Export("chat");
+        Assert.AreEqual("transcript", normal[0].GetString("type"));
+        Assert.AreEqual(chat, normal[0].GetString("chat"));
+        Assert.AreEqual("第一行\nSecond line", normal[1].GetString("content"));
+        Assert.AreEqual("user", normal[1].GetString("role"));
+        Assert.IsTrue(normal.Any(row => row.GetString("tool") == "db_write" && row.GetString("type") == "tool"));
+        Assert.IsFalse(normal.Any(row => row.GetString("content") is "World answer" or "Preset answer"));
+        Assert.AreEqual("World answer", (await Export("env")).Last().GetString("content"));
+        Assert.AreEqual("Preset answer", (await Export("preset")).Last().GetString("content"));
+
+        engine.Dispatch(new() { ["op"] = "message", ["text"] = "Leave the turn active" });
+        await Wait(engine, "generating");
+        var blocked = Path.Combine(root, "blocked.jsonl");
+        Assert.ThrowsExactly<InvalidOperationException>(() => engine.Dispatch(Request("chat", blocked)));
+        Assert.IsFalse(File.Exists(blocked));
+        engine.Dispatch(new() { ["op"] = "cancel" });
+        await Wait(engine, "cancelled");
+
+        JsonObject Request(string role, string path) => new()
+        {
+            ["op"] = "archive_export", ["type"] = "transcript", ["agent"] = role,
+            ["preset"] = preset, ["chat"] = chat, ["path"] = path,
+        };
+        async Task<JsonObject[]> Export(string role)
+        {
+            var path = Path.Combine(root, role + ".jsonl");
+            engine.Dispatch(Request(role, path));
+            await Wait(engine, "archive_exported");
+            return File.ReadAllLines(path).Select(JsonValues.ParseObject).ToArray();
+        }
+    }
+
+    [TestMethod]
     public async Task GeminiReceivesVideoReferenceWithoutUploadingBytes()
     {
         var root = NewRoot();

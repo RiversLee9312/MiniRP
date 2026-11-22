@@ -96,6 +96,7 @@
     <string name="invalid_url">Введіть дійсну адресу API.</string>
     <string name="native_core_error">Не вдалося запустити рушій чату.</string>
     <string name="export_chat">Експортувати чат</string>
+    <string name="export_transcript">Експортувати запис розмови (JSONL)</string>
     <string name="import_preset">Імпортувати пресет</string>
     <string name="show_key">Показати ключ API</string>
     <string name="hide_key">Приховати ключ API</string>
@@ -182,8 +183,8 @@
     <string name="export_preset">Експортувати пресет</string>
     <string name="export_save">Експортувати збереження</string>
     <string name="import_save">Імпортувати збереження</string>
-    <string name="plugin_agent">Агент плагінів</string>
-    <string name="plugin_agent_activity">Активність агента плагінів</string>
+    <string name="plugin_agent">Субагент для плагінів</string>
+    <string name="plugin_agent_activity">Активність субагентів для плагінів</string>
     <string name="use_preset_model">Використати модель пресета</string>
     <string name="plugin_run">Запуск %1$d</string>
     <string name="plugin_run_finished">Завершено</string>
@@ -196,4 +197,21 @@
     <string name="research_apis">API пошуку й отримання сторінок</string>
     <string name="research_search_provider">API вебпошуку</string>
     <string name="research_fetch_provider">API отримання сторінок</string>
+    <string name="background_turns">Фонові відповіді</string>
+    <string name="background_turns_description">Генерування відповідей триває після виходу з MiniRP. Під час генерування відображається сповіщення.</string>
+    <string name="background_turns_prompt_title">Продовжувати генерувати відповіді у фоні?</string>
+    <string name="background_turns_interrupted">Генерування відповіді перервано. Увімкніть фонові відповіді, щоб наступна відповідь могла завершитися після виходу з MiniRP.</string>
+    <string name="background_turns_enable">Увімкнути</string>
+    <string name="background_turns_later">Не зараз</string>
+    <string name="background_turn_running">MiniRP генерує відповідь</string>
+    <string name="background_turn_battery">Оптимізація заряду</string>
+    <string name="background_turn_battery_exempt">Для MiniRP вимкнено оптимізацію використання акумулятора в Android.</string>
+    <string name="background_turn_battery_description">Якщо генерування переривається після вимкнення екрана, вимкніть оптимізацію заряду для MiniRP.</string>
+    <string name="background_turn_app_info">Інформація про додаток</string>
+    <string name="background_turn_app_info_description">Перевірте, чи обмежує пристрій фонову активність MiniRP.</string>
+    <string name="background_turn_live_updates">Оновлення в реальному часі</string>
+    <string name="background_turn_live_updates_on">Дозволено в налаштуваннях системи.</string>
+    <string name="background_turn_live_updates_description">На підтримуваних пристроях стежте за відповіддю в рядку стану або на екрані блокування.</string>
+    <string name="background_turn_notifications">Налаштування сповіщень</string>
+    <string name="background_turn_notifications_description">Дозвольте сповіщення, щоб увімкнути фонові відповіді.</string>
 </resources>

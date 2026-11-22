@@ -17,7 +17,7 @@ internal sealed partial class MainWindow : Runnable
     private readonly Dictionary<string, TracePane> sidebars = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TracePane> agentPanes = new(StringComparer.Ordinal);
     private JsonObject[] loadedBlocks = [];
-    private const string Commands = "/env  /preset-agent  /create-preset  /chats  /room-chats  /config  /cot  /stop  /quit";
+    private const string Commands = "/env  /preset-agent  /create-preset  /chats  /room-chats  /export-transcript  /config  /cot  /stop  /quit";
     private readonly Label footer = new() { Text = Commands, X = 1, Y = Pos.AnchorEnd(1), Width = Dim.Fill() };
     private readonly CancellationTokenSource lifetime = new();
     private JsonArray presetItems = new();
@@ -325,6 +325,9 @@ internal sealed partial class MainWindow : Runnable
             case "/export-room" or "/export-preset" or "/export-save":
                 TransferArchive("export", parts[0]["/export-".Length..], argument);
                 break;
+            case "/export-transcript":
+                TransferArchive("export", "transcript", argument, agent: role);
+                break;
             case "/import-preset" or "/import-save":
                 TransferArchive("import", parts[0]["/import-".Length..], argument);
                 break;
@@ -395,7 +398,7 @@ internal sealed partial class MainWindow : Runnable
         catch (InvalidOperationException error) { main.Notice(error.Message); }
     }
 
-    private void TransferArchive(string action, string type, string path, string plugin = "")
+    private void TransferArchive(string action, string type, string path, string plugin = "", string agent = "")
     {
         path = path.Trim().Trim('"');
         if (path.Length == 0)
@@ -405,10 +408,18 @@ internal sealed partial class MainWindow : Runnable
         }
         try
         {
-            core.Send(new() { ["op"] = "archive_" + action, ["type"] = type,
-                ["path"] = Path.GetFullPath(path), ["preset"] = presetId, ["room"] = chatId, ["id"] = plugin });
+            var command = new JsonObject { ["op"] = "archive_" + action, ["type"] = type,
+                ["path"] = Path.GetFullPath(path), ["preset"] = presetId, ["room"] = chatId, ["id"] = plugin };
+            if (type == "transcript")
+            {
+                command["agent"] = agent;
+                command["chat"] = chatId;
+                command["conversation"] = agent == "chat" ? ensembleChatId : "";
+                if (Path.GetExtension(path).Length == 0) command["path"] = command.GetString("path") + ".jsonl";
+            }
+            core.Send(command);
         }
-        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or InvalidOperationException)
         {
             main.Notice(ex.Message);
         }

@@ -352,10 +352,10 @@ class ComposerTest {
             transcript.performTouchInput { swipeDown(durationMillis = 65) }
             compose.mainClock.advanceTimeBy(48)
             val older = compose.runOnIdle { list.firstVisibleItemIndex }
-            assertTrue(older > 60)
+            assertTrue(older < 60)
             transcript.performTouchInput { swipeUp(durationMillis = 65) }
             compose.mainClock.advanceTimeBy(48)
-            assertTrue(compose.runOnIdle { list.firstVisibleItemIndex } < older)
+            assertTrue(compose.runOnIdle { list.firstVisibleItemIndex } > older)
         } finally {
             compose.mainClock.autoAdvance = true
         }

@@ -90,6 +90,7 @@ internal sealed partial class AgentContainer(AgentContainer.Rooms rooms, AgentAs
             catch (OperationCanceledException) when (rooms.Lifetime.IsCancellationRequested)
             { status["error"] = "The shell job was interrupted before it finished."; }
             catch (Exception error) { status["error"] = error.Message; }
+            ToolDiagnostics.AnnotateResult("shell", "container", status);
             try { connection.Write(key, JsonValues.Serialize(status), internalWrite: true); }
             catch (InvalidOperationException error) { System.Diagnostics.Trace.TraceError("Could not update shell job {0}: {1}", key, error.Message); }
             finally { Jobs.TryRemove((db.Path, key), out _); }
@@ -108,6 +109,7 @@ internal sealed partial class AgentContainer(AgentContainer.Rooms rooms, AgentAs
             if (status.GetString("status") != "running") continue;
             status["status"] = "failed";
             status["error"] = "The shell job was interrupted before it finished.";
+            ToolDiagnostics.AnnotateResult("shell", "container", status);
             db.Write(key, JsonValues.Serialize(status), internalWrite: true);
         }
     }

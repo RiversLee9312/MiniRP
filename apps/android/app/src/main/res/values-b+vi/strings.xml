@@ -96,6 +96,7 @@
     <string name="invalid_url">Nhập địa chỉ API hợp lệ.</string>
     <string name="native_core_error">Không thể khởi động bộ máy trò chuyện.</string>
     <string name="export_chat">Xuất cuộc trò chuyện</string>
+    <string name="export_transcript">Xuất bản ghi cuộc trò chuyện (JSONL)</string>
     <string name="import_preset">Nhập preset</string>
     <string name="show_key">Hiện khóa API</string>
     <string name="hide_key">Ẩn khóa API</string>
@@ -176,8 +177,8 @@
     <string name="export_preset">Xuất cấu hình</string>
     <string name="export_save">Xuất bản lưu</string>
     <string name="import_save">Nhập bản lưu</string>
-    <string name="plugin_agent">Tác nhân plugin</string>
-    <string name="plugin_agent_activity">Hoạt động của tác nhân plugin</string>
+    <string name="plugin_agent">Tác nhân phụ cho plugin</string>
+    <string name="plugin_agent_activity">Hoạt động của tác nhân phụ cho plugin</string>
     <string name="use_preset_model">Dùng mô hình của thiết lập sẵn</string>
     <string name="plugin_run">Lần chạy %1$d</string>
     <string name="plugin_run_finished">Hoàn tất</string>
@@ -190,4 +191,21 @@
     <string name="research_apis">API tìm kiếm và tải nội dung</string>
     <string name="research_search_provider">API tìm kiếm web</string>
     <string name="research_fetch_provider">API tải trang</string>
+    <string name="background_turns">Phản hồi trong nền</string>
+    <string name="background_turns_description">Tiếp tục tạo phản hồi khi bạn rời MiniRP. Thông báo sẽ xuất hiện trong lúc tạo phản hồi.</string>
+    <string name="background_turns_prompt_title">Tiếp tục tạo phản hồi trong nền?</string>
+    <string name="background_turns_interrupted">Một phản hồi đã bị gián đoạn. Bật phản hồi trong nền để phản hồi tiếp theo có thể hoàn tất khi bạn rời MiniRP.</string>
+    <string name="background_turns_enable">Bật</string>
+    <string name="background_turns_later">Để sau</string>
+    <string name="background_turn_running">MiniRP đang tạo phản hồi</string>
+    <string name="background_turn_battery">Tối ưu hóa pin</string>
+    <string name="background_turn_battery_exempt">MiniRP được miễn tối ưu hóa pin của Android.</string>
+    <string name="background_turn_battery_description">Nếu phản hồi dừng khi màn hình tắt, bạn có thể miễn tối ưu hóa pin cho MiniRP.</string>
+    <string name="background_turn_app_info">Thông tin ứng dụng</string>
+    <string name="background_turn_app_info_description">Kiểm tra xem thiết bị có hạn chế hoạt động nền của MiniRP hay không.</string>
+    <string name="background_turn_live_updates">Cập nhật trực tiếp</string>
+    <string name="background_turn_live_updates_on">Đã được cho phép trong cài đặt hệ thống.</string>
+    <string name="background_turn_live_updates_description">Theo dõi phản hồi trên thanh trạng thái hoặc màn hình khóa của thiết bị được hỗ trợ.</string>
+    <string name="background_turn_notifications">Cài đặt thông báo</string>
+    <string name="background_turn_notifications_description">Cho phép thông báo để bật phản hồi trong nền.</string>
 </resources>

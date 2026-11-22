@@ -1,15 +1,19 @@
 package com.minirp.app.ui
 
+import android.app.NotificationManager
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -17,10 +21,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.os.LocaleListCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.minirp.app.R
+import com.minirp.app.core.TurnProtection
 import kotlinx.coroutines.CancellationException
 
 @Composable
@@ -32,8 +39,37 @@ internal fun DeclaredSettingsScreen(
     onPage: (AppRoute.PluginPage) -> Unit,
     onLink: (PluginSetting) -> Unit,
     onResearch: (() -> Unit)? = null,
+    backgroundTurns: Boolean? = null,
+    onBackgroundTurns: ((Boolean) -> Unit)? = null,
 ) {
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
+        if (backgroundTurns != null) item("background-turns") {
+            ListItem(
+                content = { Text(stringResource(R.string.background_turns)) },
+                supportingContent = { Text(stringResource(R.string.background_turns_description)) },
+                trailingContent = {
+                    Switch(backgroundTurns, onCheckedChange = null, enabled = onBackgroundTurns != null)
+                },
+                modifier = Modifier.toggleable(
+                    value = backgroundTurns,
+                    enabled = onBackgroundTurns != null,
+                    role = Role.Switch,
+                    onValueChange = { onBackgroundTurns?.invoke(it) },
+                ),
+            )
+            if (backgroundTurns) BackgroundTurnSystemSettings()
+            val context = LocalContext.current
+            var notificationsEnabled by remember { mutableStateOf(true) }
+            LifecycleResumeEffect(context) {
+                notificationsEnabled = context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()
+                onPauseOrDispose { }
+            }
+            if (!notificationsEnabled) {
+                BackgroundTurnSettingLink(R.string.background_turn_notifications, R.string.background_turn_notifications_description) {
+                    context.openTurnSettings(context.notificationSettings())
+                }
+            }
+        }
         if (onResearch != null) item("research-apis") {
             ListItem(
                 content = { Text(stringResource(R.string.research_apis)) },
@@ -65,6 +101,93 @@ internal fun DeclaredSettingsScreen(
         }
         rows(items, false)
     }
+}
+
+@Composable
+private fun BackgroundTurnSystemSettings() {
+    val context = LocalContext.current
+    var batteryExempt by remember { mutableStateOf(false) }
+    var promoted by remember { mutableStateOf(false) }
+    LifecycleResumeEffect(context) {
+        batteryExempt = context.getSystemService(PowerManager::class.java)
+            .isIgnoringBatteryOptimizations(context.packageName)
+        promoted = Build.VERSION.SDK_INT >= 36 &&
+            context.getSystemService(NotificationManager::class.java).canPostPromotedNotifications()
+        onPauseOrDispose { }
+    }
+    BackgroundTurnSettingLink(
+        R.string.background_turn_battery,
+        if (batteryExempt) R.string.background_turn_battery_exempt else R.string.background_turn_battery_description,
+    ) {
+        context.openTurnSettings(
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                .putExtra(Intent.EXTRA_PACKAGE_NAME, context.packageName),
+        )
+    }
+    BackgroundTurnSettingLink(R.string.background_turn_app_info, R.string.background_turn_app_info_description) {
+        context.openTurnSettings(context.appDetails())
+    }
+    if (Build.VERSION.SDK_INT >= 36) {
+        BackgroundTurnSettingLink(
+            R.string.background_turn_live_updates,
+            if (promoted) R.string.background_turn_live_updates_on else R.string.background_turn_live_updates_description,
+        ) {
+            context.openTurnSettings(
+                context.notificationSettings(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS),
+                context.notificationSettings(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun BackgroundTurnSettingLink(title: Int, description: Int, onClick: () -> Unit) {
+    ListItem(
+        content = { Text(stringResource(title)) },
+        supportingContent = { Text(stringResource(description)) },
+        trailingContent = { Symbol("chevron_right") },
+        modifier = Modifier.clickable(onClick = onClick),
+    )
+}
+
+private fun Context.notificationSettings(action: String = Settings.ACTION_APP_NOTIFICATION_SETTINGS) =
+    Intent(action).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+
+private fun Context.appDetails() =
+    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
+
+private fun Context.openTurnSettings(intent: Intent, fallback: Intent = appDetails()) {
+    try {
+        startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        try {
+            startActivity(fallback)
+        } catch (_: ActivityNotFoundException) {
+            startActivity(Intent(Settings.ACTION_SETTINGS))
+        }
+    }
+}
+
+@Composable
+internal fun BackgroundTurnsPrompt(prompt: TurnProtection.Prompt, onChoice: (Boolean) -> Unit) {
+    AlertDialog(
+        onDismissRequest = { onChoice(false) },
+        title = { Text(stringResource(R.string.background_turns_prompt_title)) },
+        text = {
+            Text(
+                stringResource(
+                    if (prompt == TurnProtection.Prompt.Interrupted) R.string.background_turns_interrupted
+                    else R.string.background_turns_description
+                )
+            )
+        },
+        dismissButton = {
+            TextButton(onClick = { onChoice(false) }) { Text(stringResource(R.string.background_turns_later)) }
+        },
+        confirmButton = {
+            Button(onClick = { onChoice(true) }) { Text(stringResource(R.string.background_turns_enable)) }
+        },
+    )
 }
 
 @Composable

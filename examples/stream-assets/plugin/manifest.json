@@ -3,7 +3,7 @@
   "packageName": "example.minichat.stream",
   "name": "Stream assets example",
   "apiVersion": 2,
-  "entry": "index.js",
+  "entry": "index.mjs",
   "permissions": ["db"],
   "actions": {
     "handlers": { "announce": "announce", "consume": "consume", "produce": "produce", "sample-url": "sampleUrl", "measure": "measure", "encode-about": "encodeAbout", "about-url": "aboutUrl" },
