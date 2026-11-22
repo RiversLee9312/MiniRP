@@ -75,6 +75,6 @@ private fun exportName(name: String, extension: String): String {
 @Composable
 internal fun ExportTranscriptButton(onClick: () -> Unit, enabled: Boolean) {
     IconButton(onClick = onClick, enabled = enabled) {
-        Symbol("download", stringResource(R.string.export_transcript))
+        Symbol("share", stringResource(R.string.export_transcript))
     }
 }

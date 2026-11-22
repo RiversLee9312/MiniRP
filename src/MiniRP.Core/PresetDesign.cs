@@ -32,7 +32,13 @@ internal static class PresetDesign
             throw new InvalidOperationException("An ensemble preset and a regular preset are separate. Create a new preset to use the other format.");
         if (arguments["agentic_search"] is not JsonValue search || !search.TryGetValue<bool>(out var delegated))
             throw new ArgumentException("Set agentic_search to the user's choice.");
-        if (mode == "ensemble") config["ensemble"] = EnsembleDefinition(arguments.GetObject("ensemble"));
+        if (mode == "ensemble")
+        {
+            var definition = EnsembleDefinition(arguments.GetObject("ensemble"));
+            if (definition["loading_messages"] is null && config.GetObject("ensemble")["loading_messages"] is JsonArray saved)
+                definition["loading_messages"] = saved.DeepClone();
+            config["ensemble"] = definition;
+        }
         config["chat_mode"] = mode;
         config["agentic_search"] = delegated;
         return new() { ["staged"] = true, ["mode"] = mode, ["agentic_search"] = delegated };
@@ -65,7 +71,18 @@ internal static class PresetDesign
             definitions.AddNode(new JsonObject { ["id"] = id, ["name"] = chat.GetString("name"),
                 ["members"] = chat.GetArray("members").DeepClone() });
         }
-        return new() { ["agents"] = agents.DeepClone(), ["chats"] = definitions };
+        var ensemble = new JsonObject { ["agents"] = agents.DeepClone(), ["chats"] = definitions };
+        if (input.ContainsKey("loading_messages"))
+        {
+            if (input["loading_messages"] is not JsonArray messages || messages.Count > 8)
+                throw new ArgumentException("Provide up to eight loading messages.");
+            var lines = messages.Select(message => JsonValues.GetText(message).Trim()).ToArray();
+            if (lines.Any(line => line.Length is < 1 or > 120 || line.Any(char.IsControl)) ||
+                lines.Distinct(StringComparer.Ordinal).Count() != lines.Length)
+                throw new ArgumentException("Loading messages must be distinct single lines of up to 120 characters.");
+            ensemble["loading_messages"] = new JsonArray(lines.Select(line => (JsonNode?)JsonValue.Create(line)).ToArray());
+        }
+        return ensemble;
     }
 
     public static string Id(string value) => value.Length <= 48 ? Workspace.Safe(value) : throw new ArgumentException("ID exceeds 48 characters.");

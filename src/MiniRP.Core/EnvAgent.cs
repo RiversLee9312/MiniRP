@@ -3,7 +3,7 @@ namespace MiniRP.Core;
 
 public sealed class EnvAgent(Workspace world, AgentSession session)
 {
-    public async Task<string> Run(string input, bool stage, CancellationToken ct, JsonArray? attachments = null, string inputRole = "user")
+    public async Task<string> Run(string input, bool advanceRequested, CancellationToken ct, JsonArray? attachments = null, string inputRole = "user")
     {
         var state = (JsonObject)world.State.DeepClone();
         var tools = new JsonArray(
@@ -106,8 +106,9 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
             return Task.FromResult<JsonNode?>(new JsonObject { ["staged"] = true });
         }
         var system = "You are EnvAgent, managing story and established facts. Inspect and make minimal precise edits with tools. World rules constrain you. Speculation in chat is not established fact. Changes are staged and committed only on successful completion. Explain actual changes concisely in the user's language. " +
-            (stage ? "Advance the story a small step." : "Edit facts and settings as requested.") +
-            " The room calendar follows the real date or advances through a plugin. Use set_date only for an explicit date change, including during story advancement.\n" +
+            "Decide whether to advance the story using the current request, conversation, established facts, and stage policy. Advance only when they support a concrete next step, and only as far as they support. Leave the phase unchanged for questions and corrections unless they establish that an advancement condition has been met. " +
+            (advanceRequested ? "The caller has asked you to consider advancing the story this turn. " : "") +
+            "The room calendar follows the real date or advances through a plugin. Use set_date only for an explicit date change, including during story advancement.\n" +
             world.WorldText + "\nStage policy:\n" + JsonValues.Serialize(world.Config["stage"]);
         if (!world.AgenticSearch)
         {
@@ -123,7 +124,7 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
             throw new IOException("Empty response. Changes not saved.");
         }
 
-        world.Commit(state);
+        if (!JsonNode.DeepEquals(world.State, state)) world.Commit(state);
         return answer.GetString("content");
     }
 }

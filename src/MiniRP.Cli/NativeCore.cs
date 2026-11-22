@@ -16,9 +16,9 @@ internal sealed partial class NativeCore : IDisposable
         NativeLibrary.Load(Path.Combine(AppContext.BaseDirectory, sqlite));
     }
 
-    public NativeCore(string root)
+    public NativeCore(string root, bool seedDefaultPreset = true)
     {
-        handle = Create(root);
+        handle = Create(root, seedDefaultPreset ? 1 : 0);
         if (handle == 0)
         {
             throw new IOException("Could not initialize the native chat engine.");
@@ -68,8 +68,8 @@ internal sealed partial class NativeCore : IDisposable
 
     public void Dispose() => Destroy(handle);
 
-    [LibraryImport("libminirpcore", EntryPoint = "mc_create", StringMarshalling = StringMarshalling.Utf8)]
-    private static partial long Create(string root);
+    [LibraryImport("libminirpcore", EntryPoint = "mc_create_with_options", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial long Create(string root, int seedDefaultPreset);
     [LibraryImport("libminirpcore", EntryPoint = "mc_dispatch", StringMarshalling = StringMarshalling.Utf8)]
     private static partial nint Dispatch(long handle, string json);
     [LibraryImport("libminirpcore", EntryPoint = "mc_poll")]

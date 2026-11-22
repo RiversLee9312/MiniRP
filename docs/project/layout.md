@@ -4,7 +4,8 @@
 | --- | --- |
 | `src/MiniRP.Core` | HarnessCore 的 C# NativeAOT 实现。负责智能体、模型协议、会话与版本化、SQLite 记忆、插件清单验证、Actions、Assets、事件队列。 |
 | `src/MiniRP.Protocol` | 跨项目共用的协议与 JSON 表示。 |
-| `src/MiniRP.Cli` | 桌面 Terminal.Gui 界面与平台适配层。ClearScript 提供 V8，平台负责 HTTP、选择文件和浏览器。 |
+| `src/MiniRP.Cli` | 桌面 Terminal.Gui、内置 ASP.NET Core WebUI 宿主及共用平台适配。ClearScript 提供 V8，平台负责 HTTP、浏览器、文件和工具进程。 |
+| `apps/desktop-web` | React 桌面界面。使用同一套工作区命令和流式事件，构建时读取 Android 的语言与图标资源。 |
 | `apps/android` | Android Studio 工程。Kotlin 和 Compose 页面、Paging 3、JNI 适配、Javet V8、OkHttp、系统 picker 与 WebView。 |
 | `tests/MiniRP.Core.Tests` | HarnessCore、模型协议和插件端到端测试。 |
 | `apps/android/app/src/androidTest` | Compose UI、Paging 和 JNI 集成测试。 |

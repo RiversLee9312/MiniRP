@@ -4,12 +4,16 @@ using MiniRP.Protocol;
 using Terminal.Gui.App;
 
 var root = Path.GetFullPath(args.FirstOrDefault(value => !value.StartsWith("--", StringComparison.Ordinal)) ?? Directory.GetCurrentDirectory());
-using var core = new NativeCore(root);
+var web = args.Contains("--web", StringComparer.Ordinal);
+var noOpen = args.Contains("--no-open", StringComparer.Ordinal);
+using var core = new NativeCore(root, seedDefaultPreset: false);
 var settings = new EnvironmentSettings(root);
 settings.Load();
-await using var browser = new BrowserHost(root, settings["MINIRP_BROWSER"].Length > 0 ? settings["MINIRP_BROWSER"] : "chrome");
+var browserName = settings["MINIRP_BROWSER"];
+if (browserName.Length == 0) browserName = OperatingSystem.IsLinux() ? "chromium" : "chrome";
+await using var browser = new BrowserHost(root, browserName);
 await using var platform = new PlatformHost(core.Send, core.TakeBinary, core.WriteBinary, browser, root);
-core.Send(settings.Configure());
+core.Send(settings.Configure(web));
 var containerImage = Environment.GetEnvironmentVariable("MINIRP_CONTAINER_IMAGE") ?? Path.Combine(AppContext.BaseDirectory, "container-image");
 if (File.Exists(Path.Combine(containerImage, "ROOM_VM"))) core.Send(new() { ["op"] = "_container_available" });
 if (File.Exists(CurlHost.Executable)) core.Send(new() { ["op"] = "_curl_available" });
@@ -46,8 +50,25 @@ if (args.Contains("--stdio", StringComparer.Ordinal))
     return;
 }
 
-using IApplication application = Application.Create().Init();
-var pluginFiles = new PluginFiles(root);
-platform.Picker = (message, ct) => pluginFiles.Choose(application, message, ct);
-using var window = new MainWindow(core, platform, settings, pluginFiles);
-application.Run(window);
+(string Preset, string Chat, string Conversation) selection = ("", "", "");
+JsonObject? ready = null;
+if (!web)
+{
+    using IApplication application = Application.Create().Init();
+    var pluginFiles = new PluginFiles(root);
+    platform.Picker = (message, ct) => pluginFiles.Choose(application, message, ct);
+    var window = new MainWindow(core, platform, settings, pluginFiles);
+    using (window)
+    {
+        application.Run(window);
+        web = window.OpenWeb;
+        selection = window.Selection;
+        ready = window.Ready;
+    }
+    await window.PumpCompletion;
+}
+if (web)
+{
+    await using var session = new WebSession(core, platform, settings, root, ready, selection);
+    await WebDesktop.Run(session, noOpen);
+}

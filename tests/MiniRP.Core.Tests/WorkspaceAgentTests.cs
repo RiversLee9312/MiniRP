@@ -368,10 +368,12 @@ public sealed class WorkspaceAgentTests
         var model = Fixture(_ => new() { ["content"] = "Done." }, requests.Add);
         using var session = TestAgentSession.Open("env", Path.Combine(world.ChatRoot, "env-reference.sqlite"), model, _ => { });
         var agent = new EnvAgent(world, session);
+        var initialState = world.State;
         world.Chat["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = "Previous room view" });
         await agent.Run("First edit", false, CancellationToken.None);
         world.Chat["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = "Current room view" });
         await agent.Run("Second edit", false, CancellationToken.None);
+        Assert.AreSame(initialState, world.State);
         var sent = requests[1].GetArray("messages");
         Assert.AreEqual(1, sent.Count(item => item.GetString("content").Contains("Conversation reference:", StringComparison.Ordinal)));
         Assert.IsTrue(sent.Any(item => item.GetString("content").Contains("Current room view", StringComparison.Ordinal)));

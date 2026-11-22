@@ -35,7 +35,9 @@ internal sealed partial class BrowserHost(string root, string browserName = "chr
             {
                 var directory = Path.Combine(Path.GetTempPath(), "minirp-browser-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(directory);
-                var script = Path.Combine(root, "node_modules", "@playwright", "mcp", "cli.js");
+                const string module = "node_modules/@playwright/mcp/cli.js";
+                var script = Path.Combine(AppContext.BaseDirectory, module);
+                if (!File.Exists(script)) script = Path.Combine(root, module);
                 if (!File.Exists(script))
                 {
                     throw new FileNotFoundException("Install browser tools with npm ci in the project directory.", script);

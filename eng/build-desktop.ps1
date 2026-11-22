@@ -6,6 +6,29 @@ $output = if ($OutputDirectory) { [System.IO.Path]::GetFullPath($OutputDirectory
     else { Join-Path $workspace "artifacts/desktop/$Runtime" }
 dotnet publish (Join-Path $workspace 'src/MiniRP.Cli') -r $Runtime -c Release --self-contained true -o $output -v minimal
 if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed.' }
+$staticRoot = Join-Path $output 'wwwroot'
+if ($env:MINIRP_WEB_PREBUILT) {
+    $prebuilt = [System.IO.Path]::GetFullPath($env:MINIRP_WEB_PREBUILT, $workspace)
+    if (!(Test-Path -LiteralPath (Join-Path $prebuilt 'index.html') -PathType Leaf) -or
+        !(Test-Path -LiteralPath (Join-Path $prebuilt 'openui/index.html') -PathType Leaf)) {
+        throw 'The prebuilt assets must contain the WebUI and desktop OpenUI entry points.'
+    }
+    if ($prebuilt -ne $staticRoot) {
+        New-Item -ItemType Directory -Force $staticRoot | Out-Null
+        Get-ChildItem -LiteralPath $prebuilt | Copy-Item -Destination $staticRoot -Recurse -Force
+    }
+} else {
+    $web = Join-Path $workspace 'apps/desktop-web'
+    $openui = Join-Path $workspace 'apps/android/genui'
+    foreach ($source in @($web, $openui)) {
+        npm ci --prefix $source --ignore-scripts --no-audit --no-fund
+        if ($LASTEXITCODE -ne 0) { throw 'Web dependency installation failed.' }
+    }
+    node (Join-Path $web 'node_modules/vite/bin/vite.js') build $web --outDir $staticRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Web UI build failed.' }
+    node (Join-Path $openui 'build.mjs') $staticRoot --desktop
+    if ($LASTEXITCODE -ne 0) { throw 'OpenUI build failed.' }
+}
 $coreName = if ($Runtime.StartsWith('win-')) { 'libminirpcore.dll' } elseif ($Runtime.StartsWith('osx-')) { 'libminirpcore.dylib' } else { 'libminirpcore.so' }
 $sqliteName = if ($Runtime.StartsWith('win-')) { 'e_sqlite3.dll' } elseif ($Runtime.StartsWith('osx-')) { 'libe_sqlite3.dylib' } else { 'libe_sqlite3.so' }
 Copy-Item -LiteralPath (Join-Path $workspace "artifacts/native/$Runtime/$coreName") -Destination $output
@@ -15,6 +38,8 @@ Copy-Item -LiteralPath $sqlite -Destination $output
 foreach ($name in @('package.json', 'package-lock.json', '.env.example', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md')) {
     Copy-Item -LiteralPath (Join-Path $workspace $name) -Destination $output
 }
+npm ci --prefix $output --omit=dev --ignore-scripts --no-audit --no-fund
+if ($LASTEXITCODE -ne 0) { throw 'Browser tools dependency installation failed.' }
 if ($Runtime -eq 'win-x64') {
     if (!$CurlRuntime) { $CurlRuntime = Join-Path $workspace 'artifacts/curl-runtime/windows' }
     if (!(Test-Path -LiteralPath (Join-Path $CurlRuntime 'minirp-curl.exe'))) { throw 'The Windows x64 build requires the native curl runtime.' }

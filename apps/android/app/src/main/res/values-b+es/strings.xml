@@ -48,7 +48,6 @@
     <string name="search_models">Buscar modelos</string>
     <string name="search_chats">Buscar chats</string>
     <string name="edit_facts">Editar datos</string>
-    <string name="advance_story">Avanzar historia</string>
     <string name="edit_preset">Editar preajuste</string>
     <string name="create_preset">Crear preajuste</string>
     <string name="choose_preset">Elegir preajuste</string>
@@ -210,4 +209,11 @@
     <string name="background_turn_live_updates_description">Consulta el progreso en la barra de estado o en la pantalla de bloqueo, si tu dispositivo lo admite.</string>
     <string name="background_turn_notifications">Ajustes de notificaciones</string>
     <string name="background_turn_notifications_description">Permite las notificaciones para activar las respuestas en segundo plano.</string>
+    <string name="import_menu">Importar…</string>
+    <string name="import_help">¿Cuál es la diferencia?</string>
+    <string name="import_preset_detail">Un preajuste contiene la configuración y sus complementos.</string>
+    <string name="import_save_detail">Una partida guardada también incluye salas, conversaciones, archivos adjuntos y progreso.</string>
+    <string name="preset_management">Gestionar preajuste</string>
+    <string name="conversation_settings">Ajustes del chat</string>
+    <string name="add_saved_model">Añadir modelo</string>
 </resources>

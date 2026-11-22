@@ -110,6 +110,8 @@ data class ReplyError(val agent: AgentRole, val message: String)
 
 data class EnsembleChat(val id: String, val name: String, val members: List<String>)
 
+data class RoomLoading(val id: String, val ready: Int, val total: Int, val progress: Float, val messages: List<String>)
+
 enum class PresetEditorPhase {
     Closed,
     Opening,
@@ -132,6 +134,7 @@ data class ChatState(
     val blocks: List<TraceBlock> = emptyList(),
     val ensembleBlocks: List<TraceBlock> = emptyList(),
     val ensembleChats: List<EnsembleChat>? = null,
+    val roomLoading: RoomLoading? = null,
     val participants: List<Choice> = emptyList(),
     val ensembleChatId: String = "",
     val chatMode: String = "character",

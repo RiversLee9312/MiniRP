@@ -34,6 +34,8 @@ base 的 `edit_asset` 技能可修改当前会话获得授权的可写 Asset。�
 
 `settings.get({key})` 需 `settings` 权限，读取本包声明的可存值节点，返回字符串、布尔值或默认的 `null`。用户写入由宿主处理，变更触发本包的 `settings.changed`。
 
+Android 和桌面使用 HarnessCore 内置的同一份 `minirp.base` 设置声明。分组、页序、抓取选项和开源许可由该声明提供。模型、提供商及平台专属设置通过声明中的链接打开相应宿主编辑器。
+
 | 节点 `type` | 字段与行为 |
 | --- | --- |
 | `group` | 用 `items` 声明同一标题下的子节点。 |

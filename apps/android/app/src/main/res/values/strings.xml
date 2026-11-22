@@ -66,7 +66,6 @@
     <string name="search_models">Search models</string>
     <string name="search_chats">Search chats</string>
     <string name="edit_facts">Edit facts</string>
-    <string name="advance_story">Advance story</string>
     <string name="edit_preset">Edit preset</string>
     <string name="create_preset">Create preset</string>
     <string name="choose_preset">Choose preset</string>
@@ -211,4 +210,11 @@
     <string name="research_apis">Search and fetch APIs</string>
     <string name="research_search_provider">Web search API</string>
     <string name="research_fetch_provider">Page fetch API</string>
+    <string name="import_menu">Import…</string>
+    <string name="import_help">What’s the difference?</string>
+    <string name="import_preset_detail">A preset contains the setup and its plugins.</string>
+    <string name="import_save_detail">A save also includes rooms, conversations, attachments, and progress.</string>
+    <string name="preset_management">Manage preset</string>
+    <string name="conversation_settings">Chat settings</string>
+    <string name="add_saved_model">Add model</string>
 </resources>

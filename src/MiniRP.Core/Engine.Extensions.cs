@@ -81,7 +81,8 @@ public sealed partial class Engine
             "ensemble_message" => item.GetObject("item").GetString("role") switch
                 { "user" => "message.user", "system" => "message.system", _ => "message.completed" },
             "loaded" when item["ensemble_chats"] is JsonArray => "room.loaded",
-            "loaded" or "ensemble_chat_loaded" => "chat.loaded",
+            "loaded" => "chat.loaded",
+            "ensemble_chat_loaded" when item.GetString("conversation").Length > 0 => "chat.loaded",
             "library_changed" => "library.changed",
             "title" => item.GetBoolean("ensemble") ? "room.title" : "chat.title",
             "user" => "message.user", "system" => "message.system", "completed" => "message.completed",
@@ -207,8 +208,7 @@ public sealed partial class Engine
                 EmitPluginSettings(request);
                 return true;
             case "plugin_page":
-                Emit(new() { ["kind"] = "plugin_page", ["request"] = request,
-                    ["item"] = plugins.Page(command.GetString("id"), command.GetString("key"), Workspace.PresetId) });
+                EmitPluginPage(command);
                 return true;
             case "plugin_setting":
                 plugins.SetSetting(command.GetString("id"), command.GetString("key"), command["value"], PluginEnvironment());
@@ -243,6 +243,12 @@ public sealed partial class Engine
         ["preset"] = Workspace.PresetId, ["items"] = plugins.Settings(Workspace.PresetId)
     });
 
+    private void EmitPluginPage(JsonObject command) => Emit(new()
+    {
+        ["kind"] = "plugin_page", ["request"] = command.GetString("request"),
+        ["item"] = plugins.Page(command.GetString("id"), command.GetString("key"), Workspace.PresetId)
+    });
+
     private void OpenPresetHome(string preset, JsonObject command)
     {
         ShowHome(preset, notify: false);
@@ -264,6 +270,7 @@ public sealed partial class Engine
         if (preset.Length == 0 && seedDefaultPreset) preset = next.InitialPreset().Id;
         if (preset.Length > 0) next.UsePreset(preset);
         foreach (var session in sessions.Values) session.Dispose();
+        CloseRoomCharacters();
         sessions.Clear();
         trace.Clear();
         chat = null;
@@ -273,7 +280,6 @@ public sealed partial class Engine
         presetConversation = null;
         Workspace = next;
         ensemble = null;
-        ensembleWeb = null;
         activeEnsembleChat = "";
         if (notify) EmitHome();
         QueuePresetNotifications(preset);

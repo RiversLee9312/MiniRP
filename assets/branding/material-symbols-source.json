@@ -1,6 +1,6 @@
 {
   "family": "Material Symbols Rounded",
-  "source": "https://fonts.gstatic.com/l/font?kit=syl0-zNym6YjUruM-QrEh7-nyTnjDwKNJ_190FjpZIvDmUSVOK7BDB_Qb9vUSzq3wzLK-P0J-V_Zs-QtQth3-jOcbTCVpeRL2w5rwZu2rIelXxKRNccDe81u7DANSS1DH1lE6hjYcjkbXcFSQLJL3F4wUBSFo_ZNXN73xY75MPVE4d4Bo17E8m7vAHAJwg&skey=70ddea8fe54d532e&v=v386",
+  "source": "https://fonts.gstatic.com/l/font?kit=syl0-zNym6YjUruM-QrEh7-nyTnjDwKNJ_190FjpZIvDmUSVOK7BDB_Qb9vUSzq3wzLK-P0J-V_Zs-QtQth3-jOcbTCVpeRL2w5rwZu2rIelXxKRNccDe81u7DANSS1DH1lE6hjYcjkbXcFSQLJL4l4wUBSFo_ZdXN73xYc5NnWGQdV9n85u9Fj0lWh6y0ft&skey=70ddea8fe54d532e&v=v386",
   "version": "v386",
   "axes": {
     "opsz": 24,
@@ -30,10 +30,11 @@
     "play_arrow",
     "reply",
     "settings",
+    "share",
     "stop",
     "tune",
     "visibility",
     "visibility_off"
   ],
-  "sha256": "5eff59674a69e5ef3e0e96c779693f61130a269112926509b161824f9ab41b1c"
+  "sha256": "636572a537aabf683a1560f229bfe67c2ff433d75d257bcd1c2246f9dc97057d"
 }

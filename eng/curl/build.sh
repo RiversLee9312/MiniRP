@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build the upstream curl CLI against a static Mbed TLS installation.
 set -eu
-platform=${1:?android or windows}
+platform=${1:?android, linux or windows}
 source=$(realpath "${2:?curl 8.23.0 source directory}")
 tls=$(realpath "${3:?Mbed TLS 3.6.7 source directory}")
 ca=$(realpath "${4:?Mozilla CA bundle from curl.se}")
@@ -24,6 +24,11 @@ case "$platform" in
         set -- -DCMAKE_SYSTEM_NAME=Windows "-DCMAKE_C_COMPILER=${CROSS_PREFIX:-x86_64-w64-mingw32-}gcc"
         binary=minirp-curl.exe
         built=curl.exe
+        ;;
+    linux)
+        set --
+        binary=minirp-curl
+        built=curl
         ;;
     *) echo "Unknown curl host platform: $platform" >&2; exit 2 ;;
 esac
@@ -63,8 +68,10 @@ if [ "$platform" = android ]; then
     set -- "$@" "-DLDAP_INCLUDE_DIR=$work/prefix/include" "-DLDAP_LIBRARY=$work/prefix/lib/libldap.a" \
         "-DLDAP_LBER_LIBRARY=$work/prefix/lib/liblber.a;$work/ldap/libraries/liblutil/liblutil.a"
     zlib_archive=libz.a
-else
+elif [ "$platform" = windows ]; then
     zlib_archive=libzs.a
+else
+    zlib_archive=libz.a
 fi
 export PKG_CONFIG_PATH="$work/prefix/lib/pkgconfig"
 cmake -S "$source" -B "$work/curl" -G Ninja "$@" -DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_PREFIX_PATH="$work/prefix" \

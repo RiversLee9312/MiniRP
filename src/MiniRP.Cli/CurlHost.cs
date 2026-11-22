@@ -6,7 +6,8 @@ namespace MiniRP.Cli;
 
 internal sealed class CurlHost(string workspace)
 {
-    internal static string Executable => Path.Combine(AppContext.BaseDirectory, "curl", "minirp-curl.exe");
+    internal static string Executable => Path.Combine(AppContext.BaseDirectory, "curl",
+        OperatingSystem.IsWindows() ? "minirp-curl.exe" : "minirp-curl");
 
     internal async Task<JsonObject> Handle(JsonObject request, CancellationToken ct)
     {

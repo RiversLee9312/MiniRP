@@ -4,7 +4,7 @@
 
 在 MiniRP 里，你可以把设定文档或角色卡发进对话，也可以直接描述脑海里的世界。智能体会读取资料、搭建预设、操作工具并保存结果。遇到需要你决定的玩法，它会在对话里问你。
 
-[下载 Android 和 Windows 版](https://github.com/RiversLee9312/MiniRP/releases) · [预设玩法](docs/presets/workflows.md) · [插件开发](docs/plugins/getting-started.md)
+[下载 Android、Windows 和 Linux 版](https://github.com/RiversLee9312/MiniRP/releases) · [预设玩法](docs/presets/workflows.md) · [插件开发](docs/plugins/getting-started.md)
 
 ## 从一句话开始
 
@@ -18,12 +18,12 @@
 
 ## 安装
 
-Android ARM64 下载 `MiniRP.apk`，可直接覆盖升级。Windows x64 解压 `MiniRP-Windows-x64.zip` 后运行 `minirp.exe`，也可以传入旧工作区路径，继续使用已有对话、预设和模型配置。旧的 `MINICHAT_*` 配置键仍可读取，新配置建议使用 `MINIRP_*`。
+Android ARM64 下载 `MiniRP.apk`，可直接覆盖升级。Windows x64 解压 `MiniRP-Windows-x64.zip` 后运行 `minirp.exe`。Linux x64 解压 `MiniRP-Linux-x64.tar.gz` 后运行 `./minirp`。桌面端可传入旧工作区路径，继续使用已有对话、预设和模型配置。旧的 `MINICHAT_*` 配置键仍可读取，新配置建议使用 `MINIRP_*`。
 
 ## 智能体如何分工
 
 - **ChatAgent**：主对话，调用 agentic 搜索和网页工具；system prompt 可按预设配置，支持 `{date}`。
-- **EnvAgent**：编辑事实、世界状态和剧情日期。修改暂存，完成后提交。
+- **EnvAgent**：根据对话、已确认的事实和预设规则判断何时推进剧情。它可以编辑事实、世界状态和剧情日期，完成后提交修改。
 - **PresetAgent**：用精确工具编辑预设，也能读取设定文档和角色卡，整理角色、世界规则和开场。Android 在预设对话中用文件选择器发送，桌面打开预设面板后用 `/attach`。未完成的预设打开时会继续进入 PresetAgent，直到它调用工具完成设置。
 - **SearchAgent**：每轮完成一次搜索或网页请求，自主决定是否搜索、搜索多少轮、抓取哪些页面，以及召回、编辑和缓存哪些材料。最终结果数量不设上限。
 - **FetchAgent**：临时浏览器智能体，操作网页、采集全文、在 DB 中精修 Markdown，再提交正文和单独的摘要。
@@ -35,30 +35,49 @@ ChatAgent、PresetAgent 和 PluginAgent 可激活 `container` 技能运行 x86-6
 
 ## 运行桌面版
 
-需要 .NET SDK 10.0.400、Visual Studio C++ 桌面生成工具。浏览器抓取另外需要 Node.js 和 Chrome；只用 API 或缓存时不启动浏览器。
+同一个 `minirp` 程序提供终端 UI 和 WebUI。直接运行进入终端，在输入框用 `/web` 切换到浏览器。运行 `minirp --web` 可直接进入 WebUI，加 `--no-open` 只打印访问链接。WebUI 使用每次启动生成的本机回环端口和访问链接，Ctrl+C 停止宿主。TUI 与 WebUI 共用指定工作区。
+
+构建需要 .NET SDK 10.0.400 和 Node.js 24。Windows 另需 Visual Studio 的 C++ 桌面生成工具。Linux 或 WSL 需要 clang、zlib 开发包和标准 C/C++ 链接工具。本地网页抓取在 Windows 使用 Chrome，在 Linux 使用 Playwright Chromium。使用 API 或缓存时无须启动抓取浏览器。
 
 桌面版的图像和音视频转换使用 PATH 中的 `ffmpeg`、`ffprobe`，PDF 元数据和页面渲染使用 `pdfinfo`、`pdftoppm`，从图片生成 PDF 使用 `img2pdf`。文本读取和 Asset URL 传递可以独立使用。
 
 ```powershell
-npm ci
 pwsh -File eng/build-desktop.ps1
 .\artifacts\desktop\win-x64\minirp.exe .
+.\artifacts\desktop\win-x64\minirp.exe --web .
 ```
 
-首次运行选择预设，再选择其下已有对话或新建对话。`.env` 可参照 `.env.example`，也可在界面输入 `/config` 编辑。API Key 字段会遮盖显示。
+在 Linux 或 WSL 中构建和运行：
+
+```sh
+sh eng/build-desktop.sh
+./artifacts/desktop/linux-x64/minirp .
+./artifacts/desktop/linux-x64/minirp --web .
+```
+
+Windows 和 Linux 的构建脚本都可用 `MINIRP_WEB_PREBUILT` 指定已生成的静态资源目录。该目录需包含 WebUI 的 `index.html` 和桌面 OpenUI 的 `openui/index.html`。
+
+Linux ARM64 的输出目录是 `linux-arm64`。构建会收录已准备的 Alpine Room 镜像和 Linux 独立 curl。用 `MINIRP_CONTAINER_IMAGE`、`MINIRP_QEMU_RUNTIME` 和 `MINIRP_CURL_RUNTIME` 指定其他位置。Linux 可用系统的 `qemu-system-x86_64`，镜像与 curl 的准备步骤见[智能体容器](docs/project/agent-container.md)。
+
+Linux 的本地网页抓取默认使用 Playwright Chromium。从构建目录运行 `npx playwright install chromium` 安装对应版本，必要时先按 Playwright 提示装齐系统依赖。使用普通 Linux 用户运行抓取浏览器，以便启用 Chromium 沙盒。在 WSL 中可用 Windows 浏览器打开 WebUI，Linux 抓取仍由宿主侧浏览器完成。
+
+首次运行时创建或导入一个预设。WebUI 在设置中管理模型和提供商，保存到工作区的 `.minirp-desktop.json`。终端的 `/config` 编辑环境提供商，保存在 `.env`。两个入口都会读取这些配置，旧的 `.env` 可参照 `.env.example`。API Key 字段会遮盖显示。
 
 常用命令：
 
 - `/env`、`/preset-agent`：打开相应侧栏；侧栏中输入 `/close` 关闭，再次打开保留记录。
-- `/canon 修改要求`、`/stage 推进要求`：在 EnvAgent 中编辑或推进剧情。
+- `/canon 修改要求`：向 EnvAgent 发送要求。也可以在环境面板直接输入消息，由 EnvAgent 按当前剧情和预设规则决定如何处理。
 - `/presets`、`/chats`、`/new`：切换预设、加载对话或新建对话。切换预设后选择该预设下的对话。
 - `/save 对话名`：保存并可选重命名；对话也会自动保存。
 - `/models`：从配置的提供商读取模型列表。
+- `/web`：在当前回复结束后切换到随程序打包的 WebUI。
 - `/cot on`、`/cot off`：设置新思考块的默认展开状态；已有块仍可单独点击展开或折叠。
 - `/memory 关键词`：检索当前智能体的记忆；省略关键词列出索引。
 - `/stop`、`/quit`：取消当前任务或退出。
 
 Enter 发送，Alt+Enter 换行。输入框随换行和软换行增高，最多八行，之后在框内滚动。命令提示固定在底部。网络、浏览器和智能体工作不在 UI 线程执行。
+
+用 `npm ci` 安装仓库的 Playwright 依赖后，可运行 `node tests/desktop-web-smoke.mjs <minirp 路径>`，在隔离工作区验证打包后的 WebUI。测试使用本地模拟模型，默认使用 Playwright Chromium，也可通过 `MINIRP_TEST_BROWSER=chrome` 选择已安装的 Chrome。
 
 ## Android
 
@@ -84,7 +103,7 @@ ChatAgent 可按需激活 `interactive-ui` 技能，在 Markdown 中插入流式
 
 UI 文案使用 Android 字符串资源，支持英文及另外 29 种语言；语言列表由 AGP 自动生成，使用系统按应用语言设置，低版本通过 AppCompat 适配。支持 RTL，方向图标会镜像。图标使用 Google Fonts Material Symbols 官方子集；应用图标由 GPT-image 生成，前景安全区和来源记录保存在 `assets/branding`。
 
-.NET 的 Android/bionic NativeAOT 目前仍是实验支持。Android 与桌面的网络和浏览器请求由各平台适配层执行，智能体编排、协议转换和存储由 C# 核心处理。项目已验证 Windows 和 Android ARM64 构建。Linux 与 macOS 可使用各自的标准 NativeAOT 工具链构建核心。
+.NET 的 Android/bionic NativeAOT 目前仍是实验支持。Android 与桌面的网络和浏览器请求由各平台适配层执行，智能体编排、协议转换和存储由 C# 核心处理。项目已验证 Windows x64、WSL Linux x64 和 Android ARM64 的产物。Linux 和 macOS 核心使用各自的 NativeAOT 工具链。
 
 ## 提供商
 
@@ -94,9 +113,9 @@ Android 的提供商设置和桌面的 `/config` 都可以选择 [Coding Plan、
 
 兼容程度取决于服务实际支持的模型、工具调用和思考参数。协议回归使用本地夹具验证，没有逐个使用真实服务密钥联调。平台专有的云账号登录和签名认证不在当前密钥配置范围内。
 
-网页搜索支持 DeepSeek、Tavily、Exa 和 Brave Search。网页抓取支持 DeepSeek、Tavily 和 Exa。Android 可在「设置 → 搜索和抓取 API」分别选择两项服务并填写密钥。同一服务的密钥可用于搜索和抓取。DeepSeek 默认沿用已保存模型提供商的密钥。
+网页搜索支持 DeepSeek、Tavily、Exa 和 Brave Search。网页抓取支持 DeepSeek、Tavily 和 Exa。Android 和 WebUI 可在「设置 → 搜索和抓取 API → 供应商」分别选择两项服务并填写密钥。同一服务的密钥可用于搜索和抓取。DeepSeek 默认沿用已保存模型提供商的密钥。
 
-桌面可在「模型与 API」设置中填写服务和密钥，也可用 `MINIRP_SEARCH_PROVIDER` 与 `MINIRP_FETCH_PROVIDER` 选择服务。密钥分别使用 `MINIRP_SEARCH_API_KEY`（DeepSeek）、`MINIRP_TAVILY_API_KEY`、`MINIRP_EXA_API_KEY` 或 `MINIRP_BRAVE_SEARCH_API_KEY`。
+终端可通过 `/config` 填写服务和密钥，也可用 `MINIRP_SEARCH_PROVIDER` 与 `MINIRP_FETCH_PROVIDER` 选择服务。密钥分别使用 `MINIRP_SEARCH_API_KEY`（DeepSeek）、`MINIRP_TAVILY_API_KEY`、`MINIRP_EXA_API_KEY` 或 `MINIRP_BRAVE_SEARCH_API_KEY`。
 
 搜索和网页抓取密钥可选。`real_search` 在所选服务未配置、失败或没有结果时尝试 [Mwmbl 的免密钥搜索 API](https://developer.mwmbl.org/)。Mwmbl 也没有可用结果时，FetchAgent 用现有的本地浏览器顺序尝试搜索网站。中国大陆尝试百度和 Bing，其他地区尝试 Google、DuckDuckGo 和 Bing。所有来源沿用相同的搜索结果格式。默认网页抓取策略会在 API 不可用时使用本地浏览器 Fetch。
 
@@ -140,7 +159,8 @@ ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conve
 - Android 可从普通聊天和群像聊天的「更多选项」导出 JSONL 转录。世界、预设和插件子智能体转录页的下载按钮也可导出。插件子智能体导出当前选中的运行。该转录中的回复或工具仍在生成时，等它完成或停止后再导出。桌面在当前对话或面板的输入框运行 `/export-transcript 文件名.jsonl`。
 - JSONL 使用 UTF-8。首行记录转录类型和来源，之后每行记录一条消息、思考过程、工具调用与回执、卡片或子智能体状态。附件只附带文件名与媒体类型。导出的内容可能包含私人对话，分享前请检查。
 - 在 Android 聊天列表长按 Room 导出单个 Room，群像 Room 包含其中所有聊天。
-- 在预设列表长按预设导出预设或存档。预设文件包含配置和归属插件。存档另外包含该预设的 Room、会话、附件、分支快照和作用域内的插件数据。两个文件都可以从预设列表导入。
+- 在 Android 预设列表长按预设可导出预设或存档。预设文件包含配置和归属插件。存档还包含该预设的 Room、会话、附件、分支快照和作用域内的插件数据。
+- 在 Android 或桌面 WebUI 打开预设选择器，从底部的「导入…」选择文件类型或查看说明。
 - 桌面可在选定预设或 Room 后运行 `/export-room <文件>`、`/export-preset <文件>`、`/export-save <文件>`。恢复使用 `/import-preset <文件>` 或 `/import-save <文件>`。
 
 导入保留原 UUID 和插件签名。标识相同且内容冲突时停止导入，保留本地数据。分享存档可能会分享私人聊天和附件。应用的提供商凭据、插件签名私钥和未发布草稿不随包导出。
@@ -153,7 +173,7 @@ Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己�
 
 ## 代码与验证
 
-MiniRP 的核心使用 .NET 10 和 C#。桌面使用 Terminal.Gui，Android 使用 Kotlin 和 Jetpack Compose Material 3 Expressive，两端通过 UTF-8 C ABI 调用同一个 NativeAOT 核心。
+MiniRP 的核心使用 .NET 10 和 C#。桌面使用 Terminal.Gui，并通过 ASP.NET Core 提供随包的 React WebUI。WebUI 与 Android 共用翻译资源和 OpenUI 卡片渲染器。Android 使用 Kotlin 和 Jetpack Compose Material 3 Expressive。宿主通过 UTF-8 C ABI 调用同一个 NativeAOT 核心。
 
 [项目结构](docs/project/README.md)列出 HarnessCore、桌面、Android、测试、SDK 和构建入口。
 

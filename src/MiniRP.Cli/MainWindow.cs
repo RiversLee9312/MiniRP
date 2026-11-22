@@ -17,7 +17,7 @@ internal sealed partial class MainWindow : Runnable
     private readonly Dictionary<string, TracePane> sidebars = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TracePane> agentPanes = new(StringComparer.Ordinal);
     private JsonObject[] loadedBlocks = [];
-    private const string Commands = "/env  /preset-agent  /create-preset  /chats  /room-chats  /export-transcript  /config  /cot  /stop  /quit";
+    private const string Commands = "/web  /env  /preset-agent  /create-preset  /chats  /room-chats  /export-transcript  /config  /cot  /stop  /quit";
     private readonly Label footer = new() { Text = Commands, X = 1, Y = Pos.AnchorEnd(1), Width = Dim.Fill() };
     private readonly CancellationTokenSource lifetime = new();
     private JsonArray presetItems = new();
@@ -28,7 +28,16 @@ internal sealed partial class MainWindow : Runnable
     private string chatId = "";
     private string ensembleChatId = "";
     private JsonArray? ensembleChats;
+    private JsonObject? roomLoading;
+    private long roomLoadingStarted;
+    private volatile bool showRoomLoading;
     private string pluginInstallPath = "";
+    private readonly object settingsSaveGate = new();
+    private Task pump = Task.CompletedTask;
+    public bool OpenWeb { get; private set; }
+    public JsonObject? Ready { get; private set; }
+    public Task PumpCompletion => pump;
+    public (string Preset, string Chat, string Conversation) Selection => (presetId, chatId, ensembleChatId);
 
     public MainWindow(NativeCore core, PlatformHost platform, EnvironmentSettings settings, PluginFiles attachmentPicker)
     {
@@ -36,6 +45,7 @@ internal sealed partial class MainWindow : Runnable
         this.platform = platform;
         this.settings = settings;
         this.attachmentPicker = attachmentPicker;
+        SetCot(settings.Desktop().GetObject("preferences").GetBoolean("thoughts"));
         Title = "MiniRP";
         main.X = 1;
         main.Y = 1;
@@ -44,11 +54,16 @@ internal sealed partial class MainWindow : Runnable
         main.Submitted += text => Submit("chat", text);
         main.Download += (block, url) => DownloadAsset("chat", block, url);
         Add(main, footer);
-        Initialized += (_, _) => _ = Task.Run(Pump);
+        Initialized += (_, _) =>
+        {
+            main.FocusInput();
+            pump = Task.Run(Pump);
+        };
     }
 
     private async Task Pump()
     {
+        var nextLoadingRefresh = 0L;
         while (!lifetime.IsCancellationRequested)
         {
             var batch = core.Poll();
@@ -56,7 +71,7 @@ internal sealed partial class MainWindow : Runnable
             foreach (var node in batch)
             {
                 var item = node!.AsObject();
-                if (assetRequests.TryRemove(item.GetString("request"), out var pending))
+                if (coreRequests.TryRemove(item.GetString("request"), out var pending))
                 {
                     pending.TrySetResult(item);
                     continue;
@@ -66,7 +81,10 @@ internal sealed partial class MainWindow : Runnable
                     updates.Add(item);
                 }
             }
-            if (updates.Count > 0)
+            var now = Environment.TickCount64;
+            var refreshLoading = showRoomLoading && now >= nextLoadingRefresh;
+            if (refreshLoading) nextLoadingRefresh = now + 500;
+            if (updates.Count > 0 || refreshLoading)
             {
                 App?.Invoke(() =>
                 {
@@ -74,6 +92,7 @@ internal sealed partial class MainWindow : Runnable
                     {
                         Receive(item);
                     }
+                    if (refreshLoading) RefreshRoomLoading();
                     main.Flush();
                     foreach (var panel in sidebars.Values)
                     {
@@ -90,6 +109,7 @@ internal sealed partial class MainWindow : Runnable
         switch (item.GetString("kind"))
         {
             case "ready":
+                Ready = (JsonObject)item.DeepClone();
                 presetId = item.GetString("preset");
                 providerTemplates = item.GetArray("catalog");
                 foreach (var template in providerTemplates.OfType<JsonObject>()) template["id"] = template.GetString("name");
@@ -136,6 +156,21 @@ internal sealed partial class MainWindow : Runnable
                 break;
             case "ensemble_chats":
                 if (item.GetString("chat") == chatId) ensembleChats = item.GetArray("items");
+                break;
+            case "room_loading":
+                if (item.GetBoolean("value"))
+                {
+                    if (roomLoading is null) roomLoadingStarted = Environment.TickCount64;
+                    roomLoading = item;
+                    showRoomLoading = true;
+                    RefreshRoomLoading();
+                }
+                else
+                {
+                    showRoomLoading = false;
+                    roomLoading = null;
+                    footer.Text = Commands;
+                }
                 break;
             case "ensemble_chat_loaded":
                 if (item.GetString("chat") != chatId) break;
@@ -215,7 +250,7 @@ internal sealed partial class MainWindow : Runnable
                 Title = item.GetBoolean("value") ? "MiniRP · 处理中" : "MiniRP";
                 break;
             case "models":
-                ShowChoices("模型", item.GetArray("items"), id => { settings["DEEPSEEK_MODEL"] = id; SaveSettings(); });
+                ShowChoices("模型", item.GetArray("items"), id => { settings["DEEPSEEK_MODEL"] = id; _ = SaveSettings(); });
                 break;
             case "memory":
                 main.Notice(JsonValues.Serialize(item["result"]));
@@ -237,13 +272,33 @@ internal sealed partial class MainWindow : Runnable
 
     private static string Route(string agent) => agent is "env" or "EnvAgent" ? "env" : agent is "preset" or "PresetAgent" or "PluginAgent" ? "preset" : "chat";
 
+    private void RefreshRoomLoading()
+    {
+        if (roomLoading is not { } loading) return;
+        var messages = loading.GetArray("messages");
+        var index = messages.Count == 0 ? 0 : (int)((Environment.TickCount64 - roomLoadingStarted) / 3000 % messages.Count);
+        var text = messages.Count == 0 ? "正在准备房间" : JsonValues.GetText(messages[index]);
+        var percent = loading["progress"]?.GetValue<double>() ?? 0;
+        footer.Text = $"[{loading.GetInt32("ready")}/{loading.GetInt32("total")} · {percent:P0}] /stop  {text}";
+    }
+
     private void Submit(string role, string text)
     {
         var parts = text.Split(' ', 2);
+        if (roomLoading is not null && parts[0] is not ("/stop" or "/quit")) return;
         var argument = parts.Length > 1 ? parts[1] : "";
         switch (parts[0])
         {
             case "/quit":
+                App?.RequestStop();
+                break;
+            case "/web":
+                if (generating.Length > 0)
+                {
+                    main.Notice("请等待或停止当前回复，再打开 Web 界面。");
+                    break;
+                }
+                OpenWeb = true;
                 App?.RequestStop();
                 break;
             case "/close" when role != "chat":
@@ -264,10 +319,6 @@ internal sealed partial class MainWindow : Runnable
                 break;
             case "/room-chats":
                 PickEnsembleChat();
-                break;
-            case "/stage":
-                OpenSidebar("env");
-                Send("env", argument.Length > 0 ? argument : "推进一小步", true);
                 break;
             case "/canon":
                 OpenSidebar("env");
@@ -346,13 +397,7 @@ internal sealed partial class MainWindow : Runnable
                 core.Send(new() { ["op"] = "plugin_uninstall", ["id"] = argument });
                 break;
             case "/cot":
-                cot = argument.Length > 0 ? argument is "on" or "true" : !cot;
-                main.DefaultExpanded = cot;
-                foreach (var panel in sidebars.Values)
-                {
-                    panel.DefaultExpanded = cot;
-                }
-
+                SetCot(argument.Length > 0 ? argument is "on" or "true" : !cot);
                 break;
             case "/config":
                 ShowSettings();
@@ -387,14 +432,14 @@ internal sealed partial class MainWindow : Runnable
         }
     }
 
-    private void Send(string role, string text, bool stage = false)
+    private void Send(string role, string text)
     {
         if (role == "chat" && ensembleChats is not null && ensembleChatId.Length == 0)
         {
             PickEnsembleChat();
             return;
         }
-        try { core.Send(new() { ["op"] = generating == role ? "steer" : "message", ["agent"] = role, ["chat"] = chatId, ["conversation"] = ensembleChatId, ["preset"] = presetId, ["text"] = text, ["stage"] = stage }); }
+        try { core.Send(new() { ["op"] = generating == role ? "steer" : "message", ["agent"] = role, ["chat"] = chatId, ["conversation"] = ensembleChatId, ["preset"] = presetId, ["text"] = text }); }
         catch (InvalidOperationException error) { main.Notice(error.Message); }
     }
 
@@ -481,9 +526,17 @@ internal sealed partial class MainWindow : Runnable
         return panel;
     }
 
-    private void ShowPresets() => ShowChoices("预设", presetItems, id => core.Send(new() { ["op"] = "list_chats", ["preset"] = id }));
+    private void ShowPresets()
+    {
+        if (presetItems.Count == 0)
+            main.Notice("还没有预设。使用 /create-preset 创建，或使用 /import-preset 导入。");
+        else
+            ShowChoices("选择预设", presetItems, id => core.Send(new() { ["op"] = "list_chats", ["preset"] = id }));
+        main.FocusInput();
+    }
 
-    private void ShowChoices(string title, JsonArray items, Action<string> choose, bool allowNew = false)
+    private void ShowChoices(string title, JsonArray items, Action<string> choose, bool allowNew = false,
+        string cancelLabel = "取消", string selectLabel = "打开", string? selectedId = null)
     {
         using var dialog = new Dialog { Title = title, Width = Dim.Percent(65), Height = Dim.Percent(60) };
         var list = new ListView { Width = Dim.Fill(), Height = Dim.Fill(2) };
@@ -494,10 +547,20 @@ internal sealed partial class MainWindow : Runnable
         }
 
         list.SetSource(names);
-        list.SelectedItem = names.Count > 0 ? 0 : null;
-        var cancel = new Button { Text = "取消" };
+        var initial = 0;
+        if (selectedId is not null)
+        {
+            for (var index = 0; index < items.Count; index++)
+                if (items[index].GetString("id") == selectedId)
+                {
+                    initial = index + (allowNew ? 1 : 0);
+                    break;
+                }
+        }
+        list.SelectedItem = names.Count > 0 ? initial : null;
+        var cancel = new Button { Text = cancelLabel };
         cancel.Accepted += (_, _) => App!.RequestStop();
-        var confirm = new Button { Text = "打开" };
+        var confirm = new Button { Text = selectLabel };
         var chosen = false;
         void SelectItem()
         {
@@ -525,20 +588,22 @@ internal sealed partial class MainWindow : Runnable
         App!.Run(dialog);
     }
 
-    private void ShowSettings()
+    private void SetCot(bool expanded)
     {
-        using var dialog = new ConfigurationDialog(settings, SaveSettings, providerTemplates.Count == 0 ? null : apply =>
-            ShowChoices("提供商模板", providerTemplates, id =>
-                apply(providerTemplates.OfType<JsonObject>().First(item => item.GetString("id") == id))));
-        App!.Run(dialog);
+        cot = expanded;
+        main.DefaultExpanded = expanded;
+        foreach (var panel in agentPanes.Values) panel.DefaultExpanded = expanded;
     }
 
-    private void SaveSettings() => _ = Task.Run(() =>
+    private Task SaveSettings() => Task.Run(() =>
     {
         try
         {
-            settings.Save();
-            core.Send(settings.Configure());
+            lock (settingsSaveGate)
+            {
+                settings.Save();
+                core.Send(settings.Configure());
+            }
         }
         catch (Exception error) { App?.Invoke(() => main.Notice(error.Message)); }
     });

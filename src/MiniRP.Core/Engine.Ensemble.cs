@@ -5,7 +5,6 @@ namespace MiniRP.Core;
 public sealed partial class Engine
 {
     private EnsembleConversation? ensemble;
-    private PageSource? ensembleWeb;
     private string activeEnsembleChat = "";
 
     private void SelectEnsembleChat(JsonObject command)
@@ -16,6 +15,8 @@ public sealed partial class Engine
         if (conversation.Length == 0)
         {
             activeEnsembleChat = "";
+            Emit(new() { ["kind"] = "ensemble_chat_loaded", ["request"] = command.GetString("request"),
+                ["chat"] = Workspace.ChatId, ["conversation"] = "", ["blocks"] = new JsonArray() });
             return;
         }
         _ = hub.Chat(conversation);
@@ -102,11 +103,14 @@ public sealed partial class Engine
             foreach (var member in members)
             {
                 token.ThrowIfCancellationRequested();
-                var character = hub.Agent(member);
-                var name = character.GetString("name");
-                var (roleContext, searchContext) = (GroupContext("chat", member, conversation), GroupContext("search", member, conversation));
+                var character = roomCharacters[member];
+                var own = character.Session;
+                if (opening is not null && own.HasHistory)
+                {
+                    RememberEnsembleGreeting(greeted, member);
+                    continue;
+                }
                 var postedOpening = false;
-                AgentSession? owner = null;
                 void Posted(string target, JsonObject message)
                 {
                     if (opening is not null && target == conversation && !postedOpening)
@@ -116,44 +120,26 @@ public sealed partial class Engine
                     }
                     PostEnsembleMessage(target, message);
                 }
-                var dialogue = hub.CharacterSkill(member, conversation, Posted, (message, text) => owner?.AddPublishedAssets(message, text));
-                bool CanReadChat(string target) => hub.IsMember(target, member);
-                using var own = agentSessions.Open("chat", hub.Database(member, "chat"), () => turnRouting.For("chat"), () => roleContext,
-                    (item, info) => RecordEnsembleTrace(hub, conversation, member, name, item, roleContext, info),
-                    () => [dialogue], CanReadChat, turn);
-                owner = own;
-                if (opening is not null && own.HasHistory)
+                character.Begin(conversation, turn, Posted);
+                try
                 {
-                    RememberEnsembleGreeting(greeted, member);
-                    continue;
+                    character.Synchronize(Workspace.AgenticSearch, opening is not null);
+                    var context = "The active chat is " + hub.Name(conversation) + " (" + conversation + "). Only chat_send posts a visible reply.";
+                    var answer = await character.Agent.Run(
+                        opening is null
+                            ? "It is your turn in the active chat. Use chat_send to reply if you have something to say. You may pass." + interaction
+                            : opening + "\nUse chat_send to post your opening in the active chat.",
+                        token, attachments, inputRole: opening is null ? "user" : "system", privateInput: opening is not null,
+                        turnInstructions: context);
+                    if (opening is not null && !postedOpening)
+                    {
+                        if (string.IsNullOrWhiteSpace(answer))
+                            throw new IOException("The model finished without a visible opening.");
+                        token.ThrowIfCancellationRequested();
+                        Posted(conversation, hub.PostCharacterMessage(conversation, member, answer, own.AddPublishedAssets));
+                    }
                 }
-                using var research = Workspace.AgenticSearch
-                    ? agentSessions.Open("search", hub.Database(member, "search"), () => turnRouting.For("search"), () => searchContext,
-                        (item, info) => RecordEnsembleTrace(hub, conversation, member, name, item, searchContext, info), canReadChat: CanReadChat)
-                    : null;
-                own.ConfigureWorldMode(Workspace.AgenticSearch);
-                if (opening is null)
-                {
-                    EnsembleConversation.DeliverPrivate(own);
-                    hub.Deliver(member, own);
-                }
-                var identity = "Your character is " + name + ". " + character.GetString("prompt") +
-                    "\nThe active chat is " + hub.Name(conversation) + " (" + conversation + "). Only chat_send posts a visible reply.";
-                var characterSearch = new SearchAgent(Workspace, research ?? own, ensembleWeb!,
-                    "Research for " + name + ". " + character.GetString("prompt"),
-                    () => RecentEnsembleChatReference(hub, conversation));
-                var answer = await new ChatAgent(Workspace, own, characterSearch, identity).Run(
-                    opening is null
-                        ? "It is your turn in the active chat. Use chat_send to reply if you have something to say. You may pass." + interaction
-                        : opening + "\nUse chat_send to post your opening in the active chat.",
-                    token, attachments, inputRole: opening is null ? "user" : "system", privateInput: opening is not null);
-                if (opening is not null && !postedOpening)
-                {
-                    if (string.IsNullOrWhiteSpace(answer))
-                        throw new IOException("The model finished without a visible opening.");
-                    token.ThrowIfCancellationRequested();
-                    Posted(conversation, hub.PostCharacterMessage(conversation, member, answer, own.AddPublishedAssets));
-                }
+                finally { character.End(); }
             }
             if (opening is null) StartTitle(force: false);
             completedTurn = true;
@@ -189,7 +175,7 @@ public sealed partial class Engine
     private JsonObject GroupContext(string role, string participant, string conversation)
     {
         var context = PluginEnvironment(role);
-        context["chat"] = conversation;
+        context["chat"] = conversation.Length > 0 ? conversation : null;
         if (participant.Length > 0)
         {
             context["participant"] = participant;

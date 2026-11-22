@@ -13,6 +13,7 @@ internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?
         typeof(PlatformHost).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+', 2)[0];
 
     public Func<JsonObject, CancellationToken, Task<JsonObject>>? Picker { get; set; }
+    public Func<JsonObject, CancellationToken, Task<JsonObject>>? OpenUi { get; set; }
     private readonly HttpClient http = new(new SocketsHttpHandler
     {
         AutomaticDecompression = System.Net.DecompressionMethods.All,
@@ -64,9 +65,15 @@ internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?
                 return true;
             case "open_ui_catalog":
             case "open_ui_preview":
+                if (OpenUi is { } renderer)
+                {
+                    Start(message, async token => Reply(message.GetString("id"), new() { ["result"] = await renderer(message, token) }),
+                        TimeSpan.FromSeconds(30));
+                    return true;
+                }
                 Reply(message.GetString("id"), new() { ["result"] = new JsonObject
                 {
-                    ["available"] = false, ["reason"] = "This host does not have the Android OpenUI renderer."
+                    ["available"] = false, ["reason"] = "Open the Web interface to render OpenUI cards."
                 } });
                 return true;
             case "plugin_isolate_close":

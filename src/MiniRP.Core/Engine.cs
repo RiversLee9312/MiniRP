@@ -141,6 +141,11 @@ public sealed partial class Engine : IAsyncDisposable
             case "model_effort_levels":
                 _ = DiscoverModelEffortLevels(Provider.From(command.GetObject("provider")), command.GetString("request"));
                 break;
+            case "plugin_page" when command.GetString("id") == "base" && !command.ContainsKey("_plugin") &&
+                                          Volatile.Read(ref inbox) is not null:
+                // Built-in settings are global and can be read while a model is replying.
+                EmitPluginPage(command);
+                break;
             case "library_page":
                 _ = Task.Run(() => LibraryPage(command));
                 break;
@@ -448,8 +453,15 @@ public sealed partial class Engine : IAsyncDisposable
         }
     }
 
-    private void SelectConversation(string preset, string? id, bool fromHomeSend = false)
+    private async Task SelectConversation(string preset, string? id, CancellationToken token, bool fromHomeSend = false)
     {
+        if (ensemble is not null && id == Workspace.ChatId && preset == Workspace.PresetId)
+        {
+            activeEnsembleChat = "";
+            EmitLoaded(presetConversation!, fromHomeSend);
+            QueuePresetNotifications(preset);
+            return;
+        }
         var nextWorkspace = new Workspace(Workspace.Root, seedDefaultPreset: false);
         nextWorkspace.Select(preset, id);
         if (string.IsNullOrEmpty(id) && nextWorkspace.ChatGreeting.Length > 0)
@@ -459,6 +471,8 @@ public sealed partial class Engine : IAsyncDisposable
         ConversationTitle.ClearLegacyTitle(nextWorkspace.Chat);
         var nextPreset = LoadPresetConversation(nextWorkspace);
         var nextSessions = new Dictionary<string, AgentSession>(StringComparer.Ordinal);
+        var nextCharacters = new Dictionary<string, RoomCharacter>(StringComparer.Ordinal);
+        var nextWeb = CreatePageSource(nextWorkspace, nextWorkspace.ChatRoot);
         try
         {
             foreach (var role in new[] { "chat", "search", "env", "preset" })
@@ -467,9 +481,12 @@ public sealed partial class Engine : IAsyncDisposable
                 var previous = role == "preset" ? nextPreset.LegacySession : nextWorkspace.Chat.GetObject(role);
                 nextSessions[role] = CreateWorkspaceSession(role, database, previous, nextWorkspace);
             }
+            if (nextEnsemble is not null)
+                await PrepareRoom(nextWorkspace, nextEnsemble, nextWeb, nextCharacters, string.IsNullOrEmpty(id), token);
         }
         catch
         {
+            foreach (var character in nextCharacters.Values) character.Dispose();
             foreach (var session in nextSessions.Values)
             {
                 session.Dispose();
@@ -481,7 +498,8 @@ public sealed partial class Engine : IAsyncDisposable
         {
             session.Dispose();
         }
-
+        CloseRoomCharacters();
+        roomCharacters = nextCharacters;
         sessions.Clear();
         trace.Clear();
         displayAssets.Clear();
@@ -495,12 +513,17 @@ public sealed partial class Engine : IAsyncDisposable
         }
         containers.Select(new(Workspace.PresetId, Workspace.ChatId, sessions["chat"].Db.Path));
 
-        ensembleWeb = CreatePageSource(Workspace, Workspace.ChatRoot);
-        search = new(Workspace, sessions["search"], ensembleWeb);
+        search = new(Workspace, sessions["search"], nextWeb);
         chat = new(Workspace, sessions["chat"], search);
         environment = new(Workspace, sessions["env"]);
         presets = CreatePresetAgent(sessions["preset"]);
         if (string.IsNullOrEmpty(id)) Workspace.Save();
+        EmitLoaded(nextPreset, fromHomeSend);
+        QueuePresetNotifications(preset);
+    }
+
+    private void EmitLoaded(PresetConversation conversation, bool fromHomeSend)
+    {
         lock (presetTraceGate)
         {
             Emit(new()
@@ -516,13 +539,12 @@ public sealed partial class Engine : IAsyncDisposable
                     ["name"] = Workspace.Chat.GetString("name"),
                     ["blocks"] = new JsonArray(Workspace.Chat.GetArray("blocks").OfType<JsonObject>()
                         .Where(block => !PresetConversation.IsPreset(block))
-                        .Concat(nextPreset.Blocks.OfType<JsonObject>()).Select(LoadBlock).ToArray())
+                        .Concat(conversation.Blocks.OfType<JsonObject>()).Select(LoadBlock).ToArray())
                 },
                 ["preset"] = Workspace.PresetId,
                 ["config"] = Workspace.Config.DeepClone()
             });
         }
-        QueuePresetNotifications(preset);
     }
 
     private PageSource CreatePageSource(Workspace workspace, string sessionRoot, bool forPreset = false, Action<JsonObject>? workerTrace = null)
@@ -658,7 +680,7 @@ public sealed partial class Engine : IAsyncDisposable
             case "select_chat":
                 var selectedPreset = command.GetString("preset");
                 if (RedirectToPresetSetup(selectedPreset, command)) return;
-                SelectConversation(selectedPreset, command.GetString("id"));
+                await SelectConversation(selectedPreset, command.GetString("id"), token);
                 await GreetChat("", token);
                 return;
             case "start_chat":
@@ -733,7 +755,7 @@ public sealed partial class Engine : IAsyncDisposable
             var target = command.GetString("preset", Workspace.PresetId);
             if (Workspace.PresetSetupPending(target))
                 throw new InvalidOperationException("Finish setting up the preset with PresetAgent before starting a chat.");
-            SelectConversation(target, null, fromHomeSend: command.GetString("op") == "message");
+            await SelectConversation(target, null, token, fromHomeSend: command.GetString("op") == "message");
         }
         if (command.GetString("op") == "save_prompt")
         {
@@ -793,7 +815,7 @@ public sealed partial class Engine : IAsyncDisposable
                     throw new ArgumentException("Unknown branch mode.");
                 var branch = ConversationVersions.Fork(Workspace, command.GetString("block"),
                     sessions.Keys.Where(role => role != "preset"), afterReply: mode == "reply", seedDraft: mode == "edit");
-                SelectConversation(Workspace.PresetId, branch.Id);
+                await SelectConversation(Workspace.PresetId, branch.Id, token);
                 if (mode == "replay")
                     await RunMessage("chat", branch.Input, false, branch.Attachments, token, openUiAction: branch.OpenUiAction);
                 break;
@@ -810,8 +832,13 @@ public sealed partial class Engine : IAsyncDisposable
                 if (ensemble is { } group && memoryAgent is "chat" or "search")
                 {
                     var member = group.Agent(command.GetString("participant")).GetString("id");
-                    using var database = new MemoryDb(group.Database(member, memoryAgent));
-                    memory = database.Call(tool, arguments);
+                    if (LoadedCharacterSession(member, memoryAgent) is { } memberSession)
+                        memory = memberSession.Db.Call(tool, arguments);
+                    else
+                    {
+                        using var database = new MemoryDb(group.Database(member, memoryAgent));
+                        memory = database.Call(tool, arguments);
+                    }
                 }
                 else memory = sessions[memoryAgent].Db.Call(tool, arguments);
                 Emit(new()
@@ -875,7 +902,7 @@ public sealed partial class Engine : IAsyncDisposable
         return true;
     }
 
-    private async Task RunMessage(string role, string input, bool stage, JsonArray attachments, CancellationToken token,
+    private async Task RunMessage(string role, string input, bool advanceRequested, JsonArray attachments, CancellationToken token,
         string inputRole = "user", string request = "", JsonObject? openUiAction = null, bool editorTurn = false,
         bool hiddenInput = false, bool userInitiated = true)
     {
@@ -924,7 +951,7 @@ public sealed partial class Engine : IAsyncDisposable
             var presetNameBefore = Workspace.Config.GetString("name", Workspace.PresetId);
             answer = role switch
             {
-                "env" => await environment!.Run(input, stage, token, attachments, inputRole),
+                "env" => await environment!.Run(input, advanceRequested, token, attachments, inputRole),
                 "preset" => await presets!.Run(input, token, attachments, inputRole, privateInput: hiddenInput),
                 _ => await chat!.Run(modelInput, token, attachments, inputRole, privateInput: hiddenInput)
             };
@@ -1186,6 +1213,7 @@ public sealed partial class Engine : IAsyncDisposable
         {
             (await catalog).Dispose();
         }
+        CloseRoomCharacters();
         foreach (var session in sessions.Values)
         {
             session.Dispose();

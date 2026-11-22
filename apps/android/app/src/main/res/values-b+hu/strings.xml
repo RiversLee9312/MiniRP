@@ -48,7 +48,6 @@
     <string name="search_models">Modellek keresése</string>
     <string name="search_chats">Csevegések keresése</string>
     <string name="edit_facts">Tények szerkesztése</string>
-    <string name="advance_story">Történet továbbvitele</string>
     <string name="edit_preset">Előbeállítás szerkesztése</string>
     <string name="create_preset">Előbeállítás létrehozása</string>
     <string name="choose_preset">Előbeállítás kiválasztása</string>
@@ -210,4 +209,11 @@
     <string name="background_turn_live_updates_description">Támogatott készüléken az állapotsávon vagy a zárolási képernyőn követheted a válasz állapotát.</string>
     <string name="background_turn_notifications">Értesítési beállítások</string>
     <string name="background_turn_notifications_description">Engedélyezd az értesítéseket a háttérben készülő válaszok bekapcsolásához.</string>
+    <string name="import_menu">Importálás…</string>
+    <string name="import_help">Mi a különbség?</string>
+    <string name="import_preset_detail">Az előbeállítás a beállításokat és a hozzájuk tartozó bővítményeket tartalmazza.</string>
+    <string name="import_save_detail">A mentés emellett a szobákat, beszélgetéseket, mellékleteket és az előrehaladást is tartalmazza.</string>
+    <string name="preset_management">Előbeállítás kezelése</string>
+    <string name="conversation_settings">Csevegés beállításai</string>
+    <string name="add_saved_model">Modell hozzáadása</string>
 </resources>

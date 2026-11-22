@@ -2,9 +2,12 @@ using System.Text.Json.Nodes;
 
 namespace MiniRP.Core;
 
-public sealed class SearchAgent(Workspace world, AgentSession session, PageSource web,
+public sealed class SearchAgent(Workspace world, Func<AgentSession> getSession, PageSource web,
     string identity = "", Func<string>? roomReference = null)
 {
+    public SearchAgent(Workspace world, AgentSession session, PageSource web, string identity = "", Func<string>? roomReference = null)
+        : this(world, () => session, web, identity, roomReference) { }
+
     private static readonly HashSet<string> TerminalTools = ["submit_search_results", "submit_page", "fail_request"];
     private const string SystemPrompt = """
         You are SearchAgent. Each turn is one search or page request.
@@ -48,6 +51,7 @@ public sealed class SearchAgent(Workspace world, AgentSession session, PageSourc
         {
             ValidateUrl(target);
         }
+        var session = getSession();
         var turn = new SearchTurn(mode, target, world, session);
 
         var request = "Request " + mode + ": " + target;

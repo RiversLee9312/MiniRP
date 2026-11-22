@@ -48,7 +48,6 @@
     <string name="search_models">البحث عن نماذج</string>
     <string name="search_chats">البحث في المحادثات</string>
     <string name="edit_facts">تعديل الحقائق</string>
-    <string name="advance_story">متابعة القصة</string>
     <string name="edit_preset">تعديل القالب</string>
     <string name="create_preset">إنشاء قالب</string>
     <string name="choose_preset">اختيار قالب</string>
@@ -218,4 +217,11 @@
     <string name="background_turn_live_updates_description">اسمح بعرض تقدّم الرد في شريط الحالة أو شاشة القفل على الأجهزة المدعومة.</string>
     <string name="background_turn_notifications">إعدادات الإشعارات</string>
     <string name="background_turn_notifications_description">اسمح بالإشعارات لتفعيل الردود في الخلفية.</string>
+    <string name="import_menu">استيراد…</string>
+    <string name="import_help">ما الفرق؟</string>
+    <string name="import_preset_detail">يحتوي القالب على الإعدادات والإضافات المرتبطة بها.</string>
+    <string name="import_save_detail">يتضمن ملف الحفظ أيضًا الغرف والمحادثات والمرفقات والتقدّم.</string>
+    <string name="preset_management">إدارة الإعداد المسبق</string>
+    <string name="conversation_settings">إعدادات المحادثة</string>
+    <string name="add_saved_model">إضافة نموذج</string>
 </resources>

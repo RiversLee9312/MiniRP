@@ -11,6 +11,34 @@ internal sealed class EnvironmentSettings(string root)
     private readonly Dictionary<string, string> values = new(StringComparer.Ordinal);
     private readonly object gate = new();
     private string FileName => Path.Combine(root, ".env");
+    private string DesktopFile => Path.Combine(root, ".minirp-desktop.json");
+    private JsonObject desktop = new();
+
+    public JsonObject Desktop()
+    {
+        lock (gate) return (JsonObject)desktop.DeepClone();
+    }
+
+    public void SaveDesktop(JsonObject data)
+    {
+        lock (gate)
+        {
+            data["preferences"] = JsonValues.Clone(desktop["preferences"]);
+            AtomicFile.Write(DesktopFile, JsonValues.Serialize(data));
+            desktop = (JsonObject)data.DeepClone();
+        }
+    }
+
+    public void SavePreferences(JsonObject preferences)
+    {
+        lock (gate)
+        {
+            var updated = (JsonObject)desktop.DeepClone();
+            updated["preferences"] = preferences;
+            AtomicFile.Write(DesktopFile, JsonValues.Serialize(updated));
+            desktop = updated;
+        }
+    }
     public string this[string key]
     {
         get
@@ -37,6 +65,7 @@ internal sealed class EnvironmentSettings(string root)
 
     public void Load()
     {
+        if (File.Exists(DesktopFile)) desktop = JsonValues.ParseObject(File.ReadAllText(DesktopFile));
         if (!File.Exists(FileName))
         {
             return;
@@ -83,7 +112,42 @@ internal sealed class EnvironmentSettings(string root)
         AtomicFile.Write(FileName, string.Join('\n', lines) + "\n");
     }
 
-    public JsonObject Configure() => new()
+    public JsonObject Configure(bool web = false)
+    {
+        var command = LegacyConfiguration();
+        var configured = Desktop();
+        var providers = configured.GetArray("providers").OfType<JsonObject>()
+            .Where(provider => provider.GetString("id").Length > 0)
+            .ToDictionary(provider => provider.GetString("id"), StringComparer.Ordinal);
+        var fallback = command.GetObject("provider");
+        var agents = new JsonObject();
+        var routing = configured.GetObject("agents");
+        foreach (var group in routing)
+        {
+            var provider = group.Value.GetString("provider");
+            var model = group.Value.GetString("model");
+            var source = provider == "environment" ? fallback : providers.GetValueOrDefault(provider);
+            if (source is null || model.Length == 0) continue;
+            var target = (JsonObject)source.DeepClone();
+            target["model"] = model;
+            if (group.Value?["options"] is JsonObject options)
+                foreach (var pair in options) target[pair.Key] = JsonValues.Clone(pair.Value);
+            if (group.Key == "default" || group.Key == "chat" && routing["default"] is null)
+            {
+                command["provider"] = target.DeepClone();
+                if (group.Key == "chat") agents[group.Key] = target;
+            }
+            else agents[group.Key] = target;
+        }
+        command["agents"] = agents;
+        var settings = command.GetObject("settings");
+        foreach (var option in configured.GetObject("research")) settings[option.Key] = JsonValues.Clone(option.Value);
+        var prompt = Path.Combine(AppContext.BaseDirectory, "wwwroot", "openui", "prompt.txt");
+        if (web && File.Exists(prompt)) settings["android_open_ui"] = File.ReadAllText(prompt);
+        return command;
+    }
+
+    public JsonObject LegacyConfiguration() => new()
     {
         ["op"] = "configure",
         ["provider"] = new JsonObject

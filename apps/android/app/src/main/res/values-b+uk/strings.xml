@@ -48,7 +48,6 @@
     <string name="search_models">Шукати моделі</string>
     <string name="search_chats">Шукати чати</string>
     <string name="edit_facts">Редагувати факти</string>
-    <string name="advance_story">Продовжити історію</string>
     <string name="edit_preset">Редагувати пресет</string>
     <string name="create_preset">Створити пресет</string>
     <string name="choose_preset">Вибрати пресет</string>
@@ -214,4 +213,11 @@
     <string name="background_turn_live_updates_description">На підтримуваних пристроях стежте за відповіддю в рядку стану або на екрані блокування.</string>
     <string name="background_turn_notifications">Налаштування сповіщень</string>
     <string name="background_turn_notifications_description">Дозвольте сповіщення, щоб увімкнути фонові відповіді.</string>
+    <string name="import_menu">Імпортувати…</string>
+    <string name="import_help">У чому різниця?</string>
+    <string name="import_preset_detail">Передналаштування містить налаштування й пов’язані плагіни.</string>
+    <string name="import_save_detail">Збереження також містить кімнати, розмови, вкладення та поступ.</string>
+    <string name="preset_management">Керувати передналаштуванням</string>
+    <string name="conversation_settings">Налаштування чату</string>
+    <string name="add_saved_model">Додати модель</string>
 </resources>

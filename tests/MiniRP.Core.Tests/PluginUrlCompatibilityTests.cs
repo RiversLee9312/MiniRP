@@ -87,7 +87,10 @@ public sealed class PluginUrlCompatibilityTests
             Assert.AreEqual("base", builtIn.GetString("id"));
             Assert.AreEqual("base", builtIn.GetString("name"));
             Assert.IsTrue(builtIn.GetBoolean("builtIn"));
-            var about = runtime.Settings("").Single(item => item.GetString("key") == "about");
+            var aboutLink = runtime.Settings("").Single(item => item.GetString("key") == "about");
+            Assert.AreEqual("page", aboutLink.GetString("type"));
+            Assert.AreEqual("base", aboutLink.GetString("plugin"));
+            var about = runtime.Page("base", "about", "");
             var notices = about.GetArray("items").Single(item => item.GetString("key") == "notices");
             Assert.AreEqual("base", notices.GetString("plugin"));
             var page = runtime.Page("base", "notices", "");

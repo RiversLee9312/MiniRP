@@ -8,7 +8,7 @@ namespace MiniRP.Cli;
 
 internal sealed partial class MainWindow
 {
-    private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonObject>> assetRequests = new();
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonObject>> coreRequests = new();
 
     private async void AttachToPreset(string text)
     {
@@ -89,20 +89,23 @@ internal sealed partial class MainWindow
         }
     }
 
-    private async Task<JsonObject> AssetQuery(JsonObject request)
+    private async Task<JsonObject> AssetQuery(JsonObject request) =>
+        (await QueryCore(request)).GetObject("result");
+
+    private async Task<JsonObject> QueryCore(JsonObject request)
     {
-        var id = "asset-" + JsonValues.NewId();
+        var id = JsonValues.NewId();
         var pending = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
-        assetRequests[id] = pending;
+        coreRequests[id] = pending;
         try
         {
             request["request"] = id;
             core.Send(request);
             var item = await pending.Task.WaitAsync(TimeSpan.FromSeconds(30), lifetime.Token);
             if (item.GetString("kind") == "error") throw new IOException(item.GetString("message"));
-            return item.GetObject("result");
+            return item;
         }
-        finally { assetRequests.TryRemove(id, out _); }
+        finally { coreRequests.TryRemove(id, out _); }
     }
 
     private string ChooseAssetPath(string name)

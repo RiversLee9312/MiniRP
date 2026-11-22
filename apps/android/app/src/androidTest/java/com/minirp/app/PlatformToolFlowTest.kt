@@ -437,6 +437,8 @@ class PlatformToolFlowTest {
                 val plugin = model.state.value.installedPlugins.single { it.name == ProjectName }
                 val menu = compose.onNodeWithContentDescription(label(R.string.open_menu))
                 val presetSelector = compose.onNodeWithTag("library-presets")
+                val choosePreset = label(R.string.choose_preset)
+                val importMenu = compose.onNodeWithContentDescription(label(R.string.import_menu))
                 val importPreset = compose.onNodeWithText(label(R.string.import_preset))
                 fun openLibrary() {
                     try {
@@ -456,8 +458,10 @@ class PlatformToolFlowTest {
                 }
                 fun openPresetList() {
                     openLibrary()
-                    if (!importPreset.isDisplayed()) presetSelector.performClick()
-                    waitFor { importPreset.isDisplayed() }
+                    if (!importMenu.isDisplayed()) presetSelector.performClick()
+                    waitFor { importMenu.isDisplayed() }
+                    presetSelector.assertTextContains(choosePreset)
+                    importPreset.assertDoesNotExist()
                 }
                 fun pickFromLibrary(id: String, option: Int, file: File) {
                     val row = compose.onNodeWithTag("library-choice-$id")
@@ -484,13 +488,20 @@ class PlatformToolFlowTest {
                 }
                 openPresetList()
                 document.set(exported)
+                importMenu.performClick()
+                waitFor { importPreset.isDisplayed() }
                 importPreset.performClick()
                 waitFor { !model.state.value.archiveBusy && model.state.value.chatId.isBlank() }
                 assertEquals(preset, model.state.value.preset)
                 val standalone = directory.resolve("standalone.plugin")
+                val fixtureSettings = compose.onNodeWithText(PluginSettingsTitle)
+                waitFor {
+                    model.state.value.pluginSettings.any { it.plugin == plugin.id && it.key == "fixture-settings" }
+                }
                 compose.onNodeWithContentDescription(label(R.string.settings)).performClick()
                 val plugins = compose.onNodeWithText(label(R.string.plugins))
                 waitFor { plugins.isDisplayed() }
+                fixtureSettings.assertDoesNotExist()
                 plugins.performClick()
                 val baseRow = compose.onNodeWithTag("plugin:base")
                 waitFor { baseRow.isDisplayed() }
@@ -505,6 +516,13 @@ class PlatformToolFlowTest {
                 val externalExport = compose.onNodeWithTag("plugin-export:${plugin.id}")
                 externalExport.assertDoesNotExist()
                 row.performClick()
+                val details = compose.onNodeWithTag("plugin-details:${plugin.id}")
+                details.performScrollToKey("${plugin.id}/fixture-settings")
+                fixtureSettings.assertIsDisplayed().performClick()
+                val diagnostic = compose.onNodeWithText(PluginSettingsToggle)
+                waitFor { diagnostic.isDisplayed() }
+                back.performClick()
+                details.performScrollToKey("identity")
                 val enabled = compose.onNodeWithTag("plugin-enabled:${plugin.id}")
                 waitFor { enabled.isDisplayed() }
                 enabled.assertIsOn().performClick()
@@ -707,6 +725,13 @@ class PlatformToolFlowTest {
                     .put("stateEntries", JSONArray().put(json(
                         "key" to "gate", "scope" to "room", "description" to "Gate display",
                         "initial" to json("line" to "Gate open.", "steps" to 1),
+                    )))
+                    .put("settings", JSONArray().put(json(
+                        "key" to "fixture-settings", "type" to "page", "title" to PluginSettingsTitle,
+                        "items" to JSONArray().put(json(
+                            "key" to "fixture-diagnostics", "type" to "boolean",
+                            "title" to PluginSettingsToggle, "default" to false,
+                        )),
                     )))
                     .put("cards", JSONArray().put(json(
                         "id" to "gate", "title" to "Gate", "state" to "gate",
@@ -989,6 +1014,8 @@ class PlatformToolFlowTest {
         const val DiceReply = "The dice results were checked."
         const val AssetRequest = "Inspect the attached PDF using its Asset URL."
         const val AssetReply = "The PDF asset and page sample were checked."
+        const val PluginSettingsTitle = "Station choices"
+        const val PluginSettingsToggle = "Show diagnostic notes"
         val CardProgram = """
             root = Col([Title("Gate monitor", "md"), Text(%line), Text("Steps " + %steps), slider, add, inspect, manual])
             slider = Slider(%steps, 0, 10, 1, "Step count")

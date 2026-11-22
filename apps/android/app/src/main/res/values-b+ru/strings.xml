@@ -48,7 +48,6 @@
     <string name="search_models">Поиск моделей</string>
     <string name="search_chats">Поиск чатов</string>
     <string name="edit_facts">Изменить факты</string>
-    <string name="advance_story">Продвинуть сюжет</string>
     <string name="edit_preset">Изменить пресет</string>
     <string name="create_preset">Создать пресет</string>
     <string name="choose_preset">Выбрать пресет</string>
@@ -214,4 +213,11 @@
     <string name="background_turn_live_updates_description">На поддерживаемых устройствах ход генерации виден в строке состояния или на экране блокировки.</string>
     <string name="background_turn_notifications">Настройки уведомлений</string>
     <string name="background_turn_notifications_description">Разрешите уведомления, чтобы включить ответы в фоновом режиме.</string>
+    <string name="import_menu">Импортировать…</string>
+    <string name="import_help">В чём разница?</string>
+    <string name="import_preset_detail">Пресет содержит настройки и связанные плагины.</string>
+    <string name="import_save_detail">Сохранение включает также комнаты, беседы, вложения и прогресс.</string>
+    <string name="preset_management">Управление пресетом</string>
+    <string name="conversation_settings">Настройки чата</string>
+    <string name="add_saved_model">Добавить модель</string>
 </resources>

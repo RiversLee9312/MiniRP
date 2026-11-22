@@ -12,6 +12,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
@@ -38,68 +39,75 @@ internal fun DeclaredSettingsScreen(
     modifier: Modifier = Modifier,
     onPage: (AppRoute.PluginPage) -> Unit,
     onLink: (PluginSetting) -> Unit,
-    onResearch: (() -> Unit)? = null,
-    backgroundTurns: Boolean? = null,
-    onBackgroundTurns: ((Boolean) -> Unit)? = null,
 ) {
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
-        if (backgroundTurns != null) item("background-turns") {
+        declaredSettingsRows(items, state, model, onPage, onLink)
+    }
+}
+
+internal fun LazyListScope.declaredSettingsRows(
+    items: List<PluginSetting>,
+    state: ChatState,
+    model: ChatViewModel,
+    onPage: (AppRoute.PluginPage) -> Unit,
+    onLink: (PluginSetting) -> Unit,
+    nested: Boolean = false,
+) {
+    for (setting in items) {
+        if (setting.plugin == "base" && setting.binding == "theme") continue
+        if (setting.type == "group") {
+            item(setting.listKey, contentType = setting.type) {
+                if (!nested) HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Text(
+                    SettingTitle(setting),
+                    Modifier.padding(start = 16.dp, top = 8.dp, bottom = 6.dp),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            declaredSettingsRows(setting.children, state, model, onPage, onLink, nested = true)
+        } else {
+            item(setting.listKey, contentType = setting.type) {
+                SettingItem(setting, state, model, onPage, onLink)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun BackgroundTurnsSettingsScreen(
+    enabled: Boolean,
+    onChange: ((Boolean) -> Unit)?,
+) {
+    val context = LocalContext.current
+    var notificationsEnabled by remember { mutableStateOf(true) }
+    LifecycleResumeEffect(context) {
+        notificationsEnabled = context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()
+        onPauseOrDispose { }
+    }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
+        item("background-turns") {
             ListItem(
                 content = { Text(stringResource(R.string.background_turns)) },
                 supportingContent = { Text(stringResource(R.string.background_turns_description)) },
-                trailingContent = {
-                    Switch(backgroundTurns, onCheckedChange = null, enabled = onBackgroundTurns != null)
-                },
+                trailingContent = { Switch(enabled, onCheckedChange = null, enabled = onChange != null) },
                 modifier = Modifier.toggleable(
-                    value = backgroundTurns,
-                    enabled = onBackgroundTurns != null,
+                    value = enabled,
+                    enabled = onChange != null,
                     role = Role.Switch,
-                    onValueChange = { onBackgroundTurns?.invoke(it) },
+                    onValueChange = { onChange?.invoke(it) },
                 ),
             )
-            if (backgroundTurns) BackgroundTurnSystemSettings()
-            val context = LocalContext.current
-            var notificationsEnabled by remember { mutableStateOf(true) }
-            LifecycleResumeEffect(context) {
-                notificationsEnabled = context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()
-                onPauseOrDispose { }
-            }
-            if (!notificationsEnabled) {
-                BackgroundTurnSettingLink(R.string.background_turn_notifications, R.string.background_turn_notifications_description) {
-                    context.openTurnSettings(context.notificationSettings())
-                }
+        }
+        if (enabled) item("background-system-settings") { BackgroundTurnSystemSettings() }
+        if (!notificationsEnabled) item("background-notifications") {
+            BackgroundTurnSettingLink(
+                R.string.background_turn_notifications,
+                R.string.background_turn_notifications_description,
+            ) {
+                context.openTurnSettings(context.notificationSettings())
             }
         }
-        if (onResearch != null) item("research-apis") {
-            ListItem(
-                content = { Text(stringResource(R.string.research_apis)) },
-                trailingContent = { Symbol("chevron_right") },
-                modifier = Modifier.clickable(onClick = onResearch),
-            )
-        }
-        fun androidx.compose.foundation.lazy.LazyListScope.rows(
-            nodes: List<PluginSetting>,
-            nested: Boolean,
-        ) {
-            nodes.forEach { setting ->
-                if (setting.type == "group") {
-                    item(setting.listKey, contentType = setting.type) {
-                        if (!nested) HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                        Text(
-                            SettingTitle(setting),
-                            Modifier.padding(start = 16.dp, top = 8.dp, bottom = 6.dp),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                    rows(setting.children, true)
-                } else
-                    item(setting.listKey, contentType = setting.type) {
-                        SettingItem(setting, state, model, onPage, onLink)
-                    }
-            }
-        }
-        rows(items, false)
     }
 }
 
@@ -339,6 +347,8 @@ internal class ActionsRouter(
         mapOf(
             "providers" to { navigate(AppRoute.Providers) },
             "models" to { navigate(AppRoute.Models) },
+            "research-services" to { navigate(AppRoute.Research) },
+            "background-turns" to { navigate(AppRoute.BackgroundTurns) },
             "plugins" to { navigate(AppRoute.Plugins) },
             "language" to
                 {

@@ -17,7 +17,7 @@ public sealed partial class Engine
             selected.UsePreset(preset);
             if (selected.ChatGreeting.Length > 0 && selected.Mode != "ensemble")
             {
-                SelectConversation(preset, null);
+                await SelectConversation(preset, null, token);
                 await GreetChat("", token);
                 return;
             }

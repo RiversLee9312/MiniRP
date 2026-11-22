@@ -373,6 +373,8 @@ internal fun PluginDetailsScreen(
     state: ChatState,
     model: ChatViewModel,
     onExport: () -> Unit,
+    onPage: (AppRoute.PluginPage) -> Unit,
+    onLink: (PluginSetting) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     var editingScope by rememberSaveable(plugin.id) { mutableStateOf(false) }
@@ -394,7 +396,7 @@ internal fun PluginDetailsScreen(
     val colors = MaterialTheme.colorScheme
     val canRun = plugin.command && plugin.availableIn(state.preset)
     LazyColumn(
-        Modifier.fillMaxSize(),
+        Modifier.fillMaxSize().testTag("plugin-details:${plugin.id}"),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -439,6 +441,13 @@ internal fun PluginDetailsScreen(
             }
         }
         if (!plugin.builtIn) {
+            declaredSettingsRows(
+                state.pluginSettings.filter { it.plugin == plugin.id },
+                state,
+                model,
+                onPage,
+                onLink,
+            )
             item(key = "uninstall") {
                 OutlinedButton(
                     onClick = { confirmingRemoval = true }, enabled = enabled && !state.archiveBusy,

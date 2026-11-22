@@ -10,8 +10,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.click
@@ -19,6 +23,7 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -32,12 +37,18 @@ import com.minirp.app.ui.AgentRole
 import com.minirp.app.ui.ChatState
 import com.minirp.app.ui.ChatToolbar
 import com.minirp.app.ui.FullSheet
+import com.minirp.app.ui.RoomLoading
+import com.minirp.app.ui.RoomLoadingScreen
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
 class ChatChromeTest {
-    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    private val motionScale = object : MotionDurationScale {
+        override var scaleFactor = 1f
+    }
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>(effectContext = motionScale)
 
     @Test
     fun greetingAndChatTitleFitOneLineAndTheGearPrecedesTheChatMenu() {
@@ -136,6 +147,81 @@ class ChatChromeTest {
             }
             input.assertTextContains("Draft")
         }
+    }
+
+    @Test
+    fun roomPreparationShowsProgressRotatesWorldCopyAndCanBeStopped() {
+        val firstGrapheme = "👩🏽‍🚀"
+        val first = "$firstGrapheme Navigation lights drift past the window."
+        val second = "The next shift checks the gate."
+        val loading = mutableStateOf(RoomLoading("fixture", ready = 0, total = 2, progress = 0.25f, messages = listOf(first, second)))
+        var cancellations = 0
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            MaterialExpressiveTheme {
+                RoomLoadingScreen(loading.value) { cancellations++ }
+            }
+        }
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithContentDescription(first).assertIsDisplayed()
+        assertEquals(firstGrapheme.length, hiddenCaptionStart(first))
+        compose.onNodeWithText("0/2").assertDoesNotExist()
+        assertRoomProgressForTalkBack(0.25f)
+        val initial = displayedRoomProgress()
+        compose.mainClock.advanceTimeBy(1_600)
+        val firstAdvance = displayedRoomProgress()
+        assertTrue(firstAdvance > initial)
+        assertEquals(null, hiddenCaptionStart(first))
+        compose.mainClock.advanceTimeBy(1_600)
+        val secondAdvance = displayedRoomProgress()
+        assertTrue(secondAdvance > firstAdvance && secondAdvance - firstAdvance < firstAdvance - initial)
+        compose.onNodeWithContentDescription(first).assertDoesNotExist()
+        compose.onNodeWithContentDescription(second).assertIsDisplayed()
+        assertRoomProgressForTalkBack(0.25f)
+        compose.runOnIdle { loading.value = loading.value.copy(ready = 1, progress = 1f) }
+        compose.mainClock.advanceTimeBy(350)
+        assertRoomProgressForTalkBack(0.98f)
+        assertEquals(0.98f, displayedRoomProgress(), 0.0001f)
+        compose.onNodeWithText("1/2").assertDoesNotExist()
+        compose.runOnIdle { loading.value = loading.value.copy(ready = 2) }
+        compose.mainClock.advanceTimeBy(350)
+        assertRoomProgressForTalkBack(1f)
+        assertEquals(1f, displayedRoomProgress(), 0.0001f)
+        compose.onNodeWithText(compose.activity.getString(R.string.stop)).performClick()
+        compose.runOnIdle { assertEquals(1, cancellations) }
+    }
+
+    @Test
+    fun roomPreparationUsesConfirmedProgressAndWholeCaptionsWithAnimationsDisabled() {
+        val caption = "The next shift checks the gate."
+        motionScale.scaleFactor = 0f
+        compose.setContent {
+            MaterialExpressiveTheme {
+                RoomLoadingScreen(RoomLoading("fixture", ready = 1, total = 2, progress = 0.65f, messages = listOf(caption))) {}
+            }
+        }
+        compose.onNodeWithContentDescription(caption).assertIsDisplayed()
+        assertEquals(null, hiddenCaptionStart(caption))
+        compose.mainClock.advanceTimeBy(5_000)
+        assertRoomProgressForTalkBack(0.65f)
+        assertEquals(0.65f, displayedRoomProgress(), 0.0001f)
+    }
+
+    private fun assertRoomProgressForTalkBack(progress: Float) {
+        compose.onNode(
+            SemanticsMatcher.expectValue(SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo(progress, 0f..1f))
+        ).assertIsDisplayed()
+    }
+
+    private fun displayedRoomProgress(): Float =
+        compose.onNodeWithTag("room-loading-track", useUnmergedTree = true)
+            .fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current
+
+    private fun hiddenCaptionStart(caption: String): Int? {
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText(caption, useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        return layouts.single().layoutInput.text.spanStyles.singleOrNull()?.start
     }
 
     private fun assertEllipsized(text: String) {

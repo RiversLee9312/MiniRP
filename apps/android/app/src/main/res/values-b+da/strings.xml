@@ -48,7 +48,6 @@
     <string name="search_models">Søg efter modeller</string>
     <string name="search_chats">Søg efter chats</string>
     <string name="edit_facts">Rediger fakta</string>
-    <string name="advance_story">Før historien videre</string>
     <string name="edit_preset">Rediger preset</string>
     <string name="create_preset">Opret preset</string>
     <string name="choose_preset">Vælg preset</string>
@@ -210,4 +209,11 @@
     <string name="background_turn_live_updates_description">Følg svarets status på statuslinjen eller låseskærmen på understøttede enheder.</string>
     <string name="background_turn_notifications">Notifikationsindstillinger</string>
     <string name="background_turn_notifications_description">Tillad notifikationer for at slå svar i baggrunden til.</string>
+    <string name="import_menu">Importér…</string>
+    <string name="import_help">Hvad er forskellen?</string>
+    <string name="import_preset_detail">En forudindstilling indeholder opsætningen og dens plugins.</string>
+    <string name="import_save_detail">En gemt fil indeholder også rum, samtaler, vedhæftninger og fremskridt.</string>
+    <string name="preset_management">Administrer forudindstilling</string>
+    <string name="conversation_settings">Chatindstillinger</string>
+    <string name="add_saved_model">Tilføj model</string>
 </resources>

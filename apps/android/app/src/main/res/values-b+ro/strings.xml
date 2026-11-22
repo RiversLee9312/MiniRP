@@ -48,7 +48,6 @@
     <string name="search_models">Caută modele</string>
     <string name="search_chats">Caută chat-uri</string>
     <string name="edit_facts">Editează fapte</string>
-    <string name="advance_story">Avansează povestea</string>
     <string name="edit_preset">Editează presetarea</string>
     <string name="create_preset">Creează presetare</string>
     <string name="choose_preset">Alege presetarea</string>
@@ -212,4 +211,11 @@
     <string name="background_turn_live_updates_description">Urmărește răspunsul în bara de stare sau pe ecranul de blocare pe dispozitivele compatibile.</string>
     <string name="background_turn_notifications">Setări pentru notificări</string>
     <string name="background_turn_notifications_description">Permite notificările pentru a activa răspunsurile în fundal.</string>
+    <string name="import_menu">Importă…</string>
+    <string name="import_help">Care este diferența?</string>
+    <string name="import_preset_detail">O presetare conține configurația și extensiile sale.</string>
+    <string name="import_save_detail">O salvare include și camerele, conversațiile, atașamentele și progresul.</string>
+    <string name="preset_management">Gestionează presetarea</string>
+    <string name="conversation_settings">Setările conversației</string>
+    <string name="add_saved_model">Adaugă un model</string>
 </resources>

@@ -48,7 +48,6 @@
     <string name="search_models">搜尋模型</string>
     <string name="search_chats">搜尋聊天紀錄</string>
     <string name="edit_facts">編輯事實</string>
-    <string name="advance_story">推展故事</string>
     <string name="edit_preset">編輯預設</string>
     <string name="create_preset">建立預設</string>
     <string name="choose_preset">選擇預設</string>
@@ -208,4 +207,11 @@
     <string name="background_turn_live_updates_description">允許在支援的裝置上透過狀態列或鎖定畫面查看回覆進度。</string>
     <string name="background_turn_notifications">通知設定</string>
     <string name="background_turn_notifications_description">請允許通知，以開啟背景回覆。</string>
+    <string name="import_menu">匯入…</string>
+    <string name="import_help">預設和存檔有什麼差別？</string>
+    <string name="import_preset_detail">預設包含設定和相關的外掛程式。</string>
+    <string name="import_save_detail">存檔還包含房間、對話、附件和進度。</string>
+    <string name="preset_management">管理預設</string>
+    <string name="conversation_settings">聊天設定</string>
+    <string name="add_saved_model">新增模型</string>
 </resources>

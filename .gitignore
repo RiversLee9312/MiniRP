@@ -1,4 +1,5 @@
 .env
+.minirp-desktop.json
 .env.*
 !.env.example
 /AGENTS.md
@@ -46,6 +47,7 @@ TestResults/
 /sdk/**/dist/
 /examples/**/dist/
 /apps/android/genui/dist/
+/apps/desktop-web/dist/
 *.plugin
 *.pfx
 *.p12

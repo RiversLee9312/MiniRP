@@ -189,28 +189,81 @@ class NavigationTest {
     fun settingsActionAndPluginPageReturnToTheirParent() {
         fun label(resource: Int) = compose.activity.getString(resource)
         compose.onNodeWithContentDescription(label(R.string.settings)).performClick()
-        fun waitFor(resource: Int) {
-            compose.waitUntil(10_000) { compose.onNodeWithText(label(resource)).isDisplayed() }
-        }
-        waitFor(R.string.providers)
-        compose.onNodeWithText(label(R.string.providers)).performClick()
-        waitFor(R.string.add_provider)
+        val categories = listOf(
+            R.string.model_provider_settings, R.string.behavior_settings, R.string.research_apis,
+            R.string.plugins, R.string.about,
+        )
+        compose.waitUntil(10_000) { settingRow(categories.first()).isDisplayed() }
+        val positions = categories.map { settingRow(it).fetchSemanticsNode().boundsInRoot.top }
+        assertTrue(positions.zipWithNext().all { (first, next) -> first < next })
+        settingRow(R.string.providers).assertDoesNotExist()
+        settingRow(R.string.models).assertDoesNotExist()
+        settingRow(R.string.model_provider_settings).performClick()
+        settingRow(R.string.providers).performClick()
+        compose.waitUntil(10_000) { compose.onNodeWithText(label(R.string.add_provider)).isDisplayed() }
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        compose.onNodeWithText(label(R.string.providers)).assertIsDisplayed()
+        settingRow(R.string.providers).assertIsDisplayed()
         compose.onNodeWithText(label(R.string.system_prompt)).assertDoesNotExist()
-        compose.onNodeWithText(label(R.string.models)).performClick()
-        waitFor(R.string.title_model)
+        settingRow(R.string.models).performClick()
+        compose.waitUntil(10_000) { compose.onNodeWithText(label(R.string.title_model)).isDisplayed() }
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        compose.onNodeWithText(label(R.string.providers)).assertIsDisplayed()
+        settingRow(R.string.providers).assertIsDisplayed()
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+
+        val about = runBlocking { model.pluginPage("base", "about") }
+        val notices = about.children.single { it.key == "notices" }
+        val noticesTitle = notices.localized(compose.activity.resources.configuration.locales[0])
+        val noticesLink = compose.onNode(hasText(noticesTitle) and hasClickAction())
+        settingRow(R.string.about).performClick()
+        noticesLink.performClick()
+        compose.onNodeWithText(noticesTitle).assertIsDisplayed()
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.waitUntil(10_000) { noticesLink.isDisplayed() }
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        settingRow(R.string.about).assertIsDisplayed()
+    }
+
+    @Test
+    fun behaviorContainsSharedSettingsAndOpensAndroidBackgroundReplies() {
+        fun label(resource: Int) = compose.activity.getString(resource)
+        fun text(resource: Int) = compose.onNodeWithText(label(resource))
+        compose.onNodeWithContentDescription(label(R.string.settings)).performClick()
+        compose.waitUntil(10_000) { settingRow(R.string.behavior_settings).isDisplayed() }
+        settingRow(R.string.background_turns).assertDoesNotExist()
+        settingRow(R.string.behavior_settings).performClick()
+        settingRow(R.string.language).assertIsDisplayed()
+        text(R.string.appearance).assertDoesNotExist()
+        val expanded = model.state.value.expandThoughts
+        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.ToggleableState)).performClick()
+        compose.waitUntil(5_000) { model.state.value.expandThoughts != expanded }
+        val background = settingRow(R.string.background_turns)
+        background.performClick()
+        text(R.string.background_turns_description).assertIsDisplayed()
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        background.assertIsDisplayed()
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        settingRow(R.string.behavior_settings).assertIsDisplayed()
+    }
+
+    private fun settingRow(id: Int): SemanticsNodeInteraction =
+        compose.onNode(hasText(compose.activity.getString(id)) and hasClickAction())
+
+    private fun openSettingsCategory(id: Int) {
+        compose.onNodeWithContentDescription(compose.activity.getString(R.string.settings)).performClick()
+        val category = settingRow(id)
+        compose.waitUntil(10_000) { category.isDisplayed() }
+        category.performClick()
     }
 
     @Test
     fun webResearchChoosesIndependentServicesAndEncryptsTheirKeys() {
         fun label(resource: Int) = compose.activity.getString(resource)
         fun text(resource: Int) = compose.onNodeWithText(label(resource))
-        compose.onNodeWithContentDescription(label(R.string.settings)).performClick()
-        compose.waitUntil(10_000) { text(R.string.research_apis).isDisplayed() }
-        text(R.string.research_apis).performClick()
+        openSettingsCategory(R.string.research_apis)
+        settingRow(R.string.fetch_mode).performClick()
+        text(R.string.fetch_browser).performClick()
+        compose.waitUntil(5_000) { model.state.value.fetchMode == "local" }
+        settingRow(R.string.providers).performClick()
         text(R.string.research_search_provider).performClick()
         compose.onNodeWithText("Brave Search").performClick()
         text(R.string.research_fetch_provider).performClick()
@@ -258,8 +311,8 @@ class NavigationTest {
             }
             compose.waitUntil(10_000) { model.state.value.assigned(AgentRole.Chat)?.choice?.contextWindow == 65536 }
             fun label(resource: Int) = compose.activity.getString(resource)
-            compose.onNodeWithContentDescription(label(R.string.settings)).performClick()
-            compose.onNodeWithText(label(R.string.models)).performClick()
+            openSettingsCategory(R.string.model_provider_settings)
+            settingRow(R.string.models).performClick()
             fun openModelSettings() {
                 compose.onNodeWithTag("models-list").performScrollToKey("model:fixture:fixture")
                 compose.onNodeWithContentDescription(label(R.string.model_settings)).performClick()
@@ -327,7 +380,7 @@ class NavigationTest {
     @Test
     fun predictiveBackFinishesItsTransitionAfterReleaseAndRestoresOnCancel() {
         val settings = compose.activity.getString(R.string.settings)
-        val providers = compose.activity.getString(R.string.providers)
+        val modelsAndProviders = compose.activity.getString(R.string.model_provider_settings)
         val gear = compose.onNodeWithContentDescription(settings)
         val composer = compose.onNodeWithTag("composer")
         compose.waitUntil(10_000) { composer.isDisplayed() }
@@ -368,7 +421,7 @@ class NavigationTest {
                     travel[0] > 0 && kotlin.math.abs(travel[1] - travel[0]) <= 2f)
             }
             compose.runOnIdle { input.backCancelled() }
-            compose.onNodeWithText(providers).assertIsDisplayed()
+            compose.onNodeWithText(modelsAndProviders).assertIsDisplayed()
             assertEquals(original, toolbar.fetchSemanticsNode().boundsInRoot)
             gear.assertDoesNotExist()
             startGesture(NavigationEvent.EDGE_RIGHT, 0.2f)
@@ -551,7 +604,7 @@ class PluginNavigationDuringGenerationTest {
     @get:Rule val temporary = TemporaryFolder()
 
     @Test
-    fun cleanHomeAndPluginsStayResponsiveWhileTheChatRequestIsPending() {
+    fun cleanHomeAndSettingsStayResponsiveWhileTheChatRequestIsPending() {
         val application = compose.activity.application
         val directory = temporary.newFolder()
         val workspace =
@@ -563,6 +616,10 @@ class PluginNavigationDuringGenerationTest {
         val release = CountDownLatch(1)
         val message = "Wait for the navigation test"
         val firstQuestion = "What kind of world would you like to create?"
+        val setupChoice = "One character without delegated search."
+        fun toolCall(index: Int, name: String, arguments: String = "{}") =
+            JSONObject().put("index", index).put("id", "setup-$index").put("type", "function")
+                .put("function", JSONObject().put("name", name).put("arguments", arguments))
         val server = MockWebServer()
         server.dispatcher =
             object : Dispatcher() {
@@ -573,11 +630,21 @@ class PluginNavigationDuringGenerationTest {
                         received.countDown()
                         release.await(30, TimeUnit.SECONDS)
                     }
-                    val text =
+                    val messages = JSONObject(body).getJSONArray("messages")
+                    val lastRole = messages.getJSONObject(messages.length() - 1).getString("role")
+                    val delta =
                         when {
-                            chat -> "Chat reply after navigating"
-                            body.contains("Start the preset setup interview now") -> firstQuestion
-                            else -> "[]"
+                            chat -> JSONObject().put("content", "Chat reply after navigating")
+                            body.contains(setupChoice) && lastRole != "tool" ->
+                                JSONObject().put(
+                                    "tool_calls",
+                                    JSONArray()
+                                        .put(toolCall(0, "configure_experience", """{"mode":"character","agentic_search":false}"""))
+                                        .put(toolCall(1, "finish_preset_setup")),
+                                )
+                            body.contains(setupChoice) -> JSONObject().put("content", "Preset ready.")
+                            body.contains("Start the preset setup interview now") -> JSONObject().put("content", firstQuestion)
+                            else -> JSONObject().put("content", "[]")
                         }
                     val data =
                         JSONObject()
@@ -585,7 +652,7 @@ class PluginNavigationDuringGenerationTest {
                                 "choices",
                                 JSONArray()
                                     .put(
-                                        JSONObject().put("delta", JSONObject().put("content", text))
+                                        JSONObject().put("delta", delta)
                                     ),
                             )
                     return MockResponse.Builder()
@@ -630,7 +697,10 @@ class PluginNavigationDuringGenerationTest {
             val plugins = compose.onNodeWithText(label(R.string.plugins))
             val install = compose.onNodeWithText(label(R.string.install_plugin))
             val create = compose.onNodeWithText(label(R.string.create_preset))
-            val editor = compose.onNodeWithText(label(R.string.preset))
+            val editor = compose.onNode(
+                hasText(label(R.string.preset)) and
+                    SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading) and !hasClickAction()
+            )
             fun back() {
                 compose.activityRule.scenario.onActivity {
                     it.onBackPressedDispatcher.onBackPressed()
@@ -661,6 +731,12 @@ class PluginNavigationDuringGenerationTest {
             compose
                 .onNodeWithText("Start the preset setup interview now", substring = true)
                 .assertDoesNotExist()
+            compose.runOnIdle {
+                model.viewModelScope.launch { model.send(setupChoice, emptyList(), AgentRole.Preset) }
+            }
+            compose.waitUntil(5_000) {
+                !model.state.value.presetSetupPending && !model.state.value.busy
+            }
             compose.onNodeWithContentDescription(label(R.string.close)).performClick()
             val heading =
                 compose.onNode(
@@ -679,6 +755,17 @@ class PluginNavigationDuringGenerationTest {
                 "Chat request did not arrive at the test server"
             }
             visitPlugins()
+            settings.performClick()
+            val behavior = compose.onNode(hasText(label(R.string.behavior_settings)) and hasClickAction())
+            compose.waitUntil(5_000) { behavior.isDisplayed() }
+            behavior.performClick()
+            val language = compose.onNode(hasText(label(R.string.language)) and hasClickAction())
+            compose.waitUntil(5_000) { language.isDisplayed() }
+            assertTrue(model.state.value.busy)
+            back()
+            behavior.assertIsDisplayed()
+            back()
+            settings.assertIsDisplayed()
             release.countDown()
             compose.waitUntil(10_000) {
                 !model.state.value.busy &&

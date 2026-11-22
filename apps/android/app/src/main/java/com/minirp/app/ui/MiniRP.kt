@@ -64,6 +64,8 @@ internal sealed interface AppRoute {
 
     @Serializable data object Research : AppRoute
 
+    @Serializable data object BackgroundTurns : AppRoute
+
     @Serializable data object Plugins : AppRoute
 
     @Serializable data class PluginDetails(val id: String) : AppRoute
@@ -136,7 +138,10 @@ fun MiniRP(model: ChatViewModel) {
         val scope = rememberCoroutineScope()
         val snackbars = remember { SnackbarHostState() }
         fun open(route: AppRoute) {
-            navigation.navigate(route) { launchSingleTop = true }
+            navigation.navigate(route) {
+                // Nested declared pages share a destination type and need distinct back-stack entries.
+                launchSingleTop = route !is AppRoute.PluginPage
+            }
         }
         val context = LocalContext.current
         val archives = rememberArchivePicker(model)
@@ -232,7 +237,7 @@ fun MiniRP(model: ChatViewModel) {
                     page<AppRoute.Settings> { entry ->
                         SettingsPage(stringResource(R.string.settings), back, snackbars) {
                             DeclaredSettingsScreen(
-                                state.pluginSettings,
+                                state.pluginSettings.filter { it.plugin == "base" },
                                 state,
                                 model,
                                 onPage = {
@@ -241,11 +246,6 @@ fun MiniRP(model: ChatViewModel) {
                                 onLink = {
                                     if (navigation.currentBackStackEntry == entry) openLink(it)
                                 },
-                                onResearch = {
-                                    if (navigation.currentBackStackEntry == entry) open(AppRoute.Research)
-                                },
-                                backgroundTurns = protection?.enabled,
-                                onBackgroundTurns = authorizeBackgroundTurns.takeUnless { requestingNotifications },
                             )
                         }
                     }
@@ -255,11 +255,19 @@ fun MiniRP(model: ChatViewModel) {
                         }
                     }
                     page<AppRoute.Research> {
-                        SettingsPage(stringResource(R.string.research_apis), back, snackbars) {
+                        SettingsPage(stringResource(R.string.providers), back, snackbars) {
                             ResearchSettingsScreen(state.research) {
                                 model.researchSettings(it)
                                 back()
                             }
+                        }
+                    }
+                    page<AppRoute.BackgroundTurns> {
+                        SettingsPage(stringResource(R.string.background_turns), back, snackbars) {
+                            BackgroundTurnsSettingsScreen(
+                                protection?.enabled == true,
+                                authorizeBackgroundTurns.takeIf { protection != null && !requestingNotifications },
+                            )
                         }
                     }
                     page<AppRoute.Plugins> {
@@ -277,8 +285,19 @@ fun MiniRP(model: ChatViewModel) {
                             if (plugin == null && loaded && navigation.currentBackStackEntry == entry) back()
                         }
                         SettingsPage(plugin?.name.orEmpty(), back, snackbars) {
-                            if (plugin != null) PluginDetailsScreen(plugin, state, model) {
-                                archives.export(ArchiveType.Plugin, plugin.name, "", plugin.id)
+                            if (plugin != null) {
+                                PluginDetailsScreen(
+                                    plugin,
+                                    state,
+                                    model,
+                                    onExport = { archives.export(ArchiveType.Plugin, plugin.name, "", plugin.id) },
+                                    onPage = {
+                                        if (navigation.currentBackStackEntry == entry) open(it)
+                                    },
+                                    onLink = {
+                                        if (navigation.currentBackStackEntry == entry) openLink(it)
+                                    },
+                                )
                             }
                         }
                     }
@@ -545,6 +564,7 @@ fun MiniRP(model: ChatViewModel) {
                 },
             )
         }
+        state.roomLoading?.let { RoomLoadingScreen(it, model::cancel) }
         if (activePanel == "memory") {
             FullSheet(stringResource(R.string.memory), { panel = "" }) {
                 MemoryScreen(
@@ -557,7 +577,6 @@ fun MiniRP(model: ChatViewModel) {
             }
         } else if (activePanel.isNotEmpty()) {
             val role = if (activePanel == "env") AgentRole.World else AgentRole.Preset
-            var stage by rememberSaveable { mutableStateOf(false) }
             val session = if (role == AgentRole.Preset) state.preset else state.chatId
             val assets = remember(model, assetDownloader, state.preset, state.chatId, role) {
                 DisplayAssets(model, assetDownloader, state.preset, if (role == AgentRole.Preset) "" else state.chatId)
@@ -589,7 +608,7 @@ fun MiniRP(model: ChatViewModel) {
                         { text, files, system, type ->
                             if (!system && text.trim() == "/close" && files.isEmpty()) {
                                 closePanel()
-                            } else model.sendFromPanel(text, files, role, stage, system, type)
+                            } else model.sendFromPanel(text, files, role, system, type)
                         },
                         { modelPicker = it },
                         loadThumbnail = { model.thumbnail(role, it) },
@@ -628,12 +647,6 @@ fun MiniRP(model: ChatViewModel) {
                         enabled = state.canExportTranscript && state.chatId.isNotBlank(),
                     )
                 }) {
-                    FilterChip(
-                        stage,
-                        { stage = !stage },
-                        label = { Text(stringResource(R.string.advance_story)) },
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
                     conversation(Modifier.weight(1f).fillMaxWidth())
                     SnackbarHost(snackbars)
                 }
@@ -831,7 +844,7 @@ private fun ConversationActions(
         if (onExportTranscript != null) {
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.export_transcript)) },
-                leadingIcon = { Symbol("download") },
+                leadingIcon = { Symbol("share") },
                 enabled = canExportTranscript,
                 onClick = {
                     menu = false

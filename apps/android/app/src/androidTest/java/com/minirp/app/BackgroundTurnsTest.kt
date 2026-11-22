@@ -167,6 +167,10 @@ class BackgroundTurnsTest {
                     prompt.assertDoesNotExist()
 
                     compose.onNodeWithContentDescription(label(R.string.settings)).performClick()
+                    val behavior = compose.onNodeWithText(label(R.string.behavior_settings))
+                    compose.waitUntil(10_000) { behavior.isDisplayed() }
+                    behavior.performClick()
+                    compose.onNodeWithText(label(R.string.background_turns)).performClick()
                     fun opensSystemSettings(id: Int) {
                         val row = compose.onNodeWithText(label(id))
                         compose.waitUntil(10_000) { row.isDisplayed() }

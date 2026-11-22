@@ -67,6 +67,8 @@ PluginAgent 激活 `base-plugin-project` 后，可以在 Android 上独立完成
 
 群像中的 `api.environment.room` 是外层 Room 的 ID，`chat` 是其内当前 Chat 的 ID，`participant` 是当前角色。打开房间列表时可以有 `room` 而没有 `chat`。角色通过 `chat_send` 向自己加入的 Chat 发言；EnvAgent 通过 `set_chat_members` 管理成员。
 
+同一个人物在 Room 中使用同一人物会话，当前 Chat 随交互变化。用 Room、Chat 和人物的 ID 识别事件和作用域。共享的结构化事实由插件按修订写入；向角色同步事实时，先完成状态写入，再向有权获知的 Chat 发出消息。Chat 内局部数据放在 Chat scope。允许角色读取的字段通过所属 Skill 投影，可用 `db_watch` 在下一次模型请求前收到修订变更。预设设计流程见[群像预设的角色与状态设计](../presets/modes.md#群像预设的角色与状态设计)。
+
 ## 做成可维护的联动
 
 给事件取业务含义明确的名字，例如「交接已确认」「嫌疑线索已核实」。让触发它的工具验证输入和权限。把只有 EnvAgent 知道的规则放在环境层。通知角色时写它需要知道的后果和来源。使用 `api.actions.publish` 和签名 Asset 交换跨插件事件及内容。将 UI 按钮映射到已有的业务操作，让选择、展示和智能体调用复用同一份规则。

@@ -98,13 +98,15 @@ const resourcePath = "/asset-resource/";
 
 export function originalAssetUrl(url) {
     const resource = new URL(url, document.baseURI);
-    return resource.origin === location.origin && resource.pathname.startsWith(resourcePath)
-        ? decodeURIComponent(resource.pathname.slice(resourcePath.length)) : url;
+    if (resource.origin !== location.origin) return url;
+    if (resource.pathname === "/api/asset") return resource.searchParams.get("url") ?? url;
+    return resource.pathname.startsWith(resourcePath) ? decodeURIComponent(resource.pathname.slice(resourcePath.length)) : url;
 }
 
 function hostAssetUrl(url, ready) {
     if (!assetUrl.test(url)) return url;
-    return ready ? location.origin + resourcePath + encodeURIComponent(url) : "";
+    if (!ready) return "";
+    return window.MiniRPSurface?.assetUrl?.(url) ?? location.origin + resourcePath + encodeURIComponent(url);
 }
 
 function assetComponent(name, property, convert, description) {

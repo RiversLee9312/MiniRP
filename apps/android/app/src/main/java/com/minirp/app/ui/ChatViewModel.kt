@@ -322,6 +322,17 @@ internal constructor(
                     }
                 mutableState.update { it.copy(generating = role) }
             }
+            "room_loading" -> {
+                val messages = event.optJSONArray("messages")?.let { List(it.length(), it::getString) }.orEmpty()
+                val loading = if (event.optBoolean("value")) RoomLoading(
+                    event.getString("room"),
+                    event.getInt("ready"),
+                    event.getInt("total"),
+                    event.getDouble("progress").toFloat(),
+                    messages,
+                ) else null
+                mutableState.update { it.copy(roomLoading = loading) }
+            }
             "loaded" -> {
                 val chat = event.getJSONObject("chat")
                 val preset = event.getString("preset")
@@ -634,7 +645,6 @@ internal constructor(
         text: String,
         documents: List<String>,
         role: AgentRole,
-        stage: Boolean = false,
         system: Boolean = false,
         pluginAttachment: PluginAttachmentType? = null,
         openUiAction: JSONObject? = null,
@@ -704,7 +714,6 @@ internal constructor(
                             .put("agent", role.id)
                             .put("role", if (system) "system" else "user")
                             .put("text", text)
-                            .put("stage", stage)
                             .put("editor_turn", role == AgentRole.Preset)
                             .put("open_ui_action", action)
                             .put("attachments", imported),
@@ -724,9 +733,9 @@ internal constructor(
     }
 
     internal suspend fun sendFromPanel(
-        text: String, documents: List<String>, role: AgentRole, stage: Boolean,
+        text: String, documents: List<String>, role: AgentRole,
         system: Boolean, pluginAttachment: PluginAttachmentType?,
-    ): Boolean = viewModelScope.async { send(text, documents, role, stage, system, pluginAttachment) }.await()
+    ): Boolean = viewModelScope.async { send(text, documents, role, system, pluginAttachment) }.await()
 
     internal fun openUiDraft(chatId: String, id: String): String =
         openUiDrafts.get(chatId to id).orEmpty()

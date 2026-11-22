@@ -1,0 +1,131 @@
+@font-face {
+  font-family: "Google Sans Flex";
+  src: url("./fonts/google-sans-flex-latin.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Google Sans Flex";
+  src: url("./fonts/google-sans-flex-latin-ext.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Google Sans Flex";
+  src: url("./fonts/google-sans-flex-vietnamese.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+
+@font-face {
+  font-family: "Material Symbols Rounded";
+  src: url("./fonts/material-symbols-rounded.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+
+:root {
+  color-scheme: light;
+  --typeface: "Google Sans Flex", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --display: clamp(2.15rem, 4.4vw, 3.5625rem);
+  --headline: clamp(1.45rem, 2.5vw, 2rem);
+  --title: 1.25rem;
+  --body: 1rem;
+  --label: .875rem;
+  --label-small: .75rem;
+  /* Base colors mirror the Compose expressive light and default dark schemes. */
+  --primary: #6750a4;
+  --on-primary: #ffffff;
+  --primary-container: #eaddff;
+  --on-primary-container: #4f378b;
+  --secondary: #625b71;
+  --secondary-container: #e8def8;
+  --on-secondary-container: #4a4458;
+  --tertiary: #7d5260;
+  --tertiary-container: #ffd8e4;
+  --on-tertiary-container: #633b48;
+  --surface: #fef7ff;
+  --surface-lowest: #ffffff;
+  --surface-low: #f7f2fa;
+  --surface-container: #f3edf7;
+  --surface-high: #ece6f0;
+  --surface-highest: #e6e0e9;
+  --surface-dim: #ded8e1;
+  --on-surface: #1d1b20;
+  --variant: #49454f;
+  --outline: #79747e;
+  --outline-variant: #cac4d0;
+  --inverse-surface: #322f35;
+  --inverse-on-surface: #f5eff7;
+  --error: #b3261e;
+  --error-container: #f9dedc;
+  --on-error-container: #8c1d18;
+  --focus: var(--primary);
+  --radius-small: 8px;
+  --radius-medium: 12px;
+  --radius-large: 20px;
+  --radius-extra: 28px;
+  --radius-pane: 32px;
+  --radius-full: 999px;
+  --shadow-1: 0 1px 2px #22112c22, 0 3px 6px #22112c11;
+  --shadow-2: 0 2px 4px #22112c22, 0 8px 24px #22112c22;
+  --shadow-3: 0 4px 12px #22112c25, 0 22px 56px #22112c28;
+  --scrim-color: #0006;
+  /* Sampled spring curves for geometry. Opacity and color settle without overshoot. */
+  --spring-fast: 320ms linear(0, .22, .54, .79, .96, 1.035, 1.05, 1.037, 1.013, 1);
+  --spring: 435ms linear(0, .13, .38, .64, .85, .99, 1.055, 1.065, 1.043, 1.019, 1.003, 1);
+  --spring-slow: 540ms linear(0, .12, .31, .54, .74, .90, .99, 1.048, 1.056, 1.036, 1.013, 1);
+  --effect-fast: 130ms cubic-bezier(.2, 0, 0, 1);
+  --effect: 230ms cubic-bezier(.2, 0, 0, 1);
+  --effect-slow: 320ms cubic-bezier(.2, 0, 0, 1);
+  --measure: 812px;
+  --body-inset: clamp(16px, 3.8vw, 44px);
+  --drawer-travel: -105%;
+}
+
+:root[dir="rtl"] { --drawer-travel: 105%; }
+:root:lang(zh-Hans) { --typeface: "Google Sans Flex", "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif; }
+:root:lang(zh-Hant) { --typeface: "Google Sans Flex", "Microsoft JhengHei UI", "PingFang TC", "Noto Sans CJK TC", system-ui, sans-serif; }
+:root:lang(ja) { --typeface: "Google Sans Flex", "Yu Gothic UI", "Noto Sans CJK JP", system-ui, sans-serif; }
+:root:lang(ko) { --typeface: "Google Sans Flex", "Malgun Gothic", "Noto Sans CJK KR", system-ui, sans-serif; }
+:root:lang(ar), :root:lang(fa) { --typeface: "Segoe UI", "Noto Sans Arabic", Tahoma, system-ui, sans-serif; }
+:root:lang(he) { --typeface: "Google Sans Flex", "Segoe UI", "Noto Sans Hebrew", system-ui, sans-serif; }
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --primary: #d0bcff;
+  --on-primary: #381e72;
+  --primary-container: #4f378b;
+  --on-primary-container: #eaddff;
+  --secondary: #ccc2dc;
+  --secondary-container: #4a4458;
+  --on-secondary-container: #e8def8;
+  --tertiary: #efb8c8;
+  --tertiary-container: #633b48;
+  --on-tertiary-container: #ffd8e4;
+  --surface: #141218;
+  --surface-lowest: #0f0d13;
+  --surface-low: #1d1b20;
+  --surface-container: #211f26;
+  --surface-high: #2b2930;
+  --surface-highest: #36343b;
+  --surface-dim: #141218;
+  --on-surface: #e6e0e9;
+  --variant: #cac4d0;
+  --outline: #938f99;
+  --outline-variant: #49454f;
+  --inverse-surface: #e6e0e9;
+  --inverse-on-surface: #322f35;
+  --error: #f2b8b5;
+  --error-container: #8c1d18;
+  --on-error-container: #f9dedc;
+  --scrim-color: #0008;
+  --shadow-1: 0 2px 6px #0005;
+  --shadow-2: 0 4px 18px #0006;
+  --shadow-3: 0 12px 48px #0008;
+}

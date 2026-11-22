@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cardPrompt, prompt } from "./catalog.mjs";
@@ -45,6 +45,15 @@ await Promise.all([
         outfile: join(output, "maplibre.js"),
     }),
 ]);
-await copyFile(join(here, "index.html"), join(output, "index.html"));
+if (process.argv.includes("--desktop")) {
+    const index = await readFile(join(here, "index.html"), "utf8");
+    const desktop = index.replace('    <script type="module"', '    <script src="desktop-bridge.js"></script>\n    <script type="module"');
+    await writeFile(join(output, "index.html"), desktop);
+    await writeFile(join(output, "preview.html"), desktop.replace("img-src 'self' https: data: blob:", "img-src 'self' data: blob:")
+        .replace("connect-src 'self' https://tiles.openfreemap.org", "connect-src 'none'"));
+    await copyFile(join(here, "desktop-bridge.js"), join(output, "desktop-bridge.js"));
+} else {
+    await copyFile(join(here, "index.html"), join(output, "index.html"));
+}
 await writeFile(join(output, "prompt.txt"), prompt);
 await writeFile(join(output, "card-prompt.txt"), cardPrompt);

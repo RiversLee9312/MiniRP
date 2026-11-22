@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The base plugin's manifest resolves these settings labels by name. -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@string/model_provider_settings,@string/providers,@string/models,@string/behavior_settings,@string/expand_thoughts,@string/fetch_mode,@string/fetch_api,@string/fetch_browser,@string/fetch_fallback,@string/language,@string/about,@string/plugins" />
+    tools:keep="@string/model_provider_settings,@string/providers,@string/models,@string/behavior_settings,@string/expand_thoughts,@string/fetch_mode,@string/fetch_api,@string/fetch_browser,@string/fetch_fallback,@string/language,@string/about,@string/plugins,@string/research_apis,@string/background_turns" />

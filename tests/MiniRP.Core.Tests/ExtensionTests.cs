@@ -316,7 +316,7 @@ public sealed class ExtensionTests
         using var scripts = new PluginScripts();
         Configure(engine);
         engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
-        var loaded = await Until(engine, "loaded");
+        var loaded = await Until(engine, "loaded", scripts);
         var chats = loaded.GetArray("ensemble_chats");
         Assert.AreEqual(2, chats.Count);
         var room = loaded.GetObject("chat").GetString("id");
@@ -349,9 +349,104 @@ public sealed class ExtensionTests
         var lab = await Until(engine, "ensemble_chat_loaded", scripts);
         Assert.AreEqual("Lab note.", lab.GetArray("blocks").Single().GetString("content"));
         Assert.AreEqual("Bryn", lab.GetArray("blocks").Single().GetString("speaker"));
+        var adaSession = engine.LoadedCharacterSession("ada", "chat");
+        var brynSession = engine.LoadedCharacterSession("bryn", "chat");
+        var brynSearch = engine.LoadedCharacterSession("bryn", "search");
+        Assert.IsNotNull(adaSession);
+        Assert.IsNotNull(brynSession);
+        Assert.IsNotNull(brynSearch);
+        Assert.AreNotSame(adaSession, brynSession);
+        engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = labId, ["text"] = "Anything from the bridge?" });
+        var followUp = await NextModel(engine, scripts);
+        var labPrompt = followUp.GetString("body");
+        StringAssert.Contains(labPrompt, "Your character is Bryn");
+        StringAssert.Contains(labPrompt, "The active chat is Lab (" + labId + ")");
+        StringAssert.Contains(labPrompt, "Ada reported in.");
+        Assert.AreEqual(1, labPrompt.Split("Ada reported in.", StringSplitOptions.None).Length - 1);
+        Assert.AreSame(adaSession, engine.LoadedCharacterSession("ada", "chat"));
+        Assert.AreSame(brynSession, engine.LoadedCharacterSession("bryn", "chat"));
+        Assert.AreSame(brynSearch, engine.LoadedCharacterSession("bryn", "search"));
+        Reply(engine, followUp, "Private lab follow-up.");
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset, ["id"] = room });
+        await Until(engine, "loaded", scripts);
+        Assert.AreSame(brynSession, engine.LoadedCharacterSession("bryn", "chat"));
         foreach (var character in new[] { "ada", "bryn" })
             foreach (var role in new[] { "chat", "search" })
                 Assert.IsTrue(File.Exists(Path.Combine(engine.Workspace.ChatRoot, "ensemble", character, role + ".sqlite")));
+
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
+        var newRoom = await Until(engine, "loaded", scripts);
+        Assert.AreNotEqual(room, newRoom.GetObject("chat").GetString("id"));
+        var freshSession = engine.LoadedCharacterSession("bryn", "chat");
+        Assert.IsNotNull(freshSession);
+        Assert.AreNotSame(brynSession, freshSession);
+        Assert.IsFalse(freshSession.HasHistory);
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset, ["id"] = room });
+        await Until(engine, "loaded", scripts);
+        engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = labId, ["text"] = "Reopened lab." });
+        var reopened = await NextModel(engine, scripts);
+        StringAssert.Contains(reopened.GetString("body"), "Private lab follow-up.");
+        Assert.AreNotSame(brynSession, engine.LoadedCharacterSession("bryn", "chat"));
+        Reply(engine, reopened, "Restored the room.");
+    }
+
+    [TestMethod]
+    public async Task EnsembleRoomRequiresEveryCharacterToConfirmAndResumesPartialPreparation()
+    {
+        var root = NewRoot();
+        var preset = WriteEnsemblePreset(root);
+        await using var engine = new Engine(root, seedDefaultPreset: false);
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
+        var events = new List<JsonObject>();
+        var ada = await NextModel(engine, scripts, events.Add);
+        var loading = events.Last(item => item.GetString("kind") == "room_loading");
+        var room = loading.GetString("room");
+        Assert.AreEqual(0, loading.GetInt32("ready"));
+        Assert.AreEqual(2, loading.GetInt32("total"));
+        CollectionAssert.AreEqual(new[] { "Watch the navigation lights.", "Read the watch roster." },
+            loading.GetArray("messages").Select(item => JsonValues.GetText(item)).ToArray());
+        var adaPrompt = ada.GetString("body");
+        StringAssert.Contains(adaPrompt, "Your character is Ada");
+        StringAssert.Contains(adaPrompt, "Your chats: Bridge");
+        Assert.IsFalse(adaPrompt.Contains("Lab", StringComparison.Ordinal));
+        Assert.IsTrue(Offers(ada, "room_ready") && Offers(ada, "room_progress"));
+        Assert.IsFalse(Offers(ada, "chat_send"));
+
+        ReplyTool(engine, ada, "room_progress", new() { ["percent"] = 60 });
+        var followUp = await NextModel(engine, scripts, events.Add);
+        var progress = events.Last(item => item.GetString("kind") == "room_loading");
+        Assert.AreEqual(0.3, progress["progress"]!.GetValue<double>());
+        Reply(engine, followUp, "I am ready.");
+        var retry = await NextModel(engine, scripts, events.Add);
+        Assert.IsFalse(events.Any(item => item.GetString("kind") == "loaded"));
+        ReplyTool(engine, retry, "room_ready", new());
+
+        var bryn = await NextModel(engine, scripts, events.Add);
+        StringAssert.Contains(bryn.GetString("body"), "Your character is Bryn");
+        StringAssert.Contains(bryn.GetString("body"), "Your chats: Bridge, Lab");
+        Assert.AreEqual(1, events.Last(item => item.GetString("kind") == "room_loading").GetInt32("ready"));
+        Assert.IsFalse(events.Any(item => item.GetString("kind") == "loaded"));
+        engine.Dispatch(new() { ["op"] = "cancel" });
+        await Until(engine, "cancelled", scripts);
+        Assert.AreEqual("", engine.Workspace.ChatId);
+
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset, ["id"] = room });
+        events.Clear();
+        var resumed = await NextModel(engine, scripts, events.Add);
+        StringAssert.Contains(resumed.GetString("body"), "Your character is Bryn");
+        Assert.AreEqual(1, events.Last(item => item.GetString("kind") == "room_loading").GetInt32("ready"));
+        ReplyTool(engine, resumed, "room_ready", new());
+        var loaded = await Until(engine, "loaded", scripts);
+        Assert.AreEqual(room, loaded.GetObject("chat").GetString("id"));
+        var chat = loaded.GetArray("ensemble_chats").Single(item => item.GetString("name") == "Lab").GetString("id");
+        engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = chat, ["text"] = "Status?" });
+        var regular = await NextModel(engine, scripts);
+        Assert.IsFalse(Offers(regular, "room_ready") || Offers(regular, "room_progress"));
+        Assert.IsTrue(Offers(regular, "chat_send"));
+        Assert.IsFalse(regular.GetString("body").Contains("I am ready.", StringComparison.Ordinal));
+        Reply(engine, regular, "Ready for work.");
     }
 
     [TestMethod]
@@ -403,7 +498,8 @@ public sealed class ExtensionTests
         StringAssert.Contains(env.GetString("body"), "A station report changed");
         ReplyTool(engine, env, "notify_chat", new() { ["text"] = "Gate closure has been confirmed." });
         Reply(engine, await NextModel(engine, scripts), "I notified the character.");
-        await Until(engine, "world_changed", scripts);
+        var envCompleted = await Until(engine, "completed", scripts);
+        Assert.AreEqual("env", envCompleted.GetString("agent"));
         engine.Dispatch(new() { ["op"] = "message", ["text"] = "Any update?" });
         var next = await NextModel(engine, scripts);
         Assert.IsTrue(JsonValues.ParseObject(next.GetString("body")).GetArray("messages").Any(message =>
@@ -442,6 +538,7 @@ public sealed class ExtensionTests
             """);
         await using var engine = new Engine(root, seedDefaultPreset: false);
         using var scripts = new PluginScripts();
+        Configure(engine);
         engine.Dispatch(new() { ["op"] = "plugin_install", ["path"] = plugin });
         await Until(engine, "plugin", scripts);
         async Task<(string Room, Dictionary<string, string> Chats)> Create(string preset)
@@ -2024,6 +2121,7 @@ public sealed class ExtensionTests
         AtomicFile.Write(Path.Combine(root, "presets", preset + ".json"), $$$"""
             {"name":"Cast","chat_mode":"ensemble","agentic_search":true,
              "ensemble":{"agents":[{"id":"ada","name":"Ada"},{"id":"bryn","name":"Bryn"}],
+             "loading_messages":["Watch the navigation lights.","Read the watch roster."],
              "chats":[{"id":"{{{Guid.NewGuid():D}}}","name":"Bridge","members":["ada","bryn"]},
                       {"id":"{{{Guid.NewGuid():D}}}","name":"Lab","members":["bryn"]}]}}
             """);
@@ -2332,6 +2430,9 @@ public sealed class ExtensionTests
     private static void Configure(Engine engine) => engine.Dispatch(new() { ["op"] = "configure",
         ["provider"] = new JsonObject { ["url"] = "http://fixture.invalid/v1", ["model"] = "fixture" } });
 
+    private static bool Offers(JsonObject request, string tool) => JsonValues.ParseObject(request.GetString("body")).GetArray("tools")
+        .Any(item => item.GetObject("function").GetString("name") == tool);
+
     private static void Reply(Engine engine, JsonObject request, string text)
     {
         var fixture = new JsonObject { ["choices"] = new JsonArray(new JsonObject { ["delta"] = new JsonObject { ["content"] = text } }) };
@@ -2390,6 +2491,11 @@ public sealed class ExtensionTests
         if (name == "plugin_script") engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = item.GetString("id"),
             ["result"] = scripts.Step(item, token, engine.Port.TakeBinary, engine.Port.WriteBinary) });
         if (name == "plugin_isolate_close") scripts.Close(item.GetString("isolate"));
-        if (name == "http_request") Reply(engine, item, """["One","Two","Three","Four","Five","Six"]""");
+        if (name == "http_request")
+        {
+            if (item.GetString("body").Contains("\"room_ready\"", StringComparison.Ordinal) && Offers(item, "room_ready"))
+                ReplyTool(engine, item, "room_ready", new());
+            else Reply(engine, item, """["One","Two","Three","Four","Five","Six"]""");
+        }
     }
 }

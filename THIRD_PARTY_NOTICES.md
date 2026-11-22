@@ -16,9 +16,11 @@ Dependencies are retained as maintained packages; this list also records directl
 - Bouncy Castle C# 2.7.0 and Java 1.87: [license](https://www.bouncycastle.org/licence/). The C# SDK signs detached CMS packages, with verification on desktop and the Android platform host.
 - OkHttp: [Apache-2.0](https://github.com/square/okhttp/blob/master/LICENSE.txt).
 - Multiplatform Markdown Renderer: [Apache-2.0](https://github.com/mikepenz/multiplatform-markdown-renderer/blob/develop/LICENSE).
-- OpenUI and Intelligent UI components: [MIT](https://github.com/thesysdev/openui/blob/main/LICENSE). Bundled for Android interactive replies.
+- OpenUI and Intelligent UI components: [MIT](https://github.com/thesysdev/openui/blob/main/LICENSE). Bundled for Android and desktop WebUI interactive replies.
 - React: [MIT](https://github.com/facebook/react/blob/main/LICENSE). MapLibre GL JS: [BSD-3-Clause](https://github.com/maplibre/maplibre-gl-js/blob/main/LICENSE.txt). The interactive map shows map provider attribution.
+- Desktop WebUI: [Material Color Utilities (Apache-2.0)](https://github.com/material-foundation/material-color-utilities/blob/main/LICENSE), [react-markdown (MIT)](https://github.com/remarkjs/react-markdown/blob/main/license), [remark-gfm (MIT)](https://github.com/remarkjs/remark-gfm/blob/main/license), and [html-to-image (MIT)](https://github.com/bubkoo/html-to-image/blob/master/LICENSE).
 - Material Symbols Rounded: Google Fonts official subset. Source and SHA-256 are in `assets/branding/material-symbols-source.json`; the Apache-2.0 license is bundled with the app.
+- Desktop WebUI typography uses the Google Fonts subsets of [Google Sans Flex](https://github.com/googlefonts/googlesans-flex), licensed under SIL Open Font License 1.1. The WebUI bundles the Google Sans Flex and Material Symbols Rounded notices in its `licenses` directory.
 - Turndown 7.2.2: [MIT](https://github.com/mixmark-io/turndown/blob/v7.2.2/LICENSE). The original JavaScript and license are included under Android assets and the desktop browser assets.
 - Scout.Text.Regex 0.8.0: [MIT](https://github.com/willibrandon/scout/blob/main/LICENSE). Managed port of the ripgrep search engine.
 - ReverseMarkdown 6.3.0 and AngleSharp 1.5.2: [ReverseMarkdown license](https://github.com/mysticmind/reversemarkdown-net/blob/6.3.0/LICENSE), [AngleSharp license](https://github.com/AngleSharp/AngleSharp/blob/devel/LICENSE).

@@ -1,12 +1,14 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>minirp</AssemblyName>
-    <Version>1.2.11</Version>
+    <Version>1.3.0</Version>
     <TargetFramework>net10.0</TargetFramework>
+    <ApplicationIcon Condition="$(RuntimeIdentifier.StartsWith('win-')) Or ('$(RuntimeIdentifier)' == '' And '$(OS)' == 'Windows_NT')">../../assets/branding/launcher.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DefaultItemExcludes>$(DefaultItemExcludes);node_modules/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Terminal.Gui" Version="2.5.0" />
@@ -23,5 +25,6 @@
     <Content Include="../../apps/android/app/src/main/assets/turndown.js" Link="browser/turndown.js" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../apps/android/app/src/main/assets/turndown-LICENSE.txt" Link="browser/turndown-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../apps/android/app/src/main/assets/browser.js" Link="browser/browser.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="wwwroot/**/*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

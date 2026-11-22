@@ -29,6 +29,7 @@ public sealed partial class AgentSession
             var profile = role switch
             {
                 "chat" => new Profile("ChatAgent", Cards: true, InteractiveUi: true),
+                "room-preparation" => new Profile("ChatAgent", PluginAccess.None, Memory: false, FollowUp: false),
                 "env" => new Profile("EnvAgent", Cards: true),
                 "preset" => new Profile("PresetAgent", Cards: true, BackgroundMessages: true),
                 "search" => new Profile("SearchAgent"),
