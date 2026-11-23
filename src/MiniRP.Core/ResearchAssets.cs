@@ -8,7 +8,7 @@ namespace MiniRP.Core;
 internal sealed class ResearchAssets(Workspace workspace, JsonObject state, PresetResearch? shared = null)
 {
     internal const string Area = "research-assets";
-    private const string Index = "research_assets";
+    internal const string Index = "research_assets";
     private const string Prefix = "minirp://assets/minirp.base/research-";
     private static readonly UTF8Encoding Utf8 = new(false, true);
     private sealed record Document(bool Page, JsonObject Metadata, byte[] Bytes);

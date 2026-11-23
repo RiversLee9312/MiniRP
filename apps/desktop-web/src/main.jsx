@@ -211,6 +211,35 @@ function PresetHome({ name, startLabel, createPreset, openPreset, startConversat
 
 function WorkspaceInteraction({ item, t, run, theme, dark }) {
   const reply = (result) => request("/api/interactions/" + item.id, result);
+  const [responding, setResponding] = useState(false);
+  if (item.kind === "web_browser_setup") {
+    const offer = item.phase === "offer";
+    const answer = (accept) => {
+      if (responding) return;
+      setResponding(true);
+      run(async () => {
+        try { await reply({ accept }); }
+        finally { setResponding(false); }
+      });
+    };
+    const bytes = item.total || 0;
+    const progress = item.phase === "downloading" && bytes > 0;
+    const size = new Intl.NumberFormat(document.documentElement.lang, { maximumFractionDigits: 0 }).format(bytes / 1048576);
+    const label = offer ? t("browser_runtime_explanation", size) : t("browser_runtime_" + item.phase);
+    return <Modal title={t("browser_runtime_title")} t={t} close={() => answer(false)}>
+      <p>{label}</p>
+      {!offer && <progress className="browser-runtime-progress" aria-label={label} max={bytes || 1}
+        value={progress ? Math.min(item.received || 0, bytes) : undefined} />}
+      <div className="actions">
+        <button className="text-button" type="button" disabled={responding} onClick={() => answer(false)}>
+          {t(offer ? "browser_runtime_later" : "cancel")}
+        </button>
+        {offer && <button className="filled" type="button" disabled={responding} onClick={() => answer(true)}>
+          {t("browser_runtime_continue")}
+        </button>}
+      </div>
+    </Modal>;
+  }
   if (item.kind === "web_preview") {
     return <div className="preview-renderer" aria-hidden="true" style={{ width: Math.max(240, Math.min(768, Number(item.width) || 580)) }}>
       <OpenUi block={item} scope={{}} identity={item.id} preview={item} locale={document.documentElement.lang} dark={Boolean(item.dark)}

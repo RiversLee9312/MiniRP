@@ -1142,6 +1142,9 @@ internal constructor(
     internal suspend fun settingMarkdown(url: String): String =
         engine.await().readAsset(url, 256 * 1024).decodeToString(throwOnInvalidSequence = true)
 
+    internal suspend fun settingIcon(url: String): ByteArray =
+        engine.await().readAsset(url, 256 * 1024)
+
     internal suspend fun thumbnail(role: AgentRole, preview: AttachmentThumbnail): ByteArray =
         engine.await().readAsset(preview.url, 1024 * 1024, role.id, preview.attachment)
 

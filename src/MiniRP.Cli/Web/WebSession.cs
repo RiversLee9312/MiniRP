@@ -151,24 +151,72 @@ internal sealed class WebSession : IAsyncDisposable
     {
         var id = Guid.NewGuid().ToString("N");
         var item = (JsonObject)request.DeepClone();
-        item["kind"] = request.GetString("kind") == "plugin_picker" ? "web_picker" : "web_preview";
-        item["id"] = id;
+        item["kind"] = request.GetString("kind") switch
+        {
+            "plugin_picker" => "web_picker",
+            "web_browser_setup" => "web_browser_setup",
+            _ => "web_preview"
+        };
+        var result = BeginInteraction(id, item);
+        try { return await result.WaitAsync(ct); }
+        finally { EndInteraction(id); }
+    }
+
+    public async Task<string> InstallBrowser(CefRuntimeRelease release,
+        Func<Action<CefInstallProgress>, CancellationToken, Task<string>> install, CancellationToken token)
+    {
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token, stop.Token);
+        var ct = lifetime.Token;
+        var accepted = await AskBrowser(new() { ["kind"] = "web_browser_setup", ["phase"] = "offer",
+            ["total"] = release.DownloadBytes }, ct);
+        if (!accepted.GetBoolean("accept")) throw BrowserSetupUi.Deferred();
+
+        var id = Guid.NewGuid().ToString("N");
+        var cancellation = BeginInteraction(id, new() { ["kind"] = "web_browser_setup", ["phase"] = "downloading",
+            ["total"] = release.DownloadBytes, ["received"] = 0 });
+        var download = install(value =>
+        {
+            lock (publication)
+            {
+                if (!interactions.ContainsKey(id)) return;
+                UpdateInteraction(id, new() { ["kind"] = "web_browser_setup", ["phase"] = value.Phase,
+                    ["total"] = value.TotalBytes, ["received"] = value.BytesReceived });
+            }
+        }, ct);
+        try
+        {
+            if (await Task.WhenAny(cancellation, download) == cancellation && !download.IsCompleted)
+                await lifetime.CancelAsync();
+            return await download;
+        }
+        finally { EndInteraction(id); }
+    }
+
+    private Task<JsonObject> BeginInteraction(string id, JsonObject item)
+    {
         var result = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (publication)
         {
             interactions[id] = result;
-            interactionEvents[id] = item;
-            Publish([item]);
+            UpdateInteraction(id, item);
         }
-        try { return await result.Task.WaitAsync(ct); }
-        finally
+        return result.Task;
+    }
+
+    private void UpdateInteraction(string id, JsonObject item)
+    {
+        item["id"] = id;
+        interactionEvents[id] = item;
+        Publish([item]);
+    }
+
+    private void EndInteraction(string id)
+    {
+        lock (publication)
         {
-            lock (publication)
-            {
-                interactions.TryRemove(id, out _);
-                interactionEvents.TryRemove(id, out _);
-                Publish([new() { ["kind"] = "web_interaction_closed", ["id"] = id }]);
-            }
+            interactions.TryRemove(id, out _);
+            interactionEvents.TryRemove(id, out _);
+            Publish([new() { ["kind"] = "web_interaction_closed", ["id"] = id }]);
         }
     }
 

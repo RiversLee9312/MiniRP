@@ -25,6 +25,7 @@ internal fun ProvidersScreen(state: ChatState, model: ChatViewModel, modifier: M
         items(state.providers, key = { it.id }) { provider ->
             ListItem(
                 content = { Text(provider.name) },
+                leadingContent = { Symbol("cloud") },
                 supportingContent = {
                     Text(provider.url, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },

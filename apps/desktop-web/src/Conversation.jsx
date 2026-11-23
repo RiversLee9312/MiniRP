@@ -105,21 +105,41 @@ function groupTraces(blocks) {
 export function Transcript({ blocks, contextKey, t, ...view }) {
   const list = useRef(null);
   const follow = useRef(true);
+  const layout = useRef({ viewport: 0, content: 0 });
   const [atEnd, setAtEnd] = useState(true);
+  function measure(element) {
+    const viewport = element.clientHeight;
+    const content = element.scrollHeight;
+    const changed = viewport !== layout.current.viewport || content !== layout.current.content;
+    layout.current = { viewport, content };
+    return changed;
+  }
   function jump() {
     const element = list.current;
     if (!element) return;
-    element.scrollTop = element.scrollHeight;
+    measure(element);
+    element.scrollTop = layout.current.content;
     follow.current = true;
     setAtEnd(true);
   }
   useLayoutEffect(jump, [contextKey]);
   useLayoutEffect(() => { if (follow.current) jump(); }, [blocks]);
+  useLayoutEffect(() => {
+    const element = list.current;
+    const observer = new ResizeObserver(() => { if (measure(element) && follow.current) jump(); });
+    observer.observe(element);
+    observer.observe(element.firstElementChild);
+    return () => observer.disconnect();
+  }, []);
   return <div className="transcript-shell">
-    <div className="transcript" ref={list} role="region" aria-label={t("conversations")} tabIndex={0}
+    <div className="transcript" ref={list} role="region" aria-label={t("conversations")} tabIndex={0} data-following={atEnd}
       onScroll={() => {
         const element = list.current;
-        follow.current = element.scrollHeight - element.clientHeight - element.scrollTop < 48;
+        if (measure(element) && follow.current) {
+          jump();
+          return;
+        }
+        follow.current = layout.current.content - layout.current.viewport - element.scrollTop < 48;
         setAtEnd(follow.current);
       }}>
       <div className="message-column">

@@ -9,10 +9,20 @@ internal sealed class TurnInbox(string chat, string session, Func<JsonObject, st
     internal const string QueuedBlockId = "_steer_block";
     public string Agent => session;
     private readonly object gate = new();
-    private readonly Queue<JsonObject> queue = new();
+    private sealed record PendingInput(JsonObject Message, Lazy<string?> Accept);
+    private readonly Queue<PendingInput> queue = new();
+    private readonly List<TurnInbox> subscribers = [];
     private CancellationTokenSource? generation;
     private bool sealedInbox;
     private bool systemMessagesChanged;
+
+    // Subscribe before publishing the turn. Each session owns its queue and generation token.
+    public TurnInbox Subscribe()
+    {
+        var subscriber = new TurnInbox(chat, session, accept, conversation: conversation);
+        subscribers.Add(subscriber);
+        return subscriber;
+    }
 
     public bool TryPost(string targetChat, string role, JsonObject message, string targetConversation = "")
     {
@@ -24,16 +34,27 @@ internal sealed class TurnInbox(string chat, string session, Func<JsonObject, st
                 return false;
             }
             if (queued is not null) message[QueuedBlockId] = JsonValues.NewId();
-            queue.Enqueue(message);
             queued?.Invoke(message);
-            generation?.Cancel();
+            var input = new PendingInput(message, new(() => accept(message)));
+            Enqueue(input);
+            foreach (var subscriber in subscribers) subscriber.Enqueue(input);
             return true;
+        }
+    }
+
+    private void Enqueue(PendingInput input)
+    {
+        lock (gate)
+        {
+            if (sealedInbox) return;
+            queue.Enqueue(input);
+            generation?.Cancel();
         }
     }
 
     public bool Drain(Action<JsonObject> append, bool finish = false)
     {
-        JsonObject[] messages;
+        PendingInput[] messages;
         lock (gate)
         {
             if (queue.Count == 0)
@@ -44,9 +65,9 @@ internal sealed class TurnInbox(string chat, string session, Func<JsonObject, st
             messages = queue.ToArray();
             queue.Clear();
         }
-        foreach (var message in messages)
+        foreach (var (message, acknowledge) in messages)
         {
-            var delivery = accept(message);
+            var delivery = acknowledge.Value;
             var input = new JsonObject { ["role"] = message.GetString("role", "user"), ["content"] = message.GetString("text") };
             if (delivery is not null) input["_inbox_id"] = delivery;
             append(input);

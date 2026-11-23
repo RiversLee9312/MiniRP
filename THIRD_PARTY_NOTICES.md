@@ -6,6 +6,7 @@ Dependencies are retained as maintained packages; this list also records directl
 - Terminal.Gui and Terminal.Gui.Editor: [MIT](https://github.com/tui-cs/Terminal.Gui/blob/v2.5.0/LICENSE), [Editor and its upstream notices](https://github.com/tui-cs/Editor/tree/main/third_party).
 - MCP C# SDK: [Apache-2.0](https://github.com/modelcontextprotocol/csharp-sdk/blob/main/LICENSE).
 - Playwright MCP and Playwright: [Apache-2.0](https://github.com/microsoft/playwright-mcp/blob/main/LICENSE).
+- SharpZipLib 1.4.2: [MIT](https://github.com/icsharpcode/SharpZipLib/blob/v1.4.2/LICENSE.txt). The desktop runtime installer uses its BZip2 decoder and bundles the notice.
 - SQLite native library: [public domain](https://www.sqlite.org/copyright.html); packaged via SQLitePCLRaw.lib.e_sqlite3.
 - AndroidX, Jetpack Compose and Material 3: [Apache-2.0](https://source.android.com/docs/setup/about/licenses).
 - MaterialKolor 5.0.1: [MIT](https://github.com/jordond/MaterialKolor/blob/5.0.1/LICENSE), bundled in the Android app with its license. The color engine ports [Material Color Utilities](https://github.com/material-foundation/material-color-utilities/blob/main/LICENSE) under Apache-2.0.

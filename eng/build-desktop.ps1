@@ -1,10 +1,17 @@
-param([string]$Runtime = 'win-x64', [string]$OutputDirectory, [string]$ContainerImage, [string]$QemuRuntime, [string]$CurlRuntime)
+param([string]$Runtime = 'win-x64', [string]$OutputDirectory, [string]$ContainerImage, [string]$QemuRuntime, [string]$CurlRuntime, [switch]$NoSymbols)
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent $PSScriptRoot
-& (Join-Path $PSScriptRoot 'build-native.ps1') -Runtime $Runtime
 $output = if ($OutputDirectory) { [System.IO.Path]::GetFullPath($OutputDirectory, $workspace) }
     else { Join-Path $workspace "artifacts/desktop/$Runtime" }
-dotnet publish (Join-Path $workspace 'src/MiniRP.Cli') -r $Runtime -c Release --self-contained true -o $output -v minimal
+$buildIntermediates = if ($NoSymbols) { Join-Path $workspace "artifacts/dotnet-$Runtime-package" }
+& (Join-Path $PSScriptRoot 'build-native.ps1') -Runtime $Runtime -NoSymbols:$NoSymbols -ArtifactsPath $buildIntermediates
+$publishOptions = @(if ($NoSymbols) {
+    '-p:DebugType=none'
+    "-p:PathMap=$workspace=/_/MiniRP"
+    '--artifacts-path'
+    $buildIntermediates
+})
+dotnet publish (Join-Path $workspace 'src/MiniRP.Cli') -r $Runtime -c Release --self-contained true -o $output -v minimal @publishOptions
 if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed.' }
 $staticRoot = Join-Path $output 'wwwroot'
 if ($env:MINIRP_WEB_PREBUILT) {
@@ -40,6 +47,13 @@ foreach ($name in @('package.json', 'package-lock.json', '.env.example', 'README
 }
 npm ci --prefix $output --omit=dev --ignore-scripts --no-audit --no-fund
 if ($LASTEXITCODE -ne 0) { throw 'Browser tools dependency installation failed.' }
+if ($Runtime.StartsWith('win-')) {
+    $browserOutput = Join-Path $output 'browser'
+    & (Join-Path $PSScriptRoot 'browser/webview2/build.ps1') -Runtime $Runtime -OutputDirectory $browserOutput
+    $cefPlatform = if ($Runtime -eq 'win-arm64') { 'windowsarm64' } else { 'windows64' }
+    python (Join-Path $PSScriptRoot 'browser/cef/build.py') $browserOutput --platform $cefPlatform
+    if ($LASTEXITCODE -ne 0) { throw 'CEF host build failed.' }
+}
 if ($Runtime -eq 'win-x64') {
     if (!$CurlRuntime) { $CurlRuntime = Join-Path $workspace 'artifacts/curl-runtime/windows' }
     if (!(Test-Path -LiteralPath (Join-Path $CurlRuntime 'minirp-curl.exe'))) { throw 'The Windows x64 build requires the native curl runtime.' }

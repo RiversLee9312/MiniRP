@@ -56,6 +56,7 @@ data class PluginSetting(
     val children: List<PluginSetting>,
     val assetUrl: String = "",
     val url: String = "",
+    val icon: String = "",
 ) {
     val listKey
         get() = "$plugin/$key"
@@ -155,6 +156,7 @@ internal fun decodePluginSetting(value: JSONObject): PluginSetting =
         value.optJSONArray("items")?.objects()?.map { decodePluginSetting(it) }.orEmpty(),
         assetUrl = value.optString("assetUrl"),
         url = value.optString("url"),
+        icon = value.optString("icon"),
     )
 
 internal fun decodePlugin(value: JSONObject): PluginInfo {

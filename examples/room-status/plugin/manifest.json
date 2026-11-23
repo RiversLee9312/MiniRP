@@ -5,6 +5,18 @@
   "packageName": "example.minichat.roomstatus",
   "entry": "index.js",
   "permissions": ["harness.write"],
+  "assets": [
+    { "id": "settings-icon", "type": "file", "path": "settings-icon.png", "mimeType": "image/png" }
+  ],
+  "settings": [
+    {
+      "key": "about-status",
+      "type": "page",
+      "title": "Room status",
+      "icon": "minirp://assets/example.minichat.roomstatus/settings-icon",
+      "items": [{ "key": "about-status-body", "type": "markdown", "markdown": "Tracks the latest verified station status in each room." }]
+    }
+  ],
   "actions": {
     "handlers": { "report": "report", "status-changed": "statusChanged" }
   },

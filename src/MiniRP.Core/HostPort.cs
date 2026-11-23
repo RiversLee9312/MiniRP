@@ -132,6 +132,12 @@ public sealed class HostPort(Action<JsonObject> emit, CancellationToken lifetime
         try
         {
             var result = await channel.Reader.ReadAsync(timeout.Token);
+            if (result.GetBoolean("preparing"))
+            {
+                // The desktop host manages download, startup, and browser I/O deadlines.
+                timeout.CancelAfter(Timeout.InfiniteTimeSpan);
+                result = await channel.Reader.ReadAsync(timeout.Token);
+            }
             if (result.GetString("error").Length > 0)
             {
                 throw new PlatformError(tool, result.GetString("error"));

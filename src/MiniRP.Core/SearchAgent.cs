@@ -32,7 +32,7 @@ public sealed class SearchAgent(Workspace world, Func<AgentSession> getSession, 
         var answer = response.GetString("content");
         if (!turn.Failed && turn.Changed && !string.IsNullOrWhiteSpace(answer))
         {
-            world.Commit(turn.State);
+            turn.Commit(world);
         }
         return answer;
     }
@@ -70,7 +70,7 @@ public sealed class SearchAgent(Workspace world, Func<AgentSession> getSession, 
         cancellationToken.ThrowIfCancellationRequested();
         if (!turn.Failed)
         {
-            world.Commit(turn.State);
+            turn.Commit(world);
         }
         return turn.Answer!;
     }

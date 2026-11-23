@@ -13,6 +13,7 @@ public sealed class Workspace
     public JsonObject Config { get; private set; } = new();
     internal bool SetupPending => Config.GetString("setup_status") == "draft";
     public JsonObject State { get; private set; } = new();
+    internal object RoomGate { get; } = new();
     public JsonObject Chat { get; private set; } = new();
     public bool AgenticSearch => Config.GetBoolean("agentic_search", true);
     public string Mode => Chat.GetString("mode", Config.GetString("chat_mode", "character"));

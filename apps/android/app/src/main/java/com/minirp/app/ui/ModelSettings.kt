@@ -49,6 +49,7 @@ internal fun ModelsScreen(
             val selection = state.assigned(role)
             ListItem(
                 content = { Text(stringResource(role.label)) },
+                leadingContent = { Symbol("smart_toy") },
                 supportingContent = {
                     Text(
                         selection?.choice?.name ?: stringResource(R.string.select_model),
@@ -124,6 +125,7 @@ internal fun ModelsScreen(
                 val checked = configured != null
                 ListItem(
                     content = { Text(choice.name) },
+                    leadingContent = { Symbol("smart_toy") },
                     supportingContent =
                         if (choice.name == choice.id) null else ({ Text(choice.id) }),
                     trailingContent = {
@@ -237,6 +239,7 @@ private fun ModelSettingsDialog(
                 )
                 ListItem(
                     content = { Text(stringResource(R.string.background_compaction)) },
+                    leadingContent = { Symbol("schedule") },
                     trailingContent = { Switch(background, { background = it }) },
                     modifier = Modifier.clickable { background = !background },
                 )

@@ -1,0 +1,36 @@
+cmake_minimum_required(VERSION 3.21)
+project(MiniRPCef LANGUAGES C CXX)
+
+set(USE_SANDBOX ON CACHE BOOL "Use the Chromium sandbox" FORCE)
+set(CEF_TESTS_USE_X11 OFF CACHE BOOL "This helper uses CEF Views instead of direct X11 calls." FORCE)
+list(APPEND CMAKE_MODULE_PATH "${CEF_ROOT}/cmake")
+find_package(CEF REQUIRED)
+if(OS_LINUX)
+  file(REAL_PATH "${CEF_ROOT}" cef_sdk_source)
+  add_compile_options(
+    "-ffile-prefix-map=${CEF_ROOT}=/_/MiniRP/cef-sdk"
+    "-ffile-prefix-map=${cef_sdk_source}=/_/MiniRP/cef-sdk"
+    "-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=/_/MiniRP/cef-host")
+endif()
+add_subdirectory("${CEF_LIBCEF_DLL_WRAPPER_PATH}" libcef_dll_wrapper)
+ADD_LOGICAL_TARGET(libcef_lib "${CEF_LIB_DEBUG}" "${CEF_LIB_RELEASE}")
+
+if(OS_WINDOWS)
+  add_library(minirp-cef SHARED main.cc)
+  SET_LIBRARY_TARGET_PROPERTIES(minirp-cef)
+  target_link_options(minirp-cef PRIVATE /DELAYLOAD:libcef.dll /PDBALTPATH:%_PDB%)
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    # CEF's wrapper logs __FILE__, so stripping link symbols alone leaves SDK paths in the DLL.
+    cmake_path(NATIVE_PATH CEF_ROOT NORMALIZE cef_source)
+    cmake_path(NATIVE_PATH CMAKE_CURRENT_SOURCE_DIR NORMALIZE minirp_source)
+    foreach(target IN ITEMS minirp-cef libcef_dll_wrapper)
+      target_compile_options(${target} PRIVATE /experimental:deterministic
+        "/pathmap:${cef_source}=/_/cef" "/pathmap:${minirp_source}=/_/MiniRP")
+    endforeach()
+  endif()
+else()
+  add_executable(minirp-cef main.cc)
+  SET_EXECUTABLE_TARGET_PROPERTIES(minirp-cef)
+  set_target_properties(minirp-cef PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "$ORIGIN")
+endif()
+target_link_libraries(minirp-cef PRIVATE libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS})

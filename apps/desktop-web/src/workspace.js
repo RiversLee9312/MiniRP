@@ -126,6 +126,7 @@ export function applyEvent(state, event) {
       return { ...state, pluginSettings: event.items || [] };
     case "web_picker":
     case "web_preview":
+    case "web_browser_setup":
       return { ...state, interactions: { ...state.interactions, [event.id]: event } };
     case "web_interaction_closed": {
       const { [event.id]: _, ...interactions } = state.interactions;

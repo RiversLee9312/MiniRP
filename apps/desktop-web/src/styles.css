@@ -1,6 +1,12 @@
 @import "./tokens.css";
 
 * { box-sizing: border-box; }
+html {
+  scrollbar-color: color-mix(in srgb, var(--outline) 78%, transparent) transparent;
+}
+:where(.sidebar-body, .transcript, .preset-home, .modal, .dialog-content, .action-menu, textarea,
+  .markdown pre, .table-scroll) { scrollbar-width: thin; }
+:where(.sidebar-body, .transcript, .preset-home, .settings-modal > .dialog-content) { scrollbar-gutter: stable; }
 html, body, #app { margin: 0; block-size: 100%; }
 body {
   font: 400 var(--body)/1.5 var(--typeface);
@@ -127,7 +133,7 @@ h3 { font-size: 1rem; line-height: 1.4; font-weight: 650; }
   block-size: 36px;
   object-fit: contain;
 }
-.sidebar-body { overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; min-block-size: 0; padding: 0 10px 18px; display: flex; flex-direction: column; gap: 9px; }
+.sidebar-body { overflow: auto; overscroll-behavior: contain; min-block-size: 0; padding: 0 10px 18px; display: flex; flex-direction: column; gap: 9px; }
 .sidebar-heading { gap: 5px; min-block-size: 48px; }
 .sidebar-heading h2 { font-size: 1rem; font-weight: 680; padding-inline-start: 10px; }
 .sidebar-heading .icon-button { background: var(--surface-low); }
@@ -357,7 +363,8 @@ h3 { font-size: 1rem; line-height: 1.4; font-weight: 650; }
 .welcome-emblem .symbol { font-size: 25px; font-variation-settings: "FILL" 1; }
 
 .transcript-shell { flex: 1; position: relative; min-block-size: 0; }
-.transcript { position: absolute; inset: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.transcript { position: absolute; inset: 0; overflow: auto; overscroll-behavior: contain; }
+.transcript[data-following="true"] { overflow-anchor: none; }
 .transcript:focus-visible { outline-offset: -3px; }
 .message-column { inline-size: min(100%, var(--measure)); margin-inline: auto; padding: 18px var(--body-inset) 28px; display: flex; flex-direction: column; gap: 12px; }
 .message { display: grid; min-inline-size: 0; gap: 9px; overflow-wrap: anywhere; padding-block: 5px; }
@@ -435,7 +442,7 @@ h3 { font-size: 1rem; line-height: 1.4; font-weight: 650; }
   transition: border-color var(--effect), background-color var(--effect), box-shadow var(--effect);
 }
 .composer:focus-within { border-color: var(--outline-variant); background: var(--surface-lowest); box-shadow: var(--shadow-1); }
-.composer > textarea { resize: none; width: 100%; min-block-size: 48px; max-block-size: 160px; border: 0; background: transparent; outline: 0; padding: 9px 8px 6px; line-height: 1.55; }
+.composer > textarea { resize: none; width: 100%; min-block-size: 48px; max-block-size: 160px; border: 0; background: transparent; outline: 0; padding: 9px 8px 6px; line-height: 1.55; overscroll-behavior: contain; }
 .composer-actions { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; align-items: center; min-inline-size: 0; }
 .composer-tools, .composer-submit { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-inline-size: 0; }
 .composer-submit { margin-inline-start: auto; }
@@ -473,6 +480,55 @@ input:not([type="checkbox"]), textarea, select {
 }
 :where(input:not([type="checkbox"]), textarea, select):hover:not(:disabled) { border-color: var(--outline); }
 :where(input:not([type="checkbox"]), textarea, select):focus-visible { outline-offset: 1px; }
+select { padding-inline: 12px 14px; cursor: pointer; }
+select:disabled { cursor: default; opacity: .55; }
+option { background: var(--surface-lowest); color: var(--on-surface); }
+@supports (appearance: base-select) {
+  select, select::picker(select) { appearance: base-select; }
+  select {
+    align-items: center;
+    gap: 10px;
+    padding-inline: 12px 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  select::picker-icon, option::checkmark {
+    flex: none;
+    color: var(--variant);
+    font: 400 20px/1 "Material Symbols Rounded";
+    direction: ltr;
+  }
+  select::picker-icon { content: "expand_more"; margin-inline-start: auto; }
+  select:open::picker-icon { rotate: 180deg; }
+  select::picker(select) {
+    margin-block: 5px;
+    max-block-size: min(320px, 50dvh);
+    max-inline-size: calc(100vw - 24px);
+    padding: 5px;
+    border: 1px solid var(--outline-variant);
+    border-radius: var(--radius-medium);
+    background: var(--surface-container);
+    color: var(--on-surface);
+    box-shadow: var(--shadow-2);
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+  option {
+    gap: 9px;
+    min-block-size: 40px;
+    padding: 7px 10px;
+    border-radius: var(--radius-small);
+    background: transparent;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  option::checkmark { content: "✓"; display: inline-block; inline-size: 1em; font-family: inherit; visibility: hidden; }
+  option:checked { background: var(--secondary-container); color: var(--on-secondary-container); }
+  option:checked::checkmark { visibility: visible; color: inherit; }
+  option:hover:not(:disabled), option:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+  option:disabled { opacity: .55; }
+}
 ::placeholder { color: var(--variant); opacity: 1; }
 input[type="checkbox"] { accent-color: var(--primary); inline-size: 19px; block-size: 19px; margin: 0; flex: none; }
 .checkbox { display: inline-flex; align-items: center; gap: 9px; min-block-size: 44px; }
@@ -508,7 +564,6 @@ input[type="checkbox"] { accent-color: var(--primary); inline-size: 19px; block-
   inline-size: min(calc(100vw - 32px), 470px);
   padding: 0;
   box-shadow: var(--shadow-3);
-  scrollbar-width: thin;
 }
 .modal[open] { animation: surface-in var(--spring), panel-in var(--effect); }
 .modal.wide { inline-size: min(calc(100vw - 32px), 760px); }
@@ -543,6 +598,7 @@ input[type="checkbox"] { accent-color: var(--primary); inline-size: 19px; block-
 }
 .dialog-content :where(input, select, textarea) { font-weight: 400; }
 .dialog-content .model-picker { justify-content: space-between; }
+.browser-runtime-progress { inline-size: 100%; accent-color: var(--primary); }
 .settings-modal {
   inline-size: min(calc(100vw - 36px), 600px);
   inset-block: clamp(16px, 8dvh, 72px) auto;
@@ -794,6 +850,7 @@ input[type="checkbox"] { accent-color: var(--primary); inline-size: 19px; block-
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 @media (forced-colors: active) {
+  html { scrollbar-color: auto; }
   :is(.room-select[aria-current], .chip[aria-pressed="true"], .filled, .import-fab, .tonal) { border: 1px solid ButtonText; }
   .progress-track > span { forced-color-adjust: none; background: Highlight; }
   .progress-track > :last-child { background: GrayText; }

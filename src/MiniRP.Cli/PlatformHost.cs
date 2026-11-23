@@ -40,8 +40,12 @@ internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?
                     TimeSpan.FromMilliseconds(message.GetInt32("timeout_ms", 240000)));
                 return true;
             case "browser_request":
-                Start(message, async token => Reply(message.GetString("id"), new() { ["result"] = await browser.Execute(message, token) }),
-                    TimeSpan.FromMinutes(2));
+                var id = message.GetString("id");
+                Start(message, async token =>
+                {
+                    var result = await browser.Execute(message, token, () => Reply(id, new() { ["preparing"] = true }));
+                    Reply(id, new() { ["result"] = result });
+                });
                 return true;
             case "plugin_script":
                 var step = scripts.Prepare(message, takeBinary, writeBinary);

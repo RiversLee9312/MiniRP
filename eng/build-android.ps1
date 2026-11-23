@@ -9,7 +9,7 @@ $container = if ($ContainerRuntime) { (Resolve-Path -LiteralPath $ContainerRunti
     elseif (Test-Path (Join-Path $workspace 'artifacts/container-runtime/android/jniLibs/arm64-v8a/libminirp_qemu.so')) {
         Join-Path $workspace 'artifacts/container-runtime/android'
     }
-$options = if ($container) { @("-Pminirp.containerRuntime=$container") } else { @() }
+$options = @(if ($container) { "-Pminirp.containerRuntime=$container" })
 if ($ContainerImage) { $options = @($options) + "-Pminirp.containerImage=$((Resolve-Path -LiteralPath $ContainerImage).Path)" }
 if ($CurlRuntime) { $options = @($options) + "-Pminirp.curlRuntime=$((Resolve-Path -LiteralPath $CurlRuntime).Path)" }
 if ($Optimized) { $options = @($options) + '-Pminirp.optimizeDebug=true' }

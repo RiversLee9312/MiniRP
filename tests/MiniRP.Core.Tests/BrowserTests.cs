@@ -10,6 +10,27 @@ namespace MiniRP.Core.Tests;
 public sealed class BrowserTests
 {
     [TestMethod]
+    public async Task BrowserPreparationWaitsForTheResultAndRemainsCancellable()
+    {
+        var requests = new Queue<JsonObject>();
+        var port = new HostPort(requests.Enqueue);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var browser = port.Browser("first", "browser_navigate", new(), deadline.Token);
+        var id = requests.Dequeue().GetString("id");
+        port.Reply(new() { ["id"] = id, ["preparing"] = true });
+        port.Reply(new() { ["id"] = id, ["result"] = new JsonObject { ["snapshot"] = "Fixture page" } });
+        Assert.AreEqual("Fixture page", (await browser).GetString("snapshot"));
+        Assert.AreEqual("cancel_io", requests.Dequeue().GetString("kind"));
+
+        var waiting = port.Browser("second", "browser_navigate", new(), deadline.Token);
+        id = requests.Dequeue().GetString("id");
+        port.Reply(new() { ["id"] = id, ["preparing"] = true });
+        await deadline.CancelAsync();
+        await Assert.ThrowsAsync<OperationCanceledException>(async () => await waiting);
+        Assert.AreEqual(id, requests.Dequeue().GetString("id"));
+    }
+
+    [TestMethod]
     public async Task PlaywrightCapturesFullLongPageWithoutReplacingItWithSummary()
     {
         var root = TestWorkspace.Root;

@@ -2,6 +2,7 @@ package com.minirp.app
 
 import android.content.Context
 import android.content.ContextWrapper
+import android.graphics.BitmapFactory
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -308,6 +309,34 @@ class NativeCoreTest {
             assertEquals("", home.getString("preset"))
             val page = core.query(JSONObject().put("op", "library_page"))
             assertEquals(0, page.getJSONArray("items").length())
+        } finally {
+            core.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun signedPluginSettingIconLoadsThroughTheNativeAssetStream() = runBlocking {
+        val fixture = InstrumentationRegistry.getArguments().getString("settingIconFixture")
+        assumeTrue("Pass the signed room-status example with -e settingIconFixture", fixture != null)
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = temporary.newFolder()
+        val context = object : ContextWrapper(app) { override fun getFilesDir() = directory }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val core = CoreClient(context, scope)
+        try {
+            withTimeout(25_000) {
+                core.query(JSONObject().put("op", "plugin_install").put("path", fixture))
+                val settings = core.query(JSONObject().put("op", "plugin_settings")).getJSONArray("items")
+                val setting = (0 until settings.length()).map(settings::getJSONObject)
+                    .single { it.getString("key") == "about-status" }
+                val url = setting.getString("icon")
+                assertEquals("minirp://assets/example.minichat.roomstatus/settings-icon", url)
+                val png = core.readAsset(url, 256 * 1024)
+                val image = requireNotNull(BitmapFactory.decodeByteArray(png, 0, png.size))
+                assertEquals(48, image.width)
+                assertEquals(48, image.height)
+            }
         } finally {
             core.close()
             scope.cancel()

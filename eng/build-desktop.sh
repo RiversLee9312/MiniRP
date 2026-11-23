@@ -10,8 +10,13 @@ esac
 output=$(realpath -m "${1:-$workspace/artifacts/desktop/$runtime}")
 native="$workspace/artifacts/native/$runtime"
 build_intermediates="$workspace/artifacts/dotnet-$runtime"
-dotnet publish src/MiniRP.Core -r "$runtime" -c Release -o "$native" --artifacts-path "$build_intermediates"
-dotnet publish src/MiniRP.Cli -r "$runtime" -c Release --self-contained true -o "$output" --artifacts-path "$build_intermediates"
+set --
+if [ "${MINIRP_DESKTOP_NO_SYMBOLS:-}" = 1 ]; then
+    build_intermediates="$build_intermediates-package"
+    set -- -p:DebugType=none "-p:PathMap=$workspace=/_/MiniRP"
+fi
+dotnet publish src/MiniRP.Core -r "$runtime" -c Release -o "$native" --artifacts-path "$build_intermediates" "$@"
+dotnet publish src/MiniRP.Cli -r "$runtime" -c Release --self-contained true -o "$output" --artifacts-path "$build_intermediates" "$@"
 cp "$native/libminirpcore.so" "$output/"
 nuget_root=${NUGET_PACKAGES:-"$HOME/.nuget/packages"}
 cp "$nuget_root/sqlitepclraw.lib.e_sqlite3/3.53.3/runtimes/$runtime/native/libe_sqlite3.so" "$output/"
@@ -32,6 +37,7 @@ fi
 
 cp package.json package-lock.json .env.example README.md LICENSE THIRD_PARTY_NOTICES.md "$output/"
 npm ci --prefix "$output" --omit=dev --ignore-scripts --no-audit --no-fund
+python3 eng/browser/cef/build.py "$output/browser"
 
 curl_runtime=${MINIRP_CURL_RUNTIME:-"$workspace/artifacts/curl-runtime/linux"}
 if [ -f "$curl_runtime/minirp-curl" ]; then

@@ -55,8 +55,8 @@ internal fun ResearchSettingsScreen(settings: ResearchSettings, save: (ResearchS
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
-            ResearchServicePicker(R.string.research_search_provider, search, ResearchService.entries) { search = it }
-            ResearchServicePicker(R.string.research_fetch_provider, fetch, ResearchService.entries.filter { it.canFetch }) {
+            ResearchServicePicker(R.string.research_search_provider, "search", search, ResearchService.entries) { search = it }
+            ResearchServicePicker(R.string.research_fetch_provider, "browse", fetch, ResearchService.entries.filter { it.canFetch }) {
                 fetch = it
             }
         }
@@ -84,6 +84,7 @@ internal fun ResearchSettingsScreen(settings: ResearchSettings, save: (ResearchS
 @Composable
 private fun ResearchServicePicker(
     title: Int,
+    icon: String,
     active: ResearchService,
     services: List<ResearchService>,
     choose: (ResearchService) -> Unit,
@@ -92,6 +93,7 @@ private fun ResearchServicePicker(
     Box {
         ListItem(
             content = { Text(stringResource(title)) },
+            leadingContent = { Symbol(icon) },
             supportingContent = { Text(active.displayName) },
             trailingContent = { Symbol("expand_more") },
             modifier = Modifier.clickable { expanded = true },

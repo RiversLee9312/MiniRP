@@ -47,3 +47,5 @@ Android 和桌面使用 HarnessCore 内置的同一份 `minirp.base` 设置声�
 | `markdown` | `content` 指向 MIME 为 `text/markdown` 的 Asset ID，也可用 `markdown` 填写内联文本。Android 页面加载上限 256 KiB。 |
 
 节点使用全包唯一的 `key`，除 Markdown 外均填 `title`，可选 `titles` 提供 BCP 47 语言映射。每组最多 50 项，嵌套最多 5 层。宿主内部设置绑定仅开放给内置插件。
+
+Android 可用可选字段 `icon` 显示设置图标，例如 `"icon": "minirp://assets/example.minichat.roomstatus/settings-icon"`。URL 指向本包 `assets` 声明的 PNG、JPEG 或 WebP 资源，允许使用私有 Asset。静态文件与动态 Asset 都通过宿主的 Asset 流和预设作用域校验，Android 最多读取 256 KiB。

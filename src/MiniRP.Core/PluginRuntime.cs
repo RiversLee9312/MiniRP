@@ -323,7 +323,8 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         var item = new JsonObject();
         foreach (var (key, value) in setting)
         {
-            if (key != "items") item[key] = JsonValues.Clone(value);
+            if (key != "items" && (key != "icon" || package.Signed || package.BuiltIn))
+                item[key] = JsonValues.Clone(value);
         }
         item["plugin"] = package.Id;
         if (item.GetString("type") == "page" && !expandPage) return item;

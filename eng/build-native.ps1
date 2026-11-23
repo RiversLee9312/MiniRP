@@ -1,6 +1,8 @@
 param(
     [ValidateSet('win-x64', 'win-arm64', 'linux-x64', 'linux-arm64', 'osx-arm64', 'osx-x64', 'linux-bionic-arm64')]
-    [string]$Runtime = 'win-x64'
+    [string]$Runtime = 'win-x64',
+    [switch]$NoSymbols,
+    [string]$ArtifactsPath
 )
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent $PSScriptRoot
@@ -26,7 +28,11 @@ try {
         $env:PATH = (Join-Path $env:ANDROID_NDK_ROOT 'toolchains\llvm\prebuilt\windows-x86_64\bin') + ';' + $env:PATH
     }
     $output = Join-Path $workspace "artifacts/native/$Runtime"
-    dotnet publish src/MiniRP.Core -r $Runtime -c Release -o $output -v minimal
+    $publishOptions = @(
+        if ($NoSymbols) { '-p:DebugType=none'; "-p:PathMap=$workspace=/_/MiniRP" }
+        if ($ArtifactsPath) { '--artifacts-path'; $ArtifactsPath }
+    )
+    dotnet publish src/MiniRP.Core -r $Runtime -c Release -o $output -v minimal @publishOptions
     if ($LASTEXITCODE -ne 0) { throw 'NativeAOT build failed.' }
     if ($Runtime -eq 'linux-bionic-arm64') {
         $destination = Join-Path $workspace 'apps/android/app/src/main/jniLibs/arm64-v8a'

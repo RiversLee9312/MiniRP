@@ -13,6 +13,8 @@ const reply = "A reply from the local test model.";
 const createPresetRequest = Promise.withResolvers();
 const presetInterview = Promise.withResolvers();
 const presetEdit = Promise.withResolvers();
+const extendScrollReply = Promise.withResolvers();
+const finishScrollReply = Promise.withResolvers();
 const readiness = { Ada: Promise.withResolvers(), Bryn: Promise.withResolvers() };
 const readinessCalls = [];
 const modelFailures = [];
@@ -60,6 +62,17 @@ const service = createServer(async (request, response) => {
   if (JSON.stringify(user?.content || "").includes("Hold this preset edit.")) {
     await presetEdit.promise;
     chunk({ content: "The preset edit is complete." }, "stop");
+    response.end("data: [DONE]\n\n");
+    return;
+  }
+  if (JSON.stringify(user?.content || "").includes("Exercise transcript scrolling.")) {
+    const paragraphs = (from, count) => Array.from({ length: count }, (_, index) =>
+      "Fixture paragraph " + (from + index) + ".").join("\n\n");
+    chunk({ content: paragraphs(1, 45) + "\n\n" });
+    await extendScrollReply.promise;
+    chunk({ content: paragraphs(46, 20) + "\n\n" });
+    await finishScrollReply.promise;
+    chunk({ content: "    " + "wide_code_token_".repeat(48) + "\n\nEnd of the scrolling fixture." }, "stop");
     response.end("data: [DONE]\n\n");
     return;
   }
@@ -182,11 +195,34 @@ try {
   await themeChoice.waitFor();
   assert.deepEqual(await themeChoice.locator("option").evaluateAll((items) => items.map((node) => node.value)),
     ["system_default", "light", "dark"]);
+  if (await page.evaluate(() => CSS.supports("appearance", "base-select"))) {
+    await themeChoice.click();
+    assert.equal(await themeChoice.evaluate((control) => control.matches(":open")), true);
+    const picker = await themeChoice.evaluate((control) => ({
+      arrow: getComputedStyle(control, "::picker-icon").content,
+      padding: getComputedStyle(control).paddingInlineEnd,
+      radius: getComputedStyle(control, "::picker(select)").borderTopLeftRadius,
+      selected: getComputedStyle(control.selectedOptions[0]).backgroundColor,
+    }));
+    assert.deepEqual([picker.arrow, picker.padding], ['"expand_more"', "10px"]);
+    assert.ok(parseFloat(picker.radius) > 0);
+    assert.notEqual(picker.selected, "rgba(0, 0, 0, 0)");
+    await page.keyboard.press("Escape");
+    await behavior.waitFor();
+  }
   assert.equal(await behavior.getByRole("button", { name: "Background replies" }).count(), 0);
   await behavior.getByRole("button", { name: "Language", exact: true }).click();
   const language = page.getByRole("dialog", { name: "Language", exact: true }).getByRole("combobox", { name: "Language", exact: true });
   await language.waitFor();
   assert.ok(await language.locator("option").count() >= 26);
+  if (await page.evaluate(() => CSS.supports("appearance", "base-select"))) {
+    await language.focus();
+    await page.keyboard.press("Space");
+    await page.waitForFunction(() => document.querySelector("select:open"));
+    await page.keyboard.press("End");
+    assert.equal(await language.evaluate((control) => control.matches(":open")), true);
+    await page.keyboard.press("Escape");
+  }
   await language.selectOption("ar");
   await page.locator("html[lang=ar][dir=rtl]").waitFor({ state: "attached" });
   await page.setViewportSize({ width: 420, height: 780 });
@@ -264,6 +300,10 @@ try {
   await about.getByRole("button", { name: "Open source licenses" }).click();
   const licenses = page.getByRole("dialog", { name: "Open source licenses", exact: true });
   await licenses.locator(".workspace-plugin-markdown").first().waitFor();
+  await licenses.locator(".dialog-content").hover();
+  await page.mouse.wheel(0, 350);
+  await page.waitForFunction(() => [...document.querySelectorAll("dialog:modal .dialog-content")].some((element) => element.scrollTop > 0));
+  await licenses.getByRole("button", { name: "Back", exact: true }).waitFor();
   await licenses.getByRole("button", { name: "Back", exact: true }).click();
   await about.getByRole("button", { name: "Back", exact: true }).click();
   await preferences.getByRole("button", { name: "Close", exact: true }).click();
@@ -518,7 +558,7 @@ try {
   const bridge = page.getByRole("button", { name: "Bridge", exact: true });
   await page.waitForFunction(() => document.querySelector(".loading-text[data-typing=true]")?.textContent.length > 0);
   await loading.locator(".loading-text[data-typing=false]").filter({ hasText: "Navigation lights flicker beyond the glass." }).waitFor();
-  await loading.locator("progress[value=\"0.2\"]").waitFor();
+  await loading.locator("progress[value=\"0.5\"]").waitFor();
   assert.equal(await bridge.isVisible(), false);
   await loading.locator(".loading-text[data-typing=false]").filter({ hasText: "A watch schedule hangs beside the cargo door." }).waitFor();
   assert.equal((await loading.innerText()).includes("0/2"), false);
@@ -529,7 +569,8 @@ try {
   assert.equal(await bridge.isVisible(), false);
   readiness.Bryn.resolve();
   await loading.waitFor({ state: "hidden" });
-  assert.deepEqual(readinessCalls, ["Ada progress", "Ada ready", "Bryn progress", "Bryn ready"]);
+  assert.deepEqual(readinessCalls.slice(0, 2).sort(), ["Ada progress", "Bryn progress"]);
+  assert.deepEqual(readinessCalls.slice(2).sort(), ["Ada ready", "Bryn ready"]);
   await bridge.click();
   await message.fill("Report to the bridge.");
   await message.press("Enter");
@@ -570,13 +611,56 @@ try {
   await home.getByRole("button", { name: "New chat", exact: true }).click();
   await page.locator(".transcript").getByText("The observatory bell rings.", { exact: true }).waitFor();
   await message.waitFor();
+  await stop.waitFor({ state: "hidden" });
+  const scrolling = page.locator(".transcript");
+  const atBottom = (element) => element.scrollHeight - element.clientHeight - element.scrollTop < 3;
+  await message.fill("Exercise transcript scrolling.");
+  await page.locator(".composer").getByRole("button", { name: "Send", exact: true }).click();
+  await scrolling.getByText("Fixture paragraph 45.", { exact: true }).waitFor({ state: "attached" });
+  assert.equal(await scrolling.evaluate(atBottom), true);
+  extendScrollReply.resolve();
+  await scrolling.getByText("Fixture paragraph 65.", { exact: true }).waitFor({ state: "attached" });
+  assert.equal(await scrolling.evaluate(atBottom), true);
+  await scrolling.hover();
+  await page.mouse.wheel(0, -20000);
+  await page.waitForFunction(() => document.querySelector(".transcript").scrollTop === 0);
+  finishScrollReply.resolve();
+  await stop.waitFor({ state: "hidden" });
+  assert.equal(await scrolling.evaluate((element) => element.scrollTop), 0);
+  await page.locator(".jump").click();
+  assert.equal(await scrolling.evaluate(atBottom), true);
+  const code = scrolling.locator("pre");
+  await code.hover();
+  await page.mouse.wheel(590, 0);
+  await page.waitForFunction(() => document.querySelector(".transcript pre").scrollLeft > 0);
+  assert.equal(await scrolling.evaluate((element) => element.scrollWidth === element.clientWidth), true);
+  if (await page.locator(".jump").isVisible()) await page.locator(".jump").click();
+  await page.setViewportSize({ width: 420, height: 590 });
+  await message.fill(Array.from({ length: 25 }, (_, index) => "Draft line " + index).join("\n"));
+  assert.equal(await message.evaluate((element) => element.scrollHeight > element.clientHeight && element.clientHeight <= 160), true);
+  await page.waitForFunction(atBottom, await scrolling.elementHandle());
+  await message.press("Control+Home");
+  await message.hover();
+  await page.mouse.wheel(0, 185);
+  await page.waitForFunction(() => document.querySelector(".composer textarea").scrollTop > 0);
+  await message.fill("");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && window.scrollY === 0), true);
+  await libraryToggle.click();
+  await presetPicker.click();
+  const library = sidebar.locator(".sidebar-body");
+  await page.setViewportSize({ width: 420, height: 260 });
+  await library.hover();
+  await page.mouse.wheel(0, 300);
+  await page.waitForFunction(() => document.querySelector(".sidebar-body").scrollTop > 0);
   assert.deepEqual(modelFailures, []);
   assert.deepEqual(errors, []);
-  console.log("Desktop WebUI: empty home, preset creation and work, greetings, Base settings, RTL, EnvAgent progression, attachments, OpenUI, cancellation, branching, archives and ensemble preparation verified.");
+  console.log("Desktop WebUI verified, including ensemble preparation, native pickers, RTL, scrollable settings and library, streaming transcripts, horizontal code scrolling and the expanding composer.");
 } finally {
   createPresetRequest.resolve();
   presetInterview.resolve();
   presetEdit.resolve();
+  extendScrollReply.resolve();
+  finishScrollReply.resolve();
   for (const gate of Object.values(readiness)) gate.resolve();
   await browser?.close();
   child.kill();

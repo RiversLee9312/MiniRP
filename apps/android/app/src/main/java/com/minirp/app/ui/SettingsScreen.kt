@@ -4,11 +4,14 @@ import android.app.NotificationManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,7 +21,9 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -30,6 +35,8 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.minirp.app.R
 import com.minirp.app.core.TurnProtection
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun DeclaredSettingsScreen(
@@ -58,12 +65,15 @@ internal fun LazyListScope.declaredSettingsRows(
         if (setting.type == "group") {
             item(setting.listKey, contentType = setting.type) {
                 if (!nested) HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Text(
-                    SettingTitle(setting),
+                Row(
                     Modifier.padding(start = 16.dp, top = 8.dp, bottom = 6.dp),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SettingIcon(setting, state, model)
+                    Text(SettingTitle(setting), style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary)
+                }
             }
             declaredSettingsRows(setting.children, state, model, onPage, onLink, nested = true)
         } else {
@@ -89,6 +99,7 @@ internal fun BackgroundTurnsSettingsScreen(
         item("background-turns") {
             ListItem(
                 content = { Text(stringResource(R.string.background_turns)) },
+                leadingContent = { Symbol("schedule") },
                 supportingContent = { Text(stringResource(R.string.background_turns_description)) },
                 trailingContent = { Switch(enabled, onCheckedChange = null, enabled = onChange != null) },
                 modifier = Modifier.toggleable(
@@ -104,6 +115,7 @@ internal fun BackgroundTurnsSettingsScreen(
             BackgroundTurnSettingLink(
                 R.string.background_turn_notifications,
                 R.string.background_turn_notifications_description,
+                "notifications",
             ) {
                 context.openTurnSettings(context.notificationSettings())
             }
@@ -126,19 +138,21 @@ private fun BackgroundTurnSystemSettings() {
     BackgroundTurnSettingLink(
         R.string.background_turn_battery,
         if (batteryExempt) R.string.background_turn_battery_exempt else R.string.background_turn_battery_description,
+        "battery_saver",
     ) {
         context.openTurnSettings(
             Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                 .putExtra(Intent.EXTRA_PACKAGE_NAME, context.packageName),
         )
     }
-    BackgroundTurnSettingLink(R.string.background_turn_app_info, R.string.background_turn_app_info_description) {
+    BackgroundTurnSettingLink(R.string.background_turn_app_info, R.string.background_turn_app_info_description, "info") {
         context.openTurnSettings(context.appDetails())
     }
     if (Build.VERSION.SDK_INT >= 36) {
         BackgroundTurnSettingLink(
             R.string.background_turn_live_updates,
             if (promoted) R.string.background_turn_live_updates_on else R.string.background_turn_live_updates_description,
+            "notifications",
         ) {
             context.openTurnSettings(
                 context.notificationSettings(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS),
@@ -149,9 +163,10 @@ private fun BackgroundTurnSystemSettings() {
 }
 
 @Composable
-private fun BackgroundTurnSettingLink(title: Int, description: Int, onClick: () -> Unit) {
+private fun BackgroundTurnSettingLink(title: Int, description: Int, icon: String, onClick: () -> Unit) {
     ListItem(
         content = { Text(stringResource(title)) },
+        leadingContent = { Symbol(icon) },
         supportingContent = { Text(stringResource(description)) },
         trailingContent = { Symbol("chevron_right") },
         modifier = Modifier.clickable(onClick = onClick),
@@ -207,6 +222,8 @@ private fun SettingItem(
     onLink: (PluginSetting) -> Unit,
 ) {
     val title = SettingTitle(setting)
+    val leading: (@Composable () -> Unit)? =
+        if (setting.icon.isBlank()) null else ({ SettingIcon(setting, state, model) })
     val value =
         when (setting.binding) {
             "thoughts" -> state.expandThoughts
@@ -227,12 +244,19 @@ private fun SettingItem(
                         }
                     }
                 }
-            if (content.isNotEmpty()) Box(Modifier.padding(12.dp)) { MessageMarkdown(content) }
+            if (content.isNotEmpty()) Row(
+                Modifier.padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                leading?.invoke()
+                Box(Modifier.weight(1f)) { MessageMarkdown(content) }
+            }
         }
         "page",
         "link" ->
             ListItem(
                 content = { Text(title) },
+                leadingContent = leading,
                 trailingContent = { Symbol("chevron_right") },
                 modifier =
                     Modifier.clickable {
@@ -244,6 +268,7 @@ private fun SettingItem(
         "boolean" ->
             ListItem(
                 content = { Text(title) },
+                leadingContent = leading,
                 trailingContent = {
                     Switch(value == true, { model.updateSetting(setting, it) })
                 },
@@ -255,6 +280,7 @@ private fun SettingItem(
             Box {
                 ListItem(
                     content = { Text(title) },
+                    leadingContent = leading,
                     supportingContent = { if (selected.isNotEmpty()) Text(selected) },
                     trailingContent = { Symbol("expand_more") },
                     modifier = Modifier.clickable { choosing = true },
@@ -277,6 +303,7 @@ private fun SettingItem(
             val saved = value as? String ?: ""
             ListItem(
                 content = { Text(title) },
+                leadingContent = leading,
                 supportingContent = {
                     if (saved.isNotBlank())
                         Text(saved, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -318,6 +345,39 @@ private fun SettingItem(
             }
         }
     }
+}
+
+@Composable
+private fun SettingIcon(setting: PluginSetting, state: ChatState, model: ChatViewModel) {
+    if (setting.icon.isBlank()) return
+    if (setting.plugin == "base") {
+        Symbol(setting.icon)
+        return
+    }
+    if (!isDisplayAssetUrl(setting.icon)) return
+    val generation = state.installedPlugins.firstOrNull { it.id == setting.plugin }?.generation
+    val bitmap by produceState<Bitmap?>(null, setting.icon, generation, state.preset) {
+        value = null
+        try {
+            val data = model.settingIcon(setting.icon)
+            value = withContext(Dispatchers.Default) {
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(data, 0, data.size, options)
+                options.inJustDecodeBounds = false
+                while (maxOf(options.outWidth, options.outHeight) / options.inSampleSize.coerceAtLeast(1) > 128) {
+                    options.inSampleSize = options.inSampleSize.coerceAtLeast(1) * 2
+                }
+                BitmapFactory.decodeByteArray(data, 0, data.size, options)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // A dynamic or missing image does not prevent the setting from being used.
+        }
+    }
+    val image = bitmap
+    if (image == null) Symbol("extension")
+    else Image(image.asImageBitmap(), contentDescription = null, modifier = Modifier.size(24.dp))
 }
 
 @Composable

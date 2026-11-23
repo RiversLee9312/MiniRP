@@ -7,6 +7,7 @@ internal sealed class EnsembleConversation
 {
     private readonly Workspace world;
     private readonly JsonObject data;
+    internal object SyncRoot => world.RoomGate;
     private JsonArray Chats => data.GetArray("chats");
     public JsonArray Agents => data.GetArray("agents");
 
@@ -109,9 +110,12 @@ internal sealed class EnsembleConversation
                         .Select(chat => (JsonNode?)new JsonObject { ["id"] = chat.GetString("id"),
                             ["name"] = chat.GetString("name"), ["current"] = chat.GetString("id") == currentChat }).ToArray()));
                 var chat = args.GetString("chat");
-                var message = PostCharacterMessage(chat, member, args.GetString("text"), publish);
-                posted(chat, message);
-                return Task.FromResult<JsonNode?>(new JsonObject { ["sent"] = true, ["chat"] = chat, ["id"] = message.GetString("id") });
+                lock (SyncRoot)
+                {
+                    var message = PostCharacterMessage(chat, member, args.GetString("text"), publish);
+                    posted(chat, message);
+                    return Task.FromResult<JsonNode?>(new JsonObject { ["sent"] = true, ["chat"] = chat, ["id"] = message.GetString("id") });
+                }
             }, Required: true);
 
     public JsonObject PostCharacterMessage(string chat, string member, string text, Action<JsonObject, string>? publish = null) =>

@@ -12,7 +12,7 @@ internal sealed partial class PluginRuntime
     private readonly AssetReaders hostAssets;
     private static string AssetUrl(PluginPackage package, string id) => $"{PluginUrls.Scheme}://assets/{package.PackageName}/{id}";
 
-    private static (string Package, string Id) ParseAssetUrl(string url)
+    internal static (string Package, string Id) ParseAssetUrl(string url)
     {
         if (PluginUrls.Route(url, "assets").Split('/') is not [var package, var id] ||
             package.Length is < 1 or > 150 || !package.All(character => char.IsAsciiLetterLower(character) ||

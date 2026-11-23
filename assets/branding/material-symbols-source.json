@@ -1,6 +1,6 @@
 {
   "family": "Material Symbols Rounded",
-  "source": "https://fonts.gstatic.com/l/font?kit=syl0-zNym6YjUruM-QrEh7-nyTnjDwKNJ_190FjpZIvDmUSVOK7BDB_Qb9vUSzq3wzLK-P0J-V_Zs-QtQth3-jOcbTCVpeRL2w5rwZu2rIelXxKRNccDe81u7DANSS1DH1lE6hjYcjkbXcFSQLJL4l4wUBSFo_ZdXN73xYc5NnWGQdV9n85u9Fj0lWh6y0ft&skey=70ddea8fe54d532e&v=v386",
+  "source": "https://fonts.gstatic.com/l/font?kit=syl0-zNym6YjUruM-QrEh7-nyTnjDwKNJ_190FjpZIvDmUSVOK7BDB_Qb9vUSzq3wzLK-P0J-V_Zs-QtQth3-jOcbTCVpeRL2w5rwZu2rIelXxKRNccDe81u7DANSS1DH1lE6hjYcjkbXcFSQLJL7F4wWJAVsay9kJmM6YXgkdaHRskHGV6iMlm-tNIqW0xko1PjbvOReNWxL_mNTec&skey=70ddea8fe54d532e&v=v386",
   "version": "v386",
   "axes": {
     "opsz": 24,
@@ -14,9 +14,13 @@
     "arrow_downward",
     "arrow_forward",
     "arrow_upward",
+    "battery_saver",
+    "browse",
+    "check",
     "chevron_left",
     "chevron_right",
     "close",
+    "cloud",
     "content_copy",
     "delete",
     "download",
@@ -25,16 +29,24 @@
     "expand_more",
     "extension",
     "fork_right",
+    "info",
+    "language",
+    "license",
     "menu",
     "more_horiz",
+    "notifications",
+    "palette",
     "play_arrow",
     "reply",
+    "schedule",
+    "search",
     "settings",
     "share",
+    "smart_toy",
     "stop",
     "tune",
     "visibility",
     "visibility_off"
   ],
-  "sha256": "636572a537aabf683a1560f229bfe67c2ff433d75d257bcd1c2246f9dc97057d"
+  "sha256": "d53a4c2c033a543cecc81f97259a30dc61e45fd13aa5fe07a718c47417c8f5f2"
 }

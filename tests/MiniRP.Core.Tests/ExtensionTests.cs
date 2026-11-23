@@ -326,20 +326,46 @@ public sealed class ExtensionTests
         Assert.HasCount(3, new[] { room, bridgeId, labId }.Distinct());
         engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = bridgeId, ["text"] = "Status?" });
 
-        var ada = await NextModel(engine, scripts);
+        var requests = await NextModels(engine, scripts, 2);
+        var ada = requests.Single(request => request.GetString("body").Contains("Your character is Ada", StringComparison.Ordinal));
+        var bryn = requests.Single(request => request != ada);
         StringAssert.Contains(ada.GetString("body"), "Your character is Ada");
         Assert.ThrowsExactly<InvalidOperationException>(() => engine.Dispatch(new() { ["op"] = "steer",
             ["chat"] = room, ["conversation"] = labId, ["text"] = "Wrong chat." }));
+        engine.Dispatch(new() { ["op"] = "steer", ["chat"] = room, ["conversation"] = bridgeId,
+            ["text"] = "Check the forecast." });
+        requests = await NextModels(engine, scripts, 2);
+        foreach (var request in requests)
+        {
+            StringAssert.Contains(request.GetString("body"), "Check the forecast.");
+            ReplyTool(engine, request, "activate_skill", new() { ["name"] = "web-research" });
+        }
+        foreach (var request in await NextModels(engine, scripts, 2))
+        {
+            Assert.IsTrue(Offers(request, "search"));
+            var character = request.GetString("body").Contains("Your character is Ada", StringComparison.Ordinal) ? "Ada" : "Bryn";
+            ReplyTool(engine, request, "search", new() { ["query"] = character + " forecast" });
+        }
+        foreach (var request in await NextModels(engine, scripts, 2))
+        {
+            Assert.IsTrue(Offers(request, "add_result"));
+            ReplyTool(engine, request, "add_result", new() { ["title"] = "Fixture forecast", ["url"] = "https://fixture.invalid/forecast" });
+        }
+        foreach (var request in await NextModels(engine, scripts, 2))
+            ReplyTool(engine, request, "submit_search_results", new());
+        requests = await NextModels(engine, scripts, 2);
+        ada = requests.Single(request => request.GetString("body").Contains("Your character is Ada", StringComparison.Ordinal));
+        bryn = requests.Single(request => request != ada);
+        CollectionAssert.AreEquivalent(new[] { "Ada forecast", "Bryn forecast" },
+            engine.Workspace.State.GetObject("search_cache").Select(item => item.Key).ToArray());
         ReplyTool(engine, ada, "chat_send", new() { ["chat"] = labId, ["text"] = "Unauthorized" });
         var denied = await NextModel(engine, scripts);
         StringAssert.Contains(denied.GetString("body"), "not a member");
         ReplyTool(engine, denied, "chat_send", new() { ["chat"] = bridgeId, ["text"] = "Ada reported in." });
         Reply(engine, await NextModel(engine, scripts), "Private continuation.");
-        var bryn = await NextModel(engine, scripts);
         var messages = JsonValues.ParseObject(bryn.GetString("body")).GetArray("messages");
         StringAssert.Contains(messages[0].GetString("content"), "Your character is Bryn");
-        Assert.IsTrue(messages.Any(message => message.GetString("role") == "system" &&
-            message.GetString("content").Contains("Ada reported in.", StringComparison.Ordinal)));
+        Assert.IsFalse(messages.Any(message => message.GetString("content").Contains("Ada reported in.", StringComparison.Ordinal)));
         Assert.IsFalse(messages.Any(message => message.GetString("content").Contains("Private continuation.", StringComparison.Ordinal)));
         ReplyTool(engine, bryn, "chat_send", new() { ["chat"] = labId, ["text"] = "Lab note." });
         Reply(engine, await NextModel(engine, scripts), "Done.");
@@ -349,6 +375,8 @@ public sealed class ExtensionTests
         var lab = await Until(engine, "ensemble_chat_loaded", scripts);
         Assert.AreEqual("Lab note.", lab.GetArray("blocks").Single().GetString("content"));
         Assert.AreEqual("Bryn", lab.GetArray("blocks").Single().GetString("speaker"));
+        var roomDocument = JsonValues.ParseObject(File.ReadAllText(Path.Combine(root, "conversations", preset, room + ".json")));
+        Assert.AreEqual(1, roomDocument.GetArray("messages").Count(item => item.GetString("content") == "Check the forecast."));
         var adaSession = engine.LoadedCharacterSession("ada", "chat");
         var brynSession = engine.LoadedCharacterSession("bryn", "chat");
         var brynSearch = engine.LoadedCharacterSession("bryn", "search");
@@ -400,7 +428,9 @@ public sealed class ExtensionTests
         Configure(engine);
         engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
         var events = new List<JsonObject>();
-        var ada = await NextModel(engine, scripts, events.Add);
+        var requests = await NextModels(engine, scripts, 2, events.Add);
+        var ada = requests.Single(request => request.GetString("body").Contains("Your character is Ada", StringComparison.Ordinal));
+        var bryn = requests.Single(request => request != ada);
         var loading = events.Last(item => item.GetString("kind") == "room_loading");
         var room = loading.GetString("room");
         Assert.AreEqual(0, loading.GetInt32("ready"));
@@ -423,10 +453,9 @@ public sealed class ExtensionTests
         Assert.IsFalse(events.Any(item => item.GetString("kind") == "loaded"));
         ReplyTool(engine, retry, "room_ready", new());
 
-        var bryn = await NextModel(engine, scripts, events.Add);
         StringAssert.Contains(bryn.GetString("body"), "Your character is Bryn");
         StringAssert.Contains(bryn.GetString("body"), "Your chats: Bridge, Lab");
-        Assert.AreEqual(1, events.Last(item => item.GetString("kind") == "room_loading").GetInt32("ready"));
+        await Until(engine, "room_loading", scripts);
         Assert.IsFalse(events.Any(item => item.GetString("kind") == "loaded"));
         engine.Dispatch(new() { ["op"] = "cancel" });
         await Until(engine, "cancelled", scripts);
@@ -468,6 +497,18 @@ public sealed class ExtensionTests
             ["agents"] = new JsonObject { ["title"] = new JsonObject() } });
         engine.Dispatch(new() { ["op"] = "plugin_install", ["path"] = archive });
         await Until(engine, "plugin", scripts);
+        engine.Dispatch(new() { ["op"] = "plugin_settings" });
+        var icon = (await Until(engine, "plugin_settings", scripts)).GetArray("items")
+            .Single(item => item.GetString("key") == "about-status").GetString("icon");
+        Assert.AreEqual("minirp://assets/example.minichat.roomstatus/settings-icon", icon);
+        engine.Dispatch(new() { ["op"] = "asset_open", ["url"] = icon });
+        var stream = (await Until(engine, "asset_result", scripts)).GetObject("result");
+        Assert.AreEqual("image/png", stream.GetString("mimeType"));
+        engine.Dispatch(new() { ["op"] = "asset_pull", ["handle"] = stream.GetString("handle") });
+        var chunk = (await Until(engine, "asset_result", scripts)).GetObject("result");
+        CollectionAssert.AreEqual(File.ReadAllBytes(Path.Combine(example, "settings-icon.png")), engine.Port.TakeBinary(chunk.GetString("transfer")));
+        engine.Dispatch(new() { ["op"] = "asset_close", ["handle"] = stream.GetString("handle") });
+        await Until(engine, "asset_result", scripts);
         engine.Dispatch(new() { ["op"] = "message", ["text"] = "Verify the station." });
         async Task Tool(string name, JsonObject args) =>
             ReplyTool(engine, await NextModel(engine, scripts), name, args);
@@ -2451,18 +2492,21 @@ public sealed class ExtensionTests
     }
 
     private static async Task<JsonObject> NextModel(Engine engine, PluginScripts scripts, Action<JsonObject>? observe = null)
+        => (await NextModels(engine, scripts, 1, observe))[0];
+
+    private static async Task<List<JsonObject>> NextModels(Engine engine, PluginScripts scripts, int count, Action<JsonObject>? observe = null)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var requests = new List<JsonObject>();
         while (true)
         {
-            JsonObject? request = null;
             foreach (var item in engine.Poll().OfType<JsonObject>())
             {
                 observe?.Invoke(item);
-                if (item.GetString("kind") == "http_request") request = item;
+                if (item.GetString("kind") == "http_request") requests.Add(item);
                 else Process(engine, item, scripts, timeout.Token);
             }
-            if (request is not null) return request;
+            if (requests.Count >= count) return requests;
             await Task.Delay(8, timeout.Token);
         }
     }

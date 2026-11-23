@@ -14,6 +14,21 @@ export interface PluginManifestIdentity {
     /** Canonical lowercase UUID of the owning preset. */
     presetId?: UUID;
 }
+export interface SettingDeclaration {
+    key: string;
+    type: "group" | "page" | "boolean" | "choice" | "text" | "link" | "markdown";
+    title?: string;
+    titles?: Readonly<Record<string, string>>;
+    /** PNG, JPEG or WebP Asset declared by this plugin. */
+    icon?: AssetUrl;
+    default?: string | boolean | null;
+    multiline?: boolean;
+    content?: string;
+    markdown?: string;
+    url?: HookUrl;
+    items?: readonly SettingDeclaration[];
+    options?: readonly { value: string; title: string }[];
+}
 export type ConversationAgent = "chat" | "env" | "preset";
 export type SessionAgent = ConversationAgent | "search" | "fetch" | "temporary";
 export interface SkillToolDeclaration {

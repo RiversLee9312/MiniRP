@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=MiniRP
+Exec=minirp --web-window
+Icon=minirp
+Terminal=false
+Categories=Utility;

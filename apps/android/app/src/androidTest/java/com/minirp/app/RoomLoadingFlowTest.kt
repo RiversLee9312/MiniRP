@@ -61,6 +61,7 @@ class RoomLoadingFlowTest {
         val failure = AtomicReference<Throwable>()
         val adaReady = CountDownLatch(1)
         val brynReady = CountDownLatch(1)
+        val brynStarted = CountDownLatch(1)
         MockWebServer().use { server ->
             server.dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse = try {
@@ -71,17 +72,22 @@ class RoomLoadingFlowTest {
                         setOf("room_progress", "room_ready"),
                         (0 until tools.length()).map { tools.getJSONObject(it).getJSONObject("function").getString("name") }.toSet(),
                     )
-                    val character = if (order < 3) "Ada" else "Bryn"
-                    assertTrue(body.getJSONArray("messages").toString().contains("Your character is $character"))
-                    val call = when (order) {
-                        1 -> """{"name":"room_progress","arguments":"{\"percent\":50}"}"""
-                        2 -> {
-                            assertTrue(adaReady.await(15, TimeUnit.SECONDS))
-                            """{"name":"room_ready","arguments":"{}"}"""
-                        }
-                        3 -> {
+                    val messages = body.getJSONArray("messages")
+                    val prompt = messages.toString()
+                    val ready = """{"name":"room_ready","arguments":"{}"}"""
+                    val call = when {
+                        prompt.contains("Your character is Bryn") -> {
+                            brynStarted.countDown()
                             assertTrue(brynReady.await(15, TimeUnit.SECONDS))
-                            """{"name":"room_ready","arguments":"{}"}"""
+                            ready
+                        }
+                        prompt.contains("Your character is Ada") && messages.getJSONObject(messages.length() - 1).getString("role") == "tool" -> {
+                            assertTrue(adaReady.await(15, TimeUnit.SECONDS))
+                            ready
+                        }
+                        prompt.contains("Your character is Ada") -> {
+                            assertTrue(brynStarted.await(10, TimeUnit.SECONDS))
+                            """{"name":"room_progress","arguments":"{\"percent\":50}"}"""
                         }
                         else -> error("Unexpected room preparation request")
                     }

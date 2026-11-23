@@ -1,0 +1,39 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="MiniRP" Manufacturer="MiniRP" Version="$(Version)" Scope="perMachine"
+           UpgradeCode="EC1B1223-FF6E-4BCB-8F22-EBDAFD4669C7">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of MiniRP is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="MiniRPIcon" SourceFile="$(Payload)/minirp.exe" />
+    <Property Id="ARPPRODUCTICON" Value="MiniRPIcon" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="MiniRP">
+        <Component Id="Host">
+          <File Id="HostExe" Source="$(Payload)/minirp.exe" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcuts" Guid="0D9B024D-A753-4D27-B857-427A831D64DE">
+        <Shortcut Id="WebUIShortcut" Name="MiniRP" Description="Open the MiniRP WebUI"
+                  Target="[#HostExe]" Arguments="--web-window --user-workspace" Icon="MiniRPIcon" WorkingDirectory="INSTALLFOLDER" />
+        <Shortcut Id="TerminalShortcut" Name="MiniRP Terminal" Description="Open the MiniRP terminal"
+                  Target="[#HostExe]" Arguments="--user-workspace" Icon="MiniRPIcon" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\MiniRP" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+    <Feature Id="Complete">
+      <ComponentRef Id="Host" />
+      <ComponentRef Id="StartMenuShortcuts" />
+      <ComponentGroupRef Id="PayloadFiles" />
+    </Feature>
+  </Package>
+  <Fragment>
+    <ComponentGroup Id="PayloadFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(Payload)/**/*">
+        <Exclude Files="$(Payload)/minirp.exe" />
+        <Exclude Files="$(Payload)/**/*.pdb" />
+        <Exclude Files="$(Payload)/node_modules/.bin/**/*" />
+      </Files>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

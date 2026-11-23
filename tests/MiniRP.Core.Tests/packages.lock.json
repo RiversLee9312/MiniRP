@@ -331,6 +331,11 @@
         "resolved": "0.8.0",
         "contentHash": "kQ41D/mRW1BfR0T5grX/b4Gi1vNJxmjl1/DiW9OAn1TIt9j9pjMbRXOBvga6AZjL/J0cKwnpRB2uvo2Oa5+TxQ=="
       },
+      "SharpZipLib": {
+        "type": "Transitive",
+        "resolved": "1.4.2",
+        "contentHash": "yjj+3zgz8zgXpiiC3ZdF/iyTBbz2fFvMxZFEBPUcwZjIvXOf37Ylm+K58hqMfIBt5JgU/Z2uoUS67JmTLe973A=="
+      },
       "SQLitePCLRaw.lib.e_sqlite3": {
         "type": "Transitive",
         "resolved": "3.53.3",
@@ -438,6 +443,7 @@
           "Microsoft.ClearScript.V8.Native.win-x64": "[7.5.1.1, )",
           "MiniRP.Protocol": "[1.0.0, )",
           "ModelContextProtocol": "[2.4.0, )",
+          "SharpZipLib": "[1.4.2, )",
           "Terminal.Gui": "[2.5.0, )",
           "Terminal.Gui.Editor": "[2.5.7, )"
         }

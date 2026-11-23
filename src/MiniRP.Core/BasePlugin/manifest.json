@@ -443,31 +443,31 @@
       "key": "model-group", "type": "page", "title": "Models and providers", "label": "model_provider_settings", "icon": "settings",
       "items": [
         {"key":"providers","type":"link","title":"Providers","label":"providers","icon":"cloud","url":"minirp://actions/minirp.app/hooks/providers"},
-        {"key":"models","type":"link","title":"Models","label":"models","icon":"tune","url":"minirp://actions/minirp.app/hooks/models"}
+        {"key":"models","type":"link","title":"Models","label":"models","icon":"smart_toy","url":"minirp://actions/minirp.app/hooks/models"}
       ]
     },
     {
       "key":"behavior", "type":"page", "title":"Appearance and behavior", "label":"behavior_settings", "icon":"tune",
       "items":[
-        {"key":"theme","type":"choice","title":"Appearance","label":"appearance","binding":"theme","options":[
+        {"key":"theme","type":"choice","title":"Appearance","label":"appearance","icon":"palette","binding":"theme","options":[
           {"value":"system_default","title":"System default","label":"system_default"},
           {"value":"light","title":"Light","label":"light"},
           {"value":"dark","title":"Dark","label":"dark"}
         ]},
-        {"key":"language","type":"link","title":"Language","label":"language","url":"minirp://actions/minirp.app/hooks/language"},
-        {"key":"thoughts","type":"boolean","title":"Expand reasoning","label":"expand_thoughts","binding":"thoughts"},
-        {"key":"background-turns","type":"link","title":"Background replies","label":"background_turns","url":"minirp://actions/minirp.app/hooks/background-turns"}
+        {"key":"language","type":"link","title":"Language","label":"language","icon":"language","url":"minirp://actions/minirp.app/hooks/language"},
+        {"key":"thoughts","type":"boolean","title":"Expand reasoning","label":"expand_thoughts","icon":"visibility","binding":"thoughts"},
+        {"key":"background-turns","type":"link","title":"Background replies","label":"background_turns","icon":"schedule","url":"minirp://actions/minirp.app/hooks/background-turns"}
       ]
     },
     {
       "key":"research", "type":"page", "title":"Search and fetch APIs", "label":"research_apis", "icon":"search",
       "items":[
-        {"key":"fetch","type":"choice","title":"Page fetching","label":"fetch_mode","binding":"fetch","options":[
+        {"key":"fetch","type":"choice","title":"Page fetching","label":"fetch_mode","icon":"browse","binding":"fetch","options":[
           {"value":"api","title":"API","label":"fetch_api"},
           {"value":"local","title":"Browser","label":"fetch_browser"},
           {"value":"api_then_local","title":"API, then browser","label":"fetch_fallback"}
         ]},
-        {"key":"research-services","type":"link","title":"Providers","label":"providers","url":"minirp://actions/minirp.app/hooks/research-services"}
+        {"key":"research-services","type":"link","title":"Providers","label":"providers","icon":"cloud","url":"minirp://actions/minirp.app/hooks/research-services"}
       ]
     },
     {"key":"plugins","type":"link","title":"Plugins","label":"plugins","icon":"extension","url":"minirp://actions/minirp.app/hooks/plugins"},
@@ -476,6 +476,7 @@
         {
           "key": "notices",
           "type": "page",
+          "icon": "license",
           "title": "Open source licenses",
           "titles": { "zh-Hans": "开源许可证", "zh-Hant": "開放原始碼授權" },
           "items": [

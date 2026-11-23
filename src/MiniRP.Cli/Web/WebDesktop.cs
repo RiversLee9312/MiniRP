@@ -29,7 +29,7 @@ internal static class WebDesktop
     public static string ContentType(string name) =>
         Types.TryGetContentType(name, out var type) ? type : "application/octet-stream";
 
-    public static async Task Run(WebSession session, bool noOpen)
+    public static async Task Run(WebSession session, bool noOpen, BrowserHost? windowBrowser)
     {
         if (!File.Exists(Path.Combine(WebSession.StaticRoot, "index.html")))
             throw new FileNotFoundException("Build the bundled Web UI with the desktop build script.");
@@ -165,6 +165,16 @@ internal static class WebDesktop
         sessionCookie = "MiniRP-" + new Uri(address).Port;
         var url = address + "/connect/" + secret;
         Console.WriteLine("MiniRP WebUI: " + url);
+        if (windowBrowser is not null && !noOpen)
+        {
+            try { await windowBrowser.RunWindow(url, BrowserSetupUi.Desktop, app.Lifetime.ApplicationStopping); }
+            finally
+            {
+                app.Lifetime.StopApplication();
+                await app.StopAsync();
+            }
+            return;
+        }
         Console.WriteLine("Press Ctrl+C to stop MiniRP.");
         if (!noOpen) OpenBrowser(url);
         await app.WaitForShutdownAsync();

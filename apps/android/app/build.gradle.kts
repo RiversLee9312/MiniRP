@@ -86,8 +86,8 @@ android {
         applicationId = "com.minichat.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
-        versionName = "1.3.0"
+        versionCode = 21
+        versionName = "1.3.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" } }

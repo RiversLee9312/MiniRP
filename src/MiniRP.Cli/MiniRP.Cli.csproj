@@ -2,7 +2,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>minirp</AssemblyName>
-    <Version>1.3.0</Version>
+    <Version>1.3.1</Version>
     <TargetFramework>net10.0</TargetFramework>
     <ApplicationIcon Condition="$(RuntimeIdentifier.StartsWith('win-')) Or ('$(RuntimeIdentifier)' == '' And '$(OS)' == 'Windows_NT')">../../assets/branding/launcher.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
@@ -14,6 +14,7 @@
     <PackageReference Include="Terminal.Gui" Version="2.5.0" />
     <PackageReference Include="Terminal.Gui.Editor" Version="2.5.7" />
     <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
+    <PackageReference Include="SharpZipLib" Version="1.4.2" />
     <PackageReference Include="Microsoft.ClearScript.V8" Version="7.5.1.1" />
     <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" Version="7.5.1.1" Condition="'$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'win-x64'" />
     <PackageReference Include="Microsoft.ClearScript.V8.Native.win-arm64" Version="7.5.1.1" Condition="'$(RuntimeIdentifier)' == 'win-arm64'" />
@@ -25,6 +26,8 @@
     <Content Include="../../apps/android/app/src/main/assets/turndown.js" Link="browser/turndown.js" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../apps/android/app/src/main/assets/turndown-LICENSE.txt" Link="browser/turndown-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../apps/android/app/src/main/assets/browser.js" Link="browser/browser.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="BrowserRuntime/SharpZipLib-LICENSE.txt" Link="browser/SharpZipLib-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Update="wwwroot/**/*" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="../../eng/browser/cef/releases.json" LogicalName="MiniRP.CefReleases.json" />
   </ItemGroup>
 </Project>

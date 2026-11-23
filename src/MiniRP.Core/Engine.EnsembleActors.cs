@@ -29,12 +29,13 @@ public sealed partial class Engine
         if (!CanGreet) throw new InvalidOperationException("Configure a provider and model first.");
 
         var ready = characters.Count - pending.Length;
-        var progress = 0;
+        var progress = new int[pending.Length];
+        var progressGate = new object();
         void EmitLoading(bool loading) => Emit(new()
         {
             ["kind"] = "room_loading", ["preset"] = workspace.PresetId, ["room"] = workspace.ChatId,
             ["value"] = loading, ["ready"] = ready, ["total"] = characters.Count,
-            ["progress"] = (ready + progress / 100d) / characters.Count,
+            ["progress"] = (ready + progress.Sum() / 100d) / characters.Count,
             ["messages"] = workspace.Config.GetObject("ensemble").GetArray("loading_messages").DeepClone()
         });
 
@@ -42,17 +43,23 @@ public sealed partial class Engine
         try
         {
             if (newRoom) workspace.Save();
-            foreach (var character in pending)
+            await Task.WhenAll(pending.Select(async (character, index) =>
             {
                 await character.Prepare(percent =>
                 {
-                    progress = percent;
-                    EmitLoading(true);
+                    lock (progressGate)
+                    {
+                        progress[index] = percent;
+                        EmitLoading(true);
+                    }
                 }, token);
-                ready++;
-                progress = 0;
-                EmitLoading(true);
-            }
+                lock (progressGate)
+                {
+                    ready++;
+                    progress[index] = 0;
+                    EmitLoading(true);
+                }
+            }));
         }
         catch
         {
@@ -95,6 +102,7 @@ public sealed partial class Engine
             var research = new SearchAgent(workspace, SearchSession, web, "Research for " + name + ". " + prompt,
                 () => RecentEnsembleChatReference(room, conversation));
             Agent = new(workspace, Session, research, identity);
+            if (workspace.AgenticSearch) _ = SearchSession();
         }
 
         public async Task Prepare(Action<int> progress, CancellationToken token)

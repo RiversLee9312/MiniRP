@@ -121,6 +121,13 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
                 throw new InvalidDataException("A setting needs a unique key, supported type and title.");
             if (setting.GetString("binding").Length > 0)
                 throw new InvalidDataException("Private platform bindings are reserved. Use settings and URL Interaction.");
+            if (signed && setting.ContainsKey("icon"))
+            {
+                var (owner, icon) = PluginRuntime.ParseAssetUrl(setting.GetString("icon"));
+                if (owner != manifest.GetString("packageName") || !assets.TryGetValue(icon, out var image) ||
+                    image.MimeType is not ("image/png" or "image/jpeg" or "image/webp"))
+                    throw new InvalidDataException("A setting icon must reference a PNG, JPEG or WebP Asset from the same plugin.");
+            }
             if (kind == "markdown" && setting.GetString("content").Length == 0 && setting.GetString("markdown").Length == 0)
                 throw new InvalidDataException("Markdown needs inline text or a bundled resource.");
             if (setting.GetString("content") is { Length: > 0 } content)

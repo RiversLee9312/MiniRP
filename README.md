@@ -18,7 +18,7 @@
 
 ## 安装
 
-Android ARM64 下载 `MiniRP.apk`，可直接覆盖升级。Windows x64 解压 `MiniRP-Windows-x64.zip` 后运行 `minirp.exe`。Linux x64 解压 `MiniRP-Linux-x64.tar.gz` 后运行 `./minirp`。桌面端可传入旧工作区路径，继续使用已有对话、预设和模型配置。旧的 `MINICHAT_*` 配置键仍可读取，新配置建议使用 `MINIRP_*`。
+Android ARM64 下载 `MiniRP.apk`，可直接覆盖升级。Windows x64 使用 MSI，Linux 使用 DEB 或 RPM。旧版 ZIP 和 TAR.GZ 仍可解压后运行。桌面端可传入旧工作区路径，继续使用已有对话、预设和模型配置。旧的 `MINICHAT_*` 配置键仍可读取，新配置建议使用 `MINIRP_*`。
 
 ## 智能体如何分工
 
@@ -37,7 +37,28 @@ ChatAgent、PresetAgent 和 PluginAgent 可激活 `container` 技能运行 x86-6
 
 同一个 `minirp` 程序提供终端 UI 和 WebUI。直接运行进入终端，在输入框用 `/web` 切换到浏览器。运行 `minirp --web` 可直接进入 WebUI，加 `--no-open` 只打印访问链接。WebUI 使用每次启动生成的本机回环端口和访问链接，Ctrl+C 停止宿主。TUI 与 WebUI 共用指定工作区。
 
-构建需要 .NET SDK 10.0.400 和 Node.js 24。Windows 另需 Visual Studio 的 C++ 桌面生成工具。Linux 或 WSL 需要 clang、zlib 开发包和标准 C/C++ 链接工具。本地网页抓取在 Windows 使用 Chrome，在 Linux 使用 Playwright Chromium。使用 API 或缓存时无须启动抓取浏览器。
+构建需要 .NET SDK 10.0.400、Node.js 24、Python 3 和 CMake。Windows 另需 Visual Studio 的 C++ 桌面生成工具。Linux 或 WSL 需要 clang、zlib 开发包和标准 C/C++ 链接工具。构建脚本使用固定版本的 CEF SDK 编译薄宿主，安装包包含宿主程序。使用 API 或缓存时无须启动抓取浏览器。
+
+### 安装包
+
+- Windows x64 双击安装 MSI。开始菜单的「MiniRP」打开独立的 WebUI 窗口，关闭窗口会停止该次启动的本机服务。「MiniRP Terminal」打开终端。MSI 自带 Node.js 和抓取代码。两个入口共用 `%LOCALAPPDATA%\MiniRP`，可在命令行传入现有工作区路径。
+- Debian 和 Ubuntu 可用 `sudo apt install ./minirp_<版本>_amd64.deb` 安装。RPM 系发行版可用 `sudo dnf install ./minirp-<版本>-1.x86_64.rpm`。ARM64 使用对应架构的包。运行 `minirp` 进入终端，或从应用菜单打开 MiniRP WebUI。两个入口共用 `$XDG_DATA_HOME/minirp`，默认是 `~/.local/share/minirp`。升级和卸载保留工作区。
+
+Windows 用 WiX Toolset 6 构建 MSI。脚本从当前 Node.js x64 发行包复制运行时和许可证，可用 `-NodeRuntime` 指定发行包目录。
+
+```powershell
+dotnet tool install --global wix --version 6.0.2
+pwsh -File eng/package-windows.ps1
+```
+
+Linux 在目标架构上用 `dpkg-deb` 或 `rpmbuild` 构建，RPM 应在目标发行版上构建。安装包默认输出到 `artifacts/installers`。
+
+```sh
+sh eng/package-linux.sh deb
+sh eng/package-linux.sh rpm
+```
+
+### 从源码直接运行
 
 桌面版的图像和音视频转换使用 PATH 中的 `ffmpeg`、`ffprobe`，PDF 元数据和页面渲染使用 `pdfinfo`、`pdftoppm`，从图片生成 PDF 使用 `img2pdf`。文本读取和 Asset URL 传递可以独立使用。
 
@@ -59,7 +80,11 @@ Windows 和 Linux 的构建脚本都可用 `MINIRP_WEB_PREBUILT` 指定已生成
 
 Linux ARM64 的输出目录是 `linux-arm64`。构建会收录已准备的 Alpine Room 镜像和 Linux 独立 curl。用 `MINIRP_CONTAINER_IMAGE`、`MINIRP_QEMU_RUNTIME` 和 `MINIRP_CURL_RUNTIME` 指定其他位置。Linux 可用系统的 `qemu-system-x86_64`，镜像与 curl 的准备步骤见[智能体容器](docs/project/agent-container.md)。
 
-Linux 的本地网页抓取默认使用 Playwright Chromium。从构建目录运行 `npx playwright install chromium` 安装对应版本，必要时先按 Playwright 提示装齐系统依赖。使用普通 Linux 用户运行抓取浏览器，以便启用 Chromium 沙盒。在 WSL 中可用 Windows 浏览器打开 WebUI，Linux 抓取仍由宿主侧浏览器完成。
+WebUI 窗口与 FetchAgent 共用经过验证的浏览器二进制，每个窗口和每个抓取任务使用各自的浏览器配置、Cookie 和缓存。Windows 优先使用 WebView2 Evergreen，再尝试系统 Chrome、Edge。Linux 优先复用完整的 Playwright Chromium，再尝试系统 Chromium、Chrome 或 Edge，包含可正常启动的 Snap Chromium。独立的 headless shell 无法提供应用窗口。用普通 Linux 用户启动，以便启用浏览器沙盒。
+
+找不到合适的运行时时，MiniRP 会先查找本地兼容的 CEF。首次下载会显示用途和大小，确认后显示进度，可随时取消。校验成功后保存到用户目录的版本化缓存，并继续刚才的操作。选「稍后」可以在下一次需要时再确认。Linux 图形化安装提示使用 Zenity。`MINIRP_BROWSER` 可设置首选项，`MINIRP_BROWSER=cef` 直接使用 CEF。便携环境可用绝对路径环境变量 `MINIRP_BROWSER_DATA_DIR` 指定缓存根目录。
+
+`minirp --web-window` 直接打开独立窗口。`minirp --web` 使用系统默认浏览器，`--no-open` 只启动本机服务并打印访问地址。在没有桌面环境或从 WSL 使用 Windows 浏览器时，可沿用普通 WebUI 入口。
 
 首次运行时创建或导入一个预设。WebUI 在设置中管理模型和提供商，保存到工作区的 `.minirp-desktop.json`。终端的 `/config` 编辑环境提供商，保存在 `.env`。两个入口都会读取这些配置，旧的 `.env` 可参照 `.env.example`。API Key 字段会遮盖显示。
 

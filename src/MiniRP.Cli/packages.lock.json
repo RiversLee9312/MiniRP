@@ -28,6 +28,12 @@
           "ModelContextProtocol.Core": "[2.4.0]"
         }
       },
+      "SharpZipLib": {
+        "type": "Direct",
+        "requested": "[1.4.2, )",
+        "resolved": "1.4.2",
+        "contentHash": "yjj+3zgz8zgXpiiC3ZdF/iyTBbz2fFvMxZFEBPUcwZjIvXOf37Ylm+K58hqMfIBt5JgU/Z2uoUS67JmTLe973A=="
+      },
       "Terminal.Gui": {
         "type": "Direct",
         "requested": "[2.5.0, )",

@@ -138,6 +138,7 @@
         "titles": { "type": "object", "additionalProperties": { "type": "string" } },
         "default": { "type": ["string", "boolean", "null"] },
         "multiline": { "type": "boolean" },
+        "icon": { "type": "string", "pattern": "^(minirp|minichat)://assets/[a-z0-9._]+/[a-z0-9_-]+$" },
         "content": { "$ref": "#/$defs/id" },
         "markdown": { "type": "string" },
         "url": { "$ref": "#/$defs/hook" },

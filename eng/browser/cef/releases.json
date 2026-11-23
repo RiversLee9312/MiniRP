@@ -1,0 +1,29 @@
+{
+  "version": "158.0.3+g8c29be2+chromium-158.0.8127.18",
+  "platforms": {
+    "windows64": {
+      "size": 180772981,
+      "sha1": "a8634573a10fb514fb9e8bc9fcf39016a2fb17bd",
+      "sha256": "a5659888cca36e3b7fde841c05c67f923065c3bb2d62609ba379c7f79986a02b",
+      "runtimeSha256": "808a96d6cfe95be49071b8a087a0e32bd938026247e55f9e8bd5558f7f69e5b6"
+    },
+    "windowsarm64": {
+      "size": 173570451,
+      "sha1": "2fb4d02d1d93788d06a9e2745196cd98f470afb4",
+      "sha256": "5df3475a647016f5d4e21cae4d4313fdeac5f26de49dfd2efdbab5653904aded",
+      "runtimeSha256": "0eff01e773401fe64d2d1b6c8b48e204abbf15c71ded71dcd0e9e7ad8dca21e0"
+    },
+    "linux64": {
+      "size": 338967910,
+      "sha1": "620b80a02dfe93ed7884a9eb1b265ff34f799024",
+      "sha256": "2c5dfc7c1073f61f2511ab0183e835e0810d6ace7e17811ae9d375faa838fd25",
+      "runtimeSha256": "557835ecc1760842e539a022130e4a6381086c2bebe2c3cd1d79b59a476eaf38"
+    },
+    "linuxarm64": {
+      "size": 434777513,
+      "sha1": "78fef55435fba523ce380ef3cbdf96cf00482575",
+      "sha256": "99b96d19bc43b74d721638444af4c9b9ce240d6f3d1a27d1d0c33794549538f3",
+      "runtimeSha256": "220cda08fb6771d5e77a921f736d8fc369ae37475a23c7d89973f765613bab37"
+    }
+  }
+}

@@ -7,6 +7,8 @@ internal sealed class SearchTurn
 {
     private readonly AgentSession session;
     private readonly PresetResearch? shared;
+    private readonly JsonObject initial;
+    private static readonly string[] CacheSections = ["pages", "search_cache", ResearchAssets.Index];
     private readonly Dictionary<string, string> documents = new(StringComparer.Ordinal);
     private List<string> selected = [];
     private string? selectedPage;
@@ -40,7 +42,8 @@ internal sealed class SearchTurn
     {
         Mode = mode;
         Target = target;
-        State = (JsonObject)(initialState ?? workspace.State).DeepClone();
+        initial = initialState ?? workspace.State;
+        State = (JsonObject)initial.DeepClone();
         this.session = session;
         this.shared = shared;
         foreach (var key in new[] { "pages", "search_cache" })
@@ -52,6 +55,31 @@ internal sealed class SearchTurn
         }
         Assets = new(workspace, State, shared);
         Assets.Migrate();
+    }
+
+    internal void Commit(Workspace workspace)
+    {
+        if (workspace.Mode != "ensemble")
+        {
+            workspace.Commit(State);
+            return;
+        }
+        lock (workspace.RoomGate)
+        {
+            // Each character stages its own research. Apply only the keys it wrote.
+            var current = (JsonObject)workspace.State.DeepClone();
+            foreach (var section in CacheSections)
+            {
+                var before = initial.GetObject(section);
+                foreach (var (key, value) in State.GetObject(section))
+                {
+                    if (JsonNode.DeepEquals(before[key], value)) continue;
+                    if (current[section] is not JsonObject) current[section] = new JsonObject();
+                    current[section]![key] = JsonValues.Clone(value);
+                }
+            }
+            workspace.Commit(current);
+        }
     }
 
     public JsonObject Register(JsonObject document, bool page)

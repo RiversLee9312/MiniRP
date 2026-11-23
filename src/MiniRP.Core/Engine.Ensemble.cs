@@ -88,11 +88,27 @@ public sealed partial class Engine
         if (opening is null) PostEnsembleMessage(conversation, hub.Post(conversation, "", role, input, attachments));
         var turn = new TurnInbox(Workspace.ChatId, "chat", message =>
         {
-            var posted = hub.Post(conversation, "", message.GetString("role", "user"), message.GetString("text"),
-                blockId: message[TurnInbox.QueuedBlockId]?.GetValue<string>());
-            PostEnsembleMessage(conversation, posted);
-            return EnsembleConversation.DeliveryId(posted);
+            lock (hub.SyncRoot)
+            {
+                var posted = hub.Post(conversation, "", message.GetString("role", "user"), message.GetString("text"),
+                    blockId: message[TurnInbox.QueuedBlockId]?.GetValue<string>());
+                PostEnsembleMessage(conversation, posted);
+                return EnsembleConversation.DeliveryId(posted);
+            }
         }, keepOpen: true, conversation: conversation, queued: message => PreviewSteer("chat", message, conversation));
+        var participants = new List<(string Member, RoomCharacter Character, TurnInbox Inbox)>();
+        foreach (var member in members)
+        {
+            var character = roomCharacters[member];
+            if (opening is not null && character.Session.HasHistory)
+            {
+                RememberEnsembleGreeting(greeted, member);
+                continue;
+            }
+            character.Synchronize(Workspace.AgenticSearch, opening is not null);
+            participants.Add((member, character, turn.Subscribe()));
+        }
+        var context = "The active chat is " + hub.Name(conversation) + " (" + conversation + "). Only chat_send posts a visible reply.";
         BeginInteractiveTurn(turn);
         var completedTurn = false;
         try
@@ -100,16 +116,10 @@ public sealed partial class Engine
             var request = command.GetString("request");
             if (request.Length > 0)
                 Emit(new() { ["kind"] = "message_accepted", ["request"] = request, ["chat"] = Workspace.ChatId });
-            foreach (var member in members)
+            await Task.WhenAll(participants.Select(async entry =>
             {
                 token.ThrowIfCancellationRequested();
-                var character = roomCharacters[member];
-                var own = character.Session;
-                if (opening is not null && own.HasHistory)
-                {
-                    RememberEnsembleGreeting(greeted, member);
-                    continue;
-                }
+                var (member, character, characterInbox) = entry;
                 var postedOpening = false;
                 void Posted(string target, JsonObject message)
                 {
@@ -120,11 +130,9 @@ public sealed partial class Engine
                     }
                     PostEnsembleMessage(target, message);
                 }
-                character.Begin(conversation, turn, Posted);
+                character.Begin(conversation, characterInbox, Posted);
                 try
                 {
-                    character.Synchronize(Workspace.AgenticSearch, opening is not null);
-                    var context = "The active chat is " + hub.Name(conversation) + " (" + conversation + "). Only chat_send posts a visible reply.";
                     var answer = await character.Agent.Run(
                         opening is null
                             ? "It is your turn in the active chat. Use chat_send to reply if you have something to say. You may pass." + interaction
@@ -136,11 +144,12 @@ public sealed partial class Engine
                         if (string.IsNullOrWhiteSpace(answer))
                             throw new IOException("The model finished without a visible opening.");
                         token.ThrowIfCancellationRequested();
-                        Posted(conversation, hub.PostCharacterMessage(conversation, member, answer, own.AddPublishedAssets));
+                        lock (hub.SyncRoot)
+                            Posted(conversation, hub.PostCharacterMessage(conversation, member, answer, character.Session.AddPublishedAssets));
                     }
                 }
                 finally { character.End(); }
-            }
+            }));
             if (opening is null) StartTitle(force: false);
             completedTurn = true;
         }
@@ -169,7 +178,7 @@ public sealed partial class Engine
         item["participant"] = participant;
         item["speaker"] = name;
         item["session"] = context.GetString("session");
-        Record(item, hub.Blocks(conversation), info);
+        lock (hub.SyncRoot) Record(item, hub.Blocks(conversation), info);
     }
 
     private JsonObject GroupContext(string role, string participant, string conversation)
@@ -186,9 +195,12 @@ public sealed partial class Engine
 
     private static string RecentEnsembleChatReference(EnsembleConversation hub, string conversation)
     {
-        var result = string.Join('\n', hub.Chat(conversation).GetArray("messages").TakeLast(8)
-            .Select(message => message.GetString("speaker", "User") + ": " + message.GetString("content")));
-        return result[^Math.Min(result.Length, 2400)..];
+        lock (hub.SyncRoot)
+        {
+            var result = string.Join('\n', hub.Chat(conversation).GetArray("messages").TakeLast(8)
+                .Select(message => message.GetString("speaker", "User") + ": " + message.GetString("content")));
+            return result[^Math.Min(result.Length, 2400)..];
+        }
     }
 
     private void NotifyChat(JsonObject command)
