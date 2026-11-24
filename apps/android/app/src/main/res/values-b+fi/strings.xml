@@ -216,4 +216,7 @@
     <string name="preset_management">Hallitse esiasetusta</string>
     <string name="conversation_settings">Keskustelun asetukset</string>
     <string name="add_saved_model">Lisää malli</string>
+    <string name="tool_arguments">Argumentit</string>
+    <string name="tool_result">Tulos</string>
+    <string name="quote_reply">Lainaa</string>
 </resources>

@@ -6,6 +6,11 @@
 
 .workspace-tools .workspace-tool-pane:focus { outline: none; }
 
+.workspace-setting-icon {
+  flex: none;
+  object-fit: contain;
+}
+
 .workspace-tools .workspace-tool-actions {
   display: flex;
   flex-wrap: wrap;

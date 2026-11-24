@@ -77,14 +77,14 @@ internal sealed partial class PluginRuntime
     private static bool OwnsPresetBackgrounds(PluginPackage package, string preset) =>
         preset.Length > 0 && package.Signed && !package.BuiltIn && package.PresetId == preset;
 
-    internal JsonArray PresetBackgroundAssets(string preset)
+    internal JsonArray PresetBackgroundAssets(string preset, string? locale = null)
     {
         var result = new JsonArray();
         foreach (var package in Volatile.Read(ref packages))
         {
             if (!OwnsPresetBackgrounds(package, preset) || !Available(package, preset) || package.Assets is null) continue;
             foreach (var asset in package.Assets.Values.Where(asset => IsBackgroundMime(asset.MimeType)))
-                result.AddNode(new JsonObject { ["url"] = AssetUrl(package, asset.Id), ["mime"] = asset.MimeType, ["plugin"] = package.Name });
+                result.AddNode(new JsonObject { ["url"] = AssetUrl(package, asset.Id), ["mime"] = asset.MimeType, ["plugin"] = package.LocalizedName(locale) });
         }
         return result;
     }

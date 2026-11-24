@@ -18,24 +18,19 @@ public sealed partial class Engine
             if (selected.ChatGreeting.Length > 0 && selected.Mode != "ensemble")
             {
                 await SelectConversation(preset, null, token);
-                await GreetChat("", token);
+                await GreetChat(token);
                 return;
             }
         }
         ShowHome(preset);
     }
 
-    private async Task GreetChat(string conversation, CancellationToken token)
+    private async Task GreetChat(CancellationToken token)
     {
-        if (!Workspace.Chat.GetBoolean(GreetingPending) || !CanGreet || Workspace.ChatGreeting is not { Length: > 0 } greeting)
+        if (ensemble is not null || !Workspace.Chat.GetBoolean(GreetingPending) || !CanGreet ||
+            Workspace.ChatGreeting is not { Length: > 0 } greeting)
             return;
         var opening = greeting + "\n\nGenerate the opening for the user now. Keep the setup instructions private.";
-        if (ensemble is not null)
-        {
-            if (conversation.Length > 0)
-                await RunEnsembleChat(new() { ["conversation"] = conversation }, token, opening);
-            return;
-        }
 
         if (!sessions["chat"].HasHistory)
             await RunMessage("chat", opening, false, new(), token, inputRole: "system", hiddenInput: true);

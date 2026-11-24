@@ -35,6 +35,7 @@ import com.minirp.app.R
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 
@@ -54,11 +55,16 @@ internal fun OpenUiReply(
     interactions: OpenUiInteractions?,
     pages: OpenUiPageCache,
     displayAssets: DisplayAssets? = null,
+    viewKey: String = block.id,
+    toolPresentation: Boolean = false,
+    toolHeader: (@Composable () -> Unit)? = null,
+    fallback: (@Composable () -> Unit)? = null,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var measuredHeight by rememberSaveable { mutableIntStateOf(120) }
-    var loaded by remember { mutableStateOf(false) }
-    var failed by remember { mutableStateOf(false) }
+    val toolRevision = block.openUiRevision.takeIf { toolPresentation }
+    var loaded by remember(viewKey, toolRevision) { mutableStateOf(false) }
+    var failed by remember(viewKey, toolRevision) { mutableStateOf(false) }
     val presetHome = block.openUiHostAction == PresetHomeAction
     val title = if (presetHome) stringResource(R.string.preset_return_home)
         else block.openUiTitle.ifBlank { stringResource(R.string.interactive_reply) }
@@ -70,14 +76,24 @@ internal fun OpenUiReply(
     val context = LocalContext.current
     val supported = remember { OpenUiPage.isSupported() }
     if (!supported) {
-        Text(stringResource(R.string.interactive_reply_unavailable))
+        if (fallback != null) fallback() else Text(stringResource(R.string.interactive_reply_unavailable))
         return
+    }
+    if (failed && fallback != null) {
+        fallback()
+        return
+    }
+    LaunchedEffect(viewKey, toolRevision, loaded, failed) {
+        if (toolPresentation && !loaded && !failed) {
+            delay(10_000)
+            failed = true
+        }
     }
 
     fun closeExpanded() {
         if (!expanded) return
         // Reopen the preview with any form changes made in the sheet.
-        pages.discard(block.id)
+        pages.discard(openUiCacheKey(viewKey, toolPresentation))
         expanded = false
     }
 
@@ -128,6 +144,7 @@ internal fun OpenUiReply(
         }
     }
 
+    toolHeader?.invoke()
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = MaterialTheme.shapes.large,
@@ -146,6 +163,8 @@ internal fun OpenUiReply(
                         false,
                         pages,
                         displayAssets,
+                        viewKey,
+                        toolPresentation,
                         ::handleMessage,
                     )
                 if (!loaded && !failed)
@@ -175,6 +194,8 @@ internal fun OpenUiReply(
                 true,
                 null,
                 displayAssets,
+                viewKey,
+                toolPresentation,
                 ::handleMessage,
             )
         }
@@ -188,6 +209,8 @@ private fun OpenUiWebView(
     expanded: Boolean,
     pages: OpenUiPageCache?,
     displayAssets: DisplayAssets?,
+    viewKey: String,
+    toolPresentation: Boolean,
     onMessage: (JSONObject) -> Unit,
 ) {
     val dark = isSystemInDarkTheme()
@@ -219,10 +242,11 @@ private fun OpenUiWebView(
         factory = ::OpenUiSlot,
         modifier = modifier,
         update = { slot ->
-            val page = slot.bind(block.id, expanded, pages, onMessage)
-            page.openMedia = displayAssets?.let { assets -> { url -> assets.openMedia(block.id, url) } }
+            val page = slot.bind(viewKey, expanded, pages, toolPresentation, onMessage)
+            page.openMedia = if (toolPresentation) null
+                else displayAssets?.let { assets -> { url -> assets.openMedia(block.id, url) } }
             page.render(payload) {
-                interactions?.restore?.invoke(block.id)
+                if (toolPresentation) null else interactions?.restore?.invoke(block.id)
             }
         },
         onReset = OpenUiSlot::unbind,
@@ -299,6 +323,9 @@ internal class OpenUiPageCache {
     }
 }
 
+private fun openUiCacheKey(id: String, toolPresentation: Boolean): String =
+    if (toolPresentation) "tool:$id" else "reply:$id"
+
 private class OpenUiSlot(context: Context) : FrameLayout(context) {
     private var cardId: String? = null
     private var cache: OpenUiPageCache? = null
@@ -307,15 +334,17 @@ private class OpenUiSlot(context: Context) : FrameLayout(context) {
         id: String,
         expanded: Boolean,
         pages: OpenUiPageCache?,
+        toolPresentation: Boolean,
         onMessage: (JSONObject) -> Unit,
     ): OpenUiPage {
-        if (cardId == id && cache === pages) {
+        val cacheKey = openUiCacheKey(id, toolPresentation)
+        if (cardId == cacheKey && cache === pages) {
             return (getChildAt(0) as OpenUiPage).apply { callback = onMessage }
         }
         unbind()
-        val page = pages?.take(id) ?: OpenUiPage(context, expanded)
+        val page = pages?.take(cacheKey) ?: OpenUiPage(context, expanded, toolPresentation = toolPresentation)
         page.tag = id
-        cardId = id
+        cardId = cacheKey
         cache = pages
         addView(page, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         page.attach(onMessage)
@@ -338,6 +367,7 @@ internal class OpenUiPage(
     context: Context,
     private val ownsVerticalScroll: Boolean,
     private val offline: Boolean = false,
+    private val toolPresentation: Boolean = false,
 ) : WebView(context) {
     private var ready = false
     private var latest = ""
@@ -376,6 +406,11 @@ internal class OpenUiPage(
                     request: WebResourceRequest,
                 ): WebResourceResponse? {
                     val uri = request.url
+                    if (toolPresentation) {
+                        val local = uri.scheme == "https" && uri.authority == "minirp-ui.invalid" &&
+                            request.method == "GET" && ToolResources.matches(uri.encodedPath.orEmpty())
+                        return if (local) assetLoader.shouldInterceptRequest(uri) ?: unavailable() else unavailable()
+                    }
                     if (uri.scheme == "https" && uri.authority == "minirp-ui.invalid" &&
                         uri.encodedPath.orEmpty().startsWith(AssetResourcePath)) {
                         val url = Uri.decode(uri.encodedPath.orEmpty().removePrefix(AssetResourcePath))
@@ -416,12 +451,17 @@ internal class OpenUiPage(
             val text = message.data ?: return@addWebMessageListener
             if (text.length > 40000) return@addWebMessageListener
             val event = runCatching { JSONObject(text) }.getOrNull() ?: return@addWebMessageListener
-            if (event.optString("type") == "ready") {
-                ready = true
-                sendLatest()
-            } else receive(event)
+            when (event.optString("type")) {
+                "ready" -> {
+                    ready = true
+                    sendLatest()
+                }
+                "height", "rendered", "error" -> receive(event)
+                else -> if (!toolPresentation) receive(event)
+            }
         }
-        loadUrl("$Origin/assets/openui/index.html")
+        val entry = if (toolPresentation) "tool.html" else "index.html"
+        loadUrl("$Origin/assets/openui/$entry")
     }
 
     fun attach(onMessage: (JSONObject) -> Unit) {
@@ -498,6 +538,7 @@ internal class OpenUiPage(
     companion object {
         private const val Origin = "https://minirp-ui.invalid"
         private const val AssetResourcePath = "/asset-resource/"
+        private val ToolResources = Regex("/assets/openui/(?:tool\\.html|surface\\.(?:css|js)|[a-zA-Z0-9_-]+\\.(?:woff2?|ttf))")
 
         fun isSupported() = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
     }

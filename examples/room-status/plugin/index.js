@@ -1,7 +1,16 @@
+const statusLimit = 180;
+
+function validationMessage(locale) {
+    if (/^zh-(?:hant|tw|hk|mo)(?:-|$)/i.test(locale ?? ""))
+        return `請將狀態寫在 ${statusLimit} 字以內。`;
+    if (/^zh(?:-|$)/i.test(locale ?? "")) return `请将状态写在 ${statusLimit} 字以内。`;
+    return `Use a status of up to ${statusLimit} characters.`;
+}
+
 globalThis.handlers = {
     async report(event, api) {
         const line = String(event.arguments?.line ?? "").trim();
-        if (line.length < 1 || line.length > 180) throw new Error("Use a status of up to 180 characters.");
+        if (line.length < 1 || line.length > statusLimit) throw new Error(validationMessage(api.environment.locale));
         const current = await api.state.get({ key: "station" });
         return api.state.set({ key: "station", value: { line }, expected_revision: current.revision });
     },

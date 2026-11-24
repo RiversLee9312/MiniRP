@@ -14,10 +14,35 @@ export interface PluginManifestIdentity {
     /** Canonical lowercase UUID of the owning preset. */
     presetId?: UUID;
 }
+/** Display-only RFC 6901 pointers into fields already declared in manifest.json. */
+export type ManifestTextPointer = `/${string}`;
+export interface PluginManifestI18n {
+    defaultLocale?: string;
+    locales: Readonly<Record<string, Readonly<Partial<Record<ManifestTextPointer, string>>>>>;
+}
+
+export interface CardDeclaration {
+    id: string;
+    title: string;
+    program: string;
+    state?: string;
+    /** Translatable labels exposed as $labels in the card program. */
+    labels?: Readonly<Record<string, string>>;
+}
+export type RuntimeTranslationCatalog = Readonly<Partial<Record<string, string>>>;
+export interface RuntimeI18n {
+    defaultLocale?: string;
+    locales: Readonly<Record<string, RuntimeTranslationCatalog>>;
+    /** Original messages used if neither the requested nor the default locale defines a key. */
+    source?: RuntimeTranslationCatalog;
+}
+export type I18nArgument = string | number | boolean | null | undefined;
+export type Translate = (locale: string | null | undefined, key: string, ...values: I18nArgument[]) => string;
 export interface SettingDeclaration {
     key: string;
     type: "group" | "page" | "boolean" | "choice" | "text" | "link" | "markdown";
     title?: string;
+    description?: string;
     titles?: Readonly<Record<string, string>>;
     /** PNG, JPEG or WebP Asset declared by this plugin. */
     icon?: AssetUrl;
@@ -31,15 +56,24 @@ export interface SettingDeclaration {
 }
 export type ConversationAgent = "chat" | "env" | "preset";
 export type SessionAgent = ConversationAgent | "search" | "fetch" | "temporary";
+/** References read-only card IDs in the same signed manifest's root cards array. */
+export type SkillToolPresentationDeclaration =
+    | { arguments: string; result?: string }
+    | { arguments?: string; result: string };
 export interface SkillToolDeclaration {
     name: string;
+    /** Display title. name remains the tool identifier used in model requests. */
+    title?: string;
     description: string;
     parameters: JsonObject & { type: "object" };
     handler: HookUrl;
     returnType?: "json" | "asset-url";
+    /** Optional cards for the tool's arguments and result. The original trace remains copyable. */
+    presentation?: SkillToolPresentationDeclaration;
 }
 export interface SkillDeclaration {
     name: string;
+    title?: string;
     description: string;
     agents: readonly SessionAgent[];
     instructions?: string;
@@ -53,6 +87,8 @@ export type ChatTarget = ReadTarget & { agent?: ConversationAgent };
 export type Page = { offset?: number; limit?: number };
 
 export interface Environment {
+    /** The locale of this invocation. Older hosts can omit this field. */
+    readonly locale?: string | null;
     readonly session?: string | null;
     readonly chat?: UUID | null;
     readonly room?: UUID | null;
@@ -283,6 +319,10 @@ export type ActionHandler = Handler<ActionEvent>;
 export type AttachmentHandler = Handler<AttachmentEvent, { text: string }>;
 
 export function defineHandlers<const T extends Record<string, (event: never, api: MiniRPApi) => unknown>>(handlers: T): T;
+/** Resolve a runtime message and substitute one-based placeholders such as {1}. */
+export function defineI18n(options: RuntimeI18n): Translate;
+export function getLocale(api: Pick<MiniRPApi, "environment">, fallback?: string): string;
+export function localePointer(...segments: [string | number, ...(string | number)[]]): ManifestTextPointer;
 export function hookUrl(packageName: string, id: string): HookUrl;
 export function eventUrl(packageName: string, id: string): EventUrl;
 export function assetUrl(packageName: string, id: string): AssetUrl;

@@ -73,11 +73,12 @@ public sealed partial class AgentSession : IDisposable
 
     private const string HistoryKey = "_context/history";
     private const string PendingSystemPrefix = "_context/inbox/";
+    private const string LocaleKey = "_context/locale";
 
     internal static JsonArray ReadHistory(MemoryDb db) =>
         JsonNode.Parse(db.Get(HistoryKey) ?? "[]") as JsonArray ?? new();
 
-    private void Save(JsonArray history, string summary, JsonObject instructions, IEnumerable<string>? deliveries = null)
+    private void Save(JsonArray history, string summary, JsonObject instructions, IEnumerable<string>? deliveries = null, string? locale = null)
     {
         var delivered = (deliveries ?? []).Where(id => id.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
         Db.WriteInternal(
@@ -85,6 +86,7 @@ public sealed partial class AgentSession : IDisposable
                 ("_context/summary", summary),
                 ("_context/instructions", JsonValues.Serialize(instructions)),
                 usage.Record(),
+                .. (locale is null ? [] : new (string, string?)[] { (LocaleKey, locale) }),
                 .. delivered.Select(id => ("_inbox/" + id, "1")),
                 .. delivered.Select(id => (PendingSystemPrefix + id, (string?)null))]);
     }
@@ -227,6 +229,9 @@ public sealed partial class AgentSession : IDisposable
         Func<bool>? submitted, IReadOnlySet<string>? terminalTools, JsonArray? attachments,
         string? historyInput, Func<string?>? historySubmission, string inputRole, string? reference, bool privateInput)
     {
+        var locale = bindings.Locale();
+        if (profile.LanguageGuidance is { } languageGuidance)
+            system += "\n" + languageGuidance(locale);
         var working = (JsonArray)history.DeepClone();
         var committed = working.OfType<JsonObject>().ToHashSet(ReferenceEqualityComparer.Instance);
         var summary = Summary;
@@ -276,7 +281,7 @@ public sealed partial class AgentSession : IDisposable
             ct.ThrowIfCancellationRequested();
             MeasureSessionInfo(definitions);
             instructions.RememberActiveSkills(activeSkills);
-            Save(working, summary, instructions.State, Deliveries().Concat(acknowledgedMessages ?? []));
+            Save(working, summary, instructions.State, Deliveries().Concat(acknowledgedMessages ?? []), locale);
             historyCommitted = true;
             history = working;
             Summary = summary;
@@ -378,7 +383,7 @@ public sealed partial class AgentSession : IDisposable
                 yield return new("session-memory", "Save durable notes and recall earlier messages.", Tools.Memory(), MemoryTool,
                     Required: true, Instructions: MemoryInstructions);
             foreach (var skill in taskSkills) yield return skill;
-            foreach (var extra in bindings.Skills(turnModel.SelectedProvider, attachment => samples.AddNode(attachment))) yield return extra;
+            foreach (var extra in bindings.Skills(turnModel.SelectedProvider, attachment => samples.AddNode(attachment), locale)) yield return extra;
             if (bindings.OpenUi() is { Length: > 0 and <= 60000 } openUi)
                 yield return new("interactive-ui",
                     "Build a rich interactive answer if a dashboard, calculator, editable itinerary, visual explanation, or working tool helps the user.",
@@ -404,7 +409,7 @@ public sealed partial class AgentSession : IDisposable
                 var firstRequest = previousSkills is null;
                 if (profile.BackgroundMessages) Inbox?.ClearSystemMessageSignal();
                 AppendPendingSystemMessages(beforeInput: firstRequest);
-                var enabled = new AgentSkill.Turn(Skills(), previousSkills?.ActiveNames ?? instructions.ActiveSkills);
+                var enabled = new AgentSkill.Turn(Skills(), previousSkills?.ActiveNames ?? instructions.ActiveSkills, locale);
                 previousSkills = enabled;
                 var definitions = enabled.Definitions();
                 if (instructions.Update(system, enabled, definitions) is { } update)
@@ -534,15 +539,23 @@ public sealed partial class AgentSession : IDisposable
                     var id = call.GetString("id");
                     var offered = enabled.Offers(name);
                     var owner = enabled.OwnerOf(name);
-                    if (offered) MeasureSessionInfo(definitions);
-                    if (offered) emit(new()
+                    var arguments = call.GetObject("function").GetString("arguments");
+                    void EmitTool(string kind, string phase, string text, bool plain = false)
                     {
-                        ["kind"] = "tool_start",
-                        ["agent"] = Name,
-                        ["block"] = id,
-                        ["name"] = name,
-                        ["arguments"] = call.GetObject("function").GetString("arguments")
-                    });
+                        if (!offered) return;
+                        var item = new JsonObject { ["kind"] = kind, ["agent"] = Name, ["block"] = id, ["name"] = name,
+                            [phase == ToolPresentation.Arguments ? "arguments" : "text"] = text };
+                        item[ToolTrace.Source] = enabled.TraceSource(name);
+                        if (phase == ToolPresentation.Result) item[ToolTrace.ResultPlain] = plain;
+                        if (enabled.Presentation(name, phase, text, plain) is { } presentation)
+                        {
+                            item[ToolPresentation.DisplayKey(phase)] = presentation.Display;
+                            item[ToolPresentation.ReferenceKey(phase)] = presentation.Reference;
+                        }
+                        emit(item);
+                    }
+                    if (offered) MeasureSessionInfo(definitions);
+                    EmitTool("tool_start", ToolPresentation.Arguments, arguments);
                     try
                     {
                         ct.ThrowIfCancellationRequested();
@@ -565,14 +578,8 @@ public sealed partial class AgentSession : IDisposable
                         result = ToolDiagnostics.FromException(name, owner, error);
                     }
                     var text = name is "db_read" or "history_recall" ? JsonValues.Serialize(result) : ToolText(result, budget);
-                    if (offered) emit(new()
-                    {
-                        ["kind"] = "tool_end",
-                        ["agent"] = Name,
-                        ["block"] = id,
-                        ["name"] = name,
-                        ["text"] = text
-                    });
+                    var plain = result is JsonValue scalar && scalar.TryGetValue<string>(out var rawText) && rawText == text;
+                    EmitTool("tool_end", ToolPresentation.Result, text, plain);
                     working.AddNode(new JsonObject { ["role"] = "tool", ["tool_call_id"] = id, ["name"] = name, ["content"] = text });
                 }
                 if (samples.Count > 0)

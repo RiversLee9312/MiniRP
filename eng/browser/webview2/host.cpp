@@ -9,8 +9,10 @@
 #include <charconv>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 namespace {
 using Microsoft::WRL::Callback;
@@ -133,17 +135,30 @@ public:
 
     int Run(HINSTANCE instance)
     {
-        WNDCLASSW windowClass{};
+        const auto loadIcon = [instance](int widthMetric, int heightMetric) {
+            const auto handle = static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(MINIRP_WINDOW_ICON_ID),
+                IMAGE_ICON, GetSystemMetrics(widthMetric), GetSystemMetrics(heightMetric), 0));
+            return std::unique_ptr<std::remove_pointer_t<HICON>, decltype(&DestroyIcon)>(handle, DestroyIcon);
+        };
+        const auto largeIcon = loadIcon(SM_CXICON, SM_CYICON);
+        const auto smallIcon = loadIcon(SM_CXSMICON, SM_CYSMICON);
+        WNDCLASSEXW windowClass{};
+        windowClass.cbSize = sizeof(windowClass);
         windowClass.lpfnWndProc = WindowProc;
         windowClass.hInstance = instance;
+        windowClass.hIcon = largeIcon.get();
+        windowClass.hIconSm = smallIcon.get();
         windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
         windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
         windowClass.lpszClassName = L"MiniRP.WebView2";
-        if (!RegisterClassW(&windowClass)) return 1;
+        if (!RegisterClassExW(&windowClass)) return 1;
 
         window_ = CreateWindowExW(0, windowClass.lpszClassName, L"MiniRP", WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT, CW_USEDEFAULT, 1100, 780, nullptr, nullptr, instance, this);
-        if (!window_) return 1;
+        if (!window_) {
+            UnregisterClassW(windowClass.lpszClassName, instance);
+            return 1;
+        }
 
         started_ = GetTickCount64();
         if (!SetTimer(window_, StartupTimer, 100, nullptr) || FAILED(Initialize())) Stop(1);
@@ -152,6 +167,7 @@ public:
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
+        UnregisterClassW(windowClass.lpszClassName, instance);
         return exitCode_;
     }
 
@@ -198,7 +214,7 @@ private:
         std::error_code error;
         if (runtime.empty() || (!selected_.empty() && !fs::equivalent(runtime, selected_, error)) ||
             !WriteMarker(profile_, L"minirp-runtime", Utf8(runtime.native()))) return E_FAIL;
-        Resize();
+        if (FAILED(Resize())) return E_FAIL;
         ComPtr<ICoreWebView2Settings> settings;
         if (FAILED(view_->get_Settings(&settings))) return E_FAIL;
         settings->put_IsStatusBarEnabled(FALSE);
@@ -242,10 +258,10 @@ private:
                     if (FAILED(args->get_IsSuccess(&success)) || !success) return Stop(1);
                     loaded_ = true;
                     if (mode_ == Mode::Window) {
-                        if (!WriteMarker(profile_, L"minirp-version", version_)) return Stop(1);
+                        if (!SetWindowPos(window_, HWND_TOP, 0, 0, 0, 0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW) ||
+                            FAILED(Resize()) || !WriteMarker(profile_, L"minirp-version", version_)) return Stop(1);
                         KillTimer(window_, StartupTimer);
-                        SetWindowPos(window_, HWND_TOP, 0, 0, 0, 0,
-                            SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
                     }
                     if (mode_ == Mode::Probe) return Probe();
                     return S_OK;
@@ -288,12 +304,15 @@ private:
         KillTimer(window_, StartupTimer);
     }
 
-    void Resize()
+    HRESULT Resize()
     {
-        if (!controller_) return;
+        if (!controller_) return S_OK;
         RECT bounds{};
-        GetClientRect(window_, &bounds);
-        controller_->put_Bounds(bounds);
+        if (!GetClientRect(window_, &bounds)) return E_FAIL;
+        auto result = controller_->put_Bounds(bounds);
+        if (FAILED(result) || mode_ != Mode::Window) return result;
+        // The controller is created before the containing HWND is shown.
+        return controller_->put_IsVisible(IsWindowVisible(window_) && !IsIconic(window_));
     }
 
     HRESULT Stop(int exitCode)

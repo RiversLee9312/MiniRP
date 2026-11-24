@@ -7,34 +7,38 @@ public sealed partial class AgentSession
     private enum PluginAccess { Scoped, BuiltIn, None }
 
     private sealed record Profile(string Name, PluginAccess Plugins = PluginAccess.Scoped,
-        bool Cards = false, bool InteractiveUi = false, bool Memory = true, bool FollowUp = true, bool BackgroundMessages = false);
+        bool Cards = false, bool InteractiveUi = false, bool Memory = true, bool FollowUp = true, bool BackgroundMessages = false,
+        Func<string, string>? LanguageGuidance = null);
 
-    private sealed record Bindings(Func<Provider, Action<JsonObject>, IEnumerable<AgentSkill>> Skills, Func<string, JsonObject?> State,
-        AgentAssets? Assets, Func<string> OpenUi);
+    private sealed record Bindings(Func<Provider, Action<JsonObject>, string, IEnumerable<AgentSkill>> Skills, Func<string, JsonObject?> State,
+        AgentAssets? Assets, Func<string> OpenUi, Func<string> Locale);
 
     /// <summary>Resolves role permissions and attaches every session to the same runtime.</summary>
     internal sealed class Factory(HostPort port, PluginRuntime? plugins, string? attachmentRoot, Func<string> openUi,
         Func<Workspace>? workspace = null, AgentContainer.Rooms? containers = null, Func<bool>? curlAvailable = null,
-        AgentContainer.Rooms? presetContainers = null)
+        AgentContainer.Rooms? presetContainers = null, Func<string?>? requestedLocale = null)
     {
         public AgentSession Open(string role, string database, Func<Provider> provider, Func<JsonObject> context,
             Action<JsonObject> emit, Func<IEnumerable<AgentSkill>>? skills = null, Func<string, bool>? canReadChat = null,
-            TurnInbox? inbox = null, Workspace? presetWorkspace = null, MemoryDb? sharedAssets = null) =>
-            Open(role, database, provider, context, (item, _) => emit(item), skills, canReadChat, inbox, presetWorkspace, sharedAssets);
+            TurnInbox? inbox = null, Workspace? presetWorkspace = null, MemoryDb? sharedAssets = null, string? delegatedLocale = null,
+            Workspace? conversationWorkspace = null) =>
+            Open(role, database, provider, context, (item, _) => emit(item), skills, canReadChat, inbox, presetWorkspace,
+                sharedAssets, delegatedLocale, conversationWorkspace);
 
         public AgentSession Open(string role, string database, Func<Provider> provider, Func<JsonObject> context,
             Action<JsonObject, SessionModelInfo?> emit, Func<IEnumerable<AgentSkill>>? skills = null, Func<string, bool>? canReadChat = null,
-            TurnInbox? inbox = null, Workspace? presetWorkspace = null, MemoryDb? sharedAssets = null)
+            TurnInbox? inbox = null, Workspace? presetWorkspace = null, MemoryDb? sharedAssets = null, string? delegatedLocale = null,
+            Workspace? conversationWorkspace = null)
         {
             var profile = role switch
             {
                 "chat" => new Profile("ChatAgent", Cards: true, InteractiveUi: true),
                 "room-preparation" => new Profile("ChatAgent", PluginAccess.None, Memory: false, FollowUp: false),
                 "env" => new Profile("EnvAgent", Cards: true),
-                "preset" => new Profile("PresetAgent", Cards: true, BackgroundMessages: true),
+                "preset" => new Profile("PresetAgent", Cards: true, BackgroundMessages: true, LanguageGuidance: PresetAgent.LanguageGuidance),
                 "search" => new Profile("SearchAgent"),
                 "fetch" => new Profile("FetchAgent", FollowUp: false),
-                "plugin" => new Profile("PluginAgent", PluginAccess.BuiltIn),
+                "plugin" => new Profile("PluginAgent", PluginAccess.BuiltIn, LanguageGuidance: PluginAgent.LanguageGuidance),
                 "temporary" => new Profile("TemporaryAgent"),
                 "title" => new Profile("TitleAgent", PluginAccess.None, Memory: false, FollowUp: false),
                 "plugin-generation" => new Profile("PluginGeneration", PluginAccess.None, Memory: false, FollowUp: false),
@@ -49,10 +53,11 @@ public sealed partial class AgentSession
                 var presetResearch = presetWorkspace is null ? null : new PresetResearch(presetWorkspace, assetDb);
                 if (role == "preset" && presetWorkspace is not null)
                     AgentAssets.ImportPluginGrants(assetDb, SessionFiles.PluginDirectory(presetWorkspace.Root, presetWorkspace.PresetId));
+                var assetWorkspace = conversationWorkspace is null ? workspace : () => conversationWorkspace;
                 var assets = profile.Plugins != PluginAccess.None && plugins is not null && attachmentRoot is not null
-                    ? new AgentAssets(plugins, assetDb, attachmentRoot, context, role is "chat" or "search" ? workspace : null,
+                    ? new AgentAssets(plugins, assetDb, attachmentRoot, context, role is "chat" or "search" ? assetWorkspace : null,
                         presetResearch, protectDraftAssets: role == "preset") : null;
-                IEnumerable<AgentSkill> ResolveSkills(Provider selected, Action<JsonObject> attach)
+                IEnumerable<AgentSkill> ResolveSkills(Provider selected, Action<JsonObject> attach, string locale)
                 {
                     if (assets is not null && attachmentRoot is not null && database != ":memory:")
                     {
@@ -63,10 +68,14 @@ public sealed partial class AgentSession
                             yield return new AgentCurl(port, assets, Path.GetDirectoryName(attachmentRoot)!).Skill();
                     }
                     if (plugins is not null && profile.Plugins != PluginAccess.None)
-                        foreach (var skill in plugins.Skills(role, context(), builtInOnly: !scoped,
+                    {
+                        var environment = (JsonObject)context().DeepClone();
+                        environment["locale"] = locale;
+                        foreach (var skill in plugins.Skills(role, environment, builtInOnly: !scoped,
                                      assets: assets, showCard: profile.Cards ? session.ShowCard : null, provider: selected, attach: attach,
                                      sessionInfo: () => session.sessionInfo))
                             yield return skill;
+                    }
                     var container = role switch { "chat" => containers, "preset" or "plugin" => presetContainers, _ => null };
                     if (container is not null && assets is not null && database != ":memory:")
                     {
@@ -81,7 +90,9 @@ public sealed partial class AgentSession
                         foreach (var skill in skills()) yield return skill;
                 }
                 return new(ResolveSkills, key => scoped ? plugins?.ReadStateProjection(role, context(), key, canReadChat) : null,
-                    assets, () => profile.InteractiveUi ? openUi() : "");
+                    assets, () => profile.InteractiveUi ? openUi() : "",
+                    () => AgentLanguage.Normalize(delegatedLocale) ?? AgentLanguage.Normalize(requestedLocale?.Invoke()) ??
+                        AgentLanguage.Normalize(session.Db.Get(LocaleKey)) ?? AgentLanguage.Normalize(context().GetString("locale")) ?? AgentLanguage.Default);
             });
         }
     }

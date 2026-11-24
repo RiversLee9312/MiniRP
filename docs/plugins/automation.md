@@ -12,13 +12,17 @@
 4. EnvAgent 按世界规则决定实际更新，用 `notify_chat` 通知普通对话，或用群像技能的 `notify_chat`、`notify_character` 选择通知对象。示例采用 Room scope，同一 Room 的多条 Chat 可以读到同一份航站状态。
 5. 智能体调用 `plugin_room-status_status-card`，Android 显示一张 OpenUI 卡。以后底层状态改动，打开的卡片会更新。重新打开旧聊天时，卡片也会从插件读取当前状态。
 
+展开 `report` 的工具轨迹可以看见本次上报内容和实际保存值。它们由两个只读卡片显示，原始参数和结果仍可复制。卡片接收该次工具调用的数据，见[工具轨迹展示](skills-settings.md#工具轨迹展示)。
+
 把示例源码打包、签名，再在预设中启用。想由智能体做，可以请 PresetAgent 委派 PluginAgent 阅读本篇、建立项目、调试并按你的要求部署。手动打包入口见 [开发指南](packaging.md)。
+
+示例通过 `manifest.json` 的 `i18n` 提供简体中文的设置、卡片标题和技能文本，运行时根据回调的 `api.environment.locale` 生成状态输入错误。见[清单和运行时本地化](runtime.md#本地化)。
 
 ## 声明状态和卡片
 
 `manifest.json` 顶层的 `stateEntries` 逐项声明 `key`、`scope`、`description`、`initial` 和可选的 `onChange`。 `initial` 是 JSON 对象，读取初始值时修订为 0。描述告诉智能体这项状态是什么、何时需要参考。把状态变更的验证写在业务处理器里。
 
-`cards` 逐项声明 `id`、`title`、`program` 和可选的 `state`。`state` 填状态条目的 `key` 字符串。OpenUI Lang 程序用 `$line` 引用该条目值中的 `line` 字段。
+`cards` 逐项声明 `id`、`title`、`program` 和可选的 `state`、`labels`。`state` 填状态条目的 `key` 字符串。OpenUI Lang 程序用 `$line` 引用该条目值中的 `line` 字段。示例通过 [卡片本地化](state.md#卡片本地化)提供 `$title` 和 `$labels.current`。
 
 ```json
 {
@@ -75,4 +79,4 @@ PluginAgent 激活 `base-plugin-project` 后，可以在 Android 上独立完成
 
 测试至少覆盖一次正常更新、重复输入、并发写入、无房间上下文、同一 Room 的两条 Chat 同名状态键、撤销插件作用域，以及已有聊天重新打开。验证实际状态和可见结果，避免把「已排队」当成「已执行」。涉及群像时，用同一 Room 下的两条 Chat 和至少一个只加入其中一条的角色检验边界。
 
-群像角色并发准备和运行，SearchAgent 按各自角色的需要启动。用清单的 Room 级初始状态，或在 `room.loaded` 上注册可重复执行的房间初始化 Action。事件异步投递，依赖初始化结果的工具也应能在首次调用时完成初始化。回调读取共享状态时用修订号处理冲突，角色的开始和结束事件没有固定顺序。
+群像角色及其可选的 SearchAgent 并发准备。在 Room 开放期间，角色持续处理已加入场景中的消息，用户切换或退出场景视图时仍可触发相应工具。准备和开场需要的共享状态由清单声明，或由首次使用该状态的工具幂等初始化。`room.loaded` 在开场完成后异步投递，适合此时才应启动的操作。通过修订号处理共享状态的并发冲突，各角色的开始和结束事件可以按不同顺序抵达。

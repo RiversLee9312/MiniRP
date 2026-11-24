@@ -216,4 +216,7 @@
     <string name="preset_management">Hantera förinställning</string>
     <string name="conversation_settings">Chattinställningar</string>
     <string name="add_saved_model">Lägg till modell</string>
+    <string name="tool_arguments">Argument</string>
+    <string name="tool_result">Resultat</string>
+    <string name="quote_reply">Citera</string>
 </resources>

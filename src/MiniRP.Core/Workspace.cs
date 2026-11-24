@@ -155,20 +155,22 @@ public sealed class Workspace
     }
     public void Save()
     {
-        if (ChatId.Length == 0)
+        lock (RoomGate)
         {
-            return;
+            if (ChatId.Length == 0) return;
+            Chat["world"] = State.DeepClone();
+            Chat["preset"] = PresetId;
+            Chat["updated_at"] = DateTimeOffset.UtcNow.ToString("O");
+            AtomicFile.Write(Path.Combine(Root, "conversations", PresetId, ChatId + ".json"), JsonValues.Serialize(Chat));
         }
-
-        Chat["world"] = State.DeepClone();
-        Chat["preset"] = PresetId;
-        Chat["updated_at"] = DateTimeOffset.UtcNow.ToString("O");
-        AtomicFile.Write(Path.Combine(Root, "conversations", PresetId, ChatId + ".json"), JsonValues.Serialize(Chat));
     }
     public void Commit(JsonObject state)
     {
-        State = state;
-        Save();
+        lock (RoomGate)
+        {
+            State = state;
+            Save();
+        }
     }
     public void CommitConfig(JsonObject config)
     {
@@ -208,7 +210,10 @@ public sealed class Workspace
             ["canon"] = JsonValues.Clone(State["canon"])
         }
     });
-    public string Conversation => JsonValues.Serialize(Chat.GetArray("messages"));
+    public string Conversation
+    {
+        get { lock (RoomGate) return JsonValues.Serialize(Chat.GetArray("messages")); }
+    }
     public string RecentConversation(int maxCharacters)
     {
         var excerpts = new Stack<string>();

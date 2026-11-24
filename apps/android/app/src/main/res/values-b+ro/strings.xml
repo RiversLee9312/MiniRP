@@ -218,4 +218,7 @@
     <string name="preset_management">Gestionează presetarea</string>
     <string name="conversation_settings">Setările conversației</string>
     <string name="add_saved_model">Adaugă un model</string>
+    <string name="tool_arguments">Argumente</string>
+    <string name="tool_result">Rezultat</string>
+    <string name="quote_reply">Citează</string>
 </resources>

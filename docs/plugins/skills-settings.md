@@ -2,7 +2,9 @@
 
 ## Skills
 
-技能声明 `{name, description, agents, instructions?, tools?, hooks?}`。技能可以有多个工具，也可以只提供指令。每个工具都声明在所属技能的 `tools` 中。 `agents` 可包含 `chat`、`env`、`preset`、`search`、`fetch`、`temporary`。内置 base 插件还为 `plugin` 角色提供技能。工具声明为 `{name, description, parameters, handler, returnType?}`，`parameters` 是顶层 `type:"object"` 的 JSON Schema，`handler` 是本包 Hook URL。工具名在模型侧是 `plugin_<id>_<name>`，长度最多 64，同一插件的工具名全局唯一。
+技能声明 `{name, title?, description, agents, instructions?, tools?, hooks?}`。技能可以有多个工具，也可以只提供指令。每个工具都声明在所属技能的 `tools` 中。 `agents` 可包含 `chat`、`env`、`preset`、`search`、`fetch`、`temporary`。内置 base 插件还为 `plugin` 角色提供技能。工具声明为 `{name, title?, description, parameters, handler, returnType?, presentation?}`，`parameters` 是顶层 `type:"object"` 的 JSON Schema，`handler` 是本包 Hook URL。工具名在模型侧是 `plugin_<id>_<name>`，长度最多 64，同一插件的工具名全局唯一。
+
+可给技能和工具提供面向用户的 `title`。在 `i18n.locales` 中使用 `/skills/0/title` 或 `/skills/0/tools/0/title` 翻译标题。模型调用、插件 Action 和归档继续使用稳定的 `name`。
 
 智能体先看到技能说明，通过 `activate_skill` 激活后，下一次模型请求才包含这个技能的工具。模型调用工具时，宿主调用其声明的 Action，并提供 `event.name = "skill.tool"` 以及 `skill`、`tool`、`arguments`。插件也可以通过 `actions.invoke` 调用同一个 Action URL。此时处理器收到 `actions.invoke` 事件，按普通 Action 授权处理。`skills[].hooks` 可绑定 `skill.activated`、`turn.started`、`turn.finished`、`tool.started`、`tool.finished`。回调值统一写本包 Actions Hook URL。
 
@@ -30,6 +32,33 @@ base 的 `edit_asset` 技能可修改当前会话获得授权的可写 Asset。�
 `text_edit` 按 `old_string` 精确替换，遇到重复内容时需要更多上下文或显式 `replace_all`。`bin_patch` 在 `offset` 处核对 `old_hex` 后写入 `new_hex`，使用 `raw_grep` 的空格和 `|` 分组格式。两类可写 Asset 的相应版本都可随存档恢复。
 
 每个查看工具都接收 `url`。兼容的模型会收到媒体内容，返回的 `sample_url` 可继续用作工具参数。宿主使用模型提供的输入模态声明和协议限制。未公布输入模态的模型沿用协议支持的类型。Android 用系统组件采样。桌面通过 PATH 上的 Poppler `pdftoppm`、`pdfinfo` 和 FFmpeg 的 `ffmpeg`、`ffprobe` 采样和读取元数据。
+
+## 工具轨迹展示
+
+可给 `skills[].tools[]` 增加 `presentation`，在 Android 和 WebUI 的工具轨迹中显示只读 OpenUI 卡片。`arguments` 和 `result` 分别指定参数和结果卡片，可以只填一项。它们的值是同一份签名清单顶层 `cards` 中的 `id`，可以与用于普通回复的卡片分别声明。用于轨迹展示的卡片省略 `state` 字段。
+
+例如，`report` 工具声明 `"presentation": {"arguments":"report-input", "result":"report-output"}`。在同一清单中声明对应卡片。
+
+```json
+{
+  "cards": [
+    {"id":"report-input", "title":"上报的状态", "program":"root = Col([Title($title, \"md\"), Text($data.line)])"},
+    {"id":"report-output", "title":"已保存的状态", "program":"root = Col([Title($title, \"md\"), Text($data.value.line)])"}
+  ]
+}
+```
+
+- `$data` 是工具轨迹中的本次参数或结果。JSON 解析后按对象、数组、数字、布尔值、字符串或 `null` 传入。返回普通文本的工具收到字符串。示例的参数包含 `line`，结果包含 `value.line`。
+- `$tool` 是宿主提供的完整工具名，例如 `plugin_room-status_report`。`$phase` 是 `arguments` 或 `result`。
+- `$title` 是按当前语言解析后的卡片标题，可在程序中直接显示。`$locale` 是本次展示请求的语言标签，未提供时为空字符串。
+- 在卡片声明中提供 `labels` 后，通过 `$labels.<key>` 读取翻译后的字段标题和提示。普通回复卡片使用同一份[卡片本地化契约](state.md#卡片本地化)。
+- 轨迹组件包括 `Badge`、`Card`、`Chart`、`Col`、`Divider`、`Row`、`Table`、`Text`、`Title` 和 `ToolFacts`。只读页面禁用动作交互，内容安全策略阻止网络、图片和 Asset 加载以及 Worker。可以使用纯表达式计算显示值。把参数和结果作为卡片数据传入，保持签名卡片的 OpenUI 程序固定。
+- 模型收到原有的工具定义和返回值。工具轨迹保留参数和结果的原始文本供复制。未声明展示、卡片不可用、渲染失败、工具返回错误或数据超出展示限制时，宿主显示原有文本或 JSON。
+
+测试时从真实聊天调用工具。展开轨迹并分别检查参数、结果和原始数据复制。再触发一次错误，或构造一次无法渲染的卡片，确认原始文本仍可读、可复制。用窄窗口或手机复查较长的字段。完整清单见 [航站状态示例](../../examples/room-status/plugin/manifest.json)。
+
+`ToolFacts(rows, status, note, more, less)` 用于只读轨迹。提供最多 18 个 `{label, value, mono?}` 形式的字段。标题和取值使用纯文本字符串，`mono` 可将取值设为等宽字体。文本可选择，长字段可单独展开。`status` 和 `note` 为空时隐藏，`more` 和 `less` 是展开与收起的文案。可以使用卡片的 `$labels` 为这些文字提供译文。
+
 ## 设置
 
 `settings.get({key})` 需 `settings` 权限，读取本包声明的可存值节点，返回字符串、布尔值或默认的 `null`。用户写入由宿主处理，变更触发本包的 `settings.changed`。
@@ -46,6 +75,6 @@ Android 和桌面使用 HarnessCore 内置的同一份 `minirp.base` 设置声�
 | `link` | `url` 为 Actions Hook URL，点击投递对应 Action。 |
 | `markdown` | `content` 指向 MIME 为 `text/markdown` 的 Asset ID，也可用 `markdown` 填写内联文本。Android 页面加载上限 256 KiB。 |
 
-节点使用全包唯一的 `key`，除 Markdown 外均填 `title`，可选 `titles` 提供 BCP 47 语言映射。每组最多 50 项，嵌套最多 5 层。宿主内部设置绑定仅开放给内置插件。
+节点使用全包唯一的 `key`，除 Markdown 外均填 `title`。通过 [清单本地化](runtime.md#本地化) 翻译标题、描述、内联 Markdown 和选项标题。现有 `titles` 语言映射继续可用。每组最多 50 项，嵌套最多 5 层。宿主内部设置绑定仅开放给内置插件。
 
 Android 可用可选字段 `icon` 显示设置图标，例如 `"icon": "minirp://assets/example.minichat.roomstatus/settings-icon"`。URL 指向本包 `assets` 声明的 PNG、JPEG 或 WebP 资源，允许使用私有 Asset。静态文件与动态 Asset 都通过宿主的 Asset 流和预设作用域校验，Android 最多读取 256 KiB。

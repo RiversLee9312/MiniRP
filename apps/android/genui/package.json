@@ -9,6 +9,7 @@
   "dependencies": {
     "@openuidev/intelligent-ui-library": "0.0.1",
     "@openuidev/lang-core": "1.1.1",
+    "@openuidev/react-components": "0.0.3",
     "@openuidev/react-lang": "1.1.1",
     "maplibre-gl": "6.13.0",
     "react": "19.2.3",

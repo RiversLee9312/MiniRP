@@ -23,6 +23,9 @@
     <EmbeddedResource Include="Vendor/web-streams-polyfill.js" LogicalName="MiniRP.WebStreams.js" />
     <EmbeddedResource Include="BasePlugin/manifest.json" LogicalName="MiniRP.BasePlugin.manifest.json" />
     <EmbeddedResource Include="BasePlugin/index.js" LogicalName="MiniRP.BasePlugin.index.js" />
+    <EmbeddedResource Include="AgentSkillNames.json" LogicalName="MiniRP.AgentSkillNames.json" />
+    <EmbeddedResource Include="AgentToolNames.json" LogicalName="MiniRP.AgentToolNames.json" />
+    <EmbeddedResource Include="ToolCardLabels.json" LogicalName="MiniRP.ToolCardLabels.json" />
     <EmbeddedResource Include="../../docs/plugins/*.md" Exclude="../../docs/plugins/README.md" LogicalName="MiniRP.PluginDocs.plugins.%(Filename)" />
     <EmbeddedResource Include="../../docs/presets/*.md" Exclude="../../docs/presets/README.md" LogicalName="MiniRP.PluginDocs.presets.%(Filename)" />
     <EmbeddedResource Include="../../sdk/javascript/manifest.schema.json" LogicalName="MiniRP.PluginDocs.schema" />

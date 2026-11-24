@@ -57,6 +57,7 @@
 - `development` 含本指南和打包、安装与调试。`api` 可按方法名、事件名查权限、参数和返回值。`schema` 是随宿主发布的清单 JSON Schema。
 - `assets` 可用 `query:"## Assets"` 直接查资源声明、权限和读取方式。
 - `state` 讲状态的作用域、修订和卡片。`automation` 演示用技能、事件、状态和卡片连接多个智能体，也包含 Android 卡片预览步骤。
+- 工具有适合视觉展示的结构化参数或结果时，用 `topic:"api", query:"工具轨迹展示"` 查只读卡片声明和原始数据回退的验证方法。
 - `preset` 介绍预设内的对话分工、搜索和工作流程。只需了解群像房间或智能体搜索时，分别查 `rooms` 或 `search`。
 
 ## 多文件 JavaScript
@@ -91,7 +92,7 @@ PluginAgent 用 `create_asset` 创建这两个源码文件，选择 `text/javasc
 
 签名和打包工具需要 [.NET SDK 10](https://dotnet.microsoft.com/download/dotnet/10.0)，版本见仓库的 [global.json](../../global.json)。纯 JavaScript 插件只需要编辑器和该 SDK。使用 TypeScript 或第三方模块时，再安装 [Node.js LTS](https://nodejs.org/) 和你选用的打包器。Android 端运行插件需要 Android 10 或以上，桌面交互版在同一 V8 API 契约下运行。
 
-开启编辑器的 JavaScript 类型检查，或把 [JavaScript SDK](../../sdk/javascript/) 作为工作区依赖。SDK 提供 TypeScript 声明、URL helper 与清单 Schema。发布包内放清单、入口、包内模块和声明资源。TypeScript、npm 配置和依赖目录放在包外。
+开启编辑器的 JavaScript 类型检查，或把 [JavaScript SDK](../../sdk/javascript/) 作为工作区依赖。SDK 提供 TypeScript 声明、URL helper、[运行时本地化 helper](runtime.md#在处理器中翻译文本) 与清单 Schema。发布包内放清单、入口、包内模块和声明资源。TypeScript、npm 配置和依赖目录放在包外。
 
 ## 从示例开始
 

@@ -1,29 +1,48 @@
 package com.minirp.app
 
 import android.content.Context
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.isDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.swipeDown
 import androidx.test.core.app.ApplicationProvider
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.font.FontFamily
 import com.minirp.app.ui.AgentConversation
 import com.minirp.app.ui.AgentRole
 import com.minirp.app.ui.ChatState
 import com.minirp.app.ui.TraceBlock
 import com.minirp.app.ui.TraceLog
+import com.minirp.app.ui.TraceStep
+import com.minirp.app.ui.formatTracePayload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -33,6 +52,82 @@ class TraceInteractionTest {
     @get:Rule val compose = createComposeRule()
 
     private fun label(id: Int) = ApplicationProvider.getApplicationContext<Context>().getString(id)
+
+    @Test
+    fun toolTraceFormatsJsonAndKeepsPayloadsIndependentlyExpandableAndCopyable() {
+        val detail = "Long detail ".repeat(25) + "final argument"
+        val arguments = """{"scope":"room","details":"$detail","tail":"short sibling"}"""
+        val result = "Output detail\n".repeat(20) + "final result"
+        var copied = ""
+        compose.setContent {
+            val clipboard = LocalClipboard.current
+            val testClipboard = remember(clipboard) {
+                object : Clipboard by clipboard {
+                    override suspend fun setClipEntry(clipEntry: ClipEntry?) {
+                        copied = clipEntry?.clipData?.getItemAt(0)?.text?.toString().orEmpty()
+                    }
+                }
+            }
+            MaterialExpressiveTheme {
+                CompositionLocalProvider(LocalClipboard provides testClipboard) {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        TraceStep(TraceBlock("reason", reasoning = "Explanation in prose"), 0)
+                        TraceStep(TraceBlock("tool", tool = "fixture_tool", arguments = arguments, result = result), 0)
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("fixture tool").performClick()
+        val argumentField = checkNotNull(formatTracePayload(arguments).json).single()
+        val argsToggle = compose.onNodeWithTag("trace-json-field:${argumentField.start}")
+        val resultToggle = compose.onNodeWithTag("trace-toggle:result")
+        val argsStart = compose.onNode(
+            hasAnyAncestor(hasTestTag("trace-json:arguments")) and hasText("\n  \"scope\": \"room\",", substring = true),
+            useUnmergedTree = true,
+        )
+        val output = compose.onNodeWithTag("trace-payload:result", useUnmergedTree = true)
+        compose.waitUntil(5_000) { argsToggle.isDisplayed() }
+        argsStart.assertTextContains("\n  \"scope\": \"room\",", substring = true)
+        compose.onNodeWithText("short sibling", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("final argument", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("final result", substring = true).assertDoesNotExist()
+        val toolLayouts = mutableListOf<TextLayoutResult>()
+        argsStart.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(toolLayouts) }
+        val proseLayouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText("Explanation in prose")
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(proseLayouts) }
+        assertEquals(FontFamily.Monospace, toolLayouts.single().layoutInput.style.fontFamily)
+        assertTrue(proseLayouts.single().layoutInput.style.fontFamily != FontFamily.Monospace)
+        compose.onNodeWithTag("trace-copy:arguments").performClick()
+        compose.runOnIdle { assertEquals(arguments, copied) }
+        argsToggle.performClick()
+        compose.onNodeWithText("final argument", substring = true).assertExists()
+        compose.onNodeWithText("short sibling", substring = true).assertExists()
+        compose.onNodeWithText("final result", substring = true).assertDoesNotExist()
+        argsToggle.performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("final argument", substring = true).fetchSemanticsNodes().isEmpty()
+        }
+        resultToggle.performClick()
+        output.assertTextContains("final result", substring = true)
+        compose.onNodeWithText("final argument", substring = true).assertDoesNotExist()
+        compose.onNodeWithTag("trace-copy:result").performClick()
+        compose.runOnIdle { assertEquals(result, copied) }
+    }
+
+    @Test
+    fun traceJsonFormattingPreservesNumbersAndDuplicateNamesAndLeavesInvalidTextAlone() {
+        val raw = """{"n":123456789012345678901,"n":-0.40,"nested":[true,null,{},[]]}"""
+        val formatted = formatTracePayload(raw)
+        assertTrue(formatted.json != null)
+        assertTrue(formatted.value.contains("\n  \"n\": 123456789012345678901,\n  \"n\": -0.40"))
+        assertTrue(formatted.value.contains("\n    true,\n    null,\n    {},\n    []"))
+        for (source in listOf("{notJson: true}", "{} trailing", "[1,]", "A plain result")) {
+            val presentation = formatTracePayload(source)
+            assertEquals(source, presentation.value)
+            assertTrue(presentation.json == null)
+        }
+    }
 
     @Test
     fun searchTraceRequiresItsOwnExpansionInsideAnExpandedChatTrace() {

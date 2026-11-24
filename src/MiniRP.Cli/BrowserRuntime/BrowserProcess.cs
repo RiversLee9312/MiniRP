@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text;
 
 namespace MiniRP.Cli;
 
@@ -7,17 +8,42 @@ internal sealed class BrowserProcess(Process process) : IAsyncDisposable
 {
     private readonly Process child = process;
 
-    public static BrowserProcess Start(string executable, params string[] args) => Launch(executable, args, capture: false, null);
+    public Stream StandardInput => child.StandardInput.BaseStream;
+    public Stream StandardOutput => child.StandardOutput.BaseStream;
 
-    public static BrowserProcess StartWebView2(string executable, string runtime, params string[] args) =>
-        Launch(executable, args, capture: false, runtime);
+    public static BrowserProcess Start(string executable, params string[] args) => Launch(StartInfo(executable, args));
 
-    private static BrowserProcess Launch(string executable, string[] args, bool capture, string? webViewRuntime)
+    public static BrowserProcess StartWebView2(string executable, string runtime, params string[] args)
     {
-        var info = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true,
-            RedirectStandardOutput = capture };
+        var info = StartInfo(executable, args);
+        info.Environment["MINIRP_WEBVIEW2_EXECUTABLE"] = runtime;
+        return Launch(info);
+    }
+
+    public static BrowserProcess StartDriver(string executable, string workingDirectory, IReadOnlyList<string> args)
+    {
+        var info = StartInfo(executable, args);
+        info.WorkingDirectory = workingDirectory;
+        info.RedirectStandardInput = true;
+        info.RedirectStandardOutput = true;
+        info.StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        return Launch(info);
+    }
+
+    private static ProcessStartInfo StartInfo(string executable, IReadOnlyList<string> args)
+    {
+        var info = new ProcessStartInfo(executable)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardError = true
+        };
         foreach (var argument in args) info.ArgumentList.Add(argument);
-        if (webViewRuntime is not null) info.Environment["MINIRP_WEBVIEW2_EXECUTABLE"] = webViewRuntime;
+        return info;
+    }
+
+    private static BrowserProcess Launch(ProcessStartInfo info)
+    {
         var process = Process.Start(info) ?? throw new IOException("Could not start the browser process.");
         process.ErrorDataReceived += (_, _) => { };
         process.BeginErrorReadLine();
@@ -26,7 +52,9 @@ internal sealed class BrowserProcess(Process process) : IAsyncDisposable
 
     public static async Task<string> Read(string executable, CancellationToken token, params string[] args)
     {
-        await using var browser = Launch(executable, args, capture: true, null);
+        var info = StartInfo(executable, args);
+        info.RedirectStandardOutput = true;
+        await using var browser = Launch(info);
         var output = await browser.child.StandardOutput.ReadToEndAsync(token);
         if (await browser.Exit(token) != 0) throw new IOException("The browser discovery command failed.");
         return output;

@@ -26,7 +26,9 @@ export function applyAccent(seed, dark) {
     else root.style.removeProperty("--" + token);
   }
   const style = getComputedStyle(root);
-  return Object.fromEntries(Object.entries(openUiRoles).map(([name, token]) => [name, style.getPropertyValue("--" + token).trim()]));
+  return Object.fromEntries(Object.entries({
+    ...openUiRoles, selectionBackground: "primary", selectionForeground: "on-primary",
+  }).map(([name, token]) => [name, style.getPropertyValue("--" + token).trim()]));
 }
 
 function swatchScore(color, count, population) {

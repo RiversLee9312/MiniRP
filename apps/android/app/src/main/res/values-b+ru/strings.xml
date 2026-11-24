@@ -220,4 +220,7 @@
     <string name="preset_management">Управление пресетом</string>
     <string name="conversation_settings">Настройки чата</string>
     <string name="add_saved_model">Добавить модель</string>
+    <string name="tool_arguments">Аргументы</string>
+    <string name="tool_result">Результат</string>
+    <string name="quote_reply">Цитировать</string>
 </resources>

@@ -16,6 +16,8 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
     private static readonly Lazy<PluginPackage> Base = new(() =>
     {
         var manifest = JsonValues.ParseObject(Resource("MiniRP.BasePlugin.manifest.json"));
+        ValidateStateDeclarations(manifest, signed: true);
+        ValidateToolPresentations(manifest, signed: true);
         var resources = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["notices.md"] = "MiniRP.BasePlugin.notices.md",
@@ -283,48 +285,61 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         }
     }
 
-    public JsonArray List() => new(Volatile.Read(ref packages).Select(package => (JsonNode?)Descriptor(package)).ToArray());
+    public JsonArray List(string? locale = null) => new(Volatile.Read(ref packages).Select(package => (JsonNode?)Descriptor(package, locale)).ToArray());
 
-    public JsonObject Descriptor(PluginPackage package) => new()
+    public JsonObject Descriptor(PluginPackage package, string? locale = null) => new()
     {
-        ["id"] = package.Id, ["name"] = package.Name,
+        ["id"] = package.Id, ["name"] = package.LocalizedName(locale),
+        ["description"] = package.Localization?.Text(package.Manifest, "description", locale) ?? package.Manifest.GetString("description"),
         ["packageName"] = package.PackageName, ["signer"] = package.Signer, ["presetId"] = package.PresetId,
         ["builtIn"] = package.BuiltIn, ["enabled"] = package.Enabled, ["generation"] = package.Generation,
         ["scope"] = Scope(package).Describe(),
         ["permissions"] = package.Manifest.GetArray("permissions").DeepClone(),
         ["network"] = package.Manifest.GetArray("network").DeepClone(),
-        ["attachments"] = package.Manifest.GetArray("attachments").DeepClone(),
+        ["attachments"] = package.LocalizedManifest(locale).GetArray("attachments").DeepClone(),
         ["command"] = package.Manifest.GetObject("hooks").ContainsKey("plugin.command")
     };
 
-    public JsonArray Settings(string preset)
+    public JsonArray Settings(string preset, string? locale = null)
     {
         var items = new JsonArray();
         foreach (var package in Volatile.Read(ref packages))
         {
             if (!Available(package, preset)) continue;
-            foreach (var setting in package.Manifest.GetArray("settings").OfType<JsonObject>()) items.AddNode(RenderSetting(package, setting));
+            foreach (var setting in package.LocalizedManifest(locale).GetArray("settings").OfType<JsonObject>())
+                items.AddNode(RenderSetting(package, setting, locale));
         }
         return items;
     }
 
-    public JsonObject Page(string id, string key, string preset)
+    public JsonObject Page(string id, string key, string preset, string? locale = null)
     {
         if (id == "licenses" && key == "notices") id = "base";
         var package = Installed(id);
         RequireScope(package, preset);
-        var setting = Setting(package, key);
+        var setting = Setting(package.LocalizedManifest(locale), key);
         if (setting.GetString("type") != "page") throw new ArgumentException("This setting is not a page.");
-        return RenderSetting(package, setting, expandPage: true);
+        return RenderSetting(package, setting, locale, expandPage: true);
     }
 
-    private JsonObject RenderSetting(PluginPackage package, JsonObject setting, bool expandPage = false)
+    private JsonObject RenderSetting(PluginPackage package, JsonObject setting, string? locale, bool expandPage = false)
     {
         var item = new JsonObject();
         foreach (var (key, value) in setting)
         {
-            if (key != "items" && (key != "icon" || package.Signed || package.BuiltIn))
+            if (key is not ("items" or "localizedTitle" or "localizedMarkdown") && (key != "icon" || package.Signed || package.BuiltIn))
                 item[key] = JsonValues.Clone(value);
+        }
+        if (package.Localization?.Text(setting, "title", locale) is { } title) item["localizedTitle"] = title;
+        if (package.Localization?.Text(setting, "markdown", locale) is { } localizedMarkdown) item["localizedMarkdown"] = localizedMarkdown;
+        if (setting["options"] is JsonArray options && item["options"] is JsonArray renderedOptions)
+        {
+            for (var index = 0; index < options.Count; index++)
+            {
+                if (options[index] is not JsonObject option || renderedOptions[index] is not JsonObject rendered) continue;
+                rendered.Remove("localizedTitle");
+                if (package.Localization?.Text(option, "title", locale) is { } optionTitle) rendered["localizedTitle"] = optionTitle;
+            }
         }
         item["plugin"] = package.Id;
         if (item.GetString("type") == "page" && !expandPage) return item;
@@ -334,7 +349,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         if (package.UsesActions && item.GetString("content") is { Length: > 0 } asset)
             item["assetUrl"] = AssetUrl(package, asset);
         if (setting["items"] is JsonArray children)
-            item["items"] = new JsonArray(children.OfType<JsonObject>().Select(child => RenderSetting(package, child)).ToArray());
+            item["items"] = new JsonArray(children.OfType<JsonObject>().Select(child => RenderSetting(package, child, locale)).ToArray());
         return item;
     }
 
@@ -369,8 +384,9 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
 
     private string SettingsPath(PluginPackage package) => Path.Combine(root, "data", package.StorageKey, "settings.sqlite");
     private MemoryDb SettingsDb(PluginPackage package) => new(SettingsPath(package));
-    private static JsonObject Setting(PluginPackage package, string key) =>
-        PluginPackage.Settings(package.Manifest.GetArray("settings")).FirstOrDefault(item => item.GetString("key") == key) ??
+    private static JsonObject Setting(PluginPackage package, string key) => Setting(package.Manifest, key);
+    private static JsonObject Setting(JsonObject manifest, string key) =>
+        PluginPackage.Settings(manifest.GetArray("settings")).FirstOrDefault(item => item.GetString("key") == key) ??
         throw new ArgumentException("Unknown plugin setting.");
 
     public void Publish(string name, JsonObject @event, JsonObject environment, string? only = null, string? exclude = null)
@@ -403,13 +419,14 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
 
     public IEnumerable<AgentSkill> Skills(string agent, JsonObject environment, bool builtInOnly = false, AgentAssets? assets = null,
         Action<JsonObject>? showCard = null, Provider? provider = null, Action<JsonObject>? attach = null,
-        Func<SessionModelInfo?>? sessionInfo = null)
+        Func<SessionModelInfo?>? sessionInfo = null, string? locale = null)
     {
+        locale ??= environment.GetString("locale");
         JsonObject SessionContext() => WithSessionInfo(environment, sessionInfo?.Invoke());
         foreach (var package in Volatile.Read(ref packages))
         {
             if (builtInOnly && !package.BuiltIn || !Available(package, environment.GetString("preset"))) continue;
-            foreach (var declaration in package.Manifest.GetArray("skills"))
+            foreach (var declaration in package.LocalizedManifest(locale).GetArray("skills"))
             {
                 if (!declaration.GetArray("agents").Any(item => JsonValues.GetText(item) == agent)) continue;
                 var skillName = declaration.GetString("name");
@@ -422,6 +439,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                 if (researchSkill && research is null) continue;
                 var key = assetView || assetEdit || researchSkill ? skillName : package.Id + "-" + skillName;
                 var handlers = new Dictionary<string, string>(StringComparer.Ordinal);
+                var presentations = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
                 var assetTools = new HashSet<string>(StringComparer.Ordinal);
                 var tools = new JsonArray();
                 foreach (var tool in declaration.GetArray("tools"))
@@ -429,9 +447,11 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                     var returnsAsset = tool.GetString("returnType") == "asset-url";
                     if (returnsAsset && assets is null) continue;
                     // Provider tool names have a 64-character limit.
-                    var qualified = researchSkill ? tool.GetString("name") : "plugin_" + package.Id + "_" + tool.GetString("name");
+                    var qualified = QualifiedTool(package, skillName, tool.GetString("name"));
                     if (qualified.Length > 64) throw new InvalidDataException("Plugin tool name is too long.");
                     handlers.Add(qualified, package.Bind(tool.GetString("handler")));
+                    if (tool is JsonObject toolDeclaration && toolDeclaration["presentation"] is JsonObject)
+                        presentations.Add(qualified, toolDeclaration);
                     if (returnsAsset) assetTools.Add(qualified);
                     tools.AddNode(new JsonObject { ["type"] = "function", ["function"] = new JsonObject
                     {
@@ -442,7 +462,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                 }
                 var stateTool = "plugin_" + package.Id + "_" + declaration.GetString("name") + "-state";
                 var cardTool = "plugin_" + package.Id + "_" + declaration.GetString("name") + "-card";
-                AddStateTools(package, declaration, tools, stateTool, showCard is null ? null : cardTool);
+                AddStateTools(package, declaration, tools, stateTool, showCard is null ? null : cardTool, locale);
                 async Task<JsonObject> PresentAsset(AssetContent asset, string url, CancellationToken token)
                 {
                     var reading = await assets!.Present(asset, provider!, url, token);
@@ -465,7 +485,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                             var id = args.GetString("id");
                             if (showCard is null || !declaration.GetArray("cards").Any(card => JsonValues.GetText(card) == id))
                                 throw new UnauthorizedAccessException("This skill cannot show that card in the current session.");
-                            var card = WhileCurrent(package, environment.GetString("preset"), () => Card(package, id, environment));
+                            var card = WhileCurrent(package, environment.GetString("preset"), () => Card(package, id, environment, locale));
                             card["plugin_card"] = new JsonObject { ["package"] = package.PackageName, ["signer"] = package.Signer,
                                 ["id"] = id, ["environment"] = environment.DeepClone() };
                             showCard(card);
@@ -487,7 +507,15 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
                     Required: researchSkill, Instructions: declaration.GetString("instructions"),
                     OnActivate: () => Enqueue(package, package.Bind(declaration.GetObject("hooks").GetString("skill.activated")), new() { ["name"] = "skill.activated", ["skill"] = key }, SessionContext()),
                     OnEvent: (name, payload) => Enqueue(package, package.Bind(declaration.GetObject("hooks").GetString(name)),
-                        name is "tool.started" or "tool.finished" || package.Has("harness.read") ? payload : new() { ["name"] = name }, SessionContext()));
+                        name is "tool.started" or "tool.finished" || package.Has("harness.read") ? payload : new() { ["name"] = name }, SessionContext()),
+                    DisplayName: declaration.GetString("title", package.BuiltIn ? "" : key))
+                {
+                    PluginToolSource = new() { ["kind"] = "plugin", ["package"] = package.PackageName,
+                        ["signer"] = package.Signer, ["skill"] = skillName },
+                    PresentTool = presentations.Count == 0 ? null : (name, phase, text, plain) =>
+                        presentations.TryGetValue(name, out var tool) ? PresentTool(package, environment.GetString("preset"),
+                            skillName, tool, name, phase, text, plain, locale) : null
+                };
             }
         }
     }
@@ -829,7 +857,7 @@ internal sealed partial class PluginRuntime : IAsyncDisposable
         {
             Require(package, "picker");
             var selection = await port.CallHost("plugin_picker", new() { ["picker"] = method[7..], ["plugin"] = package.Id,
-                ["name"] = package.Name, ["arguments"] = args.DeepClone() }, ct);
+                ["name"] = package.LocalizedName(ctx.GetString("locale")), ["arguments"] = args.DeepClone() }, ct);
             foreach (var item in selection.GetArray("files")) grantedFiles.Add(item.GetString("id"));
             return selection;
         }

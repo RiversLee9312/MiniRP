@@ -7,6 +7,7 @@
 ## API 参考
 
 - [运行时、清单与事件](runtime.md)介绍执行顺序、权限和宿主事件。
+- [本地化](runtime.md#本地化)涵盖清单翻译、调用语言和运行时文案。
 - [Actions、Assets 与平台 I/O](actions-assets.md)涵盖跨插件事件、分块资源、网络和文件选择。
 - [Harness API](harness.md)涵盖预设、聊天、房间、角色会话和模型请求。
 - [数据库与结构化状态](state.md)涵盖作用域、修订、只读投影和 OpenUI 卡片。

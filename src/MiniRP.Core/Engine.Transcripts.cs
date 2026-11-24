@@ -57,8 +57,11 @@ public sealed partial class Engine
                 var conversation = command.GetString("conversation");
                 if (conversation.Length == 0) throw new InvalidOperationException("Open a chat in the room first.");
                 header["chat"] = conversation;
-                header["title"] = room.Name(conversation);
-                blocks = room.Blocks(conversation).OfType<JsonObject>();
+                lock (room.SyncRoot)
+                {
+                    header["title"] = room.Name(conversation);
+                    blocks = room.Blocks(conversation).OfType<JsonObject>().Select(block => (JsonObject)block.DeepClone()).ToArray();
+                }
             }
             else
             {
@@ -66,8 +69,12 @@ public sealed partial class Engine
                 bool Matches(JsonObject block) => role == "env"
                     ? block.GetString("agent") is "env" or "EnvAgent"
                     : block.GetString("agent") is "" or "chat" or "ChatAgent" or "search" or "SearchAgent" or "fetch" or "FetchAgent";
-                var history = Workspace.Chat.GetArray("blocks").OfType<JsonObject>().Where(Matches);
-                blocks = history.Any() ? history : Workspace.Chat.GetArray("messages").OfType<JsonObject>().Where(Matches);
+                lock (Workspace.RoomGate)
+                {
+                    var history = Workspace.Chat.GetArray("blocks").OfType<JsonObject>().Where(Matches);
+                    var source = history.Any() ? history : Workspace.Chat.GetArray("messages").OfType<JsonObject>().Where(Matches);
+                    blocks = source.Select(block => (JsonObject)block.DeepClone()).ToArray();
+                }
             }
         }
         else throw new ArgumentException("Choose a chat, world, preset, or plugin subagent transcript.");

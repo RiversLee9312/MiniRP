@@ -210,7 +210,11 @@ internal sealed class ResearchAssets(Workspace workspace, JsonObject state, Pres
             try
             {
                 File.WriteAllBytes(staged, document.Bytes);
-                File.Move(staged, file, overwrite: true);
+                try { File.Move(staged, file); }
+                catch (IOException) when (File.Exists(file))
+                {
+                    // Another search already published this immutable payload.
+                }
             }
             finally { File.Delete(staged); }
         }

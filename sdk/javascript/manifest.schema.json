@@ -10,6 +10,8 @@
     "packageName": { "type": "string", "maxLength": 150, "pattern": "^(?!(?:minirp|minichat)\\.)[a-z][a-z0-9_]{0,47}(?:\\.[a-z][a-z0-9_]{0,47})+$" },
     "presetId": { "type": "string", "pattern": "^(?!00000000-0000-0000-0000-000000000000$)[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$" },
     "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "description": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "i18n": { "$ref": "#/$defs/i18n" },
     "apiVersion": { "const": 2 },
     "entry": { "type": "string", "pattern": "\\.m?js$", "description": "Package-relative entry. Use .js for a classic script or .mjs for an ES module with package-relative imports." },
     "permissions": {
@@ -46,6 +48,7 @@
         "required": ["name", "description", "agents"],
         "properties": {
           "name": { "$ref": "#/$defs/id" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
           "description": { "type": "string", "minLength": 1, "maxLength": 1024 },
           "instructions": { "type": "string" },
           "agents": { "type": "array", "minItems": 1, "items": { "enum": ["chat", "env", "preset", "search", "fetch", "temporary"] } },
@@ -59,8 +62,10 @@
               "required": ["name", "description", "parameters", "handler"],
               "properties": {
                 "name": { "$ref": "#/$defs/id" },
+                "title": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "\\S" },
                 "description": { "type": "string", "minLength": 1, "maxLength": 1024 },
                 "parameters": { "type": "object", "required": ["type"], "properties": { "type": { "const": "object" } } },
+                "presentation": { "$ref": "#/$defs/toolPresentation" },
                 "returnType": { "enum": ["json", "asset-url"], "default": "json" },
                 "handler": { "$ref": "#/$defs/hook" }
               }
@@ -77,6 +82,7 @@
         "properties": {
           "id": { "$ref": "#/$defs/id" },
           "name": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1, "maxLength": 1024 },
           "mimeTypes": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "/" } },
           "handler": { "$ref": "#/$defs/hook" },
           "thumbnail": { "$ref": "#/$defs/id" }
@@ -85,7 +91,35 @@
     }
   },
   "$defs": {
+    "languageTag": {
+      "type": "string", "minLength": 2, "maxLength": 128,
+      "pattern": "^[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*$",
+      "description": "A BCP 47 language tag. The host validates the complete language-tag syntax."
+    },
+    "i18n": {
+      "type": "object", "required": ["locales"], "additionalProperties": false,
+      "properties": {
+        "defaultLocale": { "$ref": "#/$defs/languageTag" },
+        "locales": {
+          "type": "object", "minProperties": 1, "propertyNames": { "$ref": "#/$defs/languageTag" },
+          "additionalProperties": {
+            "type": "object", "minProperties": 1,
+            "propertyNames": { "pattern": "^(?:/(?:[^~/]|~[01])*)+$" },
+            "additionalProperties": { "type": "string", "minLength": 1, "pattern": "\\S" },
+            "description": "Maps JSON Pointers to translations. Pointers must target existing translatable display strings in this manifest."
+          }
+        }
+      }
+    },
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,47}$" },
+    "toolPresentation": {
+      "type": "object", "minProperties": 1, "additionalProperties": false,
+      "description": "Read-only tool-trace layouts. Each value is a declared card ID without actions or a state binding.",
+      "properties": {
+        "arguments": { "$ref": "#/$defs/id" },
+        "result": { "$ref": "#/$defs/id" }
+      }
+    },
     "hook": { "type": "string", "pattern": "^(?:minirp|minichat)://actions/[^/]+/hooks/[a-z][a-z0-9_-]{0,47}$" },
     "hooks": { "type": "object", "additionalProperties": { "$ref": "#/$defs/hook" } },
     "stateEntry": {
@@ -107,6 +141,11 @@
         "id": { "$ref": "#/$defs/id" },
         "title": { "type": "string", "minLength": 1, "maxLength": 120 },
         "program": { "type": "string", "minLength": 1, "maxLength": 32000 },
+        "labels": {
+          "type": "object", "minProperties": 1, "maxProperties": 48,
+          "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9_]{0,47}$" },
+          "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 240, "pattern": "\\S" }
+        },
         "state": { "$ref": "#/$defs/id" }
       },
       "additionalProperties": false
@@ -135,6 +174,7 @@
         "key": { "$ref": "#/$defs/id" },
         "type": { "enum": ["group", "page", "boolean", "choice", "text", "link", "markdown"] },
         "title": { "type": "string" },
+        "description": { "type": "string", "minLength": 1, "maxLength": 1024 },
         "titles": { "type": "object", "additionalProperties": { "type": "string" } },
         "default": { "type": ["string", "boolean", "null"] },
         "multiline": { "type": "boolean" },

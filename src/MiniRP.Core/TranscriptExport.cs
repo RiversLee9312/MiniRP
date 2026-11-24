@@ -6,7 +6,7 @@ internal static class TranscriptExport
 {
     private static readonly string[] Fields =
     [
-        "id", "agent", "speaker", "participant", "sequence", "content", "reasoning", "tool", "arguments", "result",
+        "id", "agent", "speaker", "participant", "sequence", "content", "interjection", "reasoning", "tool", "arguments", "result",
         "open_ui", "open_ui_title", "open_ui_state", "open_ui_revision", "open_ui_action",
         "plugin_agent", "plugin_agent_name", "plugin_run", "plugin_sequence", "plugin_status"
     ];

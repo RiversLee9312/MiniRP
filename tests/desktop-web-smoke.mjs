@@ -10,18 +10,36 @@ import { chromium } from "playwright";
 const program = resolve(process.argv[2] ?? ("artifacts/desktop/" + (process.platform === "win32" ? "win-x64/minirp.exe" : "linux-x64/minirp")));
 const workspace = await mkdtemp(join(tmpdir(), "minirp-desktop-qa-"));
 const reply = "A reply from the local test model.";
+const longProvider = "Fixture provider " + "LongProviderName".repeat(18);
+const longModel = "org/" + "long-model-without-spaces".repeat(12);
+const longModelName = "Fixture catalog model " + "LongDisplayName".repeat(12);
 const createPresetRequest = Promise.withResolvers();
 const presetInterview = Promise.withResolvers();
 const presetEdit = Promise.withResolvers();
 const extendScrollReply = Promise.withResolvers();
 const finishScrollReply = Promise.withResolvers();
+const configuredChatRequest = Promise.withResolvers();
 const readiness = { Ada: Promise.withResolvers(), Bryn: Promise.withResolvers() };
 const readinessCalls = [];
+const openings = [];
+const labOpening = Promise.withResolvers();
+const bridgeAnswerStarted = Promise.withResolvers();
+const bridgeAnswer = Promise.withResolvers();
+const labAnswered = Promise.withResolvers();
+const roomWorkerStarted = Promise.withResolvers();
+const roomWorkerStopped = Promise.withResolvers();
+let labSceneId;
 const modelFailures = [];
+async function expectSignal(signal, message) {
+  await Promise.race([signal.promise, new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(message)), 10000).unref();
+  })]);
+}
 const service = createServer(async (request, response) => {
   if (request.url.endsWith("/models")) {
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ data: [{ id: "fixture-model" }] }));
+    response.end(JSON.stringify({ data: [{ id: "fixture-model" },
+      { id: longModel, display_name: longModelName, effort_levels: ["low", "high"] }] }));
     return;
   }
   if (!request.url.endsWith("/chat/completions")) {
@@ -39,6 +57,8 @@ const service = createServer(async (request, response) => {
   response.writeHead(200, { "content-type": "text/event-stream" });
   const chunk = (delta, finish_reason = null) => response.write("data: " + JSON.stringify({ choices: [{ index: 0, delta, finish_reason }] }) + "\n\n");
   const user = completion.messages.findLast((item) => item.role === "user");
+  if (JSON.stringify(user?.content || "").includes("Hello from the desktop test."))
+    configuredChatRequest.resolve({ model: completion.model, effort: completion.reasoning_effort });
   const prompts = JSON.stringify(completion.messages);
   const tools = completion.tools?.map((tool) => tool.function.name) ?? [];
   const call = (name, args) => {
@@ -53,6 +73,8 @@ const service = createServer(async (request, response) => {
     } else {
       const used = (name) => completion.messages.some((message) => message.tool_calls?.some((tool) => tool.function.name === name));
       if (!used("configure_experience")) return call("configure_experience", { mode: "character", agentic_search: true });
+      if (!used("configure_date")) return call("configure_date", { mode: "plugin", initial_date: "2025-09-01" });
+      if (!used("set_value")) return call("set_value", { path: "name", value: "Fixture preset" });
       if (!used("finish_preset_setup")) return call("finish_preset_setup", {});
       chunk({ content: "The fixture preset is ready." }, "stop");
     }
@@ -105,15 +127,45 @@ const service = createServer(async (request, response) => {
     }
     return;
   }
-  const ensemble = [...prompts.matchAll(/The active chat is [^()]+ \(([0-9a-f-]+)\)/g)].at(-1);
+  const ensemble = [...prompts.matchAll(/The active chat is ([^()]+) \(([0-9a-f-]+)\)/g)].at(-1);
   if (ensemble) {
     if (tools.includes("room_progress") || prompts.includes("fixture_room_progress"))
       modelFailures.push("Room loading state leaked into a chat.");
+    const [, scene, id] = ensemble;
+    const name = prompts.includes("Your character is Ada") ? "Ada" : "Bryn";
+    if (name === "Ada" && (scene === "Lab" || prompts.includes("Bryn carried the report to the lab.")))
+      modelFailures.push("A character received a message from an unjoined scene.");
     if (completion.messages.at(-1)?.role !== "tool") {
-      const name = prompts.includes("Your character is Ada") ? "Ada" : "Bryn";
-      call("chat_send", { chat: ensemble[1], text: name + " posted to the bridge." });
-      return;
+      const input = completion.messages.findLast(({ role, content }) => role === "system" &&
+        (content?.includes?.("Give your opening in this chat") || content?.includes?.("A new post in this chat")))?.content || "";
+      if (input.includes("Give your opening in this chat")) {
+        openings.push(name + " " + scene);
+        if (scene === "Lab") {
+          labSceneId = id;
+          await labOpening.promise;
+        }
+        return call("chat_send", { chat: id, text: name + " opened the " + scene.toLowerCase() + "." });
+      }
+      if (scene === "Bridge" && name === "Ada" && prompts.includes("Hold this room worker.")) {
+        response.once("close", roomWorkerStopped.resolve);
+        chunk({ content: "Waiting for room departure." });
+        roomWorkerStarted.resolve();
+        return;
+      }
+      if (scene === "Bridge" && name === "Ada" && prompts.includes("Report to the bridge.") &&
+          !prompts.includes("Ada reported from the bridge.")) {
+        bridgeAnswerStarted.resolve();
+        await bridgeAnswer.promise;
+        return call("chat_send", { chat: id, text: "Ada reported from the bridge." });
+      }
+      if (scene === "Bridge" && name === "Bryn" && prompts.includes("Ada reported from the bridge.") &&
+          !prompts.includes("Bryn carried the report to the lab.")) {
+        return call("chat_send", { chat: labSceneId, text: "Bryn carried the report to the lab." });
+      }
     }
+    const sent = completion.messages.at(-2)?.tool_calls?.some((tool) =>
+      tool.function.name === "chat_send" && tool.function.arguments.includes("Bryn carried the report to the lab."));
+    if (sent && completion.messages.at(-1)?.role === "tool") labAnswered.resolve();
     chunk({ content: "Private fixture response." }, "stop");
     response.end("data: [DONE]\n\n");
     return;
@@ -183,16 +235,19 @@ try {
   const preferences = page.getByRole("dialog", { name: "Settings", exact: true });
   assert.equal(await page.evaluate(async () => {
     const font = '20px "Material Symbols Rounded"';
-    await document.fonts.load(font, "add cloud info");
+    const icons = ["add", "check", "cloud", "info", "license", "smart_toy"];
+    await document.fonts.load(font, icons.join(" "));
     const context = document.createElement("canvas").getContext("2d");
     context.font = font;
-    return ["add", "cloud", "info"].every((icon) => Math.abs(context.measureText(icon).width - 20) < 1);
+    return icons.every((icon) => Math.abs(context.measureText(icon).width - 20) < 1);
   }), true);
   assert.equal(await preferences.getByLabel("Language").count(), 0);
   await preferences.getByRole("button", { name: "Appearance and behavior" }).click();
   const behavior = page.getByRole("dialog", { name: "Appearance and behavior", exact: true });
   const themeChoice = behavior.getByRole("combobox", { name: "Appearance", exact: true });
   await themeChoice.waitFor();
+  assert.equal(await behavior.getAttribute("data-page-direction"), "forward");
+  assert.match(await behavior.locator(".settings-page").evaluate((pane) => getComputedStyle(pane).animationName), /page-in/);
   assert.deepEqual(await themeChoice.locator("option").evaluateAll((items) => items.map((node) => node.value)),
     ["system_default", "light", "dark"]);
   if (await page.evaluate(() => CSS.supports("appearance", "base-select"))) {
@@ -202,11 +257,17 @@ try {
       arrow: getComputedStyle(control, "::picker-icon").content,
       padding: getComputedStyle(control).paddingInlineEnd,
       radius: getComputedStyle(control, "::picker(select)").borderTopLeftRadius,
+      transition: getComputedStyle(control, "::picker(select)").transitionProperty,
       selected: getComputedStyle(control.selectedOptions[0]).backgroundColor,
+      check: getComputedStyle(control.selectedOptions[0], "::checkmark").content,
+      checkFont: getComputedStyle(control.selectedOptions[0], "::checkmark").fontFamily,
     }));
     assert.deepEqual([picker.arrow, picker.padding], ['"expand_more"', "10px"]);
     assert.ok(parseFloat(picker.radius) > 0);
+    assert.match(picker.transition, /opacity.*display.*overlay/);
     assert.notEqual(picker.selected, "rgba(0, 0, 0, 0)");
+    assert.equal(picker.check, '"check"');
+    assert.match(picker.checkFont, /Material Symbols Rounded/);
     await page.keyboard.press("Escape");
     await behavior.waitFor();
   }
@@ -230,12 +291,14 @@ try {
   assert.equal(await page.locator(".settings-modal").evaluate((dialog) => {
     const header = getComputedStyle(dialog.querySelector(".dialog-header"));
     const body = getComputedStyle(dialog.querySelector(".dialog-content"));
-    return header.paddingInlineStart === body.paddingInlineStart && header.paddingInlineEnd === body.paddingInlineEnd;
+    return header.paddingInlineStart === body.paddingInlineStart &&
+      parseFloat(header.paddingInlineEnd) === parseFloat(body.paddingInlineEnd) + parseFloat(body.marginInlineEnd);
   }), true);
   await page.locator("dialog select").first().selectOption("en");
   await page.locator("html[lang=en][dir=ltr]").waitFor({ state: "attached" });
   await page.keyboard.press("Escape");
   await behavior.waitFor();
+  assert.equal(await behavior.getAttribute("data-page-direction"), "back");
   assert.equal(await behavior.getByRole("button", { name: "Language", exact: true }).evaluate((element) => element === document.activeElement), true);
   await page.keyboard.press("Escape");
   await preferences.waitFor();
@@ -268,23 +331,84 @@ try {
   const modelGroup = page.getByRole("dialog", { name: "Models and providers", exact: true });
   await modelGroup.getByRole("button", { name: "Models", exact: true }).click();
   const models = page.getByRole("dialog", { name: "Models", exact: true });
-  assert.equal(await models.getByRole("combobox", { name: "Browser", exact: true }).isVisible(), false);
-  await models.getByText("Agent models", { exact: true }).click();
-  await models.getByRole("combobox", { name: "Browser", exact: true }).waitFor();
+  assert.equal(await models.getByRole("button", { name: "Browser", exact: true }).isVisible(), false);
+  const agentModels = models.locator("details").filter({ has: page.getByText("Agent models", { exact: true }) });
+  const corner = await agentModels.evaluate((details) => getComputedStyle(details).borderStartStartRadius);
+  await agentModels.locator("summary").click();
+  await models.getByRole("button", { name: "Browser", exact: true }).waitFor();
+  assert.ok(parseFloat(corner) >= 16);
+  assert.equal(await agentModels.evaluate((details) => getComputedStyle(details.querySelector("summary")).borderStartStartRadius), corner);
   await models.getByRole("button", { name: "Back", exact: true }).click();
   await modelGroup.getByRole("button", { name: "Providers", exact: true }).click();
   const providers = page.getByRole("dialog", { name: "Providers" });
   await providers.getByRole("button", { name: "Add provider" }).click();
   const provider = page.getByRole("dialog", { name: "Add provider" });
   assert.equal(await provider.getByRole("button", { name: "Fetch models" }).isVisible(), false);
-  await provider.getByLabel("Name", { exact: true }).fill("Fixture provider");
+  await provider.getByLabel("Name", { exact: true }).fill(longProvider);
   await provider.locator("input[type=url]").fill("http://127.0.0.1:" + service.address().port);
+  await provider.locator("input[type=password]").fill("fixture");
   await provider.getByText("Manage models", { exact: true }).click();
   await provider.getByRole("button", { name: "Fetch models" }).click();
   await provider.getByText("fixture-model", { exact: true }).waitFor();
   await provider.getByRole("button", { name: "Save", exact: true }).click();
   await providers.getByRole("button", { name: /^Fixture provider/ }).waitFor();
   await providers.getByRole("button", { name: "Back", exact: true }).click();
+  await modelGroup.getByRole("button", { name: "Models", exact: true }).click();
+  const catalog = models.getByRole("region", { name: "Available models", exact: true });
+  const providerChoice = catalog.getByRole("combobox", { name: "Provider", exact: true });
+  await providerChoice.waitFor();
+  if (await page.evaluate(() => CSS.supports("appearance", "base-select"))) {
+    assert.equal(await providerChoice.evaluate((select) => {
+      const label = select.querySelector("selectedcontent .select-label");
+      return label && label.scrollWidth > label.clientWidth && getComputedStyle(label).textOverflow === "ellipsis";
+    }), true);
+    await providerChoice.click();
+    const item = providerChoice.locator("option").filter({ hasText: longProvider });
+    assert.equal(await item.locator(".select-label").evaluate((label) => {
+      const style = getComputedStyle(label);
+      return label.scrollWidth <= label.clientWidth + 1 && label.getBoundingClientRect().height > parseFloat(style.lineHeight);
+    }), true);
+    await page.keyboard.press("Escape");
+  }
+  await catalog.getByRole("searchbox", { name: "Search models" }).fill(longModel);
+  const savedModel = catalog.getByRole("switch", { name: longModelName, exact: true });
+  await savedModel.waitFor();
+  assert.equal(await savedModel.isChecked(), true);
+  await catalog.getByRole("button", { name: "Model settings · " + longModelName, exact: true }).click();
+  const modelOptions = page.getByRole("dialog", { name: "Model settings", exact: true });
+  await modelOptions.getByLabel("Context size").fill("32768");
+  await modelOptions.getByLabel("Thinking effort").selectOption("high");
+  await modelOptions.getByRole("button", { name: "Save", exact: true }).click();
+  await agentModels.locator("summary").click();
+  await models.getByRole("button", { name: "Browser", exact: true }).click();
+  const assignment = page.getByRole("dialog", { name: "Browser", exact: true });
+  const modelSearch = assignment.getByRole("searchbox", { name: "Search models" });
+  await modelSearch.fill("not a fixture model");
+  await assignment.getByText("No models", { exact: true }).waitFor();
+  await modelSearch.fill(longModel);
+  const candidate = assignment.getByRole("button", { name: new RegExp("^" + longModelName) });
+  await candidate.click();
+  await assignment.waitFor({ state: "hidden" });
+  assert.equal(await models.getByRole("button", { name: "Browser", exact: true })
+    .locator(".model-assignment-value").textContent(), longModelName);
+  await models.getByRole("button", { name: "Save", exact: true }).click();
+  await modelGroup.waitFor();
+  const savedAssignments = await (await page.request.get("/api/settings")).json();
+  const savedProvider = savedAssignments.providers.find((item) => item.name === longProvider);
+  assert.deepEqual(savedAssignments.agents.fetch, { provider: savedProvider.id, model: longModel });
+  assert.equal(savedProvider.model_options[longModel].context_window, 32768);
+  await modelGroup.getByRole("button", { name: "Models", exact: true }).click();
+  await agentModels.locator("summary").click();
+  await models.getByRole("button", { name: "Browser", exact: true }).click();
+  await assignment.getByRole("button", { name: new RegExp("^" + longModelName), pressed: true }).waitFor();
+  await assignment.getByRole("button", { name: "Use chat model", exact: true }).click();
+  await models.getByRole("button", { name: "Chat", exact: true }).click();
+  const chatAssignment = page.getByRole("dialog", { name: "Chat", exact: true });
+  await chatAssignment.getByRole("searchbox", { name: "Search models" }).fill(longModel);
+  await chatAssignment.getByRole("button", { name: new RegExp("^" + longModelName) }).click();
+  await models.getByRole("button", { name: "Save", exact: true }).click();
+  await modelGroup.waitFor();
+  assert.equal((await (await page.request.get("/api/settings")).json()).agents.fetch, undefined);
   await modelGroup.getByRole("button", { name: "Back", exact: true }).click();
   await preferences.getByRole("button", { name: "Plugins", exact: true }).click();
   const plugins = page.getByRole("dialog", { name: "Plugins", exact: true });
@@ -300,16 +424,49 @@ try {
   await about.getByRole("button", { name: "Open source licenses" }).click();
   const licenses = page.getByRole("dialog", { name: "Open source licenses", exact: true });
   await licenses.locator(".workspace-plugin-markdown").first().waitFor();
-  await licenses.locator(".dialog-content").hover();
+  const licenseBody = licenses.locator(".dialog-content");
+  assert.equal(await licenseBody.evaluate((body) => {
+    const dialog = body.closest("dialog");
+    const bounds = body.getBoundingClientRect();
+    const container = dialog.getBoundingClientRect();
+    const header = dialog.querySelector(".dialog-header").getBoundingClientRect();
+    return body.scrollHeight > body.clientHeight && bounds.top >= header.bottom - 1 &&
+      container.bottom - bounds.bottom >= 8;
+  }), true);
+  if (await page.evaluate(() => CSS.supports("selector(::-webkit-scrollbar)"))) {
+    assert.equal(await licenseBody.evaluate((body) => getComputedStyle(body, "::-webkit-scrollbar-button").display), "none");
+    await page.emulateMedia({ forcedColors: "active" });
+    assert.equal(await licenseBody.evaluate((body) => getComputedStyle(body).scrollbarColor), "auto");
+    await page.emulateMedia({ forcedColors: "none" });
+  }
+  await licenseBody.hover();
   await page.mouse.wheel(0, 350);
   await page.waitForFunction(() => [...document.querySelectorAll("dialog:modal .dialog-content")].some((element) => element.scrollTop > 0));
   await licenses.getByRole("button", { name: "Back", exact: true }).waitFor();
   await licenses.getByRole("button", { name: "Back", exact: true }).click();
   await about.getByRole("button", { name: "Back", exact: true }).click();
-  await preferences.getByRole("button", { name: "Close", exact: true }).click();
+  assert.equal(await preferences.getByRole("button", { name: "Close", exact: true }).evaluate(async (button) => {
+    const dialog = button.closest("dialog");
+    await Promise.allSettled(dialog.getAnimations().map((animation) => animation.finished));
+    button.click();
+    await new Promise(requestAnimationFrame);
+    return dialog.isConnected && !dialog.open && dialog.inert &&
+      dialog.getAnimations().some((animation) => animation.transitionProperty === "opacity");
+  }), true);
+  await page.locator("dialog.settings-modal").waitFor({ state: "detached" });
   const libraryToggle = page.locator(".toolbar button[aria-controls=library]");
   await libraryToggle.click();
   await page.locator(".sidebar.visible").waitFor();
+  assert.equal(await page.locator(".sidebar").evaluate((drawer) => {
+    const slide = drawer.getAnimations().find((animation) => animation.transitionProperty === "translate");
+    if (!slide) return false;
+    slide.pause();
+    slide.currentTime = slide.effect.getTiming().duration * .63;
+    const left = drawer.getBoundingClientRect().left;
+    const fill = getComputedStyle(drawer, "::before");
+    slide.play();
+    return left > 0 && parseFloat(fill.width) >= left && fill.backgroundColor === getComputedStyle(drawer).backgroundColor;
+  }), true);
   assert.equal(await page.locator(".drawer-close").evaluate((element) => element === document.activeElement), true);
   await page.keyboard.press("Escape");
   await page.locator(".sidebar").waitFor({ state: "hidden" });
@@ -324,22 +481,22 @@ try {
 
   const send = (op, args = {}) => page.request.post("/api/command", { data: { ...args, op } });
   const createButton = home.getByRole("button", { name: "Create preset", exact: true });
-  await createButton.click();
-  const createDialog = page.getByRole("dialog", { name: "Create preset", exact: true });
-  await createDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  const presetCreation = Promise.withResolvers();
   await page.route("**/api/command", async (route) => {
-    if (route.request().postDataJSON()?.op === "create_preset") await createPresetRequest.promise;
+    const command = route.request().postDataJSON();
+    if (command?.op === "create_preset") {
+      presetCreation.resolve(command);
+      await createPresetRequest.promise;
+    }
     await route.continue();
   });
   await page.setViewportSize({ width: 400, height: 730 });
   await libraryToggle.click();
   await page.locator(".sidebar.visible").getByRole("button", { name: "Create preset", exact: true }).click();
-  await createDialog.getByRole("textbox", { name: "Preset name" }).fill("Fixture preset");
-  await createDialog.getByRole("button", { name: "Create preset", exact: true }).click();
-  await createDialog.getByRole("button", { name: "Working", exact: true }).waitFor();
-  assert.equal(await createDialog.getByRole("button", { name: "Close", exact: true }).isEnabled(), false);
-  await page.keyboard.press("Escape");
-  assert.equal(await createDialog.isVisible(), true);
+  assert.deepEqual(await presetCreation.promise, { name: "Create preset", locale: "en", open: true, op: "create_preset" });
+  await page.locator(".sidebar").waitFor({ state: "hidden" });
+  assert.equal(await createButton.isEnabled(), false);
+  assert.equal(await page.getByRole("textbox", { name: "Preset name" }).count(), 0);
   createPresetRequest.resolve();
   await page.getByRole("heading", { name: "Edit preset" }).waitFor();
   await page.locator(".sidebar").waitFor({ state: "hidden" });
@@ -364,6 +521,13 @@ try {
   await message.fill("Confirm this fixture preset.");
   await message.press("Enter");
   await page.locator(".transcript").getByText("The fixture preset is ready.", { exact: true }).waitFor();
+  const calendarTrace = page.locator(".trace").filter({ has: page.getByText("Configure calendar", { exact: true }) });
+  if (await calendarTrace.getAttribute("open") === null) await calendarTrace.locator(":scope > summary").click();
+  await calendarTrace.getByLabel("Arguments").frameLocator('iframe[src="/openui/tool.html"]')
+    .getByText("Managed by a plugin", { exact: true }).waitFor();
+  await calendarTrace.getByLabel("Result").frameLocator('iframe[src="/openui/tool.html"]')
+    .getByText("Changes staged", { exact: true }).waitFor();
+  await page.locator(".trace").getByText("Edit preset setting", { exact: true }).waitFor();
   await presetBack.click();
   const homeTitle = home.getByRole("button", { name: "Fixture preset", exact: true });
   await homeTitle.click();
@@ -388,10 +552,31 @@ try {
   await message.press("Enter");
   const transcriptReply = page.locator(".transcript").getByText(reply, { exact: true });
   await transcriptReply.waitFor();
+  assert.deepEqual(await configuredChatRequest.promise, { model: longModel, effort: "high" });
+  const trace = page.locator(".trace").filter({ hasText: "Test trace" }).last();
+  const traceSummary = trace.locator("summary");
+  await traceSummary.hover();
+  assert.equal(await traceSummary.evaluate((summary) =>
+    getComputedStyle(summary).borderTopLeftRadius === getComputedStyle(summary.parentElement).borderTopLeftRadius), true);
+  if (await trace.getAttribute("open") === null) await traceSummary.click();
+  const thought = trace.locator(".trace-reasoning");
+  await thought.waitFor();
+  assert.equal(await thought.evaluate((text) =>
+    getComputedStyle(text).fontFamily === getComputedStyle(document.body).fontFamily && getComputedStyle(text).whiteSpace === "pre-wrap"), true);
+  await message.fill("Existing draft.");
+  await transcriptReply.evaluate((paragraph) => {
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+  });
+  await transcriptReply.dispatchEvent("contextmenu", { bubbles: true, cancelable: true });
+  await page.getByRole("menu", { name: "Quote", exact: true }).getByRole("menuitem", { name: "Quote", exact: true }).click();
+  assert.equal(await message.inputValue(), "Existing draft.\n\n> " + reply + "\n\n");
   await page.locator(".composer").getByRole("button", { name: "Send", exact: true }).waitFor();
   await message.fill("Show a fixture card.");
   await page.locator(".composer").getByRole("button", { name: "Send", exact: true }).click();
-  await page.frameLocator("iframe.open-ui").getByText("Fixture card", { exact: true }).waitFor();
+  await page.frameLocator('iframe.open-ui[src="/openui/index.html"]').getByText("Fixture card", { exact: true }).waitFor();
   const more = page.locator(".toolbar-actions").getByRole("button", { name: "More options", exact: true });
   await more.press("ArrowDown");
   const actions = page.getByRole("menu", { name: "More options", exact: true });
@@ -540,6 +725,7 @@ try {
   await mkdir(join(workspace, "presets"), { recursive: true });
   await writeFile(join(workspace, "presets", ensemblePreset + ".json"), JSON.stringify({
     name: "Fixture ensemble", chat_mode: "ensemble", appearance: { theme_color: "#349777" },
+    chat_agent: { greeting_system_message: "The watch is starting. Give each scene its opening." },
     ensemble: {
       agents: [{ id: "ada", name: "Ada" }, { id: "bryn", name: "Bryn" }],
       chats: [{ name: "Bridge", members: ["ada", "bryn"] }, { name: "Lab", members: ["bryn"] }],
@@ -558,27 +744,38 @@ try {
   const bridge = page.getByRole("button", { name: "Bridge", exact: true });
   await page.waitForFunction(() => document.querySelector(".loading-text[data-typing=true]")?.textContent.length > 0);
   await loading.locator(".loading-text[data-typing=false]").filter({ hasText: "Navigation lights flicker beyond the glass." }).waitFor();
-  await loading.locator("progress[value=\"0.5\"]").waitFor();
+  await loading.locator("progress[value=\"0.2\"]").waitFor();
   assert.equal(await bridge.isVisible(), false);
   await loading.locator(".loading-text[data-typing=false]").filter({ hasText: "A watch schedule hangs beside the cargo door." }).waitFor();
   assert.equal((await loading.innerText()).includes("0/2"), false);
-  await page.waitForFunction(() => parseFloat(document.querySelector(".loading-progress")?.style.getPropertyValue("--progress")) > 20);
+  await page.waitForFunction(() => parseFloat(document.querySelector(".loading-progress")?.style.getPropertyValue("--progress")) > 5);
   readiness.Ada.resolve();
-  await loading.locator("progress[value=\"0.8\"]").waitFor();
+  await loading.locator("progress[value=\"0.32\"]").waitFor();
   assert.equal((await loading.innerText()).includes("1/2"), false);
   assert.equal(await bridge.isVisible(), false);
   readiness.Bryn.resolve();
+  await loading.locator("progress[value=\"0.8\"]").waitFor();
+  assert.equal(await bridge.isVisible(), false);
+  labOpening.resolve();
   await loading.waitFor({ state: "hidden" });
   assert.deepEqual(readinessCalls.slice(0, 2).sort(), ["Ada progress", "Bryn progress"]);
   assert.deepEqual(readinessCalls.slice(2).sort(), ["Ada ready", "Bryn ready"]);
+  assert.deepEqual(openings.slice().sort(), ["Ada Bridge", "Bryn Bridge", "Bryn Lab"]);
   await bridge.click();
+  await page.locator(".transcript").getByText("Ada opened the bridge.", { exact: true }).waitFor();
+  await page.locator(".transcript").getByText("Bryn opened the bridge.", { exact: true }).waitFor();
   await message.fill("Report to the bridge.");
   await message.press("Enter");
-  await page.locator(".transcript").getByText("Ada posted to the bridge.", { exact: true }).waitFor();
-  await page.locator(".transcript").getByText("Bryn posted to the bridge.", { exact: true }).waitFor();
+  await expectSignal(bridgeAnswerStarted, "Ada did not start the bridge reply.");
+  await message.fill("The bridge stays open during the report.");
+  await message.press("Enter");
+  await page.locator(".transcript").getByText("The bridge stays open during the report.", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Back", exact: true }).click();
   const lab = page.getByRole("button", { name: "Lab", exact: true });
   await lab.waitFor();
+  await message.waitFor({ state: "hidden" });
+  bridgeAnswer.resolve();
+  await expectSignal(labAnswered, "Bryn did not relay the bridge report while the overview was open.");
   const bounds = await lab.boundingBox();
   const resting = await lab.evaluate((button) => parseFloat(getComputedStyle(button).borderTopLeftRadius));
   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
@@ -594,10 +791,20 @@ try {
     requestAnimationFrame(frame);
   }));
   await page.mouse.up();
-  assert.ok(frames.every((frame) => frame.radius >= 15 && frame.transform === "none"));
-  assert.ok(frames.some((frame) => frame.radius < resting));
+  assert.ok(resting >= 15);
+  assert.ok(frames.every((frame) => frame.radius === resting && frame.transform === "none"));
   await message.waitFor();
-  assert.equal(await page.locator(".transcript").getByText("Ada posted to the bridge.", { exact: true }).count(), 0);
+  await page.locator(".transcript").getByText("Bryn opened the lab.", { exact: true }).waitFor();
+  await page.locator(".transcript").getByText("Bryn carried the report to the lab.", { exact: true }).waitFor();
+  assert.equal(await page.locator(".transcript").getByText("Ada reported from the bridge.", { exact: true }).count(), 0);
+  assert.equal(await page.locator(".transcript").getByText("Private fixture response.", { exact: true }).count(), 0);
+  await bridge.click();
+  await page.locator(".transcript").getByText("Ada reported from the bridge.", { exact: true }).waitFor();
+  assert.equal(await page.locator(".transcript").getByText("Bryn carried the report to the lab.", { exact: true }).count(), 0);
+  assert.equal(openings.length, 3);
+  await message.fill("Hold this room worker.");
+  await message.press("Enter");
+  await expectSignal(roomWorkerStarted, "Ada did not start waiting for room departure.");
   const greetingPreset = "5039dc7a-ba0c-4fd7-b890-e2016365dd4d";
   await writeFile(join(workspace, "presets", greetingPreset + ".json"), JSON.stringify({
     name: "Greeting fixture", chat_mode: "character",
@@ -607,6 +814,7 @@ try {
   await presetPicker.click();
   await sidebar.getByRole("button", { name: "Greeting fixture", exact: true }).click();
   await home.getByRole("heading", { name: "Greeting fixture", exact: true }).waitFor();
+  await expectSignal(roomWorkerStopped, "Leaving the Room did not cancel the active model stream.");
   assert.equal(await message.count(), 0);
   await home.getByRole("button", { name: "New chat", exact: true }).click();
   await page.locator(".transcript").getByText("The observatory bell rings.", { exact: true }).waitFor();
@@ -629,6 +837,33 @@ try {
   assert.equal(await scrolling.evaluate((element) => element.scrollTop), 0);
   await page.locator(".jump").click();
   assert.equal(await scrolling.evaluate(atBottom), true);
+  const ruler = page.getByRole("scrollbar", { name: "Scroll chat history" });
+  await ruler.waitFor();
+  assert.equal(await scrolling.evaluate((element) => getComputedStyle(element).scrollbarWidth), "none");
+  assert.equal(await ruler.locator("[data-turn]").count(), 2);
+  const rail = await ruler.boundingBox();
+  const railX = rail.x + rail.width / 2;
+  const firstTickY = rail.y + 12;
+  const lastTickY = rail.y + rail.height - 12;
+  await page.mouse.move(railX, lastTickY);
+  const preview = ruler.locator(".transcript-ruler-preview");
+  await preview.getByText("Exercise transcript scrolling.", { exact: true }).waitFor();
+  await preview.getByText(/Fixture paragraph/).waitFor();
+  assert.equal(await scrolling.evaluate(atBottom), true);
+  await page.mouse.click(railX, firstTickY);
+  await page.waitForFunction(() => document.querySelector(".transcript-ruler").getAttribute("aria-valuenow") === "1" &&
+    document.querySelector(".transcript").dataset.following === "false");
+  await ruler.press("Home");
+  assert.equal(await scrolling.evaluate((element) => element.scrollTop), 0);
+  await ruler.press("PageDown");
+  assert.ok(await scrolling.evaluate((element) => element.scrollTop > 0));
+  await page.mouse.move(railX, firstTickY);
+  await page.mouse.down();
+  await page.mouse.move(railX, lastTickY);
+  await page.mouse.up();
+  await page.waitForFunction(() => document.querySelector(".transcript-ruler").getAttribute("aria-valuenow") === "2");
+  await ruler.press("End");
+  await page.waitForFunction(atBottom, await scrolling.elementHandle());
   const code = scrolling.locator("pre");
   await code.hover();
   await page.mouse.wheel(590, 0);

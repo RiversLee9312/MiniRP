@@ -16,6 +16,8 @@
 
 #if defined(OS_WIN)
 #include "include/cef_sandbox_win.h"
+
+extern "C" IMAGE_DOS_HEADER __ImageBase;
 #endif
 
 namespace {
@@ -198,12 +200,29 @@ class Window final : public CefWindowDelegate {
     window->AddChildView(view_);
     window->CenterWindow(CefSize(1150, 820));
     if (show_) {
+#if defined(OS_WIN)
+      // The Windows bootstrap loads the native icon resource from this DLL.
+      const auto instance = reinterpret_cast<HINSTANCE>(&__ImageBase);
+      const auto handle = window->GetWindowHandle();
+      large_icon_ = static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(MINIRP_WINDOW_ICON_ID),
+          IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0));
+      small_icon_ = static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(MINIRP_WINDOW_ICON_ID),
+          IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0));
+      SendMessageW(handle, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(large_icon_));
+      SendMessageW(handle, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(small_icon_));
+#endif
       window->Show();
       view_->RequestFocus();
     }
   }
 
-  void OnWindowDestroyed(CefRefPtr<CefWindow>) override { view_ = nullptr; }
+  void OnWindowDestroyed(CefRefPtr<CefWindow>) override {
+#if defined(OS_WIN)
+    if (large_icon_) DestroyIcon(large_icon_);
+    if (small_icon_) DestroyIcon(small_icon_);
+#endif
+    view_ = nullptr;
+  }
 
   bool CanClose(CefRefPtr<CefWindow>) override {
     const auto browser = view_ ? view_->GetBrowser() : nullptr;
@@ -213,6 +232,10 @@ class Window final : public CefWindowDelegate {
  private:
   CefRefPtr<CefBrowserView> view_;
   const bool show_;
+#if defined(OS_WIN)
+  HICON large_icon_ = nullptr;
+  HICON small_icon_ = nullptr;
+#endif
 
   IMPLEMENT_REFCOUNTING(Window);
 };

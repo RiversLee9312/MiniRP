@@ -216,4 +216,7 @@
     <string name="preset_management">प्रीसेट प्रबंधित करें</string>
     <string name="conversation_settings">चैट की सेटिंग</string>
     <string name="add_saved_model">मॉडल जोड़ें</string>
+    <string name="tool_arguments">आर्ग्युमेंट</string>
+    <string name="tool_result">नतीजा</string>
+    <string name="quote_reply">उद्धृत करें</string>
 </resources>

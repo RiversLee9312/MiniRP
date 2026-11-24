@@ -20,7 +20,7 @@ internal static class WebDesktop
         "home", "list_presets", "list_chats", "library_page", "select_chat", "start_chat", "create_preset", "open_preset",
         "resume_preset_interview", "select_ensemble_chat", "rename_ensemble_chat", "message", "system_message", "steer",
         "cancel", "branch", "rename", "generate_title", "delete_chat", "delete_preset", "save_prompt", "save_search_mode",
-        "reset_world", "memory", "models", "model_effort_levels", "plugins_list", "plugin_settings", "plugin_page",
+        "reset_world", "memory", "models", "model_effort_levels", "plugins_list", "plugin_locale", "plugin_settings", "plugin_page",
         "plugin_setting", "plugin_action", "plugin_enabled", "plugin_scope", "plugin_uninstall", "plugin_command", "interaction_open"
     };
     private static readonly HashSet<string> Queries = new(StringComparer.Ordinal)
@@ -91,6 +91,21 @@ internal static class WebDesktop
         app.UseDefaultFiles();
         app.UseStaticFiles();
         app.MapGet("/api/events", (HttpContext context) => Events(session, context, app.Lifetime.ApplicationStopping));
+        app.MapGet("/api/transcript", async (HttpContext context) =>
+        {
+            var command = new JsonObject { ["op"] = "transcript_page" };
+            foreach (var key in new[] { "agent", "preset", "room", "conversation", "before" })
+                command[key] = context.Request.Query[key].ToString();
+            var locale = context.Request.Query["locale"].ToString();
+            if (locale.Length > 128 || locale.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-'))
+                throw new ArgumentException("Choose a display language.");
+            if (locale.Length > 0) command["locale"] = locale;
+            using var limit = Timeout(context, 30);
+            var page = await session.Query(command, limit.Token);
+            page.Remove("kind");
+            page.Remove("request");
+            await WriteJson(context, page);
+        });
         app.MapGet("/api/settings", (HttpContext context) =>
         {
             var current = session.Settings.Desktop();
@@ -293,7 +308,7 @@ internal static class WebDesktop
         var handle = info.GetString("handle");
         try
         {
-            var type = info.GetString("mime");
+            var type = info.GetString("mimeType");
             var inline = query["inline"] == "1" && IsMedia(type);
             var first = (await session.Query(new() { ["op"] = "asset_pull", ["handle"] = handle }, limit.Token)).GetObject("result");
             context.Response.ContentType = inline ? type : "application/octet-stream";

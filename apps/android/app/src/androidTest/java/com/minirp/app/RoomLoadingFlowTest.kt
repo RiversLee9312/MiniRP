@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
@@ -41,7 +42,7 @@ class RoomLoadingFlowTest {
     @get:Rule val temporary = TemporaryFolder()
 
     @Test
-    fun newRoomWaitsForEachCharacterToConfirmReadiness() {
+    fun newRoomWaitsForConcurrentPreparationAndEachSceneOpening() {
         val application = compose.activity.application
         val directory = temporary.newFolder()
         val workspace = object : ContextWrapper(application) {
@@ -51,9 +52,10 @@ class RoomLoadingFlowTest {
         val first = "Navigation lights drift past the window."
         val second = "The next shift checks the gate."
         directory.resolve("workspace/presets").apply { mkdirs() }.resolve("$preset.json").writeText("""
-            {"name":"Station", "chat_mode":"ensemble", "ensemble":{
+            {"name":"Station", "chat_mode":"ensemble", "agentic_search":false,
+             "chat_agent":{"greeting_system_message":"Open the watch in both scenes."}, "ensemble":{
              "agents":[{"id":"ada", "name":"Ada"},{"id":"bryn", "name":"Bryn"}],
-             "chats":[{"name":"Bridge", "members":["ada","bryn"]}],
+             "chats":[{"name":"Bridge", "members":["ada","bryn"]},{"name":"Lab", "members":["bryn"]}],
              "loading_messages":["$first","$second"]}}
         """.trimIndent())
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -62,26 +64,42 @@ class RoomLoadingFlowTest {
         val adaReady = CountDownLatch(1)
         val brynReady = CountDownLatch(1)
         val brynStarted = CountDownLatch(1)
+        val labOpening = CountDownLatch(1)
+        val openingCount = AtomicInteger()
         MockWebServer().use { server ->
             server.dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse = try {
                     val body = JSONObject(checkNotNull(request.body).utf8())
                     val order = requests.incrementAndGet()
-                    val tools = body.getJSONArray("tools")
-                    assertEquals(
-                        setOf("room_progress", "room_ready"),
-                        (0 until tools.length()).map { tools.getJSONObject(it).getJSONObject("function").getString("name") }.toSet(),
-                    )
+                    val tools = body.optJSONArray("tools") ?: JSONArray()
+                    val names = (0 until tools.length()).map {
+                        tools.getJSONObject(it).getJSONObject("function").getString("name")
+                    }.toSet()
                     val messages = body.getJSONArray("messages")
                     val prompt = messages.toString()
+                    val last = messages.getJSONObject(messages.length() - 1)
                     val ready = """{"name":"room_ready","arguments":"{}"}"""
                     val call = when {
+                        "room_ready" !in names && last.getString("role") == "tool" -> null
+                        "room_ready" !in names -> {
+                            assertTrue("chat_send" in names)
+                            assertTrue(prompt.contains("Give your opening in this chat"))
+                            val scene = checkNotNull(Regex("The active chat is (Bridge|Lab) \\(([0-9a-f-]+)\\)")
+                                .findAll(prompt).lastOrNull())
+                            val name = if (prompt.contains("Your character is Ada")) "Ada" else "Bryn"
+                            openingCount.incrementAndGet()
+                            if (scene.groupValues[1] == "Lab") assertTrue(labOpening.await(15, TimeUnit.SECONDS))
+                            JSONObject().put("name", "chat_send").put("arguments", JSONObject()
+                                .put("chat", scene.groupValues[2]).put("text", "$name opened the ${scene.groupValues[1]}.").toString())
+                                .toString()
+                        }
                         prompt.contains("Your character is Bryn") -> {
+                            assertEquals(setOf("room_progress", "room_ready"), names)
                             brynStarted.countDown()
                             assertTrue(brynReady.await(15, TimeUnit.SECONDS))
                             ready
                         }
-                        prompt.contains("Your character is Ada") && messages.getJSONObject(messages.length() - 1).getString("role") == "tool" -> {
+                        prompt.contains("Your character is Ada") && last.getString("role") == "tool" -> {
                             assertTrue(adaReady.await(15, TimeUnit.SECONDS))
                             ready
                         }
@@ -91,10 +109,10 @@ class RoomLoadingFlowTest {
                         }
                         else -> error("Unexpected room preparation request")
                     }
-                    MockResponse.Builder().setHeader("Content-Type", "text/event-stream").body(
-                        """data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool-$order","type":"function","function":$call}]}}]}""" +
-                            "\n\ndata: [DONE]\n\n"
-                    ).build()
+                    val delta = if (call == null) "{}" else
+                        """{"tool_calls":[{"index":0,"id":"tool-$order","type":"function","function":$call}]}"""
+                    MockResponse.Builder().setHeader("Content-Type", "text/event-stream")
+                        .body("""data: {"choices":[{"delta":$delta}]}""" + "\n\ndata: [DONE]\n\n").build()
                 } catch (error: Throwable) {
                     failure.compareAndSet(null, error)
                     MockResponse.Builder().code(500).build()
@@ -125,7 +143,7 @@ class RoomLoadingFlowTest {
                 val newRoom = compose.onNodeWithText(compose.activity.getString(R.string.new_room))
                 waitFor { model.state.value.preset == preset && newRoom.isDisplayed() }
                 newRoom.performClick()
-                waitFor { model.state.value.roomLoading?.progress == 0.25f }
+                waitFor { model.state.value.roomLoading?.progress == 0.1f }
                 val bridge = compose.onNodeWithText("Bridge")
                 bridge.assertDoesNotExist()
                 compose.onNodeWithText("0/2").assertDoesNotExist()
@@ -135,11 +153,20 @@ class RoomLoadingFlowTest {
                 bridge.assertDoesNotExist()
                 compose.onNodeWithText("1/2").assertDoesNotExist()
                 brynReady.countDown()
+                waitFor { model.state.value.roomLoading?.progress == 0.8f && openingCount.get() == 3 }
+                bridge.assertDoesNotExist()
+                labOpening.countDown()
                 waitFor { model.state.value.roomLoading == null && bridge.isDisplayed() }
-                assertEquals(3, requests.get())
+                compose.onNodeWithText("Lab").performClick()
+                waitFor {
+                    compose.onNodeWithText("Bryn opened the Lab.").isDisplayed() &&
+                        compose.onNodeWithTag("composer").isDisplayed()
+                }
+                assertEquals(3, openingCount.get())
             } finally {
                 adaReady.countDown()
                 brynReady.countDown()
+                labOpening.countDown()
                 compose.runOnIdle { compose.activity.viewModelStore.clear() }
                 scope.cancel()
             }

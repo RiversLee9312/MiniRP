@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.mapSaver
@@ -90,6 +89,8 @@ internal fun AgentConversation(
                 it.role == agent || agent == AgentRole.Chat && it.isSearchTrace
             }
         }
+    val draft = state.branchDraft.takeIf { agent == AgentRole.Chat }
+    val draftText = rememberSaveable { mutableStateOf(draft?.text.orEmpty()) }
     Column(modifier) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             PresetBackdrop(
@@ -120,6 +121,7 @@ internal fun AgentConversation(
                     loadThumbnail = loadThumbnail,
                     openUi = openUi,
                     displayAssets = displayAssets,
+                    onQuote = { selection -> draftText.value = appendReplyQuote(draftText.value, selection) },
                 )
         }
         Composer(
@@ -132,7 +134,8 @@ internal fun AgentConversation(
                 state.installedPlugins
                     .filter { it.availableIn(state.preset) }
                     .flatMap { it.attachments },
-            draft = state.branchDraft.takeIf { agent == AgentRole.Chat },
+            draft = draft,
+            textState = draftText,
             documentTypes = if (agent == AgentRole.Preset) arrayOf("*/*")
                 else com.minirp.app.data.AttachmentStore.documentTypes,
         )
@@ -443,6 +446,7 @@ internal fun TraceLog(
     displayAssets: DisplayAssets? = null,
     onBranchReply: ((String) -> Unit)? = null,
     standalonePluginTrace: Boolean = false,
+    onQuote: ((String) -> Unit)? = null,
 ) {
     val streamed = buildMap {
         blocks.forEach { block ->
@@ -565,8 +569,9 @@ internal fun TraceLog(
                         is TimelineItem.ActivityStep -> {
                             val depth = if (item.child == null) 1 else 2
                             val nestedCard = item.child != null && !item.step.openUi.isNullOrBlank()
-                            if (!nestedCard || item.step.reasoning.isNotBlank() || item.step.content.isNotBlank())
-                                TraceStep(item.step, depth)
+                            if (!nestedCard || item.step.reasoning.isNotBlank() || item.step.content.isNotBlank() ||
+                                item.step.toolArgumentsUi != null || item.step.toolResultUi != null)
+                                TraceStep(item.step, depth, openUiPages)
                             if (nestedCard) {
                                 Box(Modifier.traceQuote(depth)) { OpenUiReply(item.step, openUi, openUiPages, displayAssets) }
                             }
@@ -590,14 +595,14 @@ internal fun TraceLog(
                         is TimelineItem.Message ->
                             if (item.block.user) UserMessage(item.block, onBranch, loadThumbnail)
                             else
-                                SelectionContainer(Modifier.fillMaxWidth()) {
+                                ReplySelection(onQuote.takeUnless { item.block.system }) {
                                     Text(
                                         item.block.content,
                                         style = MaterialTheme.typography.bodyMedium,
                                     )
                                 }
                         is TimelineItem.Paragraph ->
-                            SelectionContainer(Modifier.fillMaxWidth()) {
+                            ReplySelection(onQuote.takeUnless { item.block.user || item.block.system }) {
                                 val external = LocalUriHandler.current
                                 val links = remember(external, displayAssets, item.block.id) {
                                     object : UriHandler {

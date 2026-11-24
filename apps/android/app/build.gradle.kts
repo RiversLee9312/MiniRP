@@ -86,8 +86,8 @@ android {
         applicationId = "com.minichat.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 21
-        versionName = "1.3.1"
+        versionCode = 22
+        versionName = "1.3.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" } }
@@ -161,7 +161,8 @@ tasks.matching { it.name == "preReleaseBuild" }.configureEach {
 }
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2026.05.01"))
+    val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
+    implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.compose.ui:ui")
@@ -183,7 +184,7 @@ dependencies {
     implementation("org.bouncycastle:bcpkix-jdk18on:1.87")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2026.05.01"))
+    androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")

@@ -48,5 +48,58 @@
     "visibility",
     "visibility_off"
   ],
-  "sha256": "d53a4c2c033a543cecc81f97259a30dc61e45fd13aa5fe07a718c47417c8f5f2"
+  "sha256": "d53a4c2c033a543cecc81f97259a30dc61e45fd13aa5fe07a718c47417c8f5f2",
+  "web": {
+    "source": "https://fonts.gstatic.com/l/font?kit=syl7-zNym6YjUruM-QrEh7-nyTnjDwKNJ_190FjpZIvLgyidOK7BDB_Qb9vUdV6_gjDK-P3JuF_Zs-obHph2-jOcZTKPq96mVPKyperTyiiOFnnPQfYNadx5_SMcVjxRCV4GpKC9flRFrzfYXNAw2krq_xfYoqwvXCJhqS6XAN-NTakHnwcmXz6u_cW5wlU&skey=70ddea8fe54d532e&v=v388",
+    "version": "v388",
+    "axes": {
+      "opsz": 24,
+      "FILL": [
+        0,
+        1
+      ],
+      "GRAD": 0,
+      "wght": 400
+    },
+    "icons": [
+      "add",
+      "arrow_back",
+      "arrow_downward",
+      "arrow_forward",
+      "arrow_upward",
+      "auto_awesome",
+      "browse",
+      "chat_bubble",
+      "check",
+      "chevron_left",
+      "chevron_right",
+      "close",
+      "cloud",
+      "content_copy",
+      "delete",
+      "download",
+      "edit",
+      "expand_less",
+      "expand_more",
+      "extension",
+      "fork_right",
+      "info",
+      "language",
+      "license",
+      "menu",
+      "more_horiz",
+      "palette",
+      "play_arrow",
+      "schedule",
+      "search",
+      "settings",
+      "share",
+      "smart_toy",
+      "stop",
+      "tune",
+      "visibility",
+      "visibility_off"
+    ],
+    "sha256": "c9f986a1e9503170c1078a07c77c3d697bff31784fb715c7d2faaf13a9c3d63c"
+  }
 }

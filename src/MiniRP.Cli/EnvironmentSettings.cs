@@ -128,8 +128,12 @@ internal sealed class EnvironmentSettings(string root)
             var model = group.Value.GetString("model");
             var source = provider == "environment" ? fallback : providers.GetValueOrDefault(provider);
             if (source is null || model.Length == 0) continue;
+            var modelOptions = source.GetObject("model_options")[model] as JsonObject;
             var target = (JsonObject)source.DeepClone();
+            target.Remove("model_options");
             target["model"] = model;
+            if (modelOptions is not null)
+                foreach (var pair in modelOptions) target[pair.Key] = JsonValues.Clone(pair.Value);
             if (group.Value?["options"] is JsonObject options)
                 foreach (var pair in options) target[pair.Key] = JsonValues.Clone(pair.Value);
             if (group.Key == "default" || group.Key == "chat" && routing["default"] is null)
@@ -141,6 +145,7 @@ internal sealed class EnvironmentSettings(string root)
         }
         command["agents"] = agents;
         var settings = command.GetObject("settings");
+        if (web) settings["_web_transcripts"] = true;
         foreach (var option in configured.GetObject("research")) settings[option.Key] = JsonValues.Clone(option.Value);
         var prompt = Path.Combine(AppContext.BaseDirectory, "wwwroot", "openui", "prompt.txt");
         if (web && File.Exists(prompt)) settings["android_open_ui"] = File.ReadAllText(prompt);

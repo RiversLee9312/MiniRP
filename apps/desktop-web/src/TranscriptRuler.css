@@ -1,0 +1,154 @@
+.transcript-shell {
+  --ruler-width: clamp(22px, 3.5vw, 44px);
+}
+
+/* The transcript remains the native scroll container for wheels, touch and keyboard. */
+.transcript-shell:has(.transcript-ruler:not([hidden])) > .transcript {
+  inset-inline-start: var(--ruler-width);
+  scrollbar-width: none;
+}
+
+.transcript-shell:has(.transcript-ruler:not([hidden])) > .transcript::-webkit-scrollbar {
+  display: none;
+}
+
+.transcript-ruler {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: var(--ruler-width);
+  z-index: 3;
+  cursor: ns-resize;
+  user-select: none;
+}
+
+.transcript-ruler:focus-visible { outline: none; }
+
+.transcript-ruler::before, .transcript-ruler::after {
+  position: absolute;
+  z-index: 1;
+  inset-inline: 0 9px;
+  block-size: 12px;
+  pointer-events: none;
+}
+
+.transcript-ruler[data-more-above="true"]::before {
+  content: "";
+  inset-block-start: 0;
+  background: linear-gradient(var(--surface), transparent);
+}
+
+.transcript-ruler[data-more-below="true"]::after {
+  content: "";
+  inset-block-end: 0;
+  background: linear-gradient(transparent, var(--surface));
+}
+
+.transcript-ruler-viewport {
+  block-size: 100%;
+  max-block-size: 100%;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--outline-variant) transparent;
+  touch-action: pan-y;
+}
+
+.transcript-ruler-ticks {
+  position: relative;
+}
+
+.transcript-ruler-ticks span {
+  position: absolute;
+  inset-inline-start: clamp(6px, 1vw, 12px);
+  inset-inline-end: 4px;
+  inset-block-start: var(--tick-position);
+  max-inline-size: calc(6px + var(--proximity) * (100% - clamp(12px, 1.5vw, 18px)));
+  block-size: 2px;
+  transform: translateY(-50%);
+  border-radius: 2px;
+  background-color: var(--outline);
+  opacity: calc(.4 + var(--proximity) * .35);
+  pointer-events: none;
+  transition: max-inline-size 130ms ease-out, background-color 130ms ease-out, opacity 130ms ease-out;
+}
+
+.transcript-ruler-ticks span[data-current="true"] {
+  max-inline-size: none;
+  z-index: 2;
+  background-color: var(--primary);
+  opacity: 1;
+}
+
+.transcript-ruler-ticks span[data-hover="true"] {
+  background-color: var(--on-surface);
+  opacity: 1;
+}
+
+.transcript-ruler:focus-visible .transcript-ruler-ticks [data-current="true"] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.transcript-ruler-preview {
+  position: absolute;
+  z-index: 3;
+  inset-block: 4px;
+  inset-inline-start: 100%;
+  inline-size: min(290px, calc(100vw - var(--ruler-width) - 24px));
+  pointer-events: none;
+  container-type: size;
+}
+
+.transcript-ruler-card {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: clamp(0px, calc(var(--preview-position) - 42px), max(0px, 100cqh - 162px));
+  display: grid;
+  gap: 8px;
+  padding: 10px 13px;
+  border: 1px solid var(--outline-variant);
+  border-radius: 16px;
+  background: var(--surface-high);
+  color: var(--on-surface);
+  box-shadow: var(--shadow-2);
+  font-size: .8125rem;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
+}
+
+.transcript-ruler-card strong, .transcript-ruler-card span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.transcript-ruler-card strong {
+  color: var(--variant);
+  font-size: .75rem;
+  -webkit-line-clamp: 1;
+}
+.transcript-ruler-card > div + div {
+  padding-block-start: 7px;
+  border-block-start: 1px solid var(--outline-variant);
+}
+.transcript-ruler-interjection { color: var(--variant); font-size: .75rem; }
+.transcript-ruler-card span { -webkit-line-clamp: 3; }
+
+@media (prefers-reduced-motion: reduce) {
+  .transcript-ruler-ticks span { transition: none; }
+}
+
+@media (forced-colors: active) {
+  .transcript-ruler[data-more-above="true"]::before {
+    forced-color-adjust: none;
+    background: linear-gradient(Canvas, transparent);
+  }
+  .transcript-ruler[data-more-below="true"]::after {
+    forced-color-adjust: none;
+    background: linear-gradient(transparent, Canvas);
+  }
+  .transcript-ruler-ticks span { forced-color-adjust: none; background-color: GrayText; opacity: 1; }
+  .transcript-ruler-ticks span[data-current="true"] { background-color: Highlight; }
+  .transcript-ruler-ticks span[data-hover="true"] { background-color: CanvasText; }
+  .transcript-ruler:focus-visible .transcript-ruler-ticks [data-current="true"] { outline-color: Highlight; }
+}

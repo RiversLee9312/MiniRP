@@ -16,8 +16,12 @@ add_subdirectory("${CEF_LIBCEF_DLL_WRAPPER_PATH}" libcef_dll_wrapper)
 ADD_LOGICAL_TARGET(libcef_lib "${CEF_LIB_DEBUG}" "${CEF_LIB_RELEASE}")
 
 if(OS_WINDOWS)
-  add_library(minirp-cef SHARED main.cc)
+  enable_language(RC)
+  set(MINIRP_WINDOW_ICON "${CMAKE_CURRENT_SOURCE_DIR}/../../../assets/branding/launcher.ico")
+  configure_file(branding.rc.in branding.rc @ONLY)
+  add_library(minirp-cef SHARED main.cc "${CMAKE_CURRENT_BINARY_DIR}/branding.rc")
   SET_LIBRARY_TARGET_PROPERTIES(minirp-cef)
+  target_compile_definitions(minirp-cef PRIVATE MINIRP_WINDOW_ICON_ID=1)
   target_link_options(minirp-cef PRIVATE /DELAYLOAD:libcef.dll /PDBALTPATH:%_PDB%)
   if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     # CEF's wrapper logs __FILE__, so stripping link symbols alone leaves SDK paths in the DLL.

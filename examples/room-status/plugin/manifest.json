@@ -17,6 +17,38 @@
       "items": [{ "key": "about-status-body", "type": "markdown", "markdown": "Tracks the latest verified station status in each room." }]
     }
   ],
+  "i18n": {
+    "defaultLocale": "en",
+    "locales": {
+      "zh-Hans": {
+        "/name": "房间值班状态",
+        "/settings/0/title": "房间值班状态",
+        "/settings/0/items/0/markdown": "记录每个房间最近一次核实的值班状态。",
+        "/cards/0/title": "值班状态",
+        "/cards/0/labels/current": "最新上报",
+        "/cards/1/title": "上报的状态",
+        "/cards/1/labels/current": "本次上报",
+        "/cards/2/title": "已保存的状态",
+        "/cards/2/labels/current": "已记录",
+        "/stateEntries/0/description": "当前值班状态。核实变化后通过 report 更新。",
+        "/skills/0/title": "值班状态",
+        "/skills/0/description": "报告和显示当前值班状态。",
+        "/skills/0/instructions": "使用状态前先读取。变化尚未核实时，请求确认。用户询问状态时显示值班卡。",
+        "/skills/0/tools/0/title": "上报值班状态",
+        "/skills/0/tools/0/description": "报告一条已核实的值班状态变动。"
+      },
+      "zh-Hant": {
+        "/cards/0/title": "值班狀態",
+        "/cards/0/labels/current": "最新回報",
+        "/cards/1/title": "回報的狀態",
+        "/cards/1/labels/current": "本次回報",
+        "/cards/2/title": "已儲存的狀態",
+        "/cards/2/labels/current": "已記錄",
+        "/skills/0/title": "值班狀態",
+        "/skills/0/tools/0/title": "回報值班狀態"
+      }
+    }
+  },
   "actions": {
     "handlers": { "report": "report", "status-changed": "statusChanged" }
   },
@@ -34,12 +66,26 @@
       "id": "station",
       "title": "Station status",
       "state": "station",
-      "program": "root = Col([Title(\"Station status\", \"md\"), Text($line)])\n$line = \"No change reported.\""
+      "labels": { "current": "Latest report" },
+      "program": "root = Col([Title($title, \"md\"), Text($labels.current), Text($line)])"
+    },
+    {
+      "id": "report-input",
+      "title": "Reported status",
+      "labels": { "current": "Submitted report" },
+      "program": "root = Col([Title($title, \"md\"), Text($labels.current), Text($data.line)])"
+    },
+    {
+      "id": "report-output",
+      "title": "Saved status",
+      "labels": { "current": "Recorded report" },
+      "program": "root = Col([Title($title, \"md\"), Text($labels.current), Text($data.value.line)])"
     }
   ],
   "skills": [
     {
       "name": "status",
+      "title": "Station status",
       "description": "Report and show the station's current status.",
       "agents": ["chat", "env"],
       "instructions": "Read the room status before using it. Ask for confirmation if the reported change is uncertain. Show the station card when the user asks about status.",
@@ -48,13 +94,15 @@
       "tools": [
         {
           "name": "report",
+          "title": "Report station status",
           "description": "Report a verified change in the station status.",
           "parameters": {
             "type": "object",
             "properties": { "line": { "type": "string", "minLength": 1, "maxLength": 180 } },
             "required": ["line"]
           },
-          "handler": "minirp://actions/example.minichat.roomstatus/hooks/report"
+          "handler": "minirp://actions/example.minichat.roomstatus/hooks/report",
+          "presentation": { "arguments": "report-input", "result": "report-output" }
         }
       ]
     }

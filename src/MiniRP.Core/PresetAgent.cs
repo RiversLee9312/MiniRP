@@ -6,6 +6,11 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
     private readonly PluginRuntime? plugins;
     private readonly PageSource? web;
 
+    internal static string LanguageGuidance(string locale) =>
+        "Reply language: Honor the user's explicit language preference, then the language of their latest substantive message. " +
+        $"Use the application language ({locale}) when there is no clear user language. Internal instructions, tool results and PluginAgent reports provide context. " +
+        "Use the language agreed for the preset when writing its names, world content and character prompts.";
+
     internal PresetAgent(Workspace world, AgentSession session, PluginRuntime plugins, PageSource web) : this(world, session)
     {
         this.plugins = plugins;
@@ -31,7 +36,7 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
             ["path"] = Tools.String(),
             ["index"] = Tools.Integer()
         }, "path", "index"));
-        tools.AddNode(Tools.Define("configure_experience", "Set the agreed conversation mode, delegated search choice and initial ensemble. For an ensemble supply agents [{id,name,prompt}] and chats [{name,members:[agent IDs]}]. The app assigns chat UUIDs.", new()
+        tools.AddNode(Tools.Define("configure_experience", "Set the agreed conversation mode, delegated search choice and initial ensemble. For an ensemble supply agents [{id,name,prompt}] and shared scenes as chats [{name,members:[agent IDs]}]. The app assigns chat UUIDs.", new()
         {
             ["mode"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("character", "ensemble", "tabletop") },
             ["agentic_search"] = Tools.Boolean(),
@@ -152,12 +157,13 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
             return Task.FromResult<JsonNode?>(new JsonObject { ["staged"] = true });
         }
         var guidance = "You are PresetAgent. Edit the preset with precise tool calls. Keep unrelated settings. Give new presets a short descriptive name. Set a tailored chat_agent.system_prompt and search_agent.system_prompt. Chat instructions support {date}. Use an empty prompt to restore defaults. " +
-            "If the user wants an opening scene or a welcome, set chat_agent.greeting_system_message to private instructions for ChatAgent to generate it when a new conversation begins. Put scene and voice details there. Leave it empty for conversations that should wait for the user's first message. Explain changes briefly in the user's language.\n" +
+            "Set chat_agent.greeting_system_message to private scene and voice instructions for a requested opening or welcome. For a single-character or tabletop conversation, leave it empty when the conversation should wait for the user's first message. Explain changes briefly.\n" +
             "When asked to set a chat background, call list_chat_backgrounds, then configure_chat_appearance with an Asset declared by an installed plugin owned by this preset. Leave chat blur enabled unless the user requests clear playback. The theme normally follows the Asset; use theme_color for an explicit override.\n" +
             "Manage the calendar for the preset with configure_date. Use the real calendar for experiences that follow the device date. If the story advances on its own timeline, offer a plugin-managed calendar and agree on when its date advances and where new rooms start. Honor the user's preference and keep the existing calendar when dates are unrelated to the request. A scoped plugin can call harness.getWorldDate and harness.setWorldDate. EnvAgent can manually set the date of an existing room with its world-state skill.\n" +
             "Use inspect_preset to read the current staged preset before relying on existing settings. It reflects changes made by tools during this turn.\n" +
-            "When delegating plugin work, pass exact Asset URLs. PluginAgent shares this preset's Assets and container. You can inspect draft Asset URLs it returns with view_asset.\n" +
-            "In ensemble mode, character ChatAgents start preparation and dialogue concurrently. Each can run its own SearchAgent. When planning or delegating a plugin, put shared room initialization in an idempotent room-scoped action, for example on room.loaded, or declare initial room state in the manifest. Never depend on which character or search session starts or finishes first.\n" +
+            "When delegating plugin work, pass exact Asset URLs and specify the user's preferred language for progress updates and reports. State any content languages the preset or plugin should support. PluginAgent shares this preset's Assets and container. You can inspect draft Asset URLs it returns with view_asset.\n" +
+            "Ask PluginAgent to localize display text using manifest i18n and runtime translations, including skill and tool titles and all card labels. Verify the requested languages and the fallback. When a card refreshes after a locale change, verify its current state is retained. For structured tool arguments or results that people need to inspect, delegate read-only tool trace cards and ask for checks of the card, raw data copy, and fallback.\n" +
+            PresetDesign.EnsembleGuidance + "\n" +
             "After a requested plugin deployment, follow up on the installed-plugin check from PluginAgent. When the entry point is available to you, run the check with a safe fixture and report what you observed. For a check that needs another role or a user action, provide the exact steps and expected result.\n" +
             PresetDesign.Practice + "\n" + PresetDesign.ImportGuidance + "\n" +
             (setupPending ? PresetDesign.Interview + "\n" : "") +

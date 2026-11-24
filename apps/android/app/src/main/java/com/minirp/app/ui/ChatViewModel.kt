@@ -198,6 +198,12 @@ internal constructor(
                                 }
                             receive(event, decoded)
                         }
+                        "ensemble_chat_loaded" -> {
+                            val decoded = withContext(Dispatchers.Default) {
+                                event.getJSONArray("blocks").objects().map { decodeBlock(it).finishMarkdown() }
+                            }
+                            receive(event, decoded)
+                        }
                         "turn_end" -> {
                             val block =
                                 (if (event.has("conversation")) state.value.ensembleBlocks
@@ -407,6 +413,10 @@ internal constructor(
                 }
             "error" ->
                 mutableState.update {
+                    val conversation = event.optString("conversation")
+                    if (conversation.isNotEmpty() &&
+                        (it.chatId != event.optString("chat") || it.ensembleChatId != conversation)
+                    ) return@update it
                     val message = event.optString("message")
                     val agent =
                         it.generating
@@ -420,6 +430,11 @@ internal constructor(
             "models",
             "models_loading",
             "models_error" -> receiveModels(event)
+            "ensemble_chat_loaded" ->
+                mutableState.update {
+                    if (it.chatId != event.optString("chat") || it.preset != event.optString("preset")) it
+                    else it.copy(ensembleChatId = event.optString("conversation"), ensembleBlocks = loadedBlocks.orEmpty())
+                }
             "ensemble_chats" ->
                 mutableState.update {
                     if (it.chatId != event.optString("chat")) it
@@ -474,7 +489,8 @@ internal constructor(
             "context_trace",
             "plugin_agent_status",
             "tool_start",
-            "tool_end" -> receiveTrace(event)
+            "tool_end",
+            "tool_trace_update" -> receiveTrace(event)
         }
     }
 
@@ -492,8 +508,16 @@ internal constructor(
 
     private fun applyTrace(event: JSONObject, finished: TraceBlock? = null) =
         mutableState.update { current ->
+            val kind = event.optString("kind")
+            val refresh = kind == "tool_trace_update"
             if (event.has("plugin_agent") && event.optString("preset") != current.preset)
                 return@update current
+            if (refresh) {
+                val preset = event.optString("preset").takeUnless { event.isNull("preset") }.orEmpty()
+                val room = event.optString("chat").takeUnless { event.isNull("chat") }.orEmpty()
+                if (preset.isNotBlank() && preset != current.preset || room.isNotBlank() && room != current.chatId)
+                    return@update current
+            }
             val id = event.getString("block")
             val inRoom =
                 !event.isNull("conversation") && event.optString("conversation").isNotBlank()
@@ -507,8 +531,7 @@ internal constructor(
             val index = blocks.indexOfLast { it.id == id }
             if (
                 index < 0 &&
-                    event.optString("kind") in
-                        setOf("turn_end", "open_ui_end", "open_ui_card_update")
+                    kind in setOf("turn_end", "open_ui_end", "open_ui_card_update", "tool_trace_update")
             )
                 return@update current
             val old =
@@ -522,9 +545,10 @@ internal constructor(
                         pluginAgentName = event.optString("plugin_agent_name"),
                     )
             val sequence = event.optInt("plugin_sequence")
-            if (sequence > 0 && sequence <= old.pluginSequence) return@update current
+            // Refresh events can repeat the sequence of the recorded tool call.
+            if (!refresh && sequence > 0 && sequence <= old.pluginSequence) return@update current
             val changed =
-                when (event.optString("kind")) {
+                when (kind) {
                     "turn_end" -> finished ?: old.copy(streaming = false)
                     "open_ui_delta" ->
                         old.copy(
@@ -556,13 +580,14 @@ internal constructor(
                             tool = event.optString("name"),
                             arguments = event.optString("arguments"),
                             running = true,
-                        )
+                        ).withToolTraceMetadata(event)
                     "tool_end" ->
                         old.copy(
                             tool = event.optString("name"),
                             result = event.optString("text"),
                             running = false,
-                        )
+                        ).withToolTraceMetadata(event)
+                    "tool_trace_update" -> old.withToolTraceMetadata(event)
                     else ->
                         if (event.optString("type") == "reasoning")
                             old.copy(
@@ -575,8 +600,9 @@ internal constructor(
                                 streaming = true,
                             )
                 }.let { block ->
-                    if (sequence > 0) block.copy(pluginSequence = sequence) else block
+                    if (!refresh && sequence > 0) block.copy(pluginSequence = sequence) else block
                 }
+            if (changed === old) return@update current
             val updated =
                 if (index < 0) blocks + changed
                 else blocks.toMutableList().apply { set(index, changed) }
@@ -669,6 +695,7 @@ internal constructor(
                             .put("chat", current.chatId)
                             .put("conversation", current.ensembleChatId)
                             .put("agent", role.id)
+                            .put("locale", appLocale())
                             .put("role", if (system) "system" else "user")
                             .put("text", text)
                     )
@@ -712,6 +739,7 @@ internal constructor(
                             .put("conversation", current.ensembleChatId)
                             .put("preset", current.preset)
                             .put("agent", role.id)
+                            .put("locale", appLocale())
                             .put("role", if (system) "system" else "user")
                             .put("text", text)
                             .put("editor_turn", role == AgentRole.Preset)
@@ -794,10 +822,9 @@ internal constructor(
         }
 
     private fun greetActiveChat(current: ChatState = state.value) {
-        if (!current.chatGreeting || current.chatId.isBlank()) return
+        if (!current.chatGreeting || current.chatId.isBlank() || current.ensembleChats != null) return
         command("greet_chat") {
             put("chat", current.chatId)
-            put("conversation", current.ensembleChatId)
         }
     }
 
@@ -807,35 +834,24 @@ internal constructor(
         if (current.ensembleChatId.isNotBlank())
             mutableState.update { it.copy(ensembleChatId = "", ensembleBlocks = emptyList()) }
         command("select_ensemble_chat") {
+            put("preset", current.preset)
             put("chat", current.chatId)
             put("conversation", "")
         }
     }
 
     suspend fun openEnsembleChat(room: String, conversation: String) {
-        if (state.value.chatId != room) return
+        val current = state.value
+        if (current.chatId != room) return
         try {
-            val result =
-                engine
-                    .await()
-                    .query(
-                        JSONObject()
-                            .put("op", "select_ensemble_chat")
-                            .put("chat", room)
-                            .put("conversation", conversation)
-                            .put("defer_greeting", true)
-                    )
-            val blocks =
-                withContext(Dispatchers.Default) {
-                    result.getJSONArray("blocks").objects().map { decodeBlock(it).finishMarkdown() }
-                }
-            mutableState.update { current ->
-                if (current.chatId != room) current
-                else current.copy(ensembleChatId = conversation, ensembleBlocks = blocks)
-            }
-            val current = state.value
-            if (current.chatId == room && current.ensembleChatId == conversation)
-                greetActiveChat(current)
+            // Consume the scene snapshot and subsequent posts from the same event stream.
+            engine.await().send(
+                JSONObject()
+                    .put("op", "select_ensemble_chat")
+                    .put("preset", current.preset)
+                    .put("chat", room)
+                    .put("conversation", conversation)
+            )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
@@ -1032,7 +1048,7 @@ internal constructor(
         decodePlugin(
             engine
                 .await()
-                .query(JSONObject().put("op", "plugin_inspect").put("path", file.path))
+                .query(JSONObject().put("op", "plugin_inspect").put("path", file.path).put("locale", appLocale()))
                 .getJSONObject("item")
         )
 
@@ -1040,14 +1056,27 @@ internal constructor(
         decodePluginSetting(
             engine
                 .await()
-                .query(JSONObject().put("op", "plugin_page").put("id", id).put("key", key))
+                .query(JSONObject().put("op", "plugin_page").put("id", id).put("key", key).put("locale", appLocale()))
                 .getJSONObject("item")
         )
 
     internal suspend fun installPlugin(file: java.io.File) {
-        engine.await().query(JSONObject().put("op", "plugin_install").put("path", file.path))
+        engine.await().query(JSONObject().put("op", "plugin_install").put("path", file.path).put("locale", appLocale()))
         command("plugins_list")
         command("plugin_settings")
+    }
+
+    private fun appLocale(): String =
+        getApplication<Application>().resources.configuration.locales[0].toLanguageTag()
+
+    internal suspend fun refreshPluginLocale(locale: String) {
+        try {
+            engine.await().send(JSONObject().put("op", "plugin_locale").put("locale", locale))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            report(failure)
+        }
     }
 
     internal fun exportArchive(uri: Uri, request: JSONObject) = transferArchive { file ->

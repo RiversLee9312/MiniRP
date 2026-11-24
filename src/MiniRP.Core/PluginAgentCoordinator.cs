@@ -22,6 +22,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
         var preset = WorkspaceIds.Require(context.GetString("preset"));
         if (role is not ("preset" or "plugin")) throw new UnauthorizedAccessException("This skill belongs to the preset development agents.");
         var action = args.GetString("action");
+        var locale = AgentLanguage.Normalize(context.GetString("locale"));
         if (action == "plugin_docs")
         {
             if (role != "plugin") throw new UnauthorizedAccessException("Plugin development belongs to PluginAgent.");
@@ -53,7 +54,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                     var id = JsonValues.NewId();
                     var task = Instruction(args);
                     var state = new JsonObject { ["id"] = id, ["name"] = name, ["status"] = "idle" };
-                    Start(preset, id, state, task, emit, ct);
+                    Start(preset, id, state, task, locale, emit, ct);
                     return ToolState(state);
                 }
             case "plugin_list":
@@ -76,7 +77,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                         if (!current.Inbox.TryPost("", "plugin", new() { ["text"] = instruction, ["role"] = "user" }))
                             throw new InvalidOperationException("The PluginAgent is finishing its turn. Wait for the result and send again.");
                     }
-                    else Start(preset, target, state, instruction, emit, ct);
+                    else Start(preset, target, state, instruction, locale, emit, ct);
                     return ToolState(state);
                 }
             case "plugin_wait":
@@ -125,7 +126,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
         }
     }
 
-    private void Start(string preset, string id, JsonObject state, string instruction, Action<JsonObject> emit, CancellationToken parent)
+    private void Start(string preset, string id, JsonObject state, string instruction, string? locale, Action<JsonObject> emit, CancellationToken parent)
     {
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime, parent);
         var worker = new Worker(cancellation, new TurnInbox("", "plugin", _ => null));
@@ -150,7 +151,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
             emit(item);
         }
         Trace(Status("running"));
-        worker.Task = Task.Run(() => Run(preset, id, name, run, instruction, selected, worker, Trace));
+        worker.Task = Task.Run(() => Run(preset, id, name, run, instruction, locale, selected, worker, Trace));
     }
 
     private static JsonObject Status(string status, string error = "") => new()
@@ -158,18 +159,20 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
         ["kind"] = "plugin_agent_status", ["agent"] = "PluginAgent", ["status"] = status, ["text"] = error
     };
 
-    private async Task Run(string preset, string id, string name, string run, string instruction, Provider model, Worker worker, Action<JsonObject> trace)
+    private async Task Run(string preset, string id, string name, string run, string instruction, string? locale,
+        Provider model, Worker worker, Action<JsonObject> trace)
     {
         var status = "finished";
         string result;
         try
         {
-            var context = new JsonObject { ["agent"] = "plugin", ["preset"] = preset, ["session"] = id };
+            var context = new JsonObject { ["agent"] = "plugin", ["preset"] = preset, ["session"] = id, ["locale"] = locale };
             var workspace = new Workspace(root, seedDefaultPreset: false);
             workspace.UsePreset(preset);
             using var sharedAssets = MemoryDb.OpenScratch(PresetDatabase(preset));
             using var session = sessions.Open("plugin", Path.Combine(WorkerPath(preset, id), "session.sqlite"),
-                () => model, () => context, trace, inbox: worker.Inbox, presetWorkspace: workspace, sharedAssets: sharedAssets);
+                () => model, () => context, trace, inbox: worker.Inbox, presetWorkspace: workspace, sharedAssets: sharedAssets,
+                delegatedLocale: locale);
             try
             {
                 var assets = session.Assets ?? throw new InvalidOperationException("PluginAgent Assets are unavailable.");

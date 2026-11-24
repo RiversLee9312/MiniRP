@@ -218,4 +218,7 @@
     <string name="preset_management">ניהול ההגדרה המוכנה</string>
     <string name="conversation_settings">הגדרות צ׳אט</string>
     <string name="add_saved_model">הוספת מודל</string>
+    <string name="tool_arguments">ארגומנטים</string>
+    <string name="tool_result">תוצאה</string>
+    <string name="quote_reply">צטט</string>
 </resources>

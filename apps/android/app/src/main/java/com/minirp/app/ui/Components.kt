@@ -73,8 +73,9 @@ internal fun Composer(
     pluginTypes: List<PluginAttachmentType> = emptyList(),
     draft: BranchDraft? = null,
     documentTypes: Array<String> = com.minirp.app.data.AttachmentStore.documentTypes,
+    textState: MutableState<String> = rememberSaveable { mutableStateOf(draft?.text.orEmpty()) },
 ) {
-    var text by rememberSaveable { mutableStateOf(draft?.text.orEmpty()) }
+    var text by textState
     val retained = draft?.attachments.orEmpty()
     var files by rememberSaveable { mutableStateOf(ArrayList(retained.keys)) }
     var submitting by remember { mutableStateOf(false) }
@@ -117,11 +118,14 @@ internal fun Composer(
                 attachmentsAvailable &&
                 (!(system || steering) || (files.isEmpty() && text.isNotBlank()))
         ) {
+            val submittedText = text
             submitting = true
             scope.launch {
                 try {
-                    if (onSubmit(text, files, system, selectedType)) {
-                        text = ""
+                    if (onSubmit(submittedText, files, system, selectedType)) {
+                        // A quote inserted while an upload was in flight belongs to the next draft.
+                        if (text.startsWith(submittedText))
+                            text = text.removePrefix(submittedText).trimStart('\n')
                         files = arrayListOf()
                         attachedType = ""
                     }

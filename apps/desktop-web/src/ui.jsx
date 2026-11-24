@@ -1,4 +1,41 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Children, cloneElement, createContext, isValidElement, useContext, useLayoutEffect, useRef, useState } from "react";
+
+const SurfaceExit = createContext(null);
+
+export function Surface({ children }) {
+  // Keep the last content mounted until the native dialog or popover finishes closing.
+  const [last, setLast] = useState(children);
+  if (children && children !== last) setLast(children);
+  const finish = children || !last ? null : () => setLast(null);
+  return <SurfaceExit.Provider value={finish}>{children || last}</SurfaceExit.Provider>;
+}
+
+function useSurface(ref, modal) {
+  const finish = useContext(SurfaceExit);
+  const closing = Boolean(finish);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    const hide = () => { if (modal) element.close(); else element.hidePopover(); };
+    if (!finish) {
+      if (modal) element.showModal();
+      else element.showPopover();
+      return hide;
+    }
+    hide();
+    const animations = element.getAnimations().filter((animation) =>
+      animation.transitionProperty === "opacity");
+    if (!animations.length) {
+      finish();
+      return;
+    }
+    let active = true;
+    Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
+      if (active) finish();
+    });
+    return () => { active = false; };
+  }, [ref, modal, closing]);
+  return closing;
+}
 
 export function Icon({ name }) {
   return <span className="symbol" aria-hidden="true">{name}</span>;
@@ -8,6 +45,21 @@ export function IconButton({ icon, label, className = "", ...props }) {
   return <button type="button" className={"icon-button " + className} aria-label={label} title={label} {...props}>
     <Icon name={icon} />
   </button>;
+}
+
+export function Select({ children, ...props }) {
+  return <select {...props}>
+    <button type="button"><selectedcontent /></button>
+    {Children.map(children, (option) => isValidElement(option) && option.type === "option"
+      ? cloneElement(option, {}, <span className="select-label" dir="auto">{option.props.children}</span>)
+      : option)}
+  </select>;
+}
+
+export function SaveBar({ t, changed = true, saving }) {
+  return <footer className="settings-save">
+    <button className="filled" type="submit" disabled={!changed || saving}>{t(saving ? "running" : "save")}</button>
+  </footer>;
 }
 
 export function SettingToggle({ label, detail, checked, onChange, disabled }) {
@@ -26,28 +78,32 @@ export function SettingToggle({ label, detail, checked, onChange, disabled }) {
 
 export function Notice({ message, close, t }) {
   const popup = useRef(null);
-  useLayoutEffect(() => {
-    const element = popup.current;
-    element.showPopover();
-    return () => element.hidePopover();
-  }, []);
-  return <div className="notice" role="alert" ref={popup} popover="manual">
+  const closing = useSurface(popup, false);
+  return <div className="notice" role="alert" ref={popup} popover="manual" inert={closing} aria-hidden={closing || undefined}>
     <span>{message}</span><IconButton icon="close" label={t("close")} onClick={close} />
   </div>;
 }
 
-export function Modal({ title, close, back, children, t, wide = false, heading = true, className = "", closeDisabled = false }) {
+export function Modal({ title, close, back, children, t, wide = false, heading = true, className = "", closeDisabled = false, pageKey, pageDirection }) {
   const ref = useRef(null);
-  useEffect(() => {
-    const dialog = ref.current;
-    dialog.showModal();
-    return () => dialog.close();
-  }, []);
+  const pickerEscape = useRef(false);
+  const closing = useSurface(ref, true);
   return <dialog ref={ref} className={["modal", wide ? "wide" : "", className].filter(Boolean).join(" ")} aria-label={title}
-    onCancel={(event) => { event.preventDefault(); if (back || !closeDisabled) (back || close)(); }}>
+    inert={closing} aria-hidden={closing || undefined} data-page-direction={pageDirection}
+    onKeyDownCapture={(event) => {
+      if (event.key !== "Escape" || !event.currentTarget.querySelector(":is(select:open)")) return;
+      pickerEscape.current = true;
+      setTimeout(() => { pickerEscape.current = false; }, 0);
+    }}
+    onCancel={(event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (pickerEscape.current || event.currentTarget.querySelector(":is(select:open)")) return;
+      if (back || !closeDisabled) (back || close)();
+    }}>
     {heading && <header className="dialog-header">
       {back && <IconButton className="directional dialog-back" icon="arrow_back" label={t("back")} onClick={back} />}
-      <h2>{title}</h2>
+      <h2>{pageKey ? <span key={pageKey} className="page-motion">{title}</span> : title}</h2>
       <IconButton icon="close" label={t("close")} disabled={closeDisabled} onClick={close} />
     </header>}
     <div className="dialog-content">{children}</div>

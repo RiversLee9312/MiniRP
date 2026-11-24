@@ -214,4 +214,7 @@
     <string name="preset_management">프리셋 관리</string>
     <string name="conversation_settings">채팅 설정</string>
     <string name="add_saved_model">모델 추가</string>
+    <string name="tool_arguments">인수</string>
+    <string name="tool_result">결과</string>
+    <string name="quote_reply">인용</string>
 </resources>

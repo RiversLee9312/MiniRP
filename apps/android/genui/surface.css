@@ -2,6 +2,58 @@
     font-family: Roboto, system-ui, sans-serif;
 }
 
+:root[data-host="desktop"] {
+    font-family: var(--typeface);
+}
+
+:root[data-host="desktop"] :where(button, input, select, textarea) {
+    font-family: inherit;
+}
+
+:root[data-host="desktop"] .openui-select-value {
+    flex: 1;
+    min-inline-size: 0;
+    text-align: start;
+}
+
+:root[data-host="desktop"] .openui-select-value > span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+:root[data-host="desktop"] .openui-select-item {
+    block-size: auto;
+    min-block-size: 32px;
+    padding-block: 6px;
+    border-radius: var(--openui-radius-m, 8px);
+    margin-inline: var(--openui-space-2xs, 4px);
+}
+
+:root[data-host="desktop"] .openui-select-item--show-tick {
+    padding-inline: 16px 26px;
+}
+
+:root[data-host="desktop"] .openui-select-item-check-wrapper {
+    right: auto;
+    inset-inline-end: 8px;
+}
+
+:root[data-host="desktop"] .openui-select-item > .openui-select-item-text {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+:root[data-host="desktop"] .maplibregl-map,
+:root[data-host="desktop"] .map-pin {
+    font-family: var(--typeface);
+}
+
+:root[data-host="desktop"] .map-card .maplibregl-ctrl-group > button {
+    border-radius: 4px;
+}
+
 html, body {
     background: transparent;
     margin: 0;
@@ -37,6 +89,39 @@ html:not(.expanded) {
 #surface .openui-table-head-label {
     min-inline-size: 0;
 }
+
+.tool-facts { font-size: .875rem; }
+.tool-facts-list { margin: 0; }
+.tool-fact-row {
+    display: grid;
+    grid-template-columns: minmax(4.25rem, 28%) minmax(0, 1fr);
+    gap: .75rem;
+    padding: .52rem .32rem;
+    border-block-end: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+.tool-fact-row:last-child { border-block-end: 0; }
+.tool-fact-row dt { font-weight: 600; line-height: 1.45; }
+.tool-fact-row dd { min-inline-size: 0; margin: 0; }
+.tool-fact-value { user-select: text; white-space: pre-wrap; line-height: 1.45; text-align: start; }
+.tool-fact-code { font-family: ui-monospace, Cascadia Mono, Consolas, monospace; }
+.tool-facts-status, .tool-facts-note { margin: 0; padding: .25rem .32rem; font-size: .8125rem; }
+.tool-facts-status { font-weight: 650; }
+.tool-fact-details { display: grid; }
+.tool-fact-toggle {
+    display: list-item;
+    inline-size: fit-content;
+    margin-block-end: .25rem;
+    padding: .15rem .4rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: .8125rem;
+}
+.tool-fact-toggle:hover { background: color-mix(in srgb, currentColor 9%, transparent); }
+.tool-fact-preview { display: block; }
+.tool-fact-details:not([open]) .tool-fact-less,
+.tool-fact-details:not([open]) .tool-fact-full,
+.tool-fact-details[open] .tool-fact-more,
+.tool-fact-details[open] .tool-fact-preview { display: none; }
 
 #surface :is(.openui-table, .openui-intelligent-markdown-table) :is(th, td) code {
     white-space: inherit;
@@ -79,4 +164,11 @@ html:not(.expanded) {
 
 .map-places button[aria-pressed="true"] {
     font-weight: 650;
+}
+html[data-host="desktop"] ::selection {
+    background: var(--selection-background, Highlight);
+    color: var(--selection-foreground, HighlightText);
+}
+@media (forced-colors: active) {
+    html[data-host="desktop"] ::selection { background: Highlight; color: HighlightText; }
 }

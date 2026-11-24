@@ -93,7 +93,11 @@ public sealed class AgentRuntimeTests
                 "timeout" => throw new HostPort.PlatformError("fixture_platform", "The fixture timed out.", timedOut: true),
                 "reported" => JsonValues.Error("The fixture rejected the operation.", "fixture_rejected"),
                 _ => JsonValue.Create(++executions),
-            }), OnActivate: () => activations++);
+            }), OnActivate: () => activations++)
+        {
+            PresentTool = (name, phase, text, plain) => ToolPresentation.Render("root = Text($data)", "Fixture", name,
+                phase, text, plain) is { } display ? new(display, new()) : null
+        };
         HostPort? port = null;
         port = new(request =>
         {
@@ -145,6 +149,15 @@ public sealed class AgentRuntimeTests
         Assert.AreEqual(1, activations);
         CollectionAssert.AreEqual(new[] { "activate", "allowed", "malformed", "timeout", "reported" }, events.Where(item => item.GetString("kind") == "tool_start")
             .Select(item => item.GetString("block")).ToArray());
+        var start = events.Single(item => item.GetString("block") == "allowed" && item.GetString("kind") == "tool_start");
+        var end = events.Single(item => item.GetString("block") == "allowed" && item.GetString("kind") == "tool_end");
+        Assert.AreEqual("{}", start.GetString("arguments"));
+        Assert.IsInstanceOfType<JsonObject>(start.GetObject("tool_arguments_ui").GetObject("state")["data"]);
+        Assert.AreEqual(1, end.GetObject("tool_result_ui").GetObject("state").GetInt32("data"));
+        Assert.AreEqual("1", Response("allowed"));
+        Assert.IsFalse(requests.Any(request => request.ToJsonString().Contains("tool_result_ui", StringComparison.Ordinal)));
+        Assert.IsFalse(events.Any(item => item.GetString("block") == "malformed" && item.ContainsKey("tool_arguments_ui")));
+        Assert.IsFalse(events.Any(item => item.GetString("block") is "malformed" or "timeout" or "reported" && item.ContainsKey("tool_result_ui")));
     }
 
     [TestMethod]

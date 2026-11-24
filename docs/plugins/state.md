@@ -29,3 +29,35 @@
 声明了 `onChange` 的条目会在写入 SQLite 前为通知预留队列位置。队列满时，`state.set` 返回错误，值和修订号保留。调用方可稍后用当前修订号重试。
 
 完整字段、示例程序、订阅行为及事件防重见 [插件联动指南](automation.md)。
+
+### 卡片本地化
+
+在 `cards[].labels` 中声明要翻译的文案。每张卡片可声明 1–48 个文案键。键以英文字母开头，最多 48 个字符，可包含英文字母、数字和下划线。每条文案最多 240 个字符。
+
+```json
+{
+  "cards": [{
+    "id": "station",
+    "title": "Station status",
+    "state": "station",
+    "labels": { "current": "Latest report" },
+    "program": "root = Col([Title($title, \"md\"), Text($labels.current), Text($line)])"
+  }],
+  "i18n": {
+    "locales": {
+      "zh-Hans": {
+        "/cards/0/title": "值班状态",
+        "/cards/0/labels/current": "最新上报"
+      },
+      "zh-Hant": {
+        "/cards/0/title": "值班狀態",
+        "/cards/0/labels/current": "最新回報"
+      }
+    }
+  }
+}
+```
+
+声明 `labels` 的卡片自动获得 `$labels`、`$title` 和 `$locale`，因此绑定卡片的状态需要避开这三个键。打开卡片或切换界面语言时，宿主按[清单本地化规则](runtime.md#本地化)重新解析文案，沿用已保存的状态以及同一份签名程序。用户输入、报告内容等状态字段仍以原文显示。[工具轨迹卡片](skills-settings.md#工具轨迹展示)也可使用此声明。
+
+处理器需要生成随语言变化的内容时，可使用 SDK 的 `defineI18n`。例如，工具可以在返回值中附加译文，再由结果卡片通过 `$data` 引用。每次回调应按当次语言计算文本。需要随界面语言即时变化的独立字段标签应放在 `cards[].labels` 中。

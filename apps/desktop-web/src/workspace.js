@@ -4,6 +4,7 @@ export const initial = {
   config: {}, title: "", presets: [], chats: [], ensemble: null, participants: [],
   templates: [], plugins: [], pluginSettings: [], interactions: {}, draft: null,
   opened: 0, panes: { chat: [], env: [], preset: [], ensemble: [] },
+  history: {}, historyVersion: 0,
 };
 
 export function paneFor(agent) {
@@ -18,24 +19,73 @@ function split(blocks) {
   return panes;
 }
 
-function upsert(state, pane, id, change) {
-  if (!id) return state;
-  const blocks = state.panes[pane];
-  const index = blocks.findIndex((block) => block.id === id);
-  const next = change(index < 0 ? { id } : blocks[index]);
-  if (next === blocks[index]) return state;
-  const items = blocks.slice();
-  if (index < 0) items.push(next);
-  else items[index] = next;
-  return { ...state, panes: { ...state.panes, [pane]: items } };
+const positions = new WeakMap();
+
+function blockPositions(blocks) {
+  if (!positions.has(blocks)) positions.set(blocks, new Map(blocks.map((block, index) => [block.id, index])));
+  return positions.get(blocks);
 }
 
-function updateTrace(state, event) {
+function snapshotHistory(state, event, panes, reset = false) {
+  const historyVersion = state.historyVersion + 1;
+  const history = reset ? {} : { ...state.history };
+  for (const pane of panes) history[pane] = { version: historyVersion, before: event.history?.[pane] || null, pages: [] };
+  return { history, historyVersion };
+}
+
+export function prependHistory(state, pane, version, requestedBefore, response) {
+  const current = state.history[pane];
+  if (!current || current.version !== version || current.before !== requestedBefore) return state;
+  const existing = [...current.pages, state.panes[pane]].map(blockPositions);
+  const received = new Set();
+  const blocks = response.blocks.filter((block) => {
+    if (!block?.id || received.has(block.id) || existing.some((index) => index.has(block.id))) return false;
+    received.add(block.id);
+    return true;
+  });
+  const pages = blocks.length ? [blocks, ...current.pages] : current.pages;
+  return { ...state, history: { ...state.history, [pane]: { ...current, pages, before: response.before } } };
+}
+
+function upsert(state, pane, id, change, editing, existingOnly = false) {
+  if (!id) return state;
+  const history = state.history[pane];
+  const tail = state.panes[pane];
+  const page = blockPositions(tail).has(id) ? -1 : (history?.pages.findIndex((blocks) => blockPositions(blocks).has(id)) ?? -1);
+  const blocks = page < 0 ? tail : history.pages[page];
+  const index = blockPositions(blocks).get(id) ?? -1;
+  if (existingOnly && index < 0) return state;
+  const next = change(index < 0 ? { id } : blocks[index]);
+  if (next === blocks[index]) return state;
+  const writable = editing.has(blocks);
+  const items = writable ? blocks : blocks.slice();
+  if (index < 0) {
+    if (writable) blockPositions(items).set(id, items.length);
+    items.push(next);
+  } else items[index] = next;
+  if (writable) return state;
+  editing.add(items);
+  if (page < 0) return { ...state, panes: { ...state.panes, [pane]: items } };
+  const pages = history.pages.slice();
+  pages[page] = items;
+  return { ...state, history: { ...state.history, [pane]: { ...history, pages } } };
+}
+
+const toolMetadata = ["tool_title", "skill_title", "tool_arguments_ui", "tool_result_ui"];
+
+function updateTrace(state, event, editing) {
   if (event.preset && event.preset !== state.preset) return state;
   if (event.conversation && (event.conversation !== state.conversation || event.chat !== state.chat)) return state;
   const pane = event.conversation ? "ensemble" : paneFor(event.agent);
+  const refresh = event.kind === "tool_trace_update";
+  if (refresh && pane !== "preset" && event.chat && event.chat !== state.chat) return state;
   const id = event.block || event.id;
   return upsert(state, pane, id, (block) => {
+    if (refresh) {
+      // A metadata refresh can repeat the recorded tool event's sequence number.
+      const changed = toolMetadata.filter((key) => Object.hasOwn(event, key) && block[key] !== event[key]);
+      return changed.length ? { ...block, ...Object.fromEntries(changed.map((key) => [key, event[key]])) } : block;
+    }
     if (event.plugin_sequence && block.plugin_sequence >= event.plugin_sequence) return block;
     const next = { ...block, agent: event.agent ?? block.agent, speaker: event.speaker ?? block.speaker };
     for (const key of ["plugin_agent", "plugin_run", "plugin_agent_name", "plugin_sequence"])
@@ -43,7 +93,8 @@ function updateTrace(state, event) {
     switch (event.kind) {
       case "user":
       case "system":
-        return { ...next, kind: event.kind, content: event.text, version: event.version, attachments: event.attachments };
+        return { ...next, kind: event.kind, content: event.text, version: event.version, attachments: event.attachments,
+          interjection: event.interjection ?? block.interjection };
       case "delta": {
         const key = event.type === "reasoning" ? "reasoning" : "content";
         return { ...next, [key]: (block[key] || "") + event.text, streaming: true };
@@ -56,9 +107,11 @@ function updateTrace(state, event) {
           open_ui_revision: event.open_ui_revision, open_ui_title: event.open_ui_title,
           open_ui_host_action: event.open_ui_host_action || block.open_ui_host_action };
       case "tool_start":
-        return { ...next, tool: event.name, arguments: event.arguments, running: true };
       case "tool_end":
-        return { ...next, tool: event.name, result: event.text, running: false };
+        for (const key of toolMetadata) if (Object.hasOwn(event, key)) next[key] = event[key];
+        return event.kind === "tool_start"
+          ? { ...next, tool: event.name, arguments: event.arguments, running: true }
+          : { ...next, tool: event.name, result: event.text, running: false };
       case "context_trace":
         return { ...next, compaction: true, result: event.text, running: event.running };
       case "plugin_agent_status":
@@ -72,10 +125,16 @@ function updateTrace(state, event) {
       default:
         return block;
     }
-  });
+  }, editing, refresh || event.kind === "open_ui_card_update");
 }
 
-export function applyEvent(state, event) {
+export function applyEvents(state, events) {
+  const editing = new WeakSet();
+  for (const event of events) state = applyEvent(state, event, editing);
+  return state;
+}
+
+function applyEvent(state, event, editing) {
   switch (event.kind) {
     case "ready":
       return { ...state, ready: true, preset: event.preset, config: event.config, templates: event.catalog || [] };
@@ -85,17 +144,17 @@ export function applyEvent(state, event) {
       return event.preset === state.preset ? { ...state, chats: event.items || [] } : state;
     case "home":
       return { ...state, chats: state.preset === event.preset ? state.chats : [], preset: event.preset,
-        config: event.config, chat: "", title: "", conversation: "", ensemble: null, participants: [], panes: split(), draft: null };
+        config: event.config, chat: "", title: "", conversation: "", ensemble: null, participants: [], panes: split(), history: {}, draft: null };
     case "loaded":
       return { ...state, preset: event.preset, config: event.config, chat: event.chat.id, title: event.chat.name,
         conversation: "", ensemble: event.ensemble_chats, participants: event.participants || [],
-        panes: split(event.chat.blocks), draft: event.draft || null };
+        panes: split(event.chat.blocks), ...snapshotHistory(state, event, ["chat", "env", "preset"], true), draft: event.draft || null };
     case "preset_opened": {
       const selected = event.selected || event.created;
       const current = selected ? { ...state, chat: "", conversation: "", ensemble: null, participants: [], title: "", draft: null,
         panes: split(), chats: state.preset === event.preset ? state.chats : [] } : state;
       return { ...current, preset: event.preset, config: event.config || state.config, opened: state.opened + 1,
-        panes: { ...current.panes, preset: event.blocks || [] } };
+        panes: { ...current.panes, preset: event.blocks || [] }, ...snapshotHistory(state, event, ["preset"], selected) };
     }
     case "preset_config":
       return { ...state, config: event.config };
@@ -106,13 +165,15 @@ export function applyEvent(state, event) {
       return event.chat === state.chat ? { ...state, ensemble: event.items || [] } : state;
     case "ensemble_chat_loaded":
       return event.chat === state.chat ? { ...state, conversation: event.conversation,
-        panes: { ...state.panes, ensemble: event.blocks || [] } } : state;
+        panes: { ...state.panes, ensemble: event.blocks || [] }, ...snapshotHistory(state, event, ["ensemble"]) } : state;
     case "steer_queued":
     case "ensemble_message": {
       if (event.chat !== state.chat || (event.preset && event.preset !== state.preset) ||
         (event.conversation && event.conversation !== state.conversation)) return state;
       const item = event.item;
-      return upsert(state, event.conversation ? "ensemble" : paneFor(item.agent), item.id, () => item);
+      return upsert(state, event.conversation ? "ensemble" : paneFor(item.agent), item.id, () =>
+        event.kind === "steer_queued" && item.kind === "user" && item.interjection === undefined
+          ? { ...item, interjection: true } : item, editing);
     }
     case "busy":
       return { ...state, busy: event.value };
@@ -132,10 +193,10 @@ export function applyEvent(state, event) {
       const { [event.id]: _, ...interactions } = state.interactions;
       return { ...state, interactions };
     }
-    case "user": case "system": case "delta": case "tool_start": case "tool_end": case "context_trace":
+    case "user": case "system": case "delta": case "tool_start": case "tool_end": case "tool_trace_update": case "context_trace":
     case "open_ui_delta": case "open_ui_end": case "open_ui_card": case "open_ui_card_update":
     case "plugin_agent_status": case "reply_end": case "turn_end":
-      return updateTrace(state, event);
+      return updateTrace(state, event, editing);
     default:
       return state;
   }

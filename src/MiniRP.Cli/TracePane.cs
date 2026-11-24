@@ -132,12 +132,13 @@ internal sealed class TracePane : View
             var block = blocks.FirstOrDefault(block => block.GetString("id") == item.GetString("block"));
             if (block is not null) block["asset_links"] = published.DeepClone();
         }
-        else if (kind is "delta" or "tool_start" or "tool_end" or "context_trace")
+        else if (kind is "delta" or "tool_start" or "tool_end" or "tool_trace_update" or "context_trace")
         {
             var id = item.GetString("block");
             var block = blocks.FirstOrDefault(block => block.GetString("id") == id);
             if (block is null)
             {
+                if (kind == "tool_trace_update") return;
                 block = new()
                 {
                     ["id"] = id,
@@ -155,10 +156,15 @@ internal sealed class TracePane : View
                 block["compaction"] = true;
                 block["result"] = item.GetString("text");
             }
-            else
+            else if (kind is "tool_start" or "tool_end")
             {
                 block["tool"] = item.GetString("name");
                 block[kind == "tool_start" ? "arguments" : "result"] = kind == "tool_start" ? item.GetString("arguments") : item.GetString("text");
+            }
+            if (kind is "tool_start" or "tool_end" or "tool_trace_update")
+            {
+                if (item.TryGetPropertyValue("tool_title", out var tool)) block["tool_title"] = JsonValues.Clone(tool);
+                if (item.TryGetPropertyValue("skill_title", out var skill)) block["skill_title"] = JsonValues.Clone(skill);
             }
         }
         dirty = true;
@@ -202,7 +208,13 @@ internal sealed class TracePane : View
                 if (block.GetBoolean("compaction") || block.GetString("tool") == "compact_context")
                     Fold(block, "compaction", "Context compaction", block.GetString("result"));
                 else
-                    Fold(block, "tool", block.GetString("tool"), block.GetString("arguments") + "\n" + block.GetString("result"));
+                {
+                    var label = block.GetString("tool_title").Trim();
+                    if (label.Length == 0) label = block.GetString("tool");
+                    var skill = block.GetString("skill_title").Trim();
+                    if (skill.Length > 0 && skill != label) label += " · " + skill;
+                    Fold(block, "tool", label, block.GetString("arguments") + "\n" + block.GetString("result"));
+                }
                 if (block.GetString("content").Length > 0)
                 {
                     var published = block.GetObject("asset_links");

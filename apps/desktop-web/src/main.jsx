@@ -3,12 +3,13 @@ import { createRoot } from "react-dom/client";
 import appIcon from "../../../assets/branding/launcher.png";
 import { assetUrl, download, request, send, upload } from "./api.js";
 import { resolveLocale, setDocumentLocale, translator } from "./i18n.js";
-import { applyEvent, initial } from "./workspace.js";
+import { applyEvents, initial, prependHistory } from "./workspace.js";
 import { Composer, Transcript } from "./Conversation.jsx";
 import { OpenUi } from "./OpenUi.jsx";
-import { ModelPicker, Settings } from "./Settings.jsx";
+import { ModelPicker } from "./ModelSettings.jsx";
+import { Settings } from "./Settings.jsx";
 import { Memory, Plugins, pluginAttachmentTypes } from "./WorkspaceTools.jsx";
-import { Confirm, FileChoice, Icon, IconButton, Modal, Notice, SettingToggle, TextDialog } from "./ui.jsx";
+import { Confirm, FileChoice, Icon, IconButton, Modal, Notice, Select, SettingToggle, Surface, TextDialog } from "./ui.jsx";
 import { ActionMenu } from "./ActionMenu.jsx";
 import { RoomLoading } from "./RoomLoading.jsx";
 import { applyAccent, backgroundAccent } from "./theme.js";
@@ -35,7 +36,7 @@ function useWorkspace(onError, onLink) {
       const events = JSON.parse(message.data);
       const restart = replay;
       replay = false;
-      setWorkspace((current) => events.reduce(applyEvent, restart ? initial : current));
+      setWorkspace((current) => applyEvents(restart ? { ...initial, historyVersion: current.historyVersion } : current, events));
       for (const event of events) {
         if (event.kind === "error" || event.kind === "plugin_error") onError(event.message);
         if (event.kind === "plugin_action") onLink(event.url);
@@ -43,7 +44,9 @@ function useWorkspace(onError, onLink) {
     };
     return () => source.close();
   }, [onError, onLink]);
-  return { workspace, connected };
+  const addHistory = useCallback((pane, version, before, page) =>
+    setWorkspace((current) => prependHistory(current, pane, version, before, page)), []);
+  return { workspace, connected, addHistory };
 }
 
 function ArchiveImport({ t, disabled, run, visible = true }) {
@@ -94,10 +97,10 @@ function ArchiveImport({ t, disabled, run, visible = true }) {
         setHelp(true);
       }}><Icon name="more_horiz" />{t("import_help")}</button>
     </div>
-    {help && <Modal title={t("import_help")} close={() => setHelp(false)} t={t}>
+    <Surface>{help && <Modal title={t("import_help")} close={() => setHelp(false)} t={t}>
       <p>{t("import_preset_detail")}</p>
       <p>{t("import_save_detail")}</p>
-    </Modal>}
+    </Modal>}</Surface>
   </div>;
 }
 
@@ -136,7 +139,10 @@ function Sidebar({ workspace, t, visible, compact, close, select, createPreset, 
   const [choosing, setChoosing] = useState(false);
   const presetTitle = (workspace.preset && workspace.config.name) || t("choose_preset");
   const name = (item, key) => item.name || t(key);
-  const rooms = workspace.chats.filter((item) => name(item, "chat").toLocaleLowerCase().includes(filter.toLocaleLowerCase()));
+  const rooms = useMemo(() => {
+    const query = filter.toLocaleLowerCase();
+    return query ? workspace.chats.filter((item) => (item.name || t("chat")).toLocaleLowerCase().includes(query)) : workspace.chats;
+  }, [workspace.chats, filter, t]);
   useEffect(() => { setLimit(40); }, [workspace.preset, filter]);
   function switchPreset(id) {
     setChoosing(false);
@@ -161,8 +167,8 @@ function Sidebar({ workspace, t, visible, compact, close, select, createPreset, 
           <Icon name="expand_more" />
         </button>
       </div>
-      <div id="sidebar-preset-choices" hidden={!choosing}>
-        {choosing && <PresetChoices workspace={workspace} t={t} open={switchPreset} busy={busy} />}
+      <div id="sidebar-preset-choices" className="sidebar-preset-choices" data-open={choosing} inert={!choosing}>
+        <div><PresetChoices workspace={workspace} t={t} open={switchPreset} busy={busy} /></div>
       </div>
       {workspace.preset && !choosing && <>
         <div className="row sidebar-heading">
@@ -268,6 +274,7 @@ function App() {
   const [compact, setCompact] = useState(compactLayout.matches);
   const [drafts, setDrafts] = useState({});
   const [sending, setSending] = useState(false);
+  const [creatingPreset, setCreatingPreset] = useState(false);
   const [notice, setNotice] = useState("");
   const [link, setLink] = useState("");
   const [attachmentType, setAttachmentType] = useState("");
@@ -280,26 +287,41 @@ function App() {
   const t = useMemo(() => translator(locale), [locale]);
   const onError = useCallback((message) => setNotice(message), []);
   const onLink = useCallback((url) => { if (/^https?:\/\//i.test(url || "")) setLink(url); }, []);
-  const { workspace, connected } = useWorkspace(onError, onLink);
+  const { workspace, connected, addHistory } = useWorkspace(onError, onLink);
   const dark = preferences.theme === "dark" || preferences.theme === "system_default" && systemDark;
   const { preset, chat, conversation, config, busy, generating } = workspace;
   const setupPending = config.setup_status === "draft";
   const role = setupPending ? "preset" : selectedRole;
   const presetWorking = generating === "preset" || role === "preset" && sending ||
     workspace.panes.preset.some((block) => block.plugin_status === "running");
-  const navigationBusy = !connected || !workspace.ready || busy || presetWorking;
+  const navigationBusy = !connected || !workspace.ready || busy || presetWorking || creatingPreset;
   const presetExitLocked = setupPending || navigationBusy;
   const background = config.appearance?.background_url;
   const explicitAccent = config.appearance?.theme_color;
   const seed = explicitAccent || (sampledAccent && sampledAccent.background === background && sampledAccent.preset === preset
     ? sampledAccent.color : "");
   const pane = role === "chat" && workspace.ensemble !== null ? "ensemble" : role;
+  const history = workspace.history[pane];
   const scope = useMemo(() => ({ preset, room: role === "preset" ? "" : chat,
     conversation: role === "chat" ? conversation : "", agent: role }), [preset, chat, conversation, role]);
   const context = (extra) => ({ preset, chat, conversation: role === "chat" ? conversation : "", ...extra });
   const draftKey = JSON.stringify([role, preset, role === "preset" ? "" : chat, role === "chat" ? conversation : ""]);
+  const transcriptKey = draftKey + ":" + (history?.version ?? "");
   const draft = drafts[draftKey] || { text: "", files: [], action: null };
   const changeDraft = (data) => setDrafts((current) => ({ ...current, [draftKey]: data }));
+  function quoteReply(text) {
+    const quote = text.split(/\r?\n/).map((line) => line ? "> " + line : ">").join("\n");
+    setDrafts((current) => {
+      const previous = current[draftKey] || draft;
+      const separator = !previous.text || previous.text.endsWith("\n\n") ? "" : previous.text.endsWith("\n") ? "\n" : "\n\n";
+      return { ...current, [draftKey]: { ...previous, text: previous.text + separator + quote + "\n\n" } };
+    });
+    requestAnimationFrame(() => {
+      const input = document.querySelector(".composer textarea");
+      input?.focus({ preventScroll: true });
+      if (input) input.setSelectionRange(input.value.length, input.value.length);
+    });
+  }
   const title = role === "preset" ? t("edit_preset")
     : role === "env" ? t("world")
       : workspace.ensemble?.find((room) => room.id === conversation)?.name || workspace.title || config.name || "MiniRP";
@@ -360,6 +382,10 @@ function App() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    if (connected) send("plugin_locale", { locale }).catch((error) => onError(error.message));
+  }, [connected, locale, onError]);
+
   async function saveSettings(value) {
     const { environment, default_research, preferences: _, ...editable } = value;
     await request("/api/settings", editable);
@@ -379,10 +405,15 @@ function App() {
   });
   const roomPreset = config.chat_mode === "ensemble";
   const startConversation = () => select(roomPreset ? "select_chat" : "start_chat", { preset });
-  const createPreset = () => setDialog({
-    type: "text", title: t("create_preset"), label: "preset_name", submitLabel: "create_preset",
-    submit: (name) => send("create_preset", { name, locale, open: true }),
-  });
+  function createPreset() {
+    if (navigationBusy) return;
+    setCreatingPreset(true);
+    setSidebar(false);
+    run(async () => {
+      try { await send("create_preset", { name: t("create_preset"), locale, open: true }); }
+      finally { setCreatingPreset(false); }
+    });
+  }
   const openPreset = () => run(() => send("open_preset", context({ locale })));
   const branch = useCallback((block, mode) => run(() => send("branch", { preset, chat, block, mode })), [chat, preset, run]);
   const exportType = (type, extra = {}) => run(() => download({
@@ -544,21 +575,22 @@ function App() {
           : preset && (emptyAgent ? <section className="agent-empty">
             {!presetWorking && <><span className="welcome-emblem"><Icon name={role === "env" ? "auto_awesome" : "edit"} /></span>
               <h2>{t("describe_changes")}</h2></>}
-          </section> : <Transcript blocks={workspace.panes[pane]} contextKey={draftKey} {...{ scope, locale, dark, theme,
+          </section> : <Transcript key={transcriptKey} blocks={workspace.panes[pane]} contextKey={transcriptKey} history={history} pane={pane}
+            addHistory={addHistory} onHistoryError={onError} quoteReply={canCompose ? quoteReply : undefined} {...{ scope, locale, dark, theme,
             expanded: preferences.thoughts, busy, t, branch, openAction, runExport }} />)}
         {canCompose && <div className="composer-deck">
           {pluginTypes.length > 0 && <label className="model-picker plugin-attachment-type">
             <span>{t("add_attachment")}</span>
-            <select value={attachmentType} onChange={(event) => setAttachmentType(event.target.value)}>
+            <Select value={attachmentType} onChange={(event) => setAttachmentType(event.target.value)}>
               <option value="">{t("choose_files")}</option>
               {pluginTypes.map((item) => <option key={item.plugin + "/" + item.id} value={item.plugin + "/" + item.id}>{item.title || item.id}</option>)}
-            </select>
+            </Select>
           </label>}
           <Composer t={t} role={role} draft={draft.text} change={(text) => changeDraft({ ...draft, text })}
             attachments={draft.files} addFiles={chooseFiles} removeFile={(id) => changeDraft({ ...draft, files: draft.files.filter((file) => file.id !== id) })}
             generating={generating === role} disabled={!connected || sending || (busy && generating !== role)}
             submit={submit} stop={() => run(() => send("cancel", { agent: role }))}
-            modelPicker={settings && <ModelPicker role={role} settings={settings} t={t} disabled={busy} compact label={t("select_model")}
+            modelPicker={settings && <ModelPicker role={role} settings={settings} t={t} disabled={busy} label={t("select_model")}
               select={(model) => run(() => {
                 const agents = { ...(settings.agents || {}) };
                 if (model) agents[role] = model;
@@ -569,46 +601,48 @@ function App() {
       </div>
     </main>
 
-    {notice && <Notice key={notice} message={notice} close={() => setNotice("")} t={t} />}
-    {workspace.roomLoading && <RoomLoading key={workspace.roomLoading.room}
-      loading={workspace.roomLoading} title={loadingPreset?.name} stop={() => run(() => send("cancel"))} t={t} />}
-    {link && <Modal title={t("open_menu")} close={() => setLink("")} t={t}>
+    <Surface>{notice && <Notice key={notice} message={notice} close={() => setNotice("")} t={t} />}</Surface>
+    <Surface>{workspace.roomLoading && <RoomLoading key={workspace.roomLoading.room}
+      loading={workspace.roomLoading} title={loadingPreset?.name} stop={() => run(() => send("cancel"))} t={t} />}</Surface>
+    <Surface>{link && <Modal title={t("open_menu")} close={() => setLink("")} t={t}>
       <a href={link} target="_blank" rel="noreferrer" onClick={() => setLink("")}>{link}</a>
-    </Modal>}
-    {dialog?.type === "settings" && settings && <Settings {...{ settings, workspace, preferences, locale, t }}
-      setPreferences={savePreferences} close={closeDialog} update={saveSettings}
-      renderPlugins={(close) => <Plugins {...{ workspace, locale, t, close }} />} />}
-    {dialog?.type === "memory" && <Memory {...{ workspace, role, t, run }} close={closeDialog} />}
-    {dialog?.type === "text" && <TextDialog key={dialog.title} {...{ dialog, t, run }}
-      close={dialog.returnTo ? () => show(dialog.returnTo) : closeDialog} />}
-    {dialog?.type === "confirm" && <Confirm {...{ dialog, t, run }} close={closeDialog} />}
-    {dialog?.type === "contextSettings" && <Modal title={contextSettingsTitle} t={t} close={closeDialog}>
-      <div className="setting-group">
-        <button type="button" className="settings-row settings-link" disabled={busy} onClick={editPrompt}>
-          <Icon name="edit" /><span className="setting-label">{t("system_prompt")}</span>
-          <span className="directional"><Icon name="chevron_right" /></span>
+    </Modal>}</Surface>
+    <Surface>{dialog && <>
+      {dialog?.type === "settings" && settings && <Settings {...{ settings, workspace, preferences, locale, t }}
+        setPreferences={savePreferences} close={closeDialog} update={saveSettings}
+        renderPlugins={(close) => <Plugins {...{ workspace, locale, t, close }} />} />}
+      {dialog?.type === "memory" && <Memory {...{ workspace, role, t, run }} close={closeDialog} />}
+      {dialog?.type === "text" && <TextDialog key={dialog.title} {...{ dialog, t, run }}
+        close={dialog.returnTo ? () => show(dialog.returnTo) : closeDialog} />}
+      {dialog?.type === "confirm" && <Confirm {...{ dialog, t, run }} close={closeDialog} />}
+      {dialog?.type === "contextSettings" && <Modal title={contextSettingsTitle} t={t} close={closeDialog}>
+        <div className="setting-group">
+          <button type="button" className="settings-row settings-link" disabled={busy} onClick={editPrompt}>
+            <Icon name="edit" /><span className="setting-label">{t("system_prompt")}</span>
+            <span className="directional"><Icon name="chevron_right" /></span>
+          </button>
+          <SettingToggle label={t("agentic_search")} detail={t("agentic_search_hint")}
+            disabled={busy} checked={config.agentic_search !== false}
+            onChange={(enabled) => run(() => send("save_search_mode", context({ enabled })))} />
+        </div>
+        {chat && role === "env" && <button type="button" className="settings-row settings-link destructive" disabled={busy} onClick={() => setDialog({
+          type: "confirm", title: t("reset_world"), message: t("reset_world_question"), label: t("reset"), danger: true,
+          submit: () => send("reset_world", context()),
+        })}><Icon name="delete" />{t("reset_world")}</button>}
+      </Modal>}
+      {dialog?.type === "presetManagement" && <Modal title={t("preset_management")} t={t} close={closeDialog}>
+        <div className="setting-group">
+          {["preset", "save"].map((type) => <button type="button" key={type} className="settings-row settings-link" disabled={busy}
+            onClick={() => { exportType(type, { name: config.name || "MiniRP" }); closeDialog(); }}>
+            <Icon name="download" /><span className="setting-label">{t("export_" + type)}</span>
+          </button>)}
+        </div>
+        <button type="button" className="settings-row settings-link destructive" disabled={busy}
+          onClick={() => confirmDelete({ id: preset, name: config.name || t("preset") }, "preset")}>
+          <Icon name="delete" />{t("delete_preset")}
         </button>
-        <SettingToggle label={t("agentic_search")} detail={t("agentic_search_hint")}
-          disabled={busy} checked={config.agentic_search !== false}
-          onChange={(enabled) => run(() => send("save_search_mode", context({ enabled })))} />
-      </div>
-      {chat && role === "env" && <button type="button" className="settings-row settings-link destructive" disabled={busy} onClick={() => setDialog({
-        type: "confirm", title: t("reset_world"), message: t("reset_world_question"), label: t("reset"), danger: true,
-        submit: () => send("reset_world", context()),
-      })}><Icon name="delete" />{t("reset_world")}</button>}
-    </Modal>}
-    {dialog?.type === "presetManagement" && <Modal title={t("preset_management")} t={t} close={closeDialog}>
-      <div className="setting-group">
-        {["preset", "save"].map((type) => <button type="button" key={type} className="settings-row settings-link" disabled={busy}
-          onClick={() => { exportType(type, { name: config.name || "MiniRP" }); closeDialog(); }}>
-          <Icon name="download" /><span className="setting-label">{t("export_" + type)}</span>
-        </button>)}
-      </div>
-      <button type="button" className="settings-row settings-link destructive" disabled={busy}
-        onClick={() => confirmDelete({ id: preset, name: config.name || t("preset") }, "preset")}>
-        <Icon name="delete" />{t("delete_preset")}
-      </button>
-    </Modal>}
+      </Modal>}
+    </>}</Surface>
     {Object.values(workspace.interactions).map((item) => <WorkspaceInteraction key={item.id} {...{ item, t, run, theme, dark }} />)}
   </div>;
 }

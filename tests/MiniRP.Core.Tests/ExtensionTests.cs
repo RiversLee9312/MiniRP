@@ -12,6 +12,307 @@ namespace MiniRP.Core.Tests;
 public sealed class ExtensionTests
 {
     [TestMethod]
+    public async Task NativePresetToolTitlesAndCardsFollowTheUiLocaleOnLiveAndLegacyTraces()
+    {
+        var root = NewRoot();
+        string preset;
+        var names = new[] { "configure_date", "set_value" };
+        var titles = new Dictionary<string, string>();
+        await using (var engine = new Engine(root))
+        using (var scripts = new PluginScripts())
+        {
+            Configure(engine);
+            preset = engine.Workspace.PresetId;
+            engine.Dispatch(new() { ["op"] = "plugin_locale", ["locale"] = "zh-Hans" });
+            await Until(engine, "plugin_settings", scripts);
+            engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["locale"] = "en-US",
+                ["preset"] = preset, ["text"] = "Set the calendar and preset name." });
+            var first = await NextModel(engine, scripts);
+            Assert.IsTrue(Offers(first, names[0]) && Offers(first, names[1]));
+            var events = new List<JsonObject>();
+            ReplyTool(engine, first, names[0], new() { ["mode"] = "plugin", ["initial_date"] = "2042-07-03" });
+            var second = await NextModel(engine, scripts, events.Add);
+            ReplyTool(engine, second, names[1], new() { ["path"] = "name", ["value"] = "Station fixture" });
+            var third = await NextModel(engine, scripts, events.Add);
+            foreach (var name in names)
+            {
+                var start = events.Single(item => item.GetString("kind") == "tool_start" && item.GetString("name") == name);
+                var end = events.Single(item => item.GetString("kind") == "tool_end" && item.GetString("name") == name);
+                var title = start.GetString("tool_title");
+                Assert.IsTrue(title.Length > 0 && title != name);
+                Assert.AreEqual(title, end.GetString("tool_title"));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(start.GetString("skill_title")));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(start.GetObject("tool_arguments_ui").GetString("program")));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(end.GetObject("tool_result_ui").GetString("program")));
+                if (name == "configure_date")
+                {
+                    var rows = start.GetObject("tool_arguments_ui").GetObject("state").GetArray("rows");
+                    Assert.IsTrue(rows.Any(row => row.GetString("value") == "由插件管理"));
+                    Assert.IsTrue(rows.Any(row => row.GetString("value") == "2042-07-03"));
+                    Assert.AreEqual("更改已暂存", end.GetObject("tool_result_ui").GetObject("state").GetString("status"));
+                }
+                Assert.IsFalse(start.ContainsKey(ToolTrace.Source));
+                Assert.IsFalse(end.ContainsKey(ToolTrace.ResultPlain));
+                titles.Add(start.GetString("block"), title);
+            }
+            var model = JsonValues.ParseObject(third.GetString("body"));
+            Assert.IsFalse(model.GetArray("tools").Any(item => item.GetObject("function").ContainsKey("title")));
+            Assert.IsTrue(model.GetArray("messages").Any(item => item.GetString("role") == "tool" &&
+                JsonValues.ParseObject(item.GetString("content")).GetBoolean("staged")));
+            Reply(engine, third, "Preset updated.");
+            await Until(engine, "completed", scripts);
+            engine.Dispatch(new() { ["op"] = "plugin_locale", ["locale"] = "en" });
+            var refreshed = new Dictionary<string, JsonObject>();
+            while (refreshed.Count < titles.Count)
+                await Until(engine, "tool_trace_update", scripts, item =>
+                {
+                    var id = item.GetString("block");
+                    if (item.GetString("kind") == "tool_trace_update" && titles.ContainsKey(id)) refreshed[id] = item;
+                });
+            foreach (var (id, item) in refreshed)
+            {
+                Assert.AreEqual(preset, item.GetString("preset"));
+                Assert.AreNotEqual(titles[id], item.GetString("tool_title"));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(item.GetObject("tool_arguments_ui").GetString("program")));
+            }
+        }
+
+        var file = Path.Combine(SessionFiles.PresetDirectory(root, preset), "blocks.json");
+        var saved = (JsonArray)JsonNode.Parse(File.ReadAllText(file))!;
+        foreach (var block in saved.OfType<JsonObject>().Where(item => names.Contains(item.GetString("tool"))))
+        {
+            Assert.IsTrue(block.ContainsKey(ToolTrace.Source));
+            Assert.IsFalse(block.ContainsKey("tool_arguments_ui"));
+            Assert.IsFalse(block.ContainsKey("tool_title"));
+            block.Remove(ToolTrace.Source);
+        }
+        AtomicFile.Write(file, JsonValues.Serialize(saved));
+        await using var reopened = new Engine(root);
+        using var reopenedScripts = new PluginScripts();
+        reopened.Dispatch(new() { ["op"] = "plugin_locale", ["locale"] = "zh-Hans" });
+        await Until(reopened, "plugin_settings", reopenedScripts);
+        reopened.Dispatch(new() { ["op"] = "open_preset", ["preset"] = preset });
+        var snapshot = await Until(reopened, "preset_opened", reopenedScripts);
+        foreach (var block in snapshot.GetArray("blocks").Where(item => names.Contains(item.GetString("tool"))))
+        {
+            Assert.AreEqual(titles[block.GetString("id")], block.GetString("tool_title"));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(block.GetObject("tool_result_ui").GetString("program")));
+        }
+        Assert.HasCount(2, snapshot.GetArray("blocks").Where(item => names.Contains(item.GetString("tool"))));
+    }
+
+    [TestMethod]
+    public async Task ToolTracePresentationRequiresAnOfferedToolAndAvailableSignedCard()
+    {
+        var root = NewRoot();
+        using var signer = Certificate();
+        var archive = Pack(root, "trace-display", signer, """
+            {"id":"trace-display","packageName":"test.trace_display","name":"Trace display","apiVersion":2,"entry":"index.js",
+             "actions":{"handlers":{"check":"check"}},"cards":[
+               {"id":"display","title":"Review","labels":{"count":"Count"},"program":"root = Col([Text($labels.count), Text(\"contact@example.invalid\"), Text(@Format(@Count($data.items)))])\n$data = null"}],
+             "skills":[{"name":"fixture","title":"Fixture","description":"Check the data.","agents":["chat"],"tools":[
+               {"name":"check","title":"Check fixture","description":"Check a fixture.","handler":"minirp://actions/test.trace_display/hooks/check",
+                "parameters":{"type":"object"},"presentation":{"arguments":"display","result":"display"}}]}],
+             "i18n":{"locales":{"fr":{"/cards/0/title":"Vérification","/cards/0/labels/count":"Nombre",
+               "/skills/0/title":"Exemple","/skills/0/tools/0/title":"Vérifier l’exemple"}}}}
+            """, "globalThis.handlers = { check() { return true; } };");
+        await using var runtime = new PluginRuntime(root, new HostPort(_ => { }), _ => { },
+            (_, _, _, _, _) => Task.FromResult<JsonNode?>(null));
+        runtime.Load();
+        var preset = WorkspaceIds.New();
+        var environment = new JsonObject { ["preset"] = preset, ["locale"] = "fr" };
+        var package = runtime.Install(archive, inspect: false, initialScope: PluginScope.Include(preset));
+        const string tool = "plugin_trace-display_check";
+        var skills = runtime.Skills("chat", environment).Where(skill => skill.Name == "trace-display-fixture").ToArray();
+        Assert.IsNull(new AgentSkill.Turn(skills).Presentation(tool, ToolPresentation.Arguments, "{}"));
+        var turn = new AgentSkill.Turn(skills, ["trace-display-fixture"]);
+        var definition = turn.Definitions().Single().GetObject("function");
+        Assert.IsFalse(definition.ContainsKey("presentation"));
+        Assert.IsFalse(definition.ContainsKey("title"));
+        Assert.IsNull(new AgentSkill.Turn(skills).TraceSource(tool));
+        var origin = turn.TraceSource(tool)!;
+        var labels = runtime.ReadToolTraceLabels(origin, preset, tool, "chat", "fr");
+        Assert.AreEqual("Vérifier l’exemple", labels?.Title);
+        Assert.AreEqual("Exemple", labels?.SkillTitle);
+        Assert.IsNull(runtime.ReadToolTraceLabels(origin, preset, tool, "env", "fr"));
+        Assert.IsNull(runtime.ReadToolTraceLabels(origin, WorkspaceIds.New(), tool, "chat", "fr"));
+        var forged = (JsonObject)origin.DeepClone();
+        forged["signer"] = "another-signer";
+        Assert.IsNull(runtime.ReadToolTraceLabels(forged, preset, tool, "chat", "fr"));
+        const string raw = "{\"items\":[1,2]}";
+        var presentation = turn.Presentation(tool, ToolPresentation.Arguments, raw)!;
+        Assert.AreEqual("Vérification", presentation.Display.GetString("title"));
+        Assert.AreEqual("Vérification", presentation.Display.GetObject("state").GetString("title"));
+        Assert.AreEqual("fr", presentation.Display.GetObject("state").GetString("locale"));
+        Assert.AreEqual("Nombre", presentation.Display.GetObject("state").GetObject("labels").GetString("count"));
+        Assert.AreEqual(2, presentation.Display.GetObject("state").GetObject("data").GetArray("items").Count);
+        Assert.AreEqual("Review", runtime.ReadToolPresentation(presentation.Reference, preset, tool, ToolPresentation.Arguments, raw, "en").GetString("title"));
+        Assert.IsNull(runtime.ReadToolPresentation(presentation.Reference, WorkspaceIds.New(), tool, ToolPresentation.Arguments, raw, "en"));
+        Assert.IsNull(runtime.ReadToolPresentation(presentation.Reference, preset, "other_tool", ToolPresentation.Arguments, raw, "en"));
+        Assert.IsNull(runtime.ReadToolPresentation(presentation.Reference, preset, tool, ToolPresentation.Arguments, raw, "en", "env"));
+        Assert.IsNull(turn.Presentation(tool, ToolPresentation.Result, "{\"error\":\"raw fallback\"}"));
+        var text = turn.Presentation(tool, ToolPresentation.Result, "123", plain: true)!;
+        var data = (JsonValue)text.Display.GetObject("state")["data"]!;
+        Assert.IsTrue(data.TryGetValue<string>(out var preserved));
+        Assert.AreEqual("123", preserved);
+        runtime.SetEnabled(package.Id, false, environment);
+        Assert.IsNull(turn.Presentation(tool, ToolPresentation.Arguments, raw));
+        Assert.IsNull(runtime.ReadToolPresentation(presentation.Reference, preset, tool, ToolPresentation.Arguments, raw, "en"));
+        Assert.IsNull(runtime.ReadToolTraceLabels(origin, preset, tool, "chat", "fr"));
+
+        foreach (var (role, skill, docs) in new[] { ("preset", "base-preset-docs", "preset_docs"), ("plugin", "base-plugin-docs", "plugin_docs") })
+        {
+            var builtIn = new AgentSkill.Turn(runtime.Skills(role, environment, builtInOnly: true), [skill]);
+            Assert.IsNotNull(builtIn.Presentation("plugin_base_" + docs, ToolPresentation.Arguments, "{}"));
+            var legacy = runtime.LegacyBuiltInToolTrace(preset, "plugin_base_" + docs, role, plain: false);
+            Assert.IsNotNull(legacy?.Arguments);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(runtime.ReadToolTraceLabels(legacy!.Value.Origin, preset,
+                "plugin_base_" + docs, role, "en")?.Title));
+            Assert.IsNull(runtime.LegacyBuiltInToolTrace(preset, "plugin_base_" + docs, "chat", plain: false));
+        }
+    }
+
+    [TestMethod]
+    [DataRow("arguments", "missing", "root = Text(\"fixture\")", false)]
+    [DataRow("handler", "display", "root = Text(\"fixture\")", false)]
+    [DataRow("result", "display", "root = Text(\"fixture\")", true)]
+    [DataRow("result", "display", "root = Col([Button(\"Ignore\", @OpenUrl(\"https://fixture.invalid\"))])", false)]
+    [DataRow("result", "display", "root = Col([Button(\"Ignore\", Action([@Set($data, null)]))])", false)]
+    public void ToolTracePresentationRejectsUnrecognizedOrInteractiveReferences(string phase, string id, string program, bool stateBound)
+    {
+        var card = new JsonObject { ["id"] = "display", ["program"] = program };
+        if (stateBound) card["state"] = "saved";
+        var tool = new JsonObject { ["presentation"] = new JsonObject { [phase] = id } };
+        var manifest = new JsonObject { ["cards"] = new JsonArray(card),
+            ["skills"] = new JsonArray(new JsonObject { ["tools"] = new JsonArray(tool) }) };
+        Assert.ThrowsExactly<InvalidDataException>(() => PluginRuntime.ValidateToolPresentations(manifest, signed: true));
+    }
+
+    [TestMethod]
+    public async Task ManifestTranslationsStayInDisplayAndModelText()
+    {
+        var root = NewRoot();
+        using var signer = Certificate();
+        var archive = Pack(root, "localized", signer, """
+            {"id":"localized","packageName":"test.localized","name":"Source package","description":"Source description",
+             "apiVersion":2,"entry":"index.js","permissions":["settings"],"actions":{"handlers":{"run":"run"}},
+             "attachments":[{"id":"sample","name":"Source attachment","description":"Attachment details",
+                "mimeTypes":["text/plain"],"handler":"minirp://actions/test.localized/hooks/run"}],
+             "stateEntries":[{"key":"state","scope":"session","initial":{"title":"State value"},"description":"Source state"}],
+             "cards":[{"id":"sample","title":"Source card","program":"root = Col([Text(\"Fixture\")])"}],
+             "skills":[{"name":"sample","title":"Source skill","description":"Source skill description","agents":["chat"],
+               "instructions":"Source instructions","stateEntries":["state"],"cards":["sample"],"tools":[
+               {"name":"run","description":"Source tool","handler":"minirp://actions/test.localized/hooks/run",
+                "parameters":{"type":"object","properties":{"key~/value":{"type":"string","description":"Source argument",
+                    "enum":["fixed"]}},"required":["key~/value"]}}]}],
+             "settings":[{"key":"page","type":"page","title":"Source page","items":[
+               {"key":"group","type":"group","title":"Source group","items":[
+                 {"key":"choice","type":"choice","title":"Source choice","titles":{"zh-Hans":"Legacy choice"},"default":"safe",
+                  "options":[{"value":"safe","title":"Source option"}]},
+                 {"key":"markdown","type":"markdown","markdown":"Source Markdown"}]}]}],
+             "i18n":{"defaultLocale":"en-GB","locales":{
+               "en":{"/description":"Default description"},
+               "zh-Hans":{"/name":"简体扩展","/attachments/0/name":"本地附件","/settings/0/title":"页面",
+                 "/skills/0/title":"工具技能","/skills/0/instructions":"本地说明","/skills/0/tools/0/description":"工具说明",
+                 "/skills/0/tools/0/parameters/properties/key~0~1value/description":"参数说明",
+                 "/stateEntries/0/description":"状态说明","/cards/0/title":"本地卡片",
+                 "/settings/0/items/0/items/0/title":"本地选项","/settings/0/items/0/items/0/options/0/title":"保留值",
+                 "/settings/0/items/0/items/1/markdown":"本地内容"},
+               "zh-Hans-CN":{"/name":"具体扩展","/skills/0/description":"具体技能"}}}}
+            """, "globalThis.handlers = { run() { return true; } };");
+        await using var runtime = new PluginRuntime(root, new HostPort(_ => { }), _ => { },
+            (_, _, _, _, _) => Task.FromResult<JsonNode?>(null));
+        runtime.Load();
+        var package = runtime.Install(archive, inspect: false);
+        const string locale = "ZH-Hans-CN-u-ca-gregory";
+        var display = runtime.List(locale).Single(item => item.GetString("id") == package.Id);
+        Assert.AreEqual("具体扩展", display.GetString("name"));
+        Assert.AreEqual("Default description", display.GetString("description"));
+        Assert.AreEqual("test.localized", display.GetString("packageName"));
+        Assert.AreEqual("settings", JsonValues.GetText(display.GetArray("permissions")[0]));
+        var attachment = display.GetArray("attachments")[0];
+        Assert.AreEqual("本地附件", attachment.GetString("name"));
+        Assert.AreEqual("Attachment details", attachment.GetString("description"));
+        Assert.AreEqual("minirp://actions/test.localized/hooks/run", attachment.GetString("handler"));
+        Assert.AreEqual("Source package", runtime.Descriptor(package, "it").GetString("name"));
+        var page = runtime.Page(package.Id, "page", "", locale);
+        Assert.AreEqual("页面", page.GetString("localizedTitle"));
+        var items = page.GetArray("items")[0].GetArray("items");
+        Assert.AreEqual("本地选项", items[0].GetString("localizedTitle"));
+        Assert.AreEqual("Legacy choice", items[0].GetObject("titles").GetString("zh-Hans"));
+        Assert.AreEqual("safe", items[0].GetString("value"));
+        var option = items[0].GetArray("options")[0];
+        Assert.AreEqual("保留值", option.GetString("localizedTitle"));
+        Assert.AreEqual("safe", option.GetString("value"));
+        Assert.AreEqual("本地内容", items[1].GetString("localizedMarkdown"));
+
+        JsonObject? card = null;
+        var agent = runtime.Skills("chat", new() { ["locale"] = locale }, showCard: value => card = value);
+        var turn = new AgentSkill.Turn(agent, ["localized-sample"]);
+        StringAssert.Contains(turn.Prompt, "具体技能");
+        StringAssert.Contains(turn.Prompt, "本地说明");
+        var tools = turn.Definitions().Select(item => item.GetObject("function")).ToArray();
+        var tool = tools.Single(item => item.GetString("name") == "plugin_localized_run");
+        Assert.AreEqual("工具说明", tool.GetString("description"));
+        var parameter = tool.GetObject("parameters").GetObject("properties").GetObject("key~/value");
+        Assert.AreEqual("参数说明", parameter.GetString("description"));
+        Assert.AreEqual("fixed", JsonValues.GetText(parameter.GetArray("enum")[0]));
+        StringAssert.Contains(tools.Single(item => item.GetString("name") == "plugin_localized_sample-state").GetString("description"), "状态说明");
+        await turn.Invoke("plugin_localized_sample-card", new() { ["id"] = "sample" }, default);
+        Assert.IsNotNull(card);
+        Assert.AreEqual("本地卡片", card.GetString("open_ui_title"));
+        Assert.AreEqual("root = Col([Text(\"Fixture\")])", card.GetString("open_ui"));
+        Assert.AreEqual("Source card", runtime.ReadCard(card.GetObject("plugin_card"), "it").GetString("open_ui_title"));
+        Assert.AreEqual("Source package", package.Manifest.GetString("name"));
+        CollectionAssert.AreEqual(File.ReadAllBytes(archive), File.ReadAllBytes(runtime.ExportablePlugin(package.Id)));
+    }
+
+    [TestMethod]
+    [DataRow("/id")]
+    [DataRow("/permissions/0")]
+    [DataRow("/settings/0/url")]
+    [DataRow("/settings/0/options/0/value")]
+    [DataRow("/settings/00/title")]
+    [DataRow("/settings/-/title")]
+    [DataRow("/settings/0/title~2")]
+    [DataRow("/skills/0/name")]
+    [DataRow("/skills/0/tools/0/parameters/enum/0/description")]
+    [DataRow("/skills/0/tools/0/parameters/properties/missing/description")]
+    [DataRow("/cards/0/program")]
+    [DataRow("/stateEntries/0/initial/title")]
+    [DataRow("/i18n/locales/en/~1name")]
+    [DataRow("/__proto__/title")]
+    public void ManifestTranslationsRejectPointersOutsideDeclaredText(string pointer)
+    {
+        var manifest = JsonValues.ParseObject("""
+            {"id":"fixed","name":"Source","permissions":["settings"],"settings":[{"title":"Label","url":"fixed",
+                "options":[{"value":"fixed","title":"Option"}]}],"skills":[{"name":"fixed","tools":[{"parameters":
+                {"enum":[{"description":"Fixed enum payload"}]}}]}],
+             "cards":[{"program":"fixed"}],"stateEntries":[{"initial":{"title":"fixed"}}]}
+            """);
+        manifest["i18n"] = new JsonObject { ["locales"] = new JsonObject { ["en"] = new JsonObject { [pointer] = "Change" } } };
+        Assert.ThrowsExactly<InvalidDataException>(() => PluginManifestLocalization.Read(manifest));
+    }
+
+    [TestMethod]
+    [DataRow("null")]
+    [DataRow("{}")]
+    [DataRow("{\"locales\":{}}")]
+    [DataRow("{\"defaultLocale\":null,\"locales\":{\"en\":{\"/name\":\"Value\"}}}")]
+    [DataRow("{\"locales\":{\"en_US\":{\"/name\":\"Value\"}}}")]
+    [DataRow("{\"locales\":{\"en-x\":{\"/name\":\"Value\"}}}")]
+    [DataRow("{\"locales\":{\"en-u-ca-u-nu\":{\"/name\":\"Value\"}}}")]
+    [DataRow("{\"locales\":{\"en-1901-1901\":{\"/name\":\"Value\"}}}")]
+    [DataRow("{\"locales\":{\"en\":{\"/name\":null}}}")]
+    [DataRow("{\"locales\":{\"en\":{\"/name\":\"  \"}}}")]
+    [DataRow("{\"locales\":{\"en\":{\"/name\":\"One\"},\"EN\":{\"/name\":\"Two\"}}}")]
+    public void ManifestTranslationsRejectMalformedLocalesAndValues(string section)
+    {
+        var manifest = new JsonObject { ["name"] = "Source", ["i18n"] = JsonNode.Parse(section) };
+        Assert.ThrowsExactly<InvalidDataException>(() => PluginManifestLocalization.Read(manifest));
+    }
+
+    [TestMethod]
     [DataRow("./missing.js")]
     [DataRow("../../helper.js")]
     [DataRow("helper.js")]
@@ -79,7 +380,7 @@ public sealed class ExtensionTests
     }
 
     [TestMethod]
-    public async Task EnsembleOpeningAppearsOnlyOnceForEachCharacterAcrossChats()
+    public async Task EnsembleOpeningFinishesEverySceneBeforeRoomLoadsAndPersistsSilentRoles()
     {
         var root = NewRoot();
         var preset = WriteEnsemblePreset(root);
@@ -92,41 +393,69 @@ public sealed class ExtensionTests
         using var scripts = new PluginScripts();
         Configure(engine);
         engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
-        var room = await Until(engine, "loaded", scripts);
-        var roomId = room.GetObject("chat").GetString("id");
-        var children = room.GetArray("ensemble_chats");
-
-        async Task OpenChild(string name, string participant)
+        var events = new List<JsonObject>();
+        foreach (var request in await NextModels(engine, scripts, 2, events.Add))
+            ReplyTool(engine, request, "room_ready", new());
+        var openings = await NextModels(engine, scripts, 2, events.Add);
+        var ada = openings.Single(request => request.GetString("body").Contains("Your character is Ada", StringComparison.Ordinal));
+        var bryn = openings.Single(request => request != ada);
+        var savedRoom = events.Last(item => item.GetString("kind") == "room_loading").GetString("room");
+        var path = Path.Combine(root, "conversations", preset, savedRoom + ".json");
+        var children = JsonValues.ParseObject(File.ReadAllText(path)).GetObject("ensemble").GetArray("chats");
+        var bridge = children.Single(entry => entry.GetString("name") == "Bridge").GetString("id");
+        var lab = children.Single(entry => entry.GetString("name") == "Lab").GetString("id");
+        foreach (var request in openings)
         {
-            var child = children.Single(entry => entry.GetString("name") == name).GetString("id");
-            engine.Dispatch(new() { ["op"] = "select_ensemble_chat", ["chat"] = roomId, ["conversation"] = child });
-            var request = await NextModel(engine, scripts);
             var messages = JsonValues.ParseObject(request.GetString("body")).GetArray("messages");
             Assert.IsTrue(messages.Any(message => message.GetString("role") == "system" &&
                 message.GetString("content").Contains("private station welcome", StringComparison.Ordinal)));
-            Assert.IsTrue(messages.Any(message => message.GetString("content").Contains("Your character is " + participant, StringComparison.Ordinal)));
-            Reply(engine, request, "Welcome from " + participant + ".");
-            var posted = await Until(engine, "ensemble_message", scripts);
-            Assert.AreEqual(child, posted.GetString("conversation"));
-            Assert.AreEqual("Welcome from " + participant + ".", posted.GetObject("item").GetString("content"));
+            StringAssert.Contains(request.GetString("body"), "The active chat is Bridge (" + bridge + ")");
         }
-
-        await OpenChild("Lab", "Bryn");
-        await OpenChild("Bridge", "Ada");
-        var saved = JsonValues.ParseObject(File.ReadAllText(Path.Combine(root, "conversations", preset, roomId + ".json")));
-        CollectionAssert.AreEquivalent(new[] { "ada", "bryn" }, saved.GetArray("greeted_participants").Select(item => JsonValues.GetText(item)).ToArray());
-
-        var lab = children.Single(entry => entry.GetString("name") == "Lab").GetString("id");
-        engine.Dispatch(new() { ["op"] = "select_ensemble_chat", ["chat"] = roomId, ["conversation"] = lab });
-        await Until(engine, "ensemble_chat_loaded", scripts);
-        var path = Path.Combine(root, "lab.jsonl");
-        engine.Dispatch(new()
+        ReplyTool(engine, ada, "chat_send", new() { ["chat"] = bridge, ["text"] = "Welcome from Ada." });
+        var adaFinal = await NextModel(engine, scripts, events.Add);
+        Reply(engine, bryn, "Bryn stays silent on the bridge.");
+        var labOpening = await NextModel(engine, scripts, events.Add);
+        StringAssert.Contains(labOpening.GetString("body"), "Your character is Bryn");
+        StringAssert.Contains(labOpening.GetString("body"), "The active chat is Lab (" + lab + ")");
+        Assert.IsFalse(events.Any(item => item.GetString("kind") == "loaded"));
+        Assert.IsTrue(events.Last(item => item.GetString("kind") == "room_loading").GetBoolean("value"));
+        ReplyTool(engine, labOpening, "chat_send", new() { ["chat"] = lab, ["text"] = "Welcome from Bryn." });
+        Reply(engine, await NextModel(engine, scripts, events.Add), "The lab is ready.");
+        Reply(engine, adaFinal, "The bridge is ready.");
+        var room = await Until(engine, "loaded", scripts, events.Add);
+        var roomId = room.GetObject("chat").GetString("id");
+        Assert.AreEqual(savedRoom, roomId);
+        var finalLoading = events.Last(item => item.GetString("kind") == "room_loading");
+        Assert.IsFalse(finalLoading.GetBoolean("value"));
+        Assert.AreEqual(1d, finalLoading["progress"]!.GetValue<double>());
+        children = JsonValues.ParseObject(File.ReadAllText(path)).GetObject("ensemble").GetArray("chats");
+        CollectionAssert.AreEquivalent(new[] { "ada", "bryn" }, children.Single(entry => entry.GetString("id") == bridge)
+            .GetArray("opened_participants").Select(item => JsonValues.GetText(item)).ToArray());
+        CollectionAssert.AreEqual(new[] { "bryn" }, children.Single(entry => entry.GetString("id") == lab)
+            .GetArray("opened_participants").Select(item => JsonValues.GetText(item)).ToArray());
+        await using var reopened = new Engine(root);
+        using var reopenedScripts = new PluginScripts();
+        Configure(reopened);
+        var reopening = new List<JsonObject>();
+        reopened.Dispatch(new() { ["op"] = "select_chat", ["chat"] = roomId, ["id"] = roomId, ["preset"] = preset });
+        await Until(reopened, "loaded", reopenedScripts, reopening.Add);
+        foreach (var (scene, visible) in new[] { (lab, "Welcome from Bryn."), (bridge, "Welcome from Ada."), (lab, "Welcome from Bryn.") })
+        {
+            reopened.Dispatch(new() { ["op"] = "select_ensemble_chat", ["chat"] = roomId, ["conversation"] = scene });
+            var loaded = await Until(reopened, "ensemble_chat_loaded", reopenedScripts, reopening.Add);
+            Assert.AreEqual(visible, loaded.GetArray("blocks").Single(block => block.GetString("role") == "assistant").GetString("content"));
+        }
+        Assert.IsFalse(reopening.Any(item => item.GetString("kind") == "http_request"));
+        reopened.Dispatch(new() { ["op"] = "select_ensemble_chat", ["chat"] = roomId, ["conversation"] = lab });
+        await Until(reopened, "ensemble_chat_loaded", reopenedScripts);
+        var export = Path.Combine(root, "lab.jsonl");
+        reopened.Dispatch(new()
         {
             ["op"] = "archive_export", ["type"] = "transcript", ["agent"] = "chat", ["preset"] = preset,
-            ["chat"] = roomId, ["conversation"] = lab, ["path"] = path,
+            ["chat"] = roomId, ["conversation"] = lab, ["path"] = export,
         });
-        await Until(engine, "archive_exported", scripts);
-        var transcript = File.ReadAllLines(path).Select(JsonValues.ParseObject).ToArray();
+        await Until(reopened, "archive_exported", reopenedScripts);
+        var transcript = File.ReadAllLines(export).Select(JsonValues.ParseObject).ToArray();
         Assert.AreEqual(lab, transcript[0].GetString("chat"));
         Assert.IsTrue(transcript.Any(row => row.GetString("content") == "Welcome from Bryn." && row.GetString("speaker") == "Bryn"));
         Assert.IsFalse(transcript.Any(row => row.GetString("content") is "Welcome from Ada." or "Give a private station welcome."));
@@ -310,11 +639,18 @@ public sealed class ExtensionTests
     [TestMethod]
     public async Task EnsembleTurnsUseChatMembershipAndSeparateCharacterSessions()
     {
+        static string SystemPrompt(JsonObject request) => JsonValues.ParseObject(request.GetString("body"))
+            .GetArray("messages").First(message => message.GetString("role") == "system").GetString("content");
+        static bool IsCharacter(JsonObject request, string name) =>
+            SystemPrompt(request).Contains("Your character is " + name + ".", StringComparison.Ordinal);
+
         var root = NewRoot();
         var preset = WriteEnsemblePreset(root);
         await using var engine = new Engine(root, seedDefaultPreset: false);
         using var scripts = new PluginScripts();
-        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "configure",
+            ["provider"] = new JsonObject { ["url"] = "http://fixture.invalid/v1", ["model"] = "fixture" },
+            ["agents"] = new JsonObject { ["title"] = new JsonObject() } });
         engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
         var loaded = await Until(engine, "loaded", scripts);
         var chats = loaded.GetArray("ensemble_chats");
@@ -327,23 +663,29 @@ public sealed class ExtensionTests
         engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = bridgeId, ["text"] = "Status?" });
 
         var requests = await NextModels(engine, scripts, 2);
-        var ada = requests.Single(request => request.GetString("body").Contains("Your character is Ada", StringComparison.Ordinal));
-        var bryn = requests.Single(request => request != ada);
+        var ada = requests.Single(request => IsCharacter(request, "Ada"));
+        var bryn = requests.Single(request => IsCharacter(request, "Bryn"));
         StringAssert.Contains(ada.GetString("body"), "Your character is Ada");
-        Assert.ThrowsExactly<InvalidOperationException>(() => engine.Dispatch(new() { ["op"] = "steer",
-            ["chat"] = room, ["conversation"] = labId, ["text"] = "Wrong chat." }));
-        engine.Dispatch(new() { ["op"] = "steer", ["chat"] = room, ["conversation"] = bridgeId,
-            ["text"] = "Check the forecast." });
-        requests = await NextModels(engine, scripts, 2);
+        var ongoing = new List<JsonObject>();
+        engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = bridgeId,
+            ["request"] = "second-message", ["text"] = "Check the forecast." });
+        var accepted = await Until(engine, "message_accepted", scripts, ongoing.Add);
+        Assert.AreEqual("second-message", accepted.GetString("request"));
+        engine.Dispatch(new() { ["op"] = "select_ensemble_chat", ["conversation"] = labId, ["chat"] = room });
+        await Until(engine, "ensemble_chat_loaded", scripts, ongoing.Add);
+        engine.Dispatch(new() { ["op"] = "select_ensemble_chat", ["chat"] = room });
+        var overview = await Until(engine, "ensemble_chat_loaded", scripts, ongoing.Add);
+        Assert.AreEqual("", overview.GetString("conversation"));
+        Assert.IsFalse(ongoing.Any(item => item.GetString("kind") == "busy" && item.GetBoolean("value")));
         foreach (var request in requests)
         {
-            StringAssert.Contains(request.GetString("body"), "Check the forecast.");
+            StringAssert.Contains(request.GetString("body"), "Status?");
             ReplyTool(engine, request, "activate_skill", new() { ["name"] = "web-research" });
         }
         foreach (var request in await NextModels(engine, scripts, 2))
         {
             Assert.IsTrue(Offers(request, "search"));
-            var character = request.GetString("body").Contains("Your character is Ada", StringComparison.Ordinal) ? "Ada" : "Bryn";
+            var character = IsCharacter(request, "Ada") ? "Ada" : "Bryn";
             ReplyTool(engine, request, "search", new() { ["query"] = character + " forecast" });
         }
         foreach (var request in await NextModels(engine, scripts, 2))
@@ -354,27 +696,50 @@ public sealed class ExtensionTests
         foreach (var request in await NextModels(engine, scripts, 2))
             ReplyTool(engine, request, "submit_search_results", new());
         requests = await NextModels(engine, scripts, 2);
-        ada = requests.Single(request => request.GetString("body").Contains("Your character is Ada", StringComparison.Ordinal));
-        bryn = requests.Single(request => request != ada);
+        Assert.IsTrue(requests.All(request => Offers(request, "chat_send")),
+            "Both searches must submit successfully and resume their own character sessions.");
+        ada = requests.Single(request => IsCharacter(request, "Ada"));
+        bryn = requests.Single(request => IsCharacter(request, "Bryn"));
         CollectionAssert.AreEquivalent(new[] { "Ada forecast", "Bryn forecast" },
             engine.Workspace.State.GetObject("search_cache").Select(item => item.Key).ToArray());
+        var published = engine.Workspace.State.GetObject(ResearchAssets.Index);
+        Assert.HasCount(2, published);
+        Assert.HasCount(1, published.Select(item => item.Value.GetString("hash")).Distinct());
         ReplyTool(engine, ada, "chat_send", new() { ["chat"] = labId, ["text"] = "Unauthorized" });
         var denied = await NextModel(engine, scripts);
         StringAssert.Contains(denied.GetString("body"), "not a member");
         ReplyTool(engine, denied, "chat_send", new() { ["chat"] = bridgeId, ["text"] = "Ada reported in." });
-        Reply(engine, await NextModel(engine, scripts), "Private continuation.");
+        var adaFinal = await NextModel(engine, scripts);
         var messages = JsonValues.ParseObject(bryn.GetString("body")).GetArray("messages");
         StringAssert.Contains(messages[0].GetString("content"), "Your character is Bryn");
         Assert.IsFalse(messages.Any(message => message.GetString("content").Contains("Ada reported in.", StringComparison.Ordinal)));
         Assert.IsFalse(messages.Any(message => message.GetString("content").Contains("Private continuation.", StringComparison.Ordinal)));
         ReplyTool(engine, bryn, "chat_send", new() { ["chat"] = labId, ["text"] = "Lab note." });
-        Reply(engine, await NextModel(engine, scripts), "Done.");
+        var brynFinal = await NextModel(engine, scripts);
+        Reply(engine, adaFinal, "Private continuation.");
+        Reply(engine, brynFinal, "Done.");
+        foreach (var request in await NextModels(engine, scripts, 2))
+        {
+            StringAssert.Contains(request.GetString("body"), "Check the forecast.");
+            Reply(engine, request, "No further forecast details.");
+        }
+        var peer = await NextModel(engine, scripts);
+        StringAssert.Contains(peer.GetString("body"), "Your character is Bryn");
+        StringAssert.Contains(peer.GetString("body"), "Ada reported in.");
+        var peerTrigger = JsonValues.ParseObject(peer.GetString("body")).GetArray("messages").Reverse()
+            .First(message => message.GetString("content").StartsWith("A new post in this chat", StringComparison.Ordinal));
+        var savedRoom = JsonValues.ParseObject(File.ReadAllText(Path.Combine(root, "conversations", preset, room + ".json")));
+        var adaPost = savedRoom.GetObject("ensemble").GetArray("chats").Single(chat => chat.GetString("id") == bridgeId)
+            .GetArray("messages").Single(message => message.GetString("content") == "Ada reported in.");
+        StringAssert.Contains(peerTrigger.GetString("content"), adaPost.GetString("id"));
+        ReplyTool(engine, peer, "chat_send", new() { ["chat"] = bridgeId, ["text"] = "Bryn acknowledges Ada." });
+        Reply(engine, await NextModel(engine, scripts), "Acknowledged.");
 
-        // Selection is serialized after the turn, so both posts have been committed.
         engine.Dispatch(new() { ["op"] = "select_ensemble_chat", ["conversation"] = labId, ["chat"] = room });
         var lab = await Until(engine, "ensemble_chat_loaded", scripts);
-        Assert.AreEqual("Lab note.", lab.GetArray("blocks").Single().GetString("content"));
-        Assert.AreEqual("Bryn", lab.GetArray("blocks").Single().GetString("speaker"));
+        var labNote = lab.GetArray("blocks").Single(block => block.GetString("role") == "assistant");
+        Assert.AreEqual("Lab note.", labNote.GetString("content"));
+        Assert.AreEqual("Bryn", labNote.GetString("speaker"));
         var roomDocument = JsonValues.ParseObject(File.ReadAllText(Path.Combine(root, "conversations", preset, room + ".json")));
         Assert.AreEqual(1, roomDocument.GetArray("messages").Count(item => item.GetString("content") == "Check the forecast."));
         var adaSession = engine.LoadedCharacterSession("ada", "chat");
@@ -402,8 +767,13 @@ public sealed class ExtensionTests
             foreach (var role in new[] { "chat", "search" })
                 Assert.IsTrue(File.Exists(Path.Combine(engine.Workspace.ChatRoot, "ensemble", character, role + ".sqlite")));
 
+        engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = labId, ["text"] = "Check before departure." });
+        var pending = await NextModel(engine, scripts);
+        StringAssert.Contains(pending.GetString("body"), "Private lab follow-up.");
         engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
-        var newRoom = await Until(engine, "loaded", scripts);
+        var departure = new List<JsonObject>();
+        var newRoom = await Until(engine, "loaded", scripts, departure.Add);
+        Assert.IsTrue(departure.Any(item => item.GetString("kind") == "cancel_io" && item.GetString("id") == pending.GetString("id")));
         Assert.AreNotEqual(room, newRoom.GetObject("chat").GetString("id"));
         var freshSession = engine.LoadedCharacterSession("bryn", "chat");
         Assert.IsNotNull(freshSession);
@@ -419,13 +789,152 @@ public sealed class ExtensionTests
     }
 
     [TestMethod]
+    public async Task EnsembleLocalFetchKeepsTheActingSceneWhenTheViewerSwitches()
+    {
+        var root = NewRoot();
+        var preset = WriteEnsemblePreset(root);
+        var workspace = new Workspace(root, seedDefaultPreset: false);
+        workspace.UsePreset(preset);
+        var config = (JsonObject)workspace.Config.DeepClone();
+        config.GetObject("ensemble").GetArray("chats").OfType<JsonObject>()
+            .Single(chat => chat.GetString("name") == "Bridge")["members"] = new JsonArray("ada");
+        workspace.CommitConfig(config);
+        using var signer = Certificate();
+        var archive = Pack(root, "fetch-scope", signer, """
+            {"id":"fetch-scope","packageName":"test.fetch.scope","name":"Fetch Scope","apiVersion":2,"entry":"index.js",
+             "permissions":["harness.read"],"actions":{"handlers":{"inspect":"inspect"}},
+             "skills":[{"name":"scope","description":"Read this browser job's scope.","agents":["fetch"],"tools":[
+               {"name":"inspect","description":"Report the acting room, scene and browser job.","handler":"minirp://actions/test.fetch.scope/hooks/inspect",
+                "parameters":{"type":"object"}}]}]}
+            """, """
+            globalThis.handlers = { async inspect(_, api) {
+                const scene = await api.harness.readChat();
+                const { room, chat, participant, session } = api.environment;
+                return { room, chat, participant, session, actualScene: scene.id };
+            } };
+            """);
+        await using var engine = new Engine(root, seedDefaultPreset: false);
+        using var scripts = new PluginScripts();
+        engine.Dispatch(new() { ["op"] = "configure",
+            ["provider"] = new JsonObject { ["url"] = "http://fixture.invalid/v1", ["model"] = "fixture" },
+            ["agents"] = new JsonObject { ["title"] = new JsonObject() } });
+        engine.Dispatch(new() { ["op"] = "plugin_install", ["path"] = archive });
+        await Until(engine, "plugin", scripts);
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
+        var loaded = await Until(engine, "loaded", scripts);
+        var room = loaded.GetObject("chat").GetString("id");
+        string Scene(string name) => loaded.GetArray("ensemble_chats").Single(chat => chat.GetString("name") == name).GetString("id");
+        var bridge = Scene("Bridge");
+        var lab = Scene("Lab");
+        var trace = new List<JsonObject>();
+        var pending = new List<JsonObject>();
+
+        async Task<JsonObject> NextEvent(string kind, Func<JsonObject, bool> matches)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            while (true)
+            {
+                foreach (var item in engine.Poll().OfType<JsonObject>())
+                {
+                    if (item.GetString("kind") is "tool_start" or "tool_end") trace.Add(item);
+                    if (item.GetString("kind") is "http_request" or "browser_request" or "ensemble_chat_loaded")
+                        pending.Add(item);
+                    else Process(engine, item, scripts, timeout.Token);
+                }
+                var index = pending.FindIndex(item => item.GetString("kind") == kind && matches(item));
+                if (index >= 0)
+                {
+                    var item = pending[index];
+                    pending.RemoveAt(index);
+                    return item;
+                }
+                await Task.Delay(8, timeout.Token);
+            }
+        }
+
+        Task<JsonObject> Model(string marker, string second = "") => NextEvent("http_request", request =>
+            request.GetString("body").Contains(marker, StringComparison.Ordinal) &&
+            request.GetString("body").Contains(second, StringComparison.Ordinal));
+        async Task<JsonObject> Select(string scene)
+        {
+            engine.Dispatch(new() { ["op"] = "select_ensemble_chat", ["chat"] = room, ["conversation"] = scene });
+            return await NextEvent("ensemble_chat_loaded", item => item.GetString("conversation") == scene);
+        }
+        async Task<string> Start(string scene, string name, string url)
+        {
+            engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = scene, ["text"] = "Read " + url });
+            ReplyTool(engine, await Model("Your character is " + name), "activate_skill", new() { ["name"] = "web-research" });
+            ReplyTool(engine, await Model("Your character is " + name), "open_url", new() { ["url"] = url });
+            ReplyTool(engine, await Model("Research for " + name, url), "real_fetch", new() { ["url"] = url, ["backend"] = "local" });
+            ReplyTool(engine, await Model("You are FetchAgent", url), "browser_navigate", new() { ["url"] = url });
+            var navigate = await NextEvent("browser_request", request => request.GetString("tool") == "browser_navigate" &&
+                request.GetObject("arguments").GetString("url") == url);
+            pending.Add(navigate);
+            return navigate.GetString("job");
+        }
+        void BrowserReply(JsonObject request, JsonObject result) => engine.Dispatch(new()
+            { ["op"] = "io_reply", ["id"] = request.GetString("id"), ["result"] = result });
+        Task<JsonObject> Browser(string job, string tool) => NextEvent("browser_request",
+            request => request.GetString("job") == job && request.GetString("tool") == tool);
+        static JsonObject LastResult(JsonObject model) => JsonValues.ParseObject(JsonValues.ParseObject(model.GetString("body"))
+            .GetArray("messages").Last(item => item.GetString("role") == "tool").GetString("content"));
+
+        const string bridgeUrl = "https://fixture.invalid/bridge";
+        const string labUrl = "https://fixture.invalid/lab";
+        await Select(lab);
+        var adaJob = await Start(bridge, "Ada", bridgeUrl);
+        await Select("");
+        var brynJob = await Start(lab, "Bryn", labUrl);
+        Assert.AreNotEqual(adaJob, brynJob);
+        var checks = new[] { (adaJob, bridge, "ada", "Ada", bridgeUrl), (brynJob, lab, "bryn", "Bryn", labUrl) };
+        foreach (var (job, scene, participant, name, url) in checks)
+        {
+            await Select(scene == bridge ? lab : bridge);
+            BrowserReply(await Browser(job, "browser_navigate"), new() { ["snapshot"] = "Fixture page" });
+            ReplyTool(engine, await Model("You are FetchAgent", url), "activate_skill", new() { ["name"] = "fetch-scope-scope" });
+            ReplyTool(engine, await Model("You are FetchAgent", url), "plugin_fetch-scope_inspect", new());
+            var scoped = await Model("You are FetchAgent", url);
+            var context = LastResult(scoped);
+            Assert.AreEqual(room, context.GetString("room"));
+            Assert.AreEqual(scene, context.GetString("chat"));
+            Assert.AreEqual(scene, context.GetString("actualScene"));
+            Assert.AreEqual(participant, context.GetString("participant"));
+            Assert.AreEqual("fetch-" + job, context.GetString("session"));
+            ReplyTool(engine, scoped, "capture_page", new());
+            BrowserReply(await Browser(job, "capture_page"), new()
+                { ["title"] = name + " page", ["url"] = url, ["content"] = "# " + name + " fixture content" });
+            ReplyTool(engine, await Model("You are FetchAgent", url), "finish_fetch", new() { ["complete"] = true });
+            BrowserReply(await Browser(job, "browser_close"), new());
+            var research = await Model("Research for " + name, url);
+            var page = LastResult(research);
+            StringAssert.Contains(page.GetString("content"), name + " fixture content");
+            ReplyTool(engine, research, "submit_page", new() { ["ref"] = page.GetString("ref") });
+            Reply(engine, await Model("Your character is " + name, url), "Read the page.");
+            var fetched = trace.Where(item => item.GetString("agent") == "FetchAgent" &&
+                item.GetString("session") == "fetch-" + job).ToArray();
+            Assert.IsTrue(fetched.Any(item => item.GetString("name") == "capture_page"));
+            Assert.IsTrue(fetched.All(item => item.GetString("conversation") == scene &&
+                item.GetString("preset") == preset && item.GetString("participant") == participant));
+            using var database = MemoryDb.ReadOnly(SessionFiles.Fetch(engine.Workspace.ChatRoot, job));
+            StringAssert.Contains(database.Get("page/markdown")!, name + " fixture content");
+            var snapshot = await Select(scene);
+            Assert.IsTrue(snapshot.GetArray("blocks").Any(item => item.GetString("tool") == "capture_page" &&
+                item.GetString("session") == "fetch-" + job && item.GetString("participant") == participant));
+            Assert.IsFalse(snapshot.GetArray("blocks").Any(item => item.GetString("agent") == "FetchAgent" &&
+                item.GetString("session") != "fetch-" + job));
+        }
+    }
+
+    [TestMethod]
     public async Task EnsembleRoomRequiresEveryCharacterToConfirmAndResumesPartialPreparation()
     {
         var root = NewRoot();
         var preset = WriteEnsemblePreset(root);
         await using var engine = new Engine(root, seedDefaultPreset: false);
         using var scripts = new PluginScripts();
-        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "configure",
+            ["provider"] = new JsonObject { ["url"] = "http://fixture.invalid/v1", ["model"] = "fixture" },
+            ["agents"] = new JsonObject { ["title"] = new JsonObject() } });
         engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
         var events = new List<JsonObject>();
         var requests = await NextModels(engine, scripts, 2, events.Add);
@@ -520,7 +1029,17 @@ public sealed class ExtensionTests
         var denied = await NextModel(engine, scripts);
         StringAssert.Contains(denied.GetString("body"), "Plugin state is read-only");
         ReplyTool(engine, denied, "plugin_room-status_report", new() { ["line"] = "Gate closed." });
-        var notified = await NextModel(engine, scripts);
+        var traceEvents = new List<JsonObject>();
+        var notified = await NextModel(engine, scripts, item =>
+        {
+            if (item.GetString("name") == "plugin_room-status_report") traceEvents.Add(item);
+        });
+        var started = traceEvents.Single(item => item.GetString("kind") == "tool_start");
+        var ended = traceEvents.Single(item => item.GetString("kind") == "tool_end");
+        Assert.AreEqual("Report station status", started.GetString("tool_title"));
+        Assert.AreEqual("Station status", ended.GetString("skill_title"));
+        Assert.AreEqual("Gate closed.", started.GetObject("tool_arguments_ui").GetObject("state").GetObject("data").GetString("line"));
+        Assert.AreEqual("Gate closed.", ended.GetObject("tool_result_ui").GetObject("state").GetObject("data").GetObject("value").GetString("line"));
         var history = JsonValues.ParseObject(notified.GetString("body")).GetArray("messages");
         Assert.IsTrue(history.Any(message => message.GetString("role") == "system" &&
             message.GetString("content").Contains($"Watched DB entry {key} changed to revision 1", StringComparison.Ordinal)));
@@ -547,6 +1066,53 @@ public sealed class ExtensionTests
             message.GetString("role") == "system" && message.GetString("content") == "Gate closure has been confirmed."));
         Reply(engine, next, "The gate is closed.");
         await Until(engine, "completed", scripts);
+        var saved = engine.Workspace.Chat.GetArray("blocks").OfType<JsonObject>()
+            .Single(item => item.GetString("tool") == "plugin_room-status_report");
+        Assert.IsFalse(saved.ContainsKey("tool_result_ui"));
+        Assert.IsTrue(saved.ContainsKey("_tool_result_presentation"));
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = engine.Workspace.PresetId, ["id"] = engine.Workspace.ChatId });
+        var loaded = await Until(engine, "loaded", scripts);
+        var blocks = loaded.GetObject("chat").GetArray("blocks").OfType<JsonObject>().ToArray();
+        var restored = blocks.Single(item => item.GetString("tool") == "plugin_room-status_report");
+        var stationCard = blocks.Single(item => item.GetString("open_ui_title") == "Station status");
+        Assert.IsFalse(restored.ContainsKey("_tool_result_presentation"));
+        Assert.IsFalse(restored.ContainsKey(ToolTrace.Source));
+        Assert.AreEqual("Gate closed.", restored.GetObject("tool_result_ui").GetObject("state").GetObject("data").GetObject("value").GetString("line"));
+        async Task<JsonObject> ReadRefresh(Action<JsonObject>? observe = null)
+        {
+            JsonObject? update = null;
+            while (update is null)
+                await Until(engine, "tool_trace_update", scripts, item =>
+                {
+                    observe?.Invoke(item);
+                    if (item.GetString("kind") == "tool_trace_update" && item.GetString("block") == restored.GetString("id"))
+                        update = item;
+                });
+            return update;
+        }
+        JsonObject? localizedCard = null;
+        void ObserveCard(JsonObject item)
+        {
+            if (item.GetString("kind") == "open_ui_card_update" && item.GetString("block") == stationCard.GetString("id"))
+                localizedCard = item;
+        }
+        engine.Dispatch(new() { ["op"] = "plugin_locale", ["locale"] = "zh-Hans" });
+        var localized = await ReadRefresh(ObserveCard);
+        while (localizedCard is null) await Until(engine, "open_ui_card_update", scripts, ObserveCard);
+        Assert.AreEqual("上报值班状态", localized.GetString("tool_title"));
+        Assert.AreEqual("已保存的状态", localized.GetObject("tool_result_ui").GetString("title"));
+        Assert.AreEqual("值班状态", localizedCard.GetString("open_ui_title"));
+        Assert.AreEqual("最新上报", localizedCard.GetObject("open_ui_state").GetObject("labels").GetString("current"));
+        Assert.AreEqual("Gate closed.", localizedCard.GetObject("open_ui_state").GetString("line"));
+        Assert.AreEqual(stationCard.GetString("open_ui"), localizedCard.GetString("open_ui"));
+        Assert.AreEqual(stationCard.GetInt32("open_ui_revision"), localizedCard.GetInt32("open_ui_revision"));
+        engine.Dispatch(new() { ["op"] = "plugin_enabled", ["id"] = "room-status", ["enabled"] = false });
+        var disabled = await ReadRefresh();
+        foreach (var keyName in ToolTrace.DisplayFields)
+        {
+            Assert.IsTrue(disabled.ContainsKey(keyName));
+            Assert.IsNull(disabled[keyName]);
+        }
     }
 
     [TestMethod]
@@ -1003,8 +1569,11 @@ public sealed class ExtensionTests
         Configure(engine);
         engine.Dispatch(new() { ["op"] = "home", ["preset"] = preset });
         await Until(engine, "home", scripts);
-        engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["preset"] = preset, ["text"] = "Delegate." });
-        ReplyTool(engine, await NextModel(engine, scripts), "activate_skill", new() { ["name"] = "base-plugin-development" });
+        engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["preset"] = preset, ["locale"] = "ja-JP", ["text"] = "Delegate." });
+        var presetRequest = await NextModel(engine, scripts);
+        StringAssert.Contains(Messages(presetRequest)[0].GetString("content"), "application language (ja-JP)");
+        StringAssert.Contains(Messages(presetRequest)[0].GetString("content"), "base-plugin-development: プラグイン開発");
+        ReplyTool(engine, presetRequest, "activate_skill", new() { ["name"] = "base-plugin-development" });
         ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_plugin_spawn",
             new() { ["name"] = "Late worker", ["message"] = "Run the delegated task." });
 
@@ -1021,6 +1590,10 @@ public sealed class ExtensionTests
             }
             if (parent is null || worker is null) await Task.Delay(8, timeout.Token);
         }
+        var workerInstructions = Messages(worker)[0].GetString("content");
+        StringAssert.Contains(workerInstructions, "application language (ja-JP)");
+        StringAssert.Contains(workerInstructions, "base-plugin-docs: プラグインのドキュメント");
+        StringAssert.Contains(workerInstructions, "i18n.locales");
         var id = JsonValues.ParseObject(Messages(parent).Last(message => message.GetString("role") == "tool").GetString("content"))
             .GetString("id");
         ReplyTool(engine, parent, "plugin_base_plugin_wait", new() { ["ids"] = new JsonArray(id), ["seconds"] = 1 });
@@ -1893,6 +2466,7 @@ public sealed class ExtensionTests
         var queued = (await Until(engine, "steer_queued")).GetObject("item");
         Assert.AreEqual(role, queued.GetString("kind"));
         Assert.AreEqual(text, queued.GetString("content"));
+        Assert.AreEqual(role == "user", queued.GetBoolean("interjection"));
         Assert.IsFalse(engine.Workspace.Chat.GetArray("blocks").Any(block => block.GetString("content") == text));
 
         engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = blocked.GetString("id"), ["error"] = "Fixture tool finished." });
@@ -1903,11 +2477,14 @@ public sealed class ExtensionTests
         });
         Assert.IsNotNull(delivered);
         Assert.AreEqual(queued.GetString("id"), delivered.GetString("block"));
+        Assert.AreEqual(role == "user", delivered.GetBoolean("interjection"));
         var messages = JsonValues.ParseObject(continued.GetString("body")).GetArray("messages");
         var input = messages.Single(message => message.GetString("content") == text);
         Assert.AreEqual(role, input.GetString("role"));
-        Assert.AreEqual(queued.GetString("id"), engine.Workspace.Chat.GetArray("blocks")
-            .Single(block => block.GetString("content") == text).GetString("id"));
+        Assert.IsFalse(((JsonObject)input!).ContainsKey("interjection"));
+        var saved = engine.Workspace.Chat.GetArray("blocks").Single(block => block.GetString("content") == text);
+        Assert.AreEqual(queued.GetString("id"), saved.GetString("id"));
+        Assert.AreEqual(role == "user", saved.GetBoolean("interjection"));
         Reply(engine, continued, "Done.");
         await Until(engine, "completed");
     }
@@ -2511,7 +3088,7 @@ public sealed class ExtensionTests
         }
     }
 
-    private static async Task<JsonObject> Until(Engine engine, string kind, PluginScripts? scripts = null)
+    private static async Task<JsonObject> Until(Engine engine, string kind, PluginScripts? scripts = null, Action<JsonObject>? observe = null)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         while (true)
@@ -2519,6 +3096,7 @@ public sealed class ExtensionTests
             JsonObject? found = null;
             foreach (var item in engine.Poll().OfType<JsonObject>())
             {
+                observe?.Invoke(item);
                 if (item.GetString("kind") == kind) found = item;
                 if (item.GetString("kind") != kind || kind != "error") Process(engine, item, scripts, timeout.Token);
             }

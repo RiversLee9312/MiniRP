@@ -39,7 +39,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class SettingOption(val value: String, val title: String, val label: String)
+data class SettingOption(val value: String, val title: String, val label: String, val localizedTitle: String = "")
 
 data class PluginSetting(
     val plugin: String,
@@ -57,11 +57,13 @@ data class PluginSetting(
     val assetUrl: String = "",
     val url: String = "",
     val icon: String = "",
+    val localizedTitle: String = "",
+    val localizedMarkdown: String = "",
 ) {
     val listKey
         get() = "$plugin/$key"
 
-    fun localized(locale: java.util.Locale): String =
+    fun localized(locale: java.util.Locale): String = localizedTitle.ifBlank {
         titles
             ?.let {
                 it.optString(locale.toLanguageTag()).ifBlank {
@@ -73,6 +75,7 @@ data class PluginSetting(
             }
             .orEmpty()
             .ifBlank { title }
+    }
 }
 
 data class PluginAttachmentType(
@@ -150,13 +153,15 @@ internal fun decodePluginSetting(value: JSONObject): PluginSetting =
             .optJSONArray("options")
             ?.objects()
             ?.map {
-                SettingOption(it.getString("value"), it.getString("title"), it.optString("label"))
+                SettingOption(it.getString("value"), it.getString("title"), it.optString("label"), it.optString("localizedTitle"))
             }
             .orEmpty(),
         value.optJSONArray("items")?.objects()?.map { decodePluginSetting(it) }.orEmpty(),
         assetUrl = value.optString("assetUrl"),
         url = value.optString("url"),
         icon = value.optString("icon"),
+        localizedTitle = value.optString("localizedTitle"),
+        localizedMarkdown = value.optString("localizedMarkdown"),
     )
 
 internal fun decodePlugin(value: JSONObject): PluginInfo {

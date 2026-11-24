@@ -56,6 +56,9 @@ public sealed partial class Engine
         if (!lifetime.IsCancellationRequested) Emit(response);
     }
 
+    private string pluginLocale = "";
+    private string PluginLocale(JsonObject command) => command.GetString("locale", Volatile.Read(ref pluginLocale));
+
     private JsonObject PluginEnvironment(string agent = "")
     {
         var workspace = Workspace;
@@ -67,6 +70,7 @@ public sealed partial class Engine
             ["session"] = agent == "preset" && workspace.PresetId.Length > 0 ? agent + "-" + workspace.PresetId :
                 agent.Length == 0 || container.Length == 0 ? null : agent + "-" + container,
             ["agent"] = agent.Length == 0 ? null : agent,
+            ["locale"] = Volatile.Read(ref pluginLocale),
             ["chat"] = chat.Length == 0 ? null : chat,
             ["room"] = container.Length == 0 ? null : container,
             ["_ensemble"] = ensemble is not null,
@@ -101,6 +105,7 @@ public sealed partial class Engine
         var payload = item.GetString("kind") switch
         {
             "delta" => new JsonObject { ["block"] = item.GetString("block"), ["text"] = item.GetString("text") },
+            "tool_start" or "tool_end" => ToolTrace.RawEvent(item),
             "ensemble_message" => new JsonObject { ["agent"] = "chat", ["room"] = item.GetString("chat"),
                 ["chat"] = item.GetString("conversation"), ["block"] = item.GetObject("item").GetString("id"),
                 ["participant"] = JsonValues.Clone(item.GetObject("item")["participant"]),
@@ -172,21 +177,29 @@ public sealed partial class Engine
                 return true;
             case "plugins_start":
                 plugins.Load();
-                plugins.Publish("app.ready", new(), new());
+                plugins.Publish("app.ready", new(), new() { ["locale"] = Volatile.Read(ref pluginLocale) });
+                return true;
+            case "plugin_locale":
+                Volatile.Write(ref pluginLocale, command.GetString("locale"));
+                EmitPluginList(request);
+                EmitPluginSettings(request);
+                RefreshCards();
                 return true;
             case "plugins_list":
-                Emit(new() { ["kind"] = "plugins", ["request"] = request, ["items"] = plugins.List() });
+                EmitPluginList(request, PluginLocale(command));
                 return true;
             case "plugin_inspect":
             case "plugin_install":
                 var inspect = command.GetString("op") == "plugin_inspect";
                 var package = plugins.Install(command.GetString("path"), inspect, environment: PluginEnvironment());
-                Emit(new() { ["kind"] = "plugin", ["request"] = request, ["item"] = plugins.Descriptor(package) });
+                Emit(new() { ["kind"] = "plugin", ["request"] = request, ["item"] = plugins.Descriptor(package, PluginLocale(command)) });
+                if (!inspect) RefreshCards();
                 return true;
             case "plugin_uninstall":
                 plugins.Uninstall(command.GetString("id"));
-                Emit(new() { ["kind"] = "plugins", ["request"] = request, ["items"] = plugins.List() });
+                EmitPluginList(request, PluginLocale(command));
                 EmitPluginSettings();
+                RefreshCards();
                 return true;
             case "plugin_command":
                 plugins.RequireScope(command.GetString("id"), Workspace.PresetId);
@@ -194,18 +207,20 @@ public sealed partial class Engine
                 return true;
             case "plugin_scope":
                 plugins.SetScope(command.GetString("id"), PluginScope.Parse(command.GetObject("scope")));
-                Emit(new() { ["kind"] = "plugins", ["request"] = request, ["items"] = plugins.List() });
+                EmitPluginList(request, PluginLocale(command));
                 EmitPluginSettings();
+                RefreshCards();
                 return true;
             case "plugin_enabled":
                 if (command["enabled"] is not JsonValue value || !value.TryGetValue<bool>(out var enabled))
                     throw new ArgumentException("Choose whether to enable this plugin.");
                 plugins.SetEnabled(command.GetString("id"), enabled, PluginEnvironment());
-                Emit(new() { ["kind"] = "plugins", ["request"] = request, ["items"] = plugins.List() });
+                EmitPluginList(request, PluginLocale(command));
                 EmitPluginSettings();
+                RefreshCards();
                 return true;
             case "plugin_settings":
-                EmitPluginSettings(request);
+                EmitPluginSettings(request, PluginLocale(command));
                 return true;
             case "plugin_page":
                 EmitPluginPage(command);
@@ -237,16 +252,21 @@ public sealed partial class Engine
         return false;
     }
 
-    private void EmitPluginSettings(string request = "") => Emit(new()
+    private void EmitPluginList(string request = "", string? locale = null) => Emit(new()
+    {
+        ["kind"] = "plugins", ["request"] = request, ["items"] = plugins.List(locale ?? Volatile.Read(ref pluginLocale))
+    });
+
+    private void EmitPluginSettings(string request = "", string? locale = null) => Emit(new()
     {
         ["kind"] = "plugin_settings", ["request"] = request,
-        ["preset"] = Workspace.PresetId, ["items"] = plugins.Settings(Workspace.PresetId)
+        ["preset"] = Workspace.PresetId, ["items"] = plugins.Settings(Workspace.PresetId, locale ?? Volatile.Read(ref pluginLocale))
     });
 
     private void EmitPluginPage(JsonObject command) => Emit(new()
     {
         ["kind"] = "plugin_page", ["request"] = command.GetString("request"),
-        ["item"] = plugins.Page(command.GetString("id"), command.GetString("key"), Workspace.PresetId)
+        ["item"] = plugins.Page(command.GetString("id"), command.GetString("key"), Workspace.PresetId, PluginLocale(command))
     });
 
     private void OpenPresetHome(string preset, JsonObject command)
@@ -260,17 +280,20 @@ public sealed partial class Engine
         else EmitHome();
     }
 
-    private void EmitHome() =>
+    private void EmitHome()
+    {
+        ResetTranscriptProjection();
         Emit(new() { ["kind"] = "home", ["preset"] = Workspace.PresetId, ["config"] = Workspace.Config.DeepClone() });
+    }
 
     private void ShowHome(string preset, bool notify = true)
     {
+        CloseRoomCharacters();
         containers.Select(null);
         var next = new Workspace(Workspace.Root, seedDefaultPreset: false);
         if (preset.Length == 0 && seedDefaultPreset) preset = next.InitialPreset().Id;
         if (preset.Length > 0) next.UsePreset(preset);
         foreach (var session in sessions.Values) session.Dispose();
-        CloseRoomCharacters();
         sessions.Clear();
         trace.Clear();
         chat = null;

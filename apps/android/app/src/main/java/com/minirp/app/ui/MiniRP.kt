@@ -30,6 +30,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
@@ -77,6 +78,8 @@ internal sealed interface AppRoute {
 @Composable
 fun MiniRP(model: ChatViewModel) {
     val state by model.state.collectAsStateWithLifecycle()
+    val appLocale = LocalConfiguration.current.locales[0].toLanguageTag()
+    LaunchedEffect(model, appLocale) { model.refreshPluginLocale(appLocale) }
     val protection = model.turnProtection?.state?.collectAsStateWithLifecycle()?.value
     val permissionContext = LocalContext.current
     var requestingNotifications by rememberSaveable { mutableStateOf(false) }
@@ -308,6 +311,7 @@ fun MiniRP(model: ChatViewModel) {
                                 state.pluginSettings.findSetting(plugin, key),
                                 plugin,
                                 key,
+                                appLocale,
                                 state.pluginSettings,
                             ) {
                                 try {
@@ -321,7 +325,8 @@ fun MiniRP(model: ChatViewModel) {
                         SettingsPage(setting?.let { SettingTitle(it) }.orEmpty(), back, snackbars) {
                             setting?.let { content ->
                                 DeclaredSettingsScreen(
-                                    if (content.markdown.isBlank()) content.children
+                                    if (content.markdown.isBlank() && content.localizedMarkdown.isBlank() && content.assetUrl.isBlank())
+                                        content.children
                                     else
                                         listOf(
                                             content.copy(type = "markdown", children = emptyList())

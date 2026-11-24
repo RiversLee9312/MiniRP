@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import { assetUrl, download, request, send, upload } from "./api.js";
-import { Confirm, FileChoice, Icon, IconButton, Modal, SettingToggle } from "./ui.jsx";
+import { Confirm, FileChoice, Icon, IconButton, Modal, Select, SettingToggle, Surface } from "./ui.jsx";
 import "./workspace-tools.css";
 
 function ToolPane({ title, children }) {
@@ -10,12 +10,19 @@ function ToolPane({ title, children }) {
     pane.current.parentElement.scrollTop = 0;
     pane.current.focus({ preventScroll: true });
   }, []);
-  return <section ref={pane} className="workspace-tool-pane" tabIndex={-1} aria-label={title}>{children}</section>;
+  return <section ref={pane} className="workspace-tool-pane page-motion" tabIndex={-1} aria-label={title}>{children}</section>;
 }
 
-function ToolEntry({ icon, title, detail, navigate, onClick, disabled, route }) {
+function SettingAssetIcon({ source }) {
+  const [failed, setFailed] = useState(false);
+  return failed
+    ? <Icon name="extension" />
+    : <img className="workspace-setting-icon" src={source} width="20" height="20" alt="" onError={() => setFailed(true)} />;
+}
+
+function ToolEntry({ icon, iconAsset, title, detail, navigate, onClick, disabled, route }) {
   return <button type="button" className="settings-row settings-link" data-route={route} disabled={disabled} onClick={onClick}>
-    {icon && <Icon name={icon} />}
+    {iconAsset ? <SettingAssetIcon key={iconAsset} source={iconAsset} /> : icon && <Icon name={icon} />}
     <span className="setting-label">
       <span dir="auto">{title}</span>
       {detail && <small dir="auto">{detail}</small>}
@@ -36,6 +43,7 @@ function CopyValue({ value, t, run }) {
 }
 
 export function settingTitle(item, locale, t) {
+  if (item.localizedTitle) return item.localizedTitle;
   const language = locale.split("-")[0];
   const localized = item.label && t(item.label);
   if (localized && localized !== item.label) return localized;
@@ -44,7 +52,7 @@ export function settingTitle(item, locale, t) {
 
 export function PluginMarkdown({ item, preset }) {
   const [loaded, setLoaded] = useState(null);
-  const source = item.assetUrl ? assetUrl(item.assetUrl, { preset }) : null;
+  const source = item.localizedMarkdown || !item.assetUrl ? null : assetUrl(item.assetUrl, { preset });
   useEffect(() => {
     if (!source) return;
     const abort = new AbortController();
@@ -54,7 +62,7 @@ export function PluginMarkdown({ item, preset }) {
       .catch(() => {});
     return () => abort.abort();
   }, [source]);
-  const text = (loaded?.source === source ? loaded.text : "") || item.markdown;
+  const text = item.localizedMarkdown || (loaded?.source === source ? loaded.text : "") || item.markdown;
   return text && <div className="markdown workspace-plugin-markdown">
     <Markdown skipHtml components={{
       a: ({ node: _, ...link }) => <a {...link} target="_blank" rel="noreferrer" />,
@@ -94,14 +102,16 @@ export function PluginSetting({ item, settings }) {
         </div>
       </fieldset>;
     case "page":
-      return <ToolEntry title={title} icon={item.icon} route={item.key} navigate disabled={disabled} onClick={() => openPage(keys)} />;
+      return <ToolEntry title={title} {...settingIcon(item, preset)} route={item.key} navigate disabled={disabled}
+        onClick={() => openPage(keys)} />;
     case "link": {
       if (item.plugin === "base" && item.url?.startsWith(hostActionPrefix)) {
         const action = item.url.slice(hostActionPrefix.length);
         const open = Object.hasOwn(hostActions || {}, action) ? hostActions[action] : null;
         return open && <ToolEntry title={title} icon={item.icon} route={item.key} navigate disabled={disabled} onClick={() => open(item)} />;
       }
-      return <ToolEntry title={title} icon="arrow_forward" disabled={disabled} onClick={() => work(() => send("plugin_action", keys))} />;
+      return <ToolEntry title={title} {...settingIcon(item, preset, "arrow_forward")} disabled={disabled}
+        onClick={() => work(() => send("plugin_action", keys))} />;
     }
     case "markdown":
       return <PluginMarkdown item={item} preset={preset} />;
@@ -109,15 +119,24 @@ export function PluginSetting({ item, settings }) {
       return <SettingToggle label={title} checked={Boolean(current)} onChange={save} disabled={disabled} />;
     case "choice":
       return <label className="settings-row settings-control"><span>{title}</span>
-        <select aria-label={title} value={current ?? ""} disabled={disabled} onChange={(event) => save(event.target.value)}>
+        <Select aria-label={title} value={current ?? ""} disabled={disabled} onChange={(event) => save(event.target.value)}>
           {item.options?.map((option) => <option key={option.value} value={option.value}>{settingTitle(option, locale, t)}</option>)}
-        </select>
+        </Select>
       </label>;
     case "text":
       return <PluginTextSetting key={String(current ?? "")} {...{ title, item, current, disabled, save, t }} />;
     default:
       return null;
   }
+}
+
+function settingIcon(item, preset, fallback) {
+  if (item.plugin === "base") return { icon: item.icon || fallback };
+  if (!item.icon) return { icon: fallback };
+  if (typeof item.icon === "string" && /^(?:minirp|minichat):\/\/assets\//.test(item.icon)) {
+    return { iconAsset: assetUrl(item.icon, { preset }, { inline: "1" }) };
+  }
+  return { icon: "extension" };
 }
 
 const pluginScopeModes = ["global", "include", "exclude"];
@@ -209,26 +228,28 @@ function PluginDetail({ plugin, workspace, settings, openScope, onRemove }) {
 
 export function Plugins({ workspace, locale, t, close }) {
   const [route, setRoute] = useState(pluginListRoute);
+  const [direction, setDirection] = useState();
   const [confirm, setConfirm] = useState(null);
   const [problem, setProblem] = useState("");
   const [pending, setPending] = useState(false);
   useEffect(() => {
-    send("plugin_settings").catch((error) => setProblem(error.message));
-  }, []);
+    send("plugin_settings", { locale }).catch((error) => setProblem(error.message));
+  }, [locale]);
   const plugin = workspace.plugins.find((item) => item.id === route.id);
   const page = plugin && route.pages.at(-1);
   const editingScope = plugin && route.scope;
   const title = editingScope ? t("plugin_scope") : page ? settingTitle(page, locale, t) : plugin ? pluginTitle(plugin) : t("plugins");
   const pane = editingScope ? route.id + "/scope" : page ? route.id + "/" + page.key : plugin?.id || "plugins";
   const disabled = workspace.busy || pending;
-  const navigate = (next) => {
+  const navigate = (next, direction = "forward") => {
+    setDirection(direction);
     setProblem("");
     setRoute(next);
   };
   function back() {
-    if (editingScope) navigate({ ...route, scope: false });
-    else if (page) navigate({ ...route, pages: route.pages.slice(0, -1) });
-    else if (plugin) navigate(pluginListRoute);
+    if (editingScope) navigate({ ...route, scope: false }, "back");
+    else if (page) navigate({ ...route, pages: route.pages.slice(0, -1) }, "back");
+    else if (plugin) navigate(pluginListRoute, "back");
     else close();
   }
   async function work(operation) {
@@ -258,22 +279,25 @@ export function Plugins({ workspace, locale, t, close }) {
   const settings = {
     t, locale, preset: workspace.preset, work, disabled,
     openPage: (keys) => work(async () => {
-      const result = (await send("plugin_page", keys)).item;
+      const result = (await send("plugin_page", { ...keys, locale })).item;
+      setDirection("forward");
       setRoute((current) => current === route ? { ...route, pages: [...route.pages, result] } : current);
     }),
     update: (keys, value) => work(async () => {
       await send("plugin_setting", { ...keys, value });
       if (!page) return;
-      const result = (await send("plugin_page", { id: page.plugin, key: page.key })).item;
+      const result = (await send("plugin_page", { id: page.plugin, key: page.key, locale })).item;
       setRoute((current) => current === route ? { ...route, pages: [...route.pages.slice(0, -1), result] } : current);
     }),
   };
-  return <Modal title={title} close={close} back={back} t={t} className="settings-modal workspace-tools">
+  return <Modal title={title} close={close} back={back} t={t} className="settings-modal workspace-tools"
+    pageKey={pane} pageDirection={direction}>
     <ToolPane key={pane} title={title}>
       {problem && !confirm && <p className="setting-error" role="alert">{problem}</p>}
       {editingScope ? <PluginScopeEditor initial={plugin.scope || globalScope} presets={workspace.presets} {...{ t, disabled }}
         save={(scope) => work(async () => {
           await send("plugin_scope", { id: plugin.id, scope });
+          setDirection("back");
           setRoute((current) => current === route ? { ...route, scope: false } : current);
         })} /> : page ? <>
         <PluginMarkdown item={page} preset={workspace.preset} />
@@ -285,7 +309,7 @@ export function Plugins({ workspace, locale, t, close }) {
           title: t("uninstall_plugin_title", plugin.name), label: t("remove_plugin"), danger: true,
           submit: async () => {
             await send("plugin_uninstall", { id: plugin.id });
-            navigate(pluginListRoute);
+            navigate(pluginListRoute, "back");
           },
         })} /> : <>
         <div className="setting-group">
@@ -297,13 +321,13 @@ export function Plugins({ workspace, locale, t, close }) {
         </div>
       </>}
     </ToolPane>
-    {confirm && <Confirm dialog={{ ...confirm, message: (confirm.message?.length || problem) ? <>
+    <Surface>{confirm && <Confirm dialog={{ ...confirm, message: (confirm.message?.length || problem) ? <>
       {confirm.message && <span className="workspace-plugin-confirmation" dir="auto">{confirm.message.join("\n")}</span>}
       {problem && <span className="setting-error" role="alert">{problem}</span>}
     </> : undefined }} close={() => {
       setConfirm(null);
       setProblem("");
-    }} run={work} t={t} />}
+    }} run={work} t={t} />}</Surface>
   </Modal>;
 }
 
@@ -361,13 +385,13 @@ function MemoryEditor({ draft, setDraft, t, close, call, mutate }) {
         </div>}
       </form>
     </ToolPane>
-    {deleting && <Confirm t={t} run={work} close={() => setDeleting(false)} dialog={{
+    <Surface>{deleting && <Confirm t={t} run={work} close={() => setDeleting(false)} dialog={{
       title: t("delete_note_question"), label: t("delete"), message: problem || draft.key,
       submit: async () => {
         await call("db_delete", { key: draft.key, expected_revision: draft.revision });
         mutate();
       },
-    }} />}
+    }} />}</Surface>
   </Modal>;
 }
 
@@ -455,14 +479,14 @@ export function Memory({ workspace, role, t, close }) {
     <ToolPane title={t("memory")}>
       <div className="setting-group">
         <label className="settings-row settings-control"><span>{t("notes")}</span>
-          <select value={agent} disabled={reading} onChange={(event) => setAgent(event.target.value)}>
+          <Select value={agent} disabled={reading} onChange={(event) => setAgent(event.target.value)}>
             {Object.entries(memoryRoles).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
-          </select>
+          </Select>
         </label>
         {actor && <label className="settings-row settings-control"><span>{t(memoryRoles[agent])}</span>
-          <select value={actor.id} disabled={reading} onChange={(event) => setParticipant(event.target.value)}>
+          <Select value={actor.id} disabled={reading} onChange={(event) => setParticipant(event.target.value)}>
             {participants.map((item) => <option value={item.id} key={item.id}>{item.name || item.id}</option>)}
-          </select>
+          </Select>
         </label>}
         <SettingToggle label={t("internal_memory")} checked={internal} onChange={setInternal} disabled={reading} />
       </div>
@@ -491,10 +515,10 @@ export function Memory({ workspace, role, t, close }) {
         }}>{t("load_more")}</button>
       </div>}
     </ToolPane>
-    {draft && <MemoryEditor {...{ draft, setDraft, t, call }} close={() => setDraft(null)} mutate={() => {
+    <Surface>{draft && <MemoryEditor {...{ draft, setDraft, t, call }} close={() => setDraft(null)} mutate={() => {
       setDraft(null);
       setRefresh((value) => value + 1);
-    }} />}
+    }} />}</Surface>
   </Modal>;
 }
 

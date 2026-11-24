@@ -7,10 +7,10 @@ public sealed partial class Engine
 {
     private readonly ConcurrentDictionary<(string Preset, string Room, string Chat, string Block), JsonObject> displayAssets = new();
 
-    private void IndexDisplayAssets(JsonObject item, string block, string conversation, string? workerPreset = null)
+    private void IndexDisplayAssets(JsonObject item, string block, string conversation, string? workerPreset = null, Workspace? scope = null)
     {
         if (block.Length == 0 || (item["asset_links"] is not JsonObject && item["plugin_card"] is not JsonObject)) return;
-        var workspace = Workspace;
+        var workspace = scope ?? Workspace;
         var presetPanel = workerPreset is not null || PresetConversation.IsPreset(item);
         var links = (JsonObject)item.GetObject("asset_links").DeepClone();
         if (item["plugin_card"] is JsonObject card)

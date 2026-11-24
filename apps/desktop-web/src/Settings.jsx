@@ -1,49 +1,15 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { languageName, locales } from "./i18n.js";
 import { send } from "./api.js";
-import { Confirm, Icon, IconButton, Modal, SettingToggle } from "./ui.jsx";
+import { Confirm, Icon, IconButton, Modal, SaveBar, Select, Surface } from "./ui.jsx";
+import { Models } from "./ModelSettings.jsx";
 import { PluginMarkdown, PluginSetting, settingTitle } from "./WorkspaceTools.jsx";
 
-const roles = {
-  chat: "chat", env: "world", preset: "preset", search: "search_agent", fetch: "fetch_agent",
-  title: "title_model", plugin: "plugin_agent",
-};
 const protocols = {
   openai: "OpenAI Chat Completions", responses: "OpenAI Responses", anthropic: "Anthropic Messages",
   gemini: "Gemini", ollama: "Ollama",
 };
 const empty = Object.freeze({});
-
-function modelChoices(settings) {
-  const legacy = settings.environment;
-  const choices = legacy?.model ? [{ provider: "environment", model: legacy.model, label: legacy.model }] : [];
-  for (const provider of settings.providers || [])
-    for (const model of provider.models || [])
-      choices.push({ provider: provider.id, model, label: (provider.name || provider.url) + " · " + model });
-  return choices;
-}
-
-const choiceKey = (item) => item ? JSON.stringify([item.provider, item.model]) : "";
-const inheritedModel = (role) => role === "plugin" ? "use_preset_model"
-  : role === "chat" || role === "default" ? "system_default" : "use_chat_model";
-
-export function ModelPicker({ role, settings, select, t, disabled = false, label, detailed = false, compact = false }) {
-  const choices = modelChoices(settings);
-  const current = settings.agents?.[role];
-  const name = label || t(roles[role] || "models");
-  return <label className={detailed ? "settings-row settings-control" : "model-picker"}>
-    <span className={compact ? "sr-only" : undefined}>{name}</span>
-    <select value={choiceKey(current)} disabled={disabled} onChange={(event) => {
-      const choice = choices.find((item) => choiceKey(item) === event.target.value);
-      select(choice ? { provider: choice.provider, model: choice.model } : null);
-    }}>
-      <option value="">{t(inheritedModel(role))}</option>
-      {current && !choices.some((item) => choiceKey(item) === choiceKey(current)) &&
-        <option value={choiceKey(current)}>{current.model}</option>}
-      {choices.map((item) => <option key={choiceKey(item)} value={choiceKey(item)}>{item.label}</option>)}
-    </select>
-  </label>;
-}
 
 function SettingsLink({ icon, label, detail, route, onClick }) {
   return <button type="button" className="settings-row settings-link" data-route={route} onClick={onClick}>
@@ -59,7 +25,7 @@ function SettingsLink({ icon, label, detail, route, onClick }) {
 function SettingChoice({ label, value, onChange, children }) {
   return <label className="settings-row settings-control">
     <span>{label}</span>
-    <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>{children}</select>
+    <Select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>{children}</Select>
   </label>;
 }
 
@@ -68,12 +34,6 @@ function Disclosure({ label, children }) {
     <summary className="settings-row"><span>{label}</span><Icon name="expand_more" /></summary>
     <div className="settings-disclosure-content">{children}</div>
   </details>;
-}
-
-function SaveBar({ t, changed = true, saving }) {
-  return <footer className="settings-save">
-    <button className="filled" type="submit" disabled={!changed || saving}>{t(saving ? "running" : "save")}</button>
-  </footer>;
 }
 
 function Language({ preferences, change, t }) {
@@ -106,7 +66,7 @@ function ProviderEditor({ value, change, templates, t, submit, remove, saving })
   return <form className="settings-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
     <fieldset className="settings-fields stack" disabled={saving || fetching}>
       {templates.length > 0 && <label>{t("provider_type")}
-        <select value="" onChange={(event) => {
+        <Select value="" onChange={(event) => {
           const template = templates[event.target.value];
           if (template) change((current) => ({
             ...current, name: template.name, protocol: template.protocol, url: template.url,
@@ -115,14 +75,14 @@ function ProviderEditor({ value, change, templates, t, submit, remove, saving })
         }}>
           <option value="">{t("custom_provider")}</option>
           {templates.map((item, index) => <option key={index} value={index}>{item.name || t("custom_provider")}</option>)}
-        </select>
+        </Select>
       </label>}
       <div className="field-grid">
         <label>{t("provider_name")}<input value={value.name} onChange={(event) => patch("name", event.target.value)} /></label>
         <label>{t("protocol")}
-          <select value={value.protocol} onChange={(event) => patch("protocol", event.target.value)}>
+          <Select value={value.protocol} onChange={(event) => patch("protocol", event.target.value)}>
             {Object.entries(protocols).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-          </select>
+          </Select>
         </label>
       </div>
       <label>{t("base_url")}<input dir="ltr" type="url" required value={value.url} onChange={(event) => patch("url", event.target.value)} /></label>
@@ -155,58 +115,6 @@ function ProviderEditor({ value, change, templates, t, submit, remove, saving })
     </Disclosure>
     {remove && <button type="button" className="text-button destructive" disabled={saving} onClick={remove}>{t("delete_provider")}</button>}
     <SaveBar t={t} saving={saving || fetching} />
-  </form>;
-}
-
-function ModelOptions({ value, update, t }) {
-  const options = value.options || {};
-  const patch = (key, change) => {
-    const next = { ...options };
-    if (change === "") delete next[key];
-    else next[key] = change;
-    update({ ...value, options: next });
-  };
-  return <Disclosure label={t("model_settings")}>
-    <div className="field-grid">
-      {[["context_window", "context_size"], ["max_output", "max_output"],
-        ["compact_at_percent", "compaction_threshold"], ["background_compact_at_percent", "background_compaction_threshold"],
-      ].map(([key, label]) => <label key={key}>{t(label)}
-        <input type="number" min="1" value={options[key] ?? ""}
-          onChange={(event) => patch(key, event.target.value === "" ? "" : Number(event.target.value))} />
-      </label>)}
-      <label>{t("thinking_effort")}
-        <input value={options.reasoning_effort || ""} onChange={(event) => patch("reasoning_effort", event.target.value)} />
-      </label>
-    </div>
-    <div className="setting-group">
-      <SettingToggle label={t("thinking")} checked={Boolean(options.thinking)} onChange={(value) => patch("thinking", value)} />
-      <SettingToggle label={t("background_compaction")} checked={options.background_compaction !== false}
-        onChange={(value) => patch("background_compaction", value)} />
-    </div>
-  </Disclosure>;
-}
-
-function Models({ settings, assign, t, saving, changed, submit, ready }) {
-  function model(role, label) {
-    const current = settings.agents?.[role];
-    return <section className="model-setting" key={role}>
-      <ModelPicker {...{ role, settings, t, label }} disabled={!ready || saving} detailed select={(value) => {
-        if (choiceKey(current) !== choiceKey(value)) assign(role, value);
-      }} />
-      {current && <ModelOptions value={current} update={(value) => assign(role, value)} t={t} />}
-    </section>;
-  }
-  return <form className="settings-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-    {!ready && <p className="settings-caption">{t("no_provider_configured")}</p>}
-    <div className="setting-group">
-      {model("default", t("system_default"))}
-      {model("chat")}
-      {model("title")}
-    </div>
-    <Disclosure label={t("agent_models")}>
-      <div className="setting-group">{["env", "preset", "search", "fetch", "plugin"].map((role) => model(role))}</div>
-    </Disclosure>
-    <SaveBar {...{ t, saving, changed }} />
   </form>;
 }
 
@@ -249,15 +157,16 @@ const withoutProvider = (agents, id) =>
 
 export function Settings({ settings, workspace, preferences, setPreferences, update, locale, t, close, renderPlugins }) {
   const [route, setRoute] = useState([{ kind: "home", key: "home" }]);
+  const [direction, setDirection] = useState();
   const [plugins, setPlugins] = useState(false);
   const [draftProvider, setDraftProvider] = useState(null);
-  const [draftAgents, setDraftAgents] = useState({});
   const [draftResearch, setDraftResearch] = useState({});
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState("");
   const [confirm, setConfirm] = useState(null);
   const pane = useRef(null);
   const returnFocus = useRef(null);
+  const scrollPositions = useRef(new Map());
   const { kind, key, item } = route.at(-1);
   const { templates, preset } = workspace;
   const providers = settings.providers || [];
@@ -273,17 +182,25 @@ export function Settings({ settings, workspace, preferences, setPreferences, upd
     const root = pane.current;
     const origin = Array.from(root.querySelectorAll("[data-route]")).find((element) => element.dataset.route === returnFocus.current);
     (origin || root).focus({ preventScroll: true });
+    root.closest(".dialog-content").scrollTop = returnFocus.current === null
+      ? 0 : scrollPositions.current.get(key) || 0;
     returnFocus.current = null;
-    root.parentElement.scrollTop = 0;
   }, [key]);
 
-  function enter(kind, item) {
+  function forward(next) {
+    scrollPositions.current.set(key, pane.current.closest(".dialog-content").scrollTop);
+    setDirection("forward");
     setProblem("");
-    setRoute((current) => [...current, { kind, key: item.key, item }]);
+    setRoute((current) => [...current, next]);
+  }
+
+  function enter(kind, item) {
+    forward({ kind, key: item.key, item });
   }
 
   function back() {
     returnFocus.current = key;
+    setDirection("back");
     setProblem("");
     setConfirm(null);
     setRoute((current) => current.slice(0, -1));
@@ -309,30 +226,20 @@ export function Settings({ settings, workspace, preferences, setPreferences, upd
     setDraftProvider(provider
       ? { ...provider, models: provider.models || [] }
       : { id: crypto.randomUUID(), name: "", url: "", key: "", protocol: "openai", models: [] });
-    setProblem("");
-    setRoute((current) => [...current, { kind: "provider", key: provider?.id || "new-provider" }]);
+    forward({ kind: "provider", key: provider?.id || "new-provider" });
   }
 
   function updateProvider(transform) {
     setDraftProvider((current) => current?.id === draftProvider.id ? transform(current) : current);
   }
 
-  function assign(role, model) {
-    setDraftAgents((previous) => {
-      const next = { ...previous };
-      if (model) next[role] = model;
-      else delete next[role];
-      return next;
-    });
-  }
-
   const declaredSettings = {
     t, locale, preset, work, disabled: saving,
-    openPage: (keys) => work(async () => enter("declared", (await send("plugin_page", keys)).item)),
+    openPage: (keys) => work(async () => enter("declared", (await send("plugin_page", { ...keys, locale })).item)),
     update: (keys, value) => work(async () => {
       await send("plugin_setting", { ...keys, value });
       if (kind !== "declared") return;
-      const refreshed = (await send("plugin_page", { id: item.plugin, key })).item;
+      const refreshed = (await send("plugin_page", { id: item.plugin, key, locale })).item;
       setRoute((current) => [...current.slice(0, -1), { kind, key, item: refreshed }]);
     }),
     bindings: {
@@ -342,7 +249,7 @@ export function Settings({ settings, workspace, preferences, setPreferences, upd
     },
     hostActions: {
       providers: (node) => enter("providers", node),
-      models: (node) => { setDraftAgents(agents); enter("models", node); },
+      models: (node) => enter("models", node),
       "research-services": (node) => { setDraftResearch(research); enter("research", node); },
       language: (node) => enter("language", node),
       plugins: () => setPlugins(true),
@@ -350,8 +257,9 @@ export function Settings({ settings, workspace, preferences, setPreferences, upd
   };
 
   return <Modal title={title} t={t} close={() => { if (!saving) close(); }}
-    back={route.length > 1 ? () => { if (!saving) back(); } : undefined} className="settings-modal">
-    <section ref={pane} tabIndex={-1} aria-label={title} className="settings-page" key={key}>
+    back={route.length > 1 ? () => { if (!saving) back(); } : undefined} closeDisabled={saving}
+    className="settings-modal" pageKey={key} pageDirection={direction}>
+    <section ref={pane} tabIndex={-1} aria-label={title} className="settings-page page-motion" key={key}>
       {problem && <p className="setting-error" role="alert">{problem}</p>}
       {kind === "declared" && <PluginMarkdown item={item} preset={preset} />}
       {nodes?.length > 0 && <div className="setting-group">
@@ -359,9 +267,8 @@ export function Settings({ settings, workspace, preferences, setPreferences, upd
       </div>}
       {kind === "home" && !nodes.length && <p role="status" className="settings-caption">{t("running")}</p>}
       {kind === "language" && <Language {...{ t, preferences }} change={setPreferences} />}
-      {kind === "models" && <Models settings={{ ...settings, agents: draftAgents }} {...{ t, assign, saving }}
-        ready={modelChoices(settings).length > 0} changed={draftAgents !== agents}
-        submit={() => persist({ ...settings, agents: draftAgents })} />}
+      {kind === "models" && <Models {...{ settings, t, saving }} addProvider={() => beginProvider(null)}
+        submit={(draft) => persist({ ...settings, ...draft })} />}
       {kind === "providers" && <>
         {providers.length > 0 ? <div className="setting-group">
           {providers.map((provider) => <SettingsLink key={provider.id} icon="tune" label={provider.name || t("custom_provider")}
@@ -382,7 +289,6 @@ export function Settings({ settings, workspace, preferences, setPreferences, upd
           submit: async () => {
             await update({ ...settings, providers: providers.filter((item) => item.id !== draftProvider.id),
               agents: withoutProvider(agents, draftProvider.id) });
-            setDraftAgents((previous) => withoutProvider(previous, draftProvider.id));
             back();
           },
         }) : undefined} />}
@@ -390,10 +296,10 @@ export function Settings({ settings, workspace, preferences, setPreferences, upd
         change={setDraftResearch} {...{ t, saving }} changed={draftResearch !== research}
         backend={backend} submit={() => persist({ ...settings, research: draftResearch })} />}
     </section>
-    {confirm && <Confirm dialog={confirm} close={() => setConfirm(null)} t={t} run={(action) => work(async () => {
+    <Surface>{confirm && <Confirm dialog={confirm} close={() => setConfirm(null)} t={t} run={(action) => work(async () => {
       setConfirm(null);
       await action();
-    })} />}
-    {plugins && renderPlugins(() => setPlugins(false))}
+    })} />}</Surface>
+    <Surface>{plugins && renderPlugins(() => setPlugins(false))}</Surface>
   </Modal>;
 }

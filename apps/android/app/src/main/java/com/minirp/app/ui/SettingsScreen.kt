@@ -232,11 +232,13 @@ private fun SettingItem(
         }
     when (setting.type) {
         "markdown" -> {
+            val inline = setting.localizedMarkdown.ifBlank { setting.markdown }
+            val asset = setting.assetUrl.takeIf { setting.localizedMarkdown.isBlank() }.orEmpty()
             val content by
-                produceState(setting.markdown, setting.assetUrl, setting.markdown) {
-                    if (setting.assetUrl.isNotBlank()) {
+                produceState(inline, asset, inline) {
+                    if (asset.isNotBlank()) {
                         try {
-                            this.value = model.settingMarkdown(setting.assetUrl)
+                            this.value = model.settingMarkdown(asset)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
@@ -382,10 +384,11 @@ private fun SettingIcon(setting: PluginSetting, state: ChatState, model: ChatVie
 
 @Composable
 internal fun SettingTitle(setting: PluginSetting): String =
-    localTitle(setting.label, setting.localized(LocalConfiguration.current.locales[0]))
+    setting.localizedTitle.ifBlank { localTitle(setting.label, setting.localized(LocalConfiguration.current.locales[0])) }
 
 @Composable
-private fun SettingTitle(option: SettingOption): String = localTitle(option.label, option.title)
+private fun SettingTitle(option: SettingOption): String =
+    option.localizedTitle.ifBlank { localTitle(option.label, option.title) }
 
 @Composable
 private fun localTitle(label: String, fallback: String): String {

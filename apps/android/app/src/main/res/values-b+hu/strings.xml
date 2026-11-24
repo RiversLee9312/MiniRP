@@ -216,4 +216,7 @@
     <string name="preset_management">Előbeállítás kezelése</string>
     <string name="conversation_settings">Csevegés beállításai</string>
     <string name="add_saved_model">Modell hozzáadása</string>
+    <string name="tool_arguments">Argumentumok</string>
+    <string name="tool_result">Eredmény</string>
+    <string name="quote_reply">Idézés</string>
 </resources>

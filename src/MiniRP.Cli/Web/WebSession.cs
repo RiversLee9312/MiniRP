@@ -5,7 +5,7 @@ using MiniRP.Protocol;
 
 namespace MiniRP.Cli;
 
-internal sealed class WebSession : IAsyncDisposable
+internal sealed partial class WebSession : IAsyncDisposable
 {
     private readonly NativeCore core;
     private readonly PlatformHost platform;
@@ -255,9 +255,10 @@ internal sealed class WebSession : IAsyncDisposable
                 if (request.Length > 0 && queries.TryGetValue(request, out var completion))
                 {
                     if (kind is not ("models_loading" or "busy")) completion.TrySetResult(item);
-                    if (kind is "error" or "asset_result" or "memory" or "models" or "models_error" or "model_effort_levels" or "plugin_page" or "plugin")
+                    if (kind is "error" or "asset_result" or "transcript_page" or "memory" or "models" or "models_error" or "model_effort_levels" or "plugin_page" or "plugin")
                         continue;
                 }
+                if (kind == "transcript_page") continue;
                 if (kind == "ready")
                 {
                     var preset = item.GetString("preset");
@@ -281,7 +282,8 @@ internal sealed class WebSession : IAsyncDisposable
                 lock (publication)
                 {
                     foreach (var item in batch) Retain(item);
-                    Publish([.. batch]);
+                    var live = batch.Where(item => item.GetString("kind") != "transcript_checkpoint").ToArray();
+                    if (live.Length > 0) Publish(live);
                 }
             }
             try { await Task.Delay(24, stop.Token); }
@@ -303,9 +305,16 @@ internal sealed class WebSession : IAsyncDisposable
     private void Retain(JsonObject item)
     {
         var kind = item.GetString("kind");
+        if (kind == "transcript_checkpoint")
+        {
+            RetainTranscriptCheckpoint(item);
+            return;
+        }
+        if (IsTrace(item) || kind == "ensemble_message") RequestTranscriptCheckpoint();
         switch (kind)
         {
             case "home" or "loaded":
+            case "preset_opened" when item.GetBoolean("selected") || item.GetBoolean("created"):
                 journal.RemoveAll(entry => entry.GetString("kind") is not ("ready" or "presets" or "plugins" or "busy"));
                 break;
             case "preset_opened":
@@ -342,7 +351,7 @@ internal sealed class WebSession : IAsyncDisposable
     }
 
     private static bool IsTrace(JsonObject item) => item.GetString("kind") is "user" or "system" or "delta" or
-        "turn_start" or "turn_end" or "steer_queued" or "context_trace" or "tool_start" or "tool_end" or
+        "turn_start" or "turn_end" or "steer_queued" or "context_trace" or "tool_start" or "tool_end" or "tool_trace_update" or
         "open_ui_delta" or "open_ui_end" or "open_ui_card" or "open_ui_card_update" or "plugin_agent_status" or "reply_end";
 
     public async ValueTask DisposeAsync()

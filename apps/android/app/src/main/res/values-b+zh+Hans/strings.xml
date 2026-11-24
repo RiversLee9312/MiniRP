@@ -214,4 +214,7 @@
     <string name="preset_management">管理预设</string>
     <string name="conversation_settings">聊天设置</string>
     <string name="add_saved_model">添加模型</string>
+    <string name="tool_arguments">参数</string>
+    <string name="tool_result">结果</string>
+    <string name="quote_reply">引用</string>
 </resources>

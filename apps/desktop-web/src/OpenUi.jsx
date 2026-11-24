@@ -12,7 +12,8 @@ async function previewImage(document, result, request) {
     return { captured: false, reason: "The viewport is outside the card." };
   try {
     const { toCanvas } = await import("html-to-image");
-    const source = await toCanvas(host, { width: source_width, height: source_height, pixelRatio: 1, skipFonts: true });
+    await document.fonts.ready;
+    const source = await toCanvas(host, { width: source_width, height: source_height, pixelRatio: 1, preferredFontFormat: "woff2" });
     const frame = document.createElement("canvas");
     frame.width = width;
     frame.height = height;
@@ -25,13 +26,13 @@ async function previewImage(document, result, request) {
   }
 }
 
-export function OpenUi({ block, scope, identity, locale, dark, theme, t, onAction, preview, onPreview }) {
+export function OpenUi({ block, scope, identity, locale, dark, theme, t, onAction, preview, onPreview, toolPresentation, onRenderStatus }) {
   const iframe = useRef(null);
   const [height, setHeight] = useState(48);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
-  const callbacks = useRef({ onAction, onPreview });
-  callbacks.current = { onAction, onPreview };
+  const callbacks = useRef({ onAction, onPreview, onRenderStatus });
+  callbacks.current = { onAction, onPreview, onRenderStatus };
   useEffect(() => {
     function receive(event) {
       if (event.origin !== location.origin || event.source !== iframe.current?.contentWindow || !event.data?.minirp) return;
@@ -43,8 +44,8 @@ export function OpenUi({ block, scope, identity, locale, dark, theme, t, onActio
           savedState.set(identity, message.value);
           if (savedState.size > 96) savedState.delete(savedState.keys().next().value);
           break;
-        case "rendered": setFailed(false); break;
-        case "error": setFailed(true); break;
+        case "rendered": setFailed(false); callbacks.current.onRenderStatus?.(true); break;
+        case "error": setFailed(true); callbacks.current.onRenderStatus?.(false); break;
         case "preview_result": {
           const data = message.result;
           if (preview?.capture_image) {
@@ -76,10 +77,10 @@ export function OpenUi({ block, scope, identity, locale, dark, theme, t, onActio
   }, [ready, identity, locale, dark, theme, preset, room, conversation, agent,
     block.id, block.open_ui, block.streaming, block.open_ui_state, block.open_ui_revision, preview]);
   return <>
-    <iframe ref={iframe} className="open-ui" src={preview ? "/openui/preview.html" : "/openui/index.html"} title={block.open_ui_title || t("interactive_reply")}
+    <iframe ref={iframe} className="open-ui" src={toolPresentation ? "/openui/tool.html" : preview ? "/openui/preview.html" : "/openui/index.html"} title={block.open_ui_title || t("interactive_reply")}
       onLoad={() => setReady(true)}
       style={{ height: height + "px" }} loading={preview ? "eager" : "lazy"}
       sandbox="allow-scripts allow-same-origin" />
-    {failed && !preview && <p className="muted">{t("interactive_reply_unavailable")}</p>}
+    {failed && !preview && !toolPresentation && <p className="muted">{t("interactive_reply_unavailable")}</p>}
   </>;
 }

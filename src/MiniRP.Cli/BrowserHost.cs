@@ -14,7 +14,8 @@ internal sealed partial class BrowserHost(string root, DesktopBrowserRuntime run
 
     public BrowserSetup? Setup { get; set; }
 
-    private sealed record Browser(McpClient Client, DirectoryInfo Output, DirectoryInfo Profile, BrowserProcess? Process);
+    private sealed record Browser(McpClient Client, DirectoryInfo Output, DirectoryInfo Profile, BrowserProcess Driver,
+        BrowserProcess? Embedded);
     private sealed class Job
     {
         public SemaphoreSlim Gate { get; } = new(1);
@@ -148,7 +149,8 @@ internal sealed partial class BrowserHost(string root, DesktopBrowserRuntime run
             throw new FileNotFoundException("Install browser tools with npm ci in the project directory.");
         var profile = selection.NewProfile();
         var output = Directory.CreateTempSubdirectory("minirp-browser-output-");
-        BrowserProcess? process = null;
+        BrowserProcess? embedded = null;
+        BrowserProcess? driver = null;
         try
         {
             var arguments = new List<string> { script, "--no-webmcp", "--image-responses", "omit", "--output-dir", output.FullName };
@@ -157,19 +159,19 @@ internal sealed partial class BrowserHost(string root, DesktopBrowserRuntime run
                     "--executable-path", selection.Executable, "--user-data-dir", profile.FullName]);
             else
             {
-                process = selection.StartEmbedded("agent", profile.FullName);
-                var endpoint = await process.Endpoint(profile.FullName, chromium: false, token);
+                embedded = selection.StartEmbedded("agent", profile.FullName);
+                var endpoint = await embedded.Endpoint(profile.FullName, chromium: false, token);
                 arguments.AddRange(["--cdp-endpoint", endpoint.AbsoluteUri, "--cdp-timeout", "12000"]);
             }
-            var transport = new StdioClientTransport(new()
-            {
-                Command = BrowserSelection.Node, Arguments = arguments, WorkingDirectory = output.FullName
-            });
-            return new(await McpClient.CreateAsync(transport, cancellationToken: token), output, profile, process);
+            // Pass paths and arguments directly to Node so Windows does not reinterpret them through cmd.exe.
+            driver = BrowserProcess.StartDriver(BrowserSelection.Node, output.FullName, arguments);
+            var transport = new StreamClientTransport(driver.StandardInput, driver.StandardOutput);
+            return new(await McpClient.CreateAsync(transport, cancellationToken: token), output, profile, driver, embedded);
         }
         catch
         {
-            if (process is not null) await process.DisposeAsync();
+            if (driver is not null) await driver.DisposeAsync();
+            if (embedded is not null) await embedded.DisposeAsync();
             BrowserProcess.Delete(profile);
             BrowserProcess.Delete(output);
             throw;
@@ -232,10 +234,14 @@ internal sealed partial class BrowserHost(string root, DesktopBrowserRuntime run
 
     private static async ValueTask Close(Browser browser)
     {
-        try { await browser.Client.DisposeAsync(); }
+        try
+        {
+            await browser.Driver.DisposeAsync();
+            await browser.Client.DisposeAsync();
+        }
         finally
         {
-            if (browser.Process is not null) await browser.Process.DisposeAsync();
+            if (browser.Embedded is not null) await browser.Embedded.DisposeAsync();
             BrowserProcess.Delete(browser.Profile);
             BrowserProcess.Delete(browser.Output);
         }

@@ -216,4 +216,7 @@
     <string name="preset_management">Gerenciar predefinição</string>
     <string name="conversation_settings">Configurações da conversa</string>
     <string name="add_saved_model">Adicionar modelo</string>
+    <string name="tool_arguments">Argumentos</string>
+    <string name="tool_result">Resultado</string>
+    <string name="quote_reply">Citar</string>
 </resources>

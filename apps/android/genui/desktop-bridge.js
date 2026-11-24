@@ -6,6 +6,6 @@ window.MiniRPSurface = {
 window.addEventListener("message", (event) => {
     if (event.origin !== location.origin || event.source !== window.parent || !event.data?.minirpRender) return;
     const { scope, state } = event.data.minirpRender;
-    assets = state.previewSteps ? null : scope;
+    assets = state.previewSteps || document.documentElement.dataset.surface === "tool-presentation" ? null : scope;
     window.renderOpenUi?.(state);
 });

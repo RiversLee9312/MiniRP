@@ -214,4 +214,7 @@
     <string name="preset_management">จัดการพรีเซ็ต</string>
     <string name="conversation_settings">การตั้งค่าแชท</string>
     <string name="add_saved_model">เพิ่มโมเดล</string>
+    <string name="tool_arguments">อาร์กิวเมนต์</string>
+    <string name="tool_result">ผลลัพธ์</string>
+    <string name="quote_reply">อ้างอิง</string>
 </resources>

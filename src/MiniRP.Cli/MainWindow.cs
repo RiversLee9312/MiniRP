@@ -106,7 +106,8 @@ internal sealed partial class MainWindow : Runnable
 
     private void Receive(JsonObject item)
     {
-        switch (item.GetString("kind"))
+        var kind = item.GetString("kind");
+        switch (kind)
         {
             case "ready":
                 Ready = (JsonObject)item.DeepClone();
@@ -114,6 +115,7 @@ internal sealed partial class MainWindow : Runnable
                 providerTemplates = item.GetArray("catalog");
                 foreach (var template in providerTemplates.OfType<JsonObject>()) template["id"] = template.GetString("name");
                 core.Send(new() { ["op"] = "list_presets" });
+                core.Send(new() { ["op"] = "plugin_locale", ["locale"] = "zh-Hans" });
                 break;
             case "presets":
                 presetItems = item.GetArray("items");
@@ -258,6 +260,9 @@ internal sealed partial class MainWindow : Runnable
             default:
                 if (item.GetString("conversation") is { Length: > 0 } targetRoom && targetRoom != ensembleChatId) break;
                 var role = Route(item.GetString("agent"));
+                if (kind == "tool_trace_update" &&
+                    (item.GetString("preset") is { Length: > 0 } tracePreset && tracePreset != presetId ||
+                     role != "preset" && item.GetString("chat") is { Length: > 0 } traceRoom && traceRoom != chatId)) break;
                 if (role != "chat")
                 {
                     GetAgentPane(role).Receive(item);
@@ -367,7 +372,7 @@ internal sealed partial class MainWindow : Runnable
                 break;
             case "/system" when argument.Length > 0:
                 core.Send(new() { ["op"] = generating == role ? "steer" : "system_message", ["agent"] = role,
-                    ["role"] = "system", ["chat"] = chatId, ["preset"] = presetId, ["text"] = argument });
+                    ["role"] = "system", ["chat"] = chatId, ["preset"] = presetId, ["text"] = argument, ["locale"] = "zh-Hans" });
                 break;
             case "/plugin-install" when argument.Length > 0:
                 pluginInstallPath = Path.GetFullPath(argument.Trim('"'));
@@ -439,7 +444,7 @@ internal sealed partial class MainWindow : Runnable
             PickEnsembleChat();
             return;
         }
-        try { core.Send(new() { ["op"] = generating == role ? "steer" : "message", ["agent"] = role, ["chat"] = chatId, ["conversation"] = ensembleChatId, ["preset"] = presetId, ["text"] = text }); }
+        try { core.Send(new() { ["op"] = generating == role ? "steer" : "message", ["agent"] = role, ["chat"] = chatId, ["conversation"] = ensembleChatId, ["preset"] = presetId, ["text"] = text, ["locale"] = "zh-Hans" }); }
         catch (InvalidOperationException error) { main.Notice(error.Message); }
     }
 

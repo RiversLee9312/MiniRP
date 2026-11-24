@@ -13,8 +13,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -32,6 +37,8 @@ import com.minirp.app.ui.AssetDownloader
 import com.minirp.app.ui.DisplayAssets
 import com.minirp.app.ui.TraceBlock
 import com.minirp.app.ui.TraceLog
+import com.minirp.app.ui.decodeBlock
+import com.minirp.app.ui.withToolTraceMetadata
 import com.mikepenz.markdown.model.State
 import com.mikepenz.markdown.model.parseMarkdown
 import java.io.ByteArrayInputStream
@@ -49,6 +56,97 @@ import org.junit.Test
 
 class OpenUiRendererTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun toolTraceUsesTheReadOnlySurfaceAndFallsBackForUnsupportedComponents() {
+        val raw = """{"raw":"The original arguments"}"""
+        val program = "root = Col([Title(\$title, \"md\"), Text(\$data.summary)])"
+        fun presentation(title: String, summary: String) = JSONObject().put("program", program).put("title", title)
+            .put("state", JSONObject().put("title", title).put("data", JSONObject().put("summary", summary)))
+        val tool = mutableStateOf(decodeBlock(JSONObject()
+            .put("id", "fixture-tool").put("tool", "fixture_tool")
+            .put("tool_title", "Calendar settings").put("skill_title", "Preset editing")
+            .put("arguments", raw).put("result", """{"raw":"Raw result fallback"}""")
+            .put("tool_arguments_ui", presentation("Structured input", "Bound tool state"))
+            .put("tool_result_ui", JSONObject().put("program", """root = Link("Unsupported link", "https://example.invalid")"""))))
+        val copied = AtomicReference<String?>()
+        compose.setContent {
+            MaterialExpressiveTheme {
+                val clipboard = LocalClipboard.current
+                val testClipboard = remember(clipboard) {
+                    object : Clipboard by clipboard {
+                        override suspend fun setClipEntry(clipEntry: ClipEntry?) {
+                            copied.set(clipEntry?.clipData?.getItemAt(0)?.text?.toString())
+                        }
+                    }
+                }
+                CompositionLocalProvider(LocalClipboard provides testClipboard) {
+                    TraceLog(listOf(TraceBlock("fixture-thought", reasoning = "Fixture thought"), tool.value), expandThoughts = true)
+                }
+            }
+        }
+        compose.onNodeWithText("Preset editing").assertIsDisplayed()
+        compose.onNodeWithText("Calendar settings").performClick()
+        val argumentView = "fixture-tool:trace-arguments"
+        compose.waitUntil(15_000) { textContains("Bound tool state", cardId = argumentView) }
+        assertEquals("\"/assets/openui/tool.html\"", js("location.pathname", cardId = argumentView))
+        assertEquals("true", js(
+            """document.querySelector('meta[http-equiv="Content-Security-Policy"]').content.includes("connect-src 'none'")""",
+            cardId = argumentView,
+        ))
+        compose.onNodeWithText("The original arguments", substring = true).assertDoesNotExist()
+        val fallback = compose.onNodeWithText("Raw result fallback", substring = true)
+        compose.waitUntil(15_000) { fallback.isDisplayed() }
+        compose.onNodeWithTag("trace-copy:arguments").performClick()
+        compose.waitUntil(5_000) { copied.get() == raw }
+        compose.onNodeWithTag("trace-copy:result").assertIsDisplayed()
+
+        compose.runOnIdle {
+            tool.value = tool.value.withToolTraceMetadata(JSONObject()
+                .put("tool_title", "Calendrier").put("skill_title", "Édition du préréglage")
+                .put("tool_arguments_ui", presentation("Paramètres", "Données mises à jour"))
+                .put("tool_result_ui", JSONObject.NULL))
+        }
+        compose.onNodeWithText("Calendrier").assertIsDisplayed()
+        compose.onNodeWithText("Édition du préréglage").assertIsDisplayed()
+        compose.waitUntil(10_000) { textContains("Données mises à jour", cardId = argumentView) }
+        fallback.assertIsDisplayed()
+        assertEquals("fixture_tool", tool.value.tool)
+        assertEquals(raw, tool.value.arguments)
+
+        val longValue = "第一段。".repeat(65) + "折叠后的末尾。"
+        val nativeProgram = """
+            root = ToolFacts(${'$'}rows, ${'$'}status, ${'$'}note, ${'$'}more, ${'$'}less)
+            ${'$'}rows = []
+            ${'$'}status = ""
+            ${'$'}note = ""
+            ${'$'}more = ""
+            ${'$'}less = ""
+        """.trimIndent()
+        compose.runOnIdle {
+            tool.value = tool.value.withToolTraceMetadata(JSONObject().put("tool_title", "设置日历")
+                .put("tool_arguments_ui", JSONObject().put("program", nativeProgram).put("title", "设置日历")
+                    .put("state", JSONObject().put("more", "展开").put("less", "收起").put("status", "").put("note", "")
+                        .put("rows", JSONArray()
+                            .put(JSONObject().put("label", "日历来源").put("value", "由插件管理"))
+                            .put(JSONObject().put("label", "说明").put("value", longValue))))))
+        }
+        compose.onNodeWithText("设置日历").assertIsDisplayed()
+        compose.waitUntil(10_000) { textContains("由插件管理", cardId = argumentView) }
+        assertEquals("true", js(
+            "!document.querySelector('.tool-fact-details').open && !!document.querySelector('.tool-fact-preview').getClientRects().length",
+            cardId = argumentView,
+        ))
+        assertEquals("true", js(
+            "document.querySelector('.tool-fact-toggle').click(); document.querySelector('.tool-fact-details').open",
+            cardId = argumentView,
+        ))
+        assertEquals("true", js(
+            "document.querySelector('.tool-fact-full').textContent.endsWith('折叠后的末尾。') && " +
+                "getComputedStyle(document.querySelector('.tool-fact-full')).userSelect === 'text'",
+            cardId = argumentView,
+        ))
+    }
 
     @Test
     fun downloadsReplyLinksAndRendersAnAssetImageInsideTheCard() {

@@ -216,4 +216,7 @@
     <string name="preset_management">Voreinstellung verwalten</string>
     <string name="conversation_settings">Chat-Einstellungen</string>
     <string name="add_saved_model">Modell hinzufügen</string>
+    <string name="tool_arguments">Argumente</string>
+    <string name="tool_result">Ergebnis</string>
+    <string name="quote_reply">Zitieren</string>
 </resources>

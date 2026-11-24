@@ -30,6 +30,7 @@
 | `cards` | 可由智能体引用的 OpenUI 卡片声明。 |
 | `attachments` | 附件类型声明数组。 |
 | `settings` | 设置节点数组。 |
+| `i18n` | 可选。按语言覆盖清单中已声明的可翻译文本。 |
 
 Hook 的实现以 `handlers[导出名](event, api)` 被调用，可返回 Promise。清单中只有 `actions.handlers` 填写 JS 导出名。宿主事件、技能 Hook、技能工具、附件类型和动态 Asset 里的回调均使用本包的 Hook URL。
 
@@ -37,11 +38,69 @@ Hook 的实现以 `handlers[导出名](event, api)` 被调用，可返回 Promis
 
 模块在各自的 isolate 中按包内路径加载。同一文件在一个 isolate 中只求值一次，入口负责将回调登记到 `globalThis.handlers`。使用静态 `import` 和 `export`，用 `./` 或 `../` 指向同一签名包内的 `.js` 或 `.mjs` 文件，保留扩展名和大小写。包外依赖可在本地打包进输出。模块顶层用于同步初始化，异步宿主 API 放在回调里调用。见[多文件 JavaScript](getting-started.md#多文件-javascript)。
 
-`api.environment` 是调用时的只读快照，可能含有 `session`、`room`、`chat`、`preset`、`agent` 和群像角色 `participant`。无上下文的字段可能为 `null` 或缺失，例如 `app.ready` 没有会话。普通会话的 Chat 和 Room 使用同一个 UUID。群像的 Env 会话属于 Room，每个角色的 Chat 和 Search 会话也保存在 Room 内，事件的 `chat` 则指当前发生交互的那条 Chat。Preset 会话按预设共享，Fetch 和临时智能体按任务建立会话。作用域详见 [数据库与状态](state.md)。
+`api.environment` 是调用时的只读快照，可能含有 `locale`、`session`、`room`、`chat`、`preset`、`agent` 和群像角色 `participant`。无上下文的字段可能为 `null` 或缺失，例如 `app.ready` 没有会话。普通会话的 Chat 和 Room 使用同一个 UUID。群像的 Env 会话属于 Room，每个角色的 Chat 和 Search 会话也保存在 Room 内，事件的 `chat` 则指当前发生交互的那条 Chat。Preset 会话按预设共享，Fetch 和临时智能体按任务建立会话。作用域详见 [数据库与状态](state.md)。
 
 用户可在插件管理中设置预设作用域。第三方插件默认在所有预设中运行，可仅启用所选预设，也可排除所选预设。仅启用所选预设时，插件也会跳过无预设上下文的事件。排除模式仍接收无预设上下文的事件。内置插件固定为全局。宿主保存此配置，签名包及其 `manifest.json` 保持只读。
 
 作用域适用于事件、技能、附件、设置和通过 URL 调用的 Hook 与 Asset。插件使用 Harness API 显式指定预设时，宿主也检查目标预设。`harness.listPresets()` 按作用域分页。预设删除后，插件的作用域不会自动扩大。
+
+## 本地化
+
+在清单中保留源文案，将翻译放在 `i18n.locales` 里。每项使用区分大小写的 RFC 6901 JSON Pointer，数组下标从 0 开始。指针的路径片段用 `~1` 表示斜杠，用 `~0` 表示波浪号。以下片段来自 [房间值班状态示例](../../examples/room-status/plugin/manifest.json)。
+
+```json
+{
+  "i18n": {
+    "defaultLocale": "en",
+    "locales": {
+      "zh-Hans": {
+        "/name": "房间值班状态",
+        "/settings/0/title": "房间值班状态",
+        "/settings/0/items/0/markdown": "记录每个房间最近一次核实的值班状态。",
+        "/cards/0/title": "值班状态"
+      }
+    }
+  }
+}
+```
+
+宿主只接受指向已有字符串字段的指针。`i18n.locales` 至少有一份非空字典。每条译文须包含非空白字符，并满足目标字段的长度限制。支持以下字段。
+
+- 顶层 `name` 和 `description`。
+- 附件类型的 `name` 和 `description`，卡片的 `title` 与 `labels` 中的各项文案，状态条目的 `description`。
+- 任意层级设置节点的 `title`、`description`、内联 `markdown`，以及选项的 `title`。
+- 技能的 `title`、`description`、`instructions`，工具的 `title`、`description`，以及工具参数 JSON Schema 各级子 schema 的 `title`、`description`、`markdownDescription`。例如 `/skills/0/tools/0/title` 翻译第一个工具的显示名称。
+
+标识符、权限、URL、选项值、模式约束、程序和独立 Asset 内容沿用清单原值。在 [OpenUI 卡片](state.md#卡片本地化)中引用 `$title` 和 `$labels`，或将运行时翻译写入卡片数据。
+
+语言标签用 BCP 47（最多 128 个字符），比对忽略大小写。每个字段依次尝试请求的完整标签及其父标签、MiniRP 界面语言别名、`defaultLocale` 及其父标签、清单源文案。例如 `zh-TW`、`zh-HK` 和 `zh-MO` 可回退到 `zh-Hant`，`zh-CN` 和 `zh` 可回退到 `zh-Hans`，`pt-PT` 和 `pt` 可回退到 `pt-BR`。中文标签已指定简繁文字时，以指定文字为准。带扩展的 `en-US-u-ca-gregory` 依次尝试 `en-US-u-ca`、`en-US`、`en`。空缺或无效的请求语言从默认语言开始。若节点仍使用旧的 `titles` 映射，宿主先采用新字典中命中的设置标题，再按原方式查 `titles` 和源标题。切换界面语言后宿主按新语言重新解析这些文本，签名清单保持原样。
+
+### 在处理器中翻译文本
+
+每次回调从 `api.environment.locale` 读取语言。设置和 Action 使用宿主界面语言，智能体调用优先使用本次回合的语言，继而使用最近保存的会话或界面语言，最后使用英语。启动事件和旧宿主的语言可能为空或缺失。可在 isolate 内复用字典，翻译在每次需要文本时执行。
+
+JavaScript SDK 的 `defineI18n` 用于运行时生成的通知、错误和卡片文本。将 SDK 随应用代码打包后调用。`getLocale(api, fallback?)` 读取当前回调的语言，缺失或无效时使用所给语言，省略时用英语。在生成清单时可用 `localePointer("cards", 0, "labels", "status")` 构造翻译路径并处理字符转义。
+
+```js
+import { defineI18n, getLocale } from "@minirp/plugin-sdk";
+
+const t = defineI18n({
+    defaultLocale: "en",
+    locales: {
+        en: { progress: "{1} of {2} rooms checked" },
+        "zh-Hans": { progress: "共 {2} 个房间，已检查 {1} 个" },
+    },
+});
+
+globalThis.handlers = {
+    async report(event, api) {
+        return { message: t(getLocale(api), "progress", 2, 5) };
+    },
+};
+```
+
+运行时按同样的语言顺序逐键匹配。缺失或空白译文继续回退，最终使用可选 `source` 字典的原文或键本身。空键或全空白键返回空字符串。编号占位符从 `{1}` 开始，允许重排和重复。缺失、`null` 或 `undefined` 参数保留对应占位符。数值和布尔值按字符串插入。插入的文本保持原样，在将结果放进 HTML、Markdown 或 OpenUI 代码时，应用相应格式的转义。
+
 ## 宿主事件
 
 宿主事件均含 `name`。聊天、工具等事件的详细 payload 需要 `harness.read`。没有该权限时仍能得到名称及环境。应用保留的权限和事件用在内置扩展中。
@@ -52,7 +111,7 @@ Hook 的实现以 `handlers[导出名](event, api)` 被调用，可返回 Promis
 | `plugin.enabled` | 启用的包成功安装、更新，或用户重新启用本包。 |
 | `plugin.command` | 用户在插件页点运行或输入 `/plugin-run <id>`。 |
 | `chat.loaded` | 打开普通聊天或群像 Room 中的一条 Chat。群像提供 `room`、`chat` 和 `preset`。 |
-| `room.loaded` | 打开群像 Room。提供 `room`、`preset`、`chats` 和 `config`。 |
+| `room.loaded` | 群像 Room 已准备完成并可进入各场景。提供 `room`、`preset`、`chats` 和 `config`。 |
 | `chat.changed` | 打开首页或切换预设，`preset`、`config`。 |
 | `chat.title` | 标题生成或更新，`id`、`name`。 |
 | `room.title` | 群像 Room 的标题生成或更新，`id`、`preset`、`name`。 |

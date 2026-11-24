@@ -115,6 +115,26 @@ internal fun JSONObject.putCompaction(value: CompactionSettings): JSONObject =
 internal fun SavedModel.sameModel(other: SavedModel?) =
     provider == other?.provider && choice.id == other.choice.id
 
+internal fun decodeToolTraceUi(value: JSONObject?): ToolTraceUi? {
+    val program = value?.optString("program").orEmpty()
+    if (value == null || program.isBlank()) return null
+    return ToolTraceUi(program, value.optString("title"), value.optJSONObject("state")?.toString())
+}
+
+internal fun TraceBlock.withToolTraceMetadata(value: JSONObject): TraceBlock {
+    fun title(key: String, previous: String): String = when {
+        !value.has(key) -> previous
+        value.isNull(key) -> ""
+        else -> value.optString(key)
+    }
+    val tool = title("tool_title", toolTitle)
+    val skill = title("skill_title", skillTitle)
+    val argumentsUi = if (value.has("tool_arguments_ui")) decodeToolTraceUi(value.optJSONObject("tool_arguments_ui")) else toolArgumentsUi
+    val resultUi = if (value.has("tool_result_ui")) decodeToolTraceUi(value.optJSONObject("tool_result_ui")) else toolResultUi
+    return if (tool == toolTitle && skill == skillTitle && argumentsUi == toolArgumentsUi && resultUi == toolResultUi) this
+    else copy(toolTitle = tool, skillTitle = skill, toolArgumentsUi = argumentsUi, toolResultUi = resultUi)
+}
+
 internal fun decodeBlock(value: JSONObject) =
     TraceBlock(
         value.getString("id"),
@@ -146,7 +166,7 @@ internal fun decodeBlock(value: JSONObject) =
         pluginStatus = value.optString("plugin_status"),
         pluginSequence = value.optInt("plugin_sequence"),
         running = value.optString("plugin_status") == "running",
-    )
+    ).withToolTraceMetadata(value)
 
 internal fun decodeEnsembleChat(value: JSONObject): EnsembleChat {
     val members = value.getJSONArray("members")

@@ -220,4 +220,7 @@
     <string name="preset_management">Zarządzaj presetem</string>
     <string name="conversation_settings">Ustawienia czatu</string>
     <string name="add_saved_model">Dodaj model</string>
+    <string name="tool_arguments">Argumenty</string>
+    <string name="tool_result">Wynik</string>
+    <string name="quote_reply">Cytuj</string>
 </resources>

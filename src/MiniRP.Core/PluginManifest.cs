@@ -17,6 +17,9 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
     public bool Signed => Signer.Length > 0;
     internal string Generation { get; init; } = JsonValues.NewId();
     internal bool Enabled { get; init; } = true;
+    internal PluginManifestLocalization? Localization { get; } = PluginManifestLocalization.Read(Manifest);
+    internal JsonObject LocalizedManifest(string? locale) => Localization?.Project(Manifest, locale) ?? Manifest;
+    internal string LocalizedName(string? locale) => Localization?.Text(Manifest, "name", locale) ?? Name;
     internal string StorageKey => Signed ? PackageName + "." + Signer : Id;
     public bool UsesActions => PackageName != Id;
     internal string Bind(string value) => UsesActions ? PluginActions.Bind(Manifest, value) : value;
@@ -51,6 +54,7 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
         var assets = signed ? ReadAssets(manifest, hashes!.ContainsKey) : new(StringComparer.Ordinal);
         if (signed) PluginActions.Validate(manifest);
         PluginRuntime.ValidateStateDeclarations(manifest, signed);
+        PluginRuntime.ValidateToolPresentations(manifest, signed);
 
         ValidateHooks(manifest, manifest.GetObject("hooks"), signed);
         var skillIds = new HashSet<string>(StringComparer.Ordinal);
@@ -59,6 +63,9 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
         {
             var skillName = Identifier(skill.GetString("name"));
             if (!skillIds.Add(skillName)) throw new InvalidDataException("Duplicate skill.");
+            if (skill is JsonObject skillObject && skillObject.ContainsKey("title") &&
+                skill.GetString("title").Trim().Length is 0 or > 120)
+                throw new InvalidDataException("Skill titles must be 1 to 120 characters.");
             foreach (var (field, suffix) in new[] { ("stateEntries", "-state"), ("cards", "-card") })
             {
                 var generated = skillName + suffix;
@@ -75,6 +82,10 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
                 if (!toolIds.Add(Identifier(tool.GetString("name"))) || !packageTools.Add(tool.GetString("name")))
                     throw new InvalidDataException("Duplicate tool.");
                 if (8 + id.Length + tool.GetString("name").Length > 64) throw new InvalidDataException("Plugin tool name is too long.");
+                if (tool is JsonObject declaration && declaration.TryGetPropertyValue("title", out var title) &&
+                    (title is not JsonValue value || !value.TryGetValue<string>(out var text) ||
+                     string.IsNullOrWhiteSpace(text) || text.Length > 120))
+                    throw new InvalidDataException("Tool titles must be nonblank text of up to 120 characters.");
                 if (signed) PluginActions.BindRequired(manifest, tool.GetString("handler"));
                 else Handler(tool.GetString("handler"));
                 if (tool.GetString("description").Trim().Length is 0 or > 1024 ||

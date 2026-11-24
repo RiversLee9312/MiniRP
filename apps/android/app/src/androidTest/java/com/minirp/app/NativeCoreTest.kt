@@ -344,6 +344,62 @@ class NativeCoreTest {
     }
 
     @Test
+    fun signedPluginToolEmitsBothPresentationsThroughTheNativeCore() = runBlocking {
+        val fixture = InstrumentationRegistry.getArguments().getString("settingIconFixture")
+        assumeTrue("Pass the signed room-status example with -e settingIconFixture", fixture != null)
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = temporary.newFolder()
+        val context = object : ContextWrapper(app) { override fun getFilesDir() = directory }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val core = CoreClient(context, scope, seedDefaultPreset = true)
+        val line = "Gate closed."
+        val tool = "plugin_room-status_report"
+        fun stream(delta: JSONObject) = MockResponse.Builder()
+            .setHeader("Content-Type", "text/event-stream")
+            .body("data: " + JSONObject().put("choices", JSONArray().put(JSONObject().put("delta", delta))) + "\n\ndata: [DONE]\n\n")
+            .build()
+        fun call(id: String, name: String, arguments: JSONObject) = stream(
+            JSONObject().put("tool_calls", JSONArray().put(JSONObject()
+                .put("index", 0).put("id", id).put("type", "function")
+                .put("function", JSONObject().put("name", name).put("arguments", arguments.toString())))),
+        )
+        try {
+            MockWebServer().use { server ->
+                server.start()
+                server.enqueue(call("activate", "activate_skill", JSONObject().put("name", "room-status-status")))
+                server.enqueue(call("report", tool, JSONObject().put("line", line)))
+                server.enqueue(stream(JSONObject().put("content", "Report saved.")))
+                val preset = seededPreset(core)
+                core.query(JSONObject().put("op", "plugin_install").put("path", fixture))
+                core.send(JSONObject().put("op", "configure")
+                    .put("provider", JSONObject().put("protocol", "openai")
+                        .put("url", server.url("/v1").toString()).put("model", "fixture").put("key", "fixture"))
+                    .put("agents", JSONObject().put("title", JSONObject())))
+                core.send(JSONObject().put("op", "select_chat").put("preset", preset))
+                core.send(JSONObject().put("op", "message").put("text", "Verify the station.").put("locale", "zh-Hans"))
+                var arguments: JSONObject? = null
+                val result = withTimeout(30_000) {
+                    core.events.first { event ->
+                        check(event.optString("kind") != "error") { event.toString() }
+                        if (event.optString("name") != tool) return@first false
+                        if (event.optString("kind") == "tool_start") arguments = event.getJSONObject("tool_arguments_ui")
+                        event.optString("kind") == "tool_end"
+                    }.getJSONObject("tool_result_ui")
+                }
+                val input = requireNotNull(arguments)
+                assertEquals("上报的状态", input.getString("title"))
+                assertEquals("已保存的状态", result.getString("title"))
+                assertEquals(line, input.getJSONObject("state").getJSONObject("data").getString("line"))
+                assertEquals(line, result.getJSONObject("state").getJSONObject("data").getJSONObject("value").getString("line"))
+                assertNotEquals(input.getString("program"), result.getString("program"))
+            }
+        } finally {
+            core.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun installedModuleSuppliesAnAssetThroughTheNativeCore() = runBlocking {
         val fixture = InstrumentationRegistry.getArguments().getString("pluginFixture")
         assumeTrue("Pass the signed stream-assets example with -e pluginFixture", fixture != null)

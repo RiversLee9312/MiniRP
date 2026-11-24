@@ -216,4 +216,7 @@
     <string name="preset_management">Administrer forhåndsinnstilling</string>
     <string name="conversation_settings">Samtaleinnstillinger</string>
     <string name="add_saved_model">Legg til modell</string>
+    <string name="tool_arguments">Argumenter</string>
+    <string name="tool_result">Resultat</string>
+    <string name="quote_reply">Siter</string>
 </resources>

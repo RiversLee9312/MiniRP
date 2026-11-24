@@ -28,6 +28,15 @@ internal sealed partial class PluginRuntime
                 card.GetString("program").Length is < 1 or > 32000 ||
                 (card.GetString("state") is { Length: > 0 } key && !entryIds.Contains(key)))
                 throw new InvalidDataException("A card needs a unique ID, title, a valid-size OpenUI program and an optional declared state key.");
+            if (card is JsonObject declaration && declaration.TryGetPropertyValue("labels", out var value))
+            {
+                if (value is not JsonObject { Count: > 0 and <= 48 } labels || labels.Any(label =>
+                    label.Key.Length is < 1 or > 48 || !char.IsAsciiLetter(label.Key[0]) ||
+                    label.Key.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '_') ||
+                    label.Value is not JsonValue scalar || !scalar.TryGetValue<string>(out var text) ||
+                    string.IsNullOrWhiteSpace(text) || text.Length > 240))
+                    throw new InvalidDataException("Card labels need 1–48 identifier keys with nonblank text of up to 240 characters.");
+            }
         }
         foreach (var skill in manifest.GetArray("skills"))
         {
@@ -123,30 +132,54 @@ internal sealed partial class PluginRuntime
         return State(package, environment, new() { ["key"] = entry }, false);
     }
 
-    private JsonObject Card(PluginPackage package, string id, JsonObject environment)
+    private JsonObject Card(PluginPackage package, string id, JsonObject environment, string? locale = null)
     {
         var card = FindDeclaration(package, "cards", "id", id);
         var state = card.GetString("state") is { Length: > 0 } key ? State(package, environment, new() { ["key"] = key }, false) : new JsonObject();
-        return new() { ["open_ui"] = card.GetString("program"), ["open_ui_title"] = card.GetString("title"),
-            ["open_ui_state"] = JsonValues.Clone(state["value"]), ["open_ui_revision"] = state.GetInt32("revision") };
+        locale ??= environment.GetString("locale");
+        var title = package.Localization?.Text(card, "title", locale) ?? card.GetString("title");
+        var data = JsonValues.Clone(state["value"]) as JsonObject;
+        var labels = CardLocaleState(package, card, locale);
+        if (labels.Count > 0)
+        {
+            data ??= new JsonObject();
+            foreach (var entry in labels) data[entry.Key] = JsonValues.Clone(entry.Value);
+        }
+        return new() { ["open_ui"] = card.GetString("program"), ["open_ui_title"] = title,
+            ["open_ui_state"] = data, ["open_ui_revision"] = state.GetInt32("revision") };
     }
 
-    internal JsonObject ReadCard(JsonObject reference)
+    private static JsonObject CardLocaleState(PluginPackage package, JsonNode card, string? locale)
+    {
+        if (card["labels"] is not JsonObject source) return new();
+        var labels = new JsonObject();
+        foreach (var label in source)
+            labels[label.Key] = package.Localization?.Text(source, label.Key, locale) ?? JsonValues.GetText(label.Value);
+        return new()
+        {
+            ["labels"] = labels,
+            ["locale"] = locale ?? "",
+            ["title"] = package.Localization?.Text(card, "title", locale) ?? card.GetString("title"),
+        };
+    }
+
+    internal JsonObject ReadCard(JsonObject reference, string? locale = null)
     {
         var package = Volatile.Read(ref packages).FirstOrDefault(item =>
             item.PackageName == PluginUrls.CanonicalPackage(reference.GetString("package")) && item.Signer == reference.GetString("signer"))
             ?? throw new UnauthorizedAccessException("The plugin card is unavailable.");
         var context = reference.GetObject("environment");
         RequireScope(package, context.GetString("preset"));
-        return Card(package, reference.GetString("id"), context);
+        return Card(package, reference.GetString("id"), context, locale ?? context.GetString("locale"));
     }
 
-    private void AddStateTools(PluginPackage package, JsonNode? declaration, JsonArray tools, string stateTool, string? cardTool)
+    private void AddStateTools(PluginPackage package, JsonNode? declaration, JsonArray tools, string stateTool, string? cardTool, string? locale)
     {
         if (declaration.GetArray("stateEntries") is { Count: > 0 } entries)
         {
             var instructions = entries.Select(key => FindDeclaration(package, "stateEntries", "key", JsonValues.GetText(key)))
-                .Select(entry => entry.GetString("key") + " (" + entry.GetString("scope") + "): " + entry.GetString("description"));
+                .Select(entry => entry.GetString("key") + " (" + entry.GetString("scope") + "): " +
+                    (package.Localization?.Text(entry, "description", locale) ?? entry.GetString("description")));
             tools.AddNode(Tools.Define(stateTool, "Read read-only state and its session DB key. Use db_watch with the returned DB key for updates. Change state through the plugin's own tools. " + string.Join(" ", instructions), new()
             {
                 ["key"] = new JsonObject { ["type"] = "string", ["enum"] = entries.DeepClone() },

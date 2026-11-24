@@ -2,6 +2,7 @@ import { library as intelligentUi } from "@openuidev/intelligent-ui-library";
 import { defineComponent, reactive, useStateField } from "@openuidev/react-lang";
 import { createContext, createElement, useContext, useEffect, useRef, useState } from "react";
 import { z } from "zod";
+import { ToolFacts } from "./ToolFacts.mjs";
 
 const place = z.object({
     label: z.string(),
@@ -137,6 +138,11 @@ export const library = intelligentUi.extend({
             )),
         ],
     },
+});
+
+const toolComponents = new Set(["Col", "Row", "Text", "Title", "Card", "Divider", "Table", "Chart", "Badge"]);
+export const toolLibrary = library.extend({
+    components: { add: [ToolFacts], remove: Object.keys(library.components).filter((name) => !toolComponents.has(name)) },
 });
 
 const promptOptions = {

@@ -157,10 +157,16 @@ try {
         if (phase === "cancel") await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
       }
       const expected = phase === "later" || phase === "cancel" ? "Fixture download stopped." : "Fixture native page captured.";
-      await Promise.race([
+      const outcome = [
         page.locator(".transcript").getByText(expected, { exact: true }).waitFor({ timeout: phase === "download" ? 900000 : 50000 }),
         failure.promise.then((error) => { throw error; }),
-      ]);
+      ];
+      if (phase === "system" || phase === "reuse") {
+        outcome.push(dialog.waitFor({ timeout: 0 }).then(() => {
+          assert.fail("The selected browser is already available. MiniRP must not offer a download.");
+        }));
+      }
+      await Promise.race(outcome);
       assert.deepEqual(failures, []);
       if (phase !== "later" && phase !== "cancel") assert.ok(submittedPage, "The page submission result must reach the model.");
       if (phase === "reuse") assert.equal(await dialog.count(), 0);

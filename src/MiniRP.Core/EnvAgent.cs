@@ -5,7 +5,8 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
 {
     public async Task<string> Run(string input, bool advanceRequested, CancellationToken ct, JsonArray? attachments = null, string inputRole = "user")
     {
-        var state = (JsonObject)world.State.DeepClone();
+        var initial = world.State;
+        var state = (JsonObject)initial.DeepClone();
         var tools = new JsonArray(
             Tools.Define("inspect_world", "Inspect staged facts, phase and date."),
             Tools.Define("add_fact", "Add established fact.", new()
@@ -124,7 +125,21 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
             throw new IOException("Empty response. Changes not saved.");
         }
 
-        if (!JsonNode.DeepEquals(world.State, state)) world.Commit(state);
+        if (!JsonNode.DeepEquals(initial, state))
+        {
+            lock (world.RoomGate)
+            {
+                // A room character may have committed research while the world turn was running.
+                var current = (JsonObject)world.State.DeepClone();
+                foreach (var key in initial.Select(item => item.Key).Union(state.Select(item => item.Key)))
+                {
+                    if (JsonNode.DeepEquals(initial[key], state[key])) continue;
+                    if (!state.TryGetPropertyValue(key, out var value)) current.Remove(key);
+                    else current[key] = JsonValues.Clone(value);
+                }
+                world.Commit(current);
+            }
+        }
         return answer.GetString("content");
     }
 }

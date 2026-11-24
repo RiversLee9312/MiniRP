@@ -13,6 +13,8 @@ data class BranchDraft(
 
 data class ReplyEnd(val text: String, val firstBlock: String)
 
+data class ToolTraceUi(val program: String, val title: String = "", val state: String? = null)
+
 data class TraceBlock(
     val id: String,
     val agent: String = "chat",
@@ -42,6 +44,10 @@ data class TraceBlock(
     val pluginAgentName: String = "",
     val pluginStatus: String = "",
     val pluginSequence: Int = 0,
+    val toolArgumentsUi: ToolTraceUi? = null,
+    val toolResultUi: ToolTraceUi? = null,
+    val toolTitle: String = "",
+    val skillTitle: String = "",
 ) {
     val role: AgentRole
         get() =

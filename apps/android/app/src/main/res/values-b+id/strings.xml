@@ -214,4 +214,7 @@
     <string name="preset_management">Kelola preset</string>
     <string name="conversation_settings">Pengaturan obrolan</string>
     <string name="add_saved_model">Tambah model</string>
+    <string name="tool_arguments">Argumen</string>
+    <string name="tool_result">Hasil</string>
+    <string name="quote_reply">Kutip</string>
 </resources>

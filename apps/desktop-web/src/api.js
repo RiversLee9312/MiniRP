@@ -4,8 +4,9 @@ async function check(response) {
   throw new Error(error.error || error.message || response.statusText);
 }
 
-export async function request(path, body) {
-  const response = await check(await fetch(path, body === undefined ? undefined : {
+export async function request(path, body, signal) {
+  const response = await check(await fetch(path, body === undefined ? { signal } : {
+    signal,
     method: "POST",
     headers: body instanceof FormData ? undefined : { "Content-Type": "application/json" },
     body: body instanceof FormData ? body : JSON.stringify(body),
@@ -13,7 +14,13 @@ export async function request(path, body) {
   return response.json();
 }
 
-export const send = (op, parameters = {}) => request("/api/command", { ...parameters, op });
+export const send = (op, parameters = {}, signal) => request("/api/command", { ...parameters, op }, signal);
+
+export function transcriptPage(scope, before, locale, signal) {
+  const query = new URLSearchParams({ ...scope, before });
+  if (locale) query.set("locale", locale);
+  return request("/api/transcript?" + query, undefined, signal);
+}
 
 export function upload(path, files) {
   const form = new FormData();

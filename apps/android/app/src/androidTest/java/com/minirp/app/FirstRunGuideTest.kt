@@ -96,12 +96,11 @@ class FirstRunGuideTest {
                     val harness = label(R.string.setup_help_harness)
                     assertTrue(copied.startsWith("$harness\n\n"))
                     assertTrue(harness.contains("Agentic RP Harness", ignoreCase = true))
-                    assertTrue(harness.contains("Agent Loop", ignoreCase = true))
+                    assertTrue(harness.contains("HarnessCore"))
+                    assertTrue(harness.contains("SillyTavern"))
                     assertTrue(copied.contains(label(R.string.setup_help_coaching)))
                     assertTrue(copied.contains(label(R.string.setup_help_privacy)))
                     assertTrue(copied.contains(label(R.string.setup_help_research)))
-                    assertTrue(copied.contains("coding plan", ignoreCase = true))
-                    assertTrue(copied.contains("agent plan", ignoreCase = true))
                 }
                 compose.waitUntil(10_000) {
                     compose.onAllNodesWithText(label(R.string.setup_welcome))
