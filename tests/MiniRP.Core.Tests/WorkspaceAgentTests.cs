@@ -154,6 +154,51 @@ public sealed class WorkspaceAgentTests
         Assert.IsTrue(session.Summary.Contains("note/task", StringComparison.Ordinal));
     }
 
+    private static bool IsCheckpointRequest(JsonArray messages) => messages.Skip(1).Any(message =>
+        message.GetString("role") == "system" &&
+        message.GetString("content").StartsWith("Write a continuation checkpoint", StringComparison.Ordinal));
+
+    [TestMethod]
+    public async Task CheckpointForkKeepsTheModelPrefixAndReadsMemoryWithoutExecutingParentTools()
+    {
+        var world = NewWorld();
+        var requests = new List<JsonObject>();
+        var provider = new Provider("fixture", "Fixture", "openai", "http://fixture.invalid", "", "session-model",
+            ContextWindow: 18000, MaxOutput: 1000, CompactAt: 5200, BackgroundCompaction: false);
+        var checkpointTurns = 0;
+        var fixture = Fixture(_ =>
+        {
+            var messages = requests[^1].GetArray("messages");
+            if (!IsCheckpointRequest(messages)) return new() { ["content"] = "Normal reply." };
+            if (checkpointTurns++ == 0)
+                return Assistant(Call("db_read", new() { ["key"] = "note/current" }),
+                    Call("db_write", new() { ["key"] = "note/forbidden", ["content"] = "must not persist" }));
+            StringAssert.Contains(messages.Single(message => message.GetString("name") == "db_read").GetString("content"), "confirmed project state");
+            StringAssert.Contains(messages.Single(message => message.GetString("name") == "db_write").GetString("content"), "tool_unavailable");
+            return new() { ["content"] = "Use note/current for the confirmed project state." };
+        }, requests.Add, provider);
+        using var session = TestAgentSession.Open("preset", Path.Combine(world.ChatRoot, "checkpoint-branch.sqlite"), fixture, _ => { });
+        session.Db.Write("note/current", "confirmed project state");
+        var skill = new AgentSkill("fixture-task", "Execute work.", new JsonArray(Tools.Define("modify_world", "Change state.")),
+            (_, _, _) => throw new AssertFailedException("Checkpoint executed a parent tool."), Required: true);
+        var original = "Original instructions from the user. " + new string('x', 11500);
+        await session.Run("Preset task.", original, skill, CancellationToken.None);
+        session.Db.Write("_context/db-watches", "{\"note/current\":0}", internalWrite: true);
+        await session.Run("Preset task.", "Continue. " + new string('y', 4800), skill, CancellationToken.None);
+
+        Assert.AreEqual(2, checkpointTurns);
+        var initial = requests[0].GetArray("messages");
+        var branch = requests[1].GetArray("messages");
+        CollectionAssert.AreEqual(initial.Select(JsonValues.Serialize).ToArray(), branch.Take(initial.Count).Select(JsonValues.Serialize).ToArray());
+        Assert.AreEqual(1, branch.Count(message => message.GetString("content").StartsWith("Watched DB entry note/current", StringComparison.Ordinal)));
+        Assert.AreEqual("session-model", requests[1].GetString("model"));
+        CollectionAssert.AreEquivalent(new[] { "db_list", "db_read", "db_search", "history_search", "history_recall" },
+            requests[1].GetArray("tools").Select(tool => tool.GetObject("function").GetString("name")).ToArray());
+        Assert.IsNull(session.Db.Get("note/forbidden"));
+        Assert.IsFalse(session.History.Any(message => message.GetString("content").Contains("Write a continuation checkpoint", StringComparison.Ordinal)));
+        StringAssert.Contains(session.Summary, "note/current");
+    }
+
     [TestMethod]
     public async Task SearchReferenceStaysTransientAndInstructionChangesKeepThePreviousPrefix()
     {
@@ -239,8 +284,7 @@ public sealed class WorkspaceAgentTests
         {
             if (request.GetString("kind") == "cancel_io") return;
             var body = JsonValues.ParseObject(request.GetString("body"));
-            var first = body.GetArray("messages")[0].GetString("content");
-            if (first.StartsWith("Write a continuation checkpoint", StringComparison.Ordinal))
+            if (IsCheckpointRequest(body.GetArray("messages")))
             {
                 Interlocked.Increment(ref summaries);
                 if (!summaryRequest.TrySetResult(request)) Reply(request, "Unexpected second checkpoint.");
@@ -289,10 +333,10 @@ public sealed class WorkspaceAgentTests
         var model = Fixture(round =>
         {
             var messages = requests[^1].GetArray("messages");
-            if (messages[0].GetString("content").StartsWith("Write a continuation checkpoint", StringComparison.Ordinal))
+            if (IsCheckpointRequest(messages))
             {
                 if (progress++ > 0)
-                    StringAssert.Contains(messages[1].GetString("content"), "Checkpoint " + (progress - 1));
+                    StringAssert.Contains(messages[0].GetString("content"), "Checkpoint " + (progress - 1));
                 return new() { ["content"] = "Checkpoint " + progress };
             }
             Assert.IsTrue(messages.Any(message => message.GetString("content") == "Finish the current job"));
@@ -393,7 +437,7 @@ public sealed class WorkspaceAgentTests
             ContextWindow: 10000, MaxOutput: 1000, CompactAtPercent: 80, BackgroundCompaction: false);
         var model = Fixture(_ =>
         {
-            if (requests[^1].GetArray("messages")[0].GetString("content").StartsWith("Write a continuation checkpoint", StringComparison.Ordinal))
+            if (IsCheckpointRequest(requests[^1].GetArray("messages")))
             {
                 summaries++;
                 return new() { ["content"] = "Remember the original status." };

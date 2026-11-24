@@ -30,6 +30,7 @@
     <string name="input_hint">Message</string>
     <string name="open_menu">Ouvrir le menu</string>
     <string name="send">Envoyer</string>
+    <string name="sending">Envoi…</string>
     <string name="stop">Arrêter</string>
     <string name="more_options">Plus d’options</string>
     <string name="reasoning">Réflexions</string>
@@ -219,4 +220,10 @@
     <string name="tool_arguments">Arguments</string>
     <string name="tool_result">Résultat</string>
     <string name="quote_reply">Citer</string>
+    <string name="ensemble_private_messages">Messages privés</string>
+    <string name="ensemble_member_thinking">%1$s réfléchit</string>
+    <string name="ensemble_out_of_story">Ces messages se déroulent en dehors de l’histoire et sont envoyés comme messages système.</string>
+    <string name="ensemble_member_trace">Journal d’activité</string>
+    <string name="ensemble_no_trace">Aucune activité pour le moment</string>
+    <string name="ensemble_trace_load_failed">Impossible de charger l’activité.</string>
 </resources>

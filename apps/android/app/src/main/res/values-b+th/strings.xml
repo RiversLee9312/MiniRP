@@ -30,6 +30,7 @@
     <string name="input_hint">ข้อความ</string>
     <string name="open_menu">เปิดเมนู</string>
     <string name="send">ส่ง</string>
+    <string name="sending">กำลังส่ง…</string>
     <string name="stop">หยุด</string>
     <string name="more_options">ตัวเลือกเพิ่มเติม</string>
     <string name="reasoning">ความคิด</string>
@@ -217,4 +218,10 @@
     <string name="tool_arguments">อาร์กิวเมนต์</string>
     <string name="tool_result">ผลลัพธ์</string>
     <string name="quote_reply">อ้างอิง</string>
+    <string name="ensemble_private_messages">ข้อความส่วนตัว</string>
+    <string name="ensemble_member_thinking">%1$s กำลังคิด</string>
+    <string name="ensemble_out_of_story">ข้อความเหล่านี้อยู่นอกเนื้อเรื่องและจะถูกส่งเป็นข้อความระบบ</string>
+    <string name="ensemble_member_trace">บันทึกกิจกรรม</string>
+    <string name="ensemble_no_trace">ยังไม่มีกิจกรรม</string>
+    <string name="ensemble_trace_load_failed">โหลดกิจกรรมไม่ได้</string>
 </resources>

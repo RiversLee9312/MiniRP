@@ -11,6 +11,7 @@ import java.io.OutputStream
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -457,11 +458,13 @@ class CoreClient(
                 }
             }
         } catch (error: Exception) {
+            val retryable = error is IOException && error !is SSLException && calls[id]?.isCanceled() != true
             send(
                 JSONObject()
                     .put("op", "io_reply")
                     .put("id", id)
                     .put("error", error.message ?: "Network failed")
+                    .put("network_error", retryable)
             )
         } finally {
             calls.remove(id)

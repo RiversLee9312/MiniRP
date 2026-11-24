@@ -5,7 +5,9 @@ import android.util.JsonToken
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,6 +36,10 @@ import com.minirp.app.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private val tracePayloadMaxHeight = 280.dp
+private const val traceJsonPreviewLines = 12
+internal val traceHeadingMinHeight = 40.dp
 
 internal data class TraceHeader(
     val id: String,
@@ -76,7 +82,14 @@ internal fun TraceHeading(
 }
 
 @Composable
-internal fun TraceStep(step: TraceBlock, quoteDepth: Int, openUiPages: OpenUiPageCache? = null) {
+internal fun TraceStep(
+    step: TraceBlock,
+    quoteDepth: Int,
+    details: Boolean,
+    toggleDetails: () -> Unit,
+    openUiPages: OpenUiPageCache? = null,
+    obscureHeading: Boolean = false,
+) {
     Column(Modifier.fillMaxWidth().traceQuote(quoteDepth)) {
         if (step.tool.isBlank() && !step.compaction) {
             val text =
@@ -94,17 +107,17 @@ internal fun TraceStep(step: TraceBlock, quoteDepth: Int, openUiPages: OpenUiPag
                 )
             }
         } else {
-            var details by rememberSaveable { mutableStateOf(false) }
-            val label = if (step.compaction) stringResource(R.string.compaction_threshold)
-                else step.toolTitle.ifBlank { step.tool.replace('_', ' ') }
-            val skill = step.skillTitle.takeUnless { step.compaction || it == label || it.isBlank() }
-            TraceDisclosure(label, details, detail = skill) { details = !details }
+            val headerModifier = if (obscureHeading) Modifier.alpha(0f).clearAndSetSemantics {}
+                else Modifier
+            TraceStepHeading(step, details, headerModifier, toggleDetails)
             if (details) {
                 if (step.compaction) {
                     SelectionContainer {
                         Text(
                             listOf(step.reasoning, step.result).filter(String::isNotBlank).joinToString("\n\n"),
-                            Modifier.padding(start = 12.dp, bottom = 6.dp),
+                            Modifier.padding(start = 12.dp, bottom = 6.dp)
+                                .heightIn(max = tracePayloadMaxHeight)
+                                .verticalScroll(rememberScrollState()),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -141,6 +154,14 @@ internal fun TraceStep(step: TraceBlock, quoteDepth: Int, openUiPages: OpenUiPag
             }
         }
     }
+}
+
+@Composable
+internal fun TraceStepHeading(step: TraceBlock, expanded: Boolean, modifier: Modifier, toggle: () -> Unit) {
+    val label = if (step.compaction) stringResource(R.string.compaction_threshold)
+        else step.toolTitle.ifBlank { step.tool.replace('_', ' ') }
+    val skill = step.skillTitle.takeUnless { step.compaction || it == label || it.isBlank() }
+    TraceDisclosure(label, expanded, modifier, detail = skill, toggle = toggle)
 }
 
 @Composable
@@ -192,10 +213,18 @@ private fun TracePayload(raw: String, label: String, tag: String, expanded: Bool
         payload = withContext(Dispatchers.Default) { formatTracePayload(raw) }
     }
     val collapsible = remember(payload) {
-        payload.json == null && (
+        val fields = payload.json
+        if (fields == null) {
             payload.value.length > tracePreviewLength ||
                 payload.value.lineSequence().take(tracePreviewLines + 1).count() > tracePreviewLines
-        )
+        } else {
+            // Fold whole payloads that are tall even with their long fields closed.
+            val lineBreaks = payload.value.count { it == '\n' }
+            val hiddenBreaks = fields.sumOf { field ->
+                (field.valueStart until field.end).count { payload.value[it] == '\n' }
+            }
+            lineBreaks - hiddenBreaks >= traceJsonPreviewLines
+        }
     }
     val collapsed = collapsible && !expanded
     val display = remember(payload.value, collapsed) {
@@ -216,9 +245,12 @@ private fun TracePayload(raw: String, label: String, tag: String, expanded: Bool
             Modifier.fillMaxWidth()
                 .clip(shape)
                 .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                .padding(vertical = 6.dp, horizontal = 8.dp),
+                .padding(vertical = 6.dp, horizontal = 8.dp)
+                .heightIn(max = tracePayloadMaxHeight)
+                .verticalScroll(rememberScrollState())
+                .testTag("trace-payload-body:$tag"),
         ) {
-            if (json != null) {
+            if (json != null && !collapsed) {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     Column(Modifier.testTag("trace-json:$tag")) {
                         TraceJsonBody(payload.value, 0, payload.value.length, json)
@@ -367,7 +399,7 @@ private fun TraceDisclosure(
                 onClickLabel = stringResource(if (expanded) R.string.collapse else R.string.expand),
                 onClick = toggle,
             )
-            .heightIn(min = 40.dp),
+            .heightIn(min = traceHeadingMinHeight),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {

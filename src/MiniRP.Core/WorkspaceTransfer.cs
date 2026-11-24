@@ -548,7 +548,8 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
                 throw new InvalidDataException("A Room identifier does not match the archive.");
             Rooms.Add(id);
             Research(document["world"]);
-            Children[id] = document.GetObject("ensemble").GetArray("chats")
+            var group = document.GetObject("ensemble");
+            Children[id] = group.GetArray("chats").Concat(group.GetArray("private_chats"))
                 .Select(chat => WorkspaceIds.Require(chat.GetString("id"))).ToHashSet(StringComparer.Ordinal);
             Collect(document);
         }
@@ -560,7 +561,8 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
             if (node is not JsonObject record) return;
             var version = record.GetString("version");
             if (Id(version)) Versions.Add(version);
-            foreach (var file in record.GetArray("attachments")) AddAttachment(file.GetString("id"));
+            foreach (var file in record.GetArray("attachments"))
+                if (!MessageAttachments.IsQuote(file)) AddAttachment(file.GetString("id"));
             foreach (var (url, reference) in record.GetObject("asset_links"))
             {
                 AddAttachment(reference.GetObject("attachment").GetString("id"));

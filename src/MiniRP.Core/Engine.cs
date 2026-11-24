@@ -243,10 +243,12 @@ public sealed partial class Engine : IAsyncDisposable
     private static bool RecordTrace(JsonObject item, Dictionary<string, JsonObject> blocks, JsonArray destination)
     {
         var kind = item.GetString("kind");
+        var id = item.GetString("block");
+        if (kind is "turn_end" or "open_ui_end" && item.GetBoolean("retrying") && blocks.TryGetValue(id, out var interrupted))
+            interrupted["retrying"] = true;
         if (kind is not ("delta" or "tool_start" or "tool_end" or "context_trace" or "open_ui_delta" or "open_ui_card" or "plugin_agent_status") &&
             item["asset_links"] is not JsonObject)
             return false;
-        var id = item.GetString("block");
         if (!blocks.TryGetValue(id, out var block))
         {
             block = new()
@@ -322,9 +324,9 @@ public sealed partial class Engine : IAsyncDisposable
         return conversation;
     }
 
-    private JsonArray PresetBlocks(PresetConversation conversation)
+    private bool HasPresetTrace()
     {
-        lock (presetTraceGate) return (JsonArray)conversation.Blocks.DeepClone();
+        lock (presetTraceGate) return presetConversation?.Blocks.Count > 0;
     }
 
     private void SavePresetTrace()
@@ -371,14 +373,16 @@ public sealed partial class Engine : IAsyncDisposable
             catch (Exception error)
             {
                 FinishPendingTrace(error.Message);
-                Emit(new()
+                var failure = new JsonObject
                 {
                     ["kind"] = "error",
                     ["request"] = command.GetString("request"),
                     ["model_turn"] = op is "message" or "_preset_interview" or "_preset_plugin_notifications" or "start_chat" or "greet_chat",
                     ["agent"] = command.GetString("agent", "chat"),
                     ["message"] = error.Message
-                });
+                };
+                if (op == "_preset_interview") failure["preset_interview"] = true;
+                Emit(failure);
             }
             finally
             {
@@ -594,6 +598,8 @@ public sealed partial class Engine : IAsyncDisposable
                 ["draft"] = JsonValues.Clone(Workspace.Chat["draft"]),
                 ["ensemble_chats"] = ensemble?.List(),
                 ["participants"] = ensemble?.Agents.DeepClone(),
+                ["activity"] = ensemble is null ? null : Volatile.Read(ref roomActivity)?.Snapshot() ?? new JsonArray(),
+                ["private_in_story"] = ensemble?.DirectMessagesInStory ?? true,
                 ["chat"] = new JsonObject
                 {
                     ["id"] = Workspace.ChatId,
@@ -757,6 +763,12 @@ public sealed partial class Engine : IAsyncDisposable
             case "select_ensemble_chat":
                 SelectEnsembleChat(command);
                 return;
+            case "open_ensemble_dm":
+                OpenDirectEnsembleChat(command);
+                return;
+            case "ensemble_member_trace":
+                ReadEnsembleMemberTrace(command);
+                return;
             case "greet_chat":
                 if (Workspace.ChatId.Length > 0 && command.GetString("chat") == Workspace.ChatId &&
                     command.GetString("conversation") == activeEnsembleChat)
@@ -767,7 +779,10 @@ public sealed partial class Engine : IAsyncDisposable
                 var hub = ensemble ?? throw new InvalidOperationException("Choose an ensemble room.");
                 lock (hub.SyncRoot)
                 {
-                    hub.Chat(command.GetString("conversation"))["name"] = PresetDesign.Name(command.GetString("name"));
+                    var conversation = command.GetString("conversation");
+                    if (hub.PrivateParticipant(conversation).Length > 0)
+                        throw new ArgumentException("A direct chat uses the character's name.");
+                    hub.Chat(conversation)["name"] = PresetDesign.Name(command.GetString("name"));
                     Workspace.Save();
                     EnsembleChatsChanged();
                 }
@@ -804,11 +819,16 @@ public sealed partial class Engine : IAsyncDisposable
                 if (command.GetString("preset") != Workspace.PresetId || !Workspace.SetupPending)
                     return;
                 EnsurePresetSession();
-                if (PresetBlocks(presetConversation!).Any(block => block.GetString("content").Length > 0) ||
+                // A crash can leave partial prose or plugin status records in the
+                // display trace. The session history is committed after a model turn.
+                if (sessions["preset"].HasAssistantReply ||
                     turnRouting.For("preset").Model.Length == 0 || turnRouting.For("preset").Url.Length == 0) return;
                 var bootstrap = await plugins.InvokeBaseHook("preset.created",
                     new() { ["locale"] = operationLocale.Value ?? AgentLanguage.Default }, PluginEnvironment("preset"), token);
-                await RunMessage("preset", bootstrap.GetString("text"), false, new(), token,
+                var setupInput = bootstrap.GetString("text");
+                if (HasPresetTrace())
+                    setupInput += "\n\nA previous setup attempt was interrupted. Inspect the existing preset, then resume from its current configuration. Avoid repeating completed changes.";
+                await RunMessage("preset", setupInput, false, new(), token,
                     inputRole: "system", editorTurn: true, hiddenInput: true);
                 return;
             case "resume_preset_interview":
@@ -1094,7 +1114,7 @@ public sealed partial class Engine : IAsyncDisposable
     {
         var blocks = Workspace.Chat.GetArray("blocks");
         var prose = blocks.Skip(turnStart)
-            .Where(block => block.GetString("agent") == "ChatAgent")
+            .Where(block => block.GetString("agent") == "ChatAgent" && !block.GetBoolean("retrying"))
             .Select(block => block.GetString("content"))
             .Where(content => !string.IsNullOrWhiteSpace(content))
             .ToArray();

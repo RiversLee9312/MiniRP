@@ -128,6 +128,8 @@ PluginAgent 用 `create_asset` 创建这两个源码文件，选择 `text/javasc
 
 `plugin_wait` 返回当时的状态。如果 PluginAgent 之后才完成或失败，结果或错误会作为系统消息交给所属预设的 PresetAgent。回合仍在进行时，通知会通过 steer 打断正在生成的模型请求，并在同一回合继续。回合已结束时，当前预设会自动开启后续回合。切换到其他预设期间，通知会保留到原预设再次打开。已经由 `plugin_wait` 带回并处理的结果会去重。
 
+模型连接长时间中断时，任务状态为 `interrupted`。恢复连接后，PresetAgent 可用 `plugin_send` 向同一个 PluginAgent ID 发送后续指令。原有草稿、会话和已完成工具的记录会保留。
+
 要给项目添加文件，激活 `asset_storage` 并用 `create_asset` 以 `text` 写入新内容，或用 `source_url` 复制已有资源。再用 `project_asset_add` 将返回的 `url` 关联到包内相对路径 `path`。临时资源可这样复制为持久文件。要解除单个关联，用 `project_asset_remove` 同时传入 `url` 和 `path`。原 Asset 会保留。
 
 同一预设中的 PresetAgent 和 PluginAgent 可以传递 Asset URL，共用容器 `/workspace`。PresetAgent 可只读查看收到的草稿 Asset，按实际使用结果提出修改。由原 PluginAgent 更新项目关联的源文件并复测。PluginAgent 可用宿主 `curl` 技能将下载保存为 Asset，也可通过 `research` 技能调用 `real_search` 和 `real_fetch`，使用应用配置的搜索、抓取服务和本地浏览器回退。

@@ -4,12 +4,9 @@ import "./TranscriptRuler.css";
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const scrollRange = (element) => Math.max(0, element.scrollHeight - element.clientHeight);
 const tickInset = 12;
-const minimumGap = 16;
-
-function tickLayout(count, height) {
-  const gap = Math.max(minimumGap, (height - 2 * tickInset) / Math.max(1, count - 1));
-  return { gap, start: count === 1 ? height / 2 : tickInset, height: Math.max(height, (count - 1) * gap + 2 * tickInset) };
-}
+const tickGap = 16;
+const tickOffset = (index) => tickInset + index * tickGap;
+const tickTrackHeight = (count) => count ? tickOffset(count - 1) + tickInset : 0;
 
 function rowOffset(element, row, top = element.getBoundingClientRect().top) {
   if (!row) return null;
@@ -37,9 +34,9 @@ function currentTurn(element, turns, rowFor, range) {
   return Math.max(0, low - 1);
 }
 
-function visibleTicks(count, layout, scrollTop, height) {
-  const first = Math.max(0, Math.floor((scrollTop - layout.start) / layout.gap) - 2);
-  const limit = Math.min(count, Math.ceil((scrollTop + height - layout.start) / layout.gap) + 3);
+function visibleTicks(count, scrollTop, height) {
+  const first = Math.max(0, Math.floor((scrollTop - tickInset) / tickGap) - 2);
+  const limit = Math.min(count, Math.ceil((scrollTop + height - tickInset) / tickGap) + 3);
   return Array.from({ length: Math.max(0, limit - first) }, (_, index) => first + index);
 }
 
@@ -68,16 +65,18 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
   const selected = useRef(null);
   const requestMeasure = useRef(null);
   const turnsRef = useRef(turns);
-  const [position, setPosition] = useState({ visible: false, current: 0, height: 0, railTop: 0 });
+  const [position, setPosition] = useState({ visible: false, current: 0, height: 0, railStart: 0, railTop: 0 });
   const [hover, setHover] = useState(null);
   const rowFor = (turn) => document.getElementById(rowPrefix + turn.id);
 
-  function pointerIndex(clientY) {
+  function pointerIndex(clientY, draggingOutside = false) {
     const rail = viewport.current;
     const count = turnsRef.current.length;
-    const { gap, start } = tickLayout(count, rail.clientHeight);
-    const offset = clientY - rail.getBoundingClientRect().top + rail.scrollTop;
-    return clamp(Math.round((offset - start) / gap), 0, Math.max(0, count - 1));
+    if (!rail || !count) return null;
+    const relativeY = clientY - rail.getBoundingClientRect().top;
+    const offset = relativeY + rail.scrollTop;
+    if (!draggingOutside && (relativeY < 0 || relativeY >= rail.clientHeight || offset >= tickTrackHeight(count))) return null;
+    return clamp(Math.round((offset - tickInset) / tickGap), 0, count - 1);
   }
 
   useLayoutEffect(() => {
@@ -88,7 +87,8 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
   useLayoutEffect(() => {
     const element = scroller.current;
     const rail = viewport.current;
-    if (!element || !rail) return;
+    const ruler = track.current;
+    if (!element || !rail || !ruler) return;
     let frame = 0;
     const measure = () => {
       frame = 0;
@@ -100,10 +100,11 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
         ? (currentTurns[chosen.index]?.id === chosen.id ? chosen.index : currentTurns.findIndex((turn) => turn.id === chosen.id)) : -1;
       if (chosenIndex < 0) selected.current = null;
       const current = visible ? (chosenIndex < 0 ? currentTurn(element, currentTurns, rowFor, range) : chosenIndex) : 0;
-      const height = element.clientHeight;
+      const height = rail.clientHeight;
+      const railStart = rail.offsetTop;
       const railTop = rail.scrollTop;
-      setPosition((last) => last.visible === visible && last.current === current && last.height === height && last.railTop === railTop
-        ? last : { visible, current, height, railTop });
+      setPosition((last) => last.visible === visible && last.current === current && last.height === height &&
+        last.railStart === railStart && last.railTop === railTop ? last : { visible, current, height, railStart, railTop });
       setHover(visible && pointer.current?.preview ? pointerIndex(pointer.current.y) : null);
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
@@ -116,10 +117,11 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
     };
     const observer = new ResizeObserver(schedule);
     observer.observe(element);
+    observer.observe(rail);
     if (element.firstElementChild) observer.observe(element.firstElementChild);
     element.addEventListener("scroll", schedule, { passive: true });
     rail.addEventListener("scroll", schedule, { passive: true });
-    rail.addEventListener("wheel", wheel, { passive: false });
+    ruler.addEventListener("wheel", wheel, { passive: false });
     measure();
     return () => {
       requestMeasure.current = null;
@@ -129,15 +131,14 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
       observer.disconnect();
       element.removeEventListener("scroll", schedule);
       rail.removeEventListener("scroll", schedule);
-      rail.removeEventListener("wheel", wheel);
+      ruler.removeEventListener("wheel", wheel);
     };
   }, [scroller, rowPrefix]);
 
   function revealTurn(index) {
     const rail = viewport.current;
     if (!rail) return;
-    const { gap, start } = tickLayout(turnsRef.current.length, rail.clientHeight);
-    const offset = start + index * gap;
+    const offset = tickOffset(index);
     if (offset < rail.scrollTop + tickInset || offset > rail.scrollTop + rail.clientHeight - tickInset)
       rail.scrollTop = offset - rail.clientHeight / 2;
   }
@@ -178,7 +179,11 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
     pointerFrame.current = requestAnimationFrame(() => {
       pointerFrame.current = 0;
       if (!pointer.current) return;
-      const index = pointerIndex(pointer.current.y);
+      const index = pointerIndex(pointer.current.y, dragging.current !== null);
+      if (index === null) {
+        clearPreview();
+        return;
+      }
       if (dragging.current !== null && selected.current?.id !== turnsRef.current[index]?.id) goTo(index);
       if (pointer.current.preview) setHover(index);
     });
@@ -186,11 +191,11 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
 
   function releasePointer(event) {
     if (dragging.current !== event.pointerId) return;
-    if (event.type === "pointerup") goTo(pointerIndex(event.clientY));
+    if (event.type === "pointerup") goTo(pointerIndex(event.clientY, true));
     dragging.current = null;
     const bounds = track.current.getBoundingClientRect();
     if (event.pointerType === "touch" || event.type === "pointercancel" ||
-      event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)
+      event.clientX < bounds.left || event.clientX > bounds.right || pointerIndex(event.clientY) === null)
       clearPreview();
   }
 
@@ -225,16 +230,17 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
   const current = clamp(position.current, 0, Math.max(0, count - 1));
   const hovered = hover !== null && hover < count ? hover : null;
   const hoveredTurn = hovered === null ? null : turns[hovered];
-  const layout = tickLayout(count, position.height);
+  const trackHeight = tickTrackHeight(count);
   return <div className="transcript-ruler" ref={track} hidden={!position.visible} role="scrollbar" tabIndex={0}
+    style={{ "--ruler-track-height": `${trackHeight}px` }}
     aria-label={t("transcript_position")} aria-controls={controls} aria-orientation="vertical"
     aria-valuemin={1} aria-valuemax={Math.max(1, count)} aria-valuenow={current + 1} onKeyDown={navigate}
-    data-more-above={position.railTop > 1} data-more-below={layout.height - position.height - position.railTop > 1}
-    onFocus={(event) => { if (event.target === event.currentTarget) revealTurn(current); }}
-    onPointerLeave={() => { if (dragging.current === null) clearPreview(); }}>
+    data-more-above={position.railTop > 1} data-more-below={trackHeight - position.height - position.railTop > 1}
+    onFocus={(event) => { if (event.target === event.currentTarget) revealTurn(current); }}>
     <div className="transcript-ruler-viewport" ref={viewport} tabIndex={-1}>
-      <div className="transcript-ruler-ticks" aria-hidden="true" style={{ blockSize: layout.height }}
-        onPointerMove={movePointer} onPointerDown={(event) => {
+      <div className="transcript-ruler-ticks" aria-hidden="true" style={{ blockSize: trackHeight }}
+        onPointerMove={movePointer} onPointerLeave={() => { if (dragging.current === null) clearPreview(); }}
+        onPointerDown={(event) => {
           if (event.pointerType === "touch" || !event.isPrimary || event.button !== 0) return;
           event.preventDefault();
           event.currentTarget.setPointerCapture(event.pointerId);
@@ -242,14 +248,14 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
           movePointer(event);
         }} onPointerUp={releasePointer} onPointerCancel={releasePointer} onLostPointerCapture={releasePointer}
         onClick={(event) => { if (event.nativeEvent.pointerType === "touch") goTo(pointerIndex(event.clientY)); }}>
-        {visibleTicks(count, layout, position.railTop, position.height).map((index) => <span key={turns[index].id}
+        {visibleTicks(count, position.railTop, position.height).map((index) => <span key={turns[index].id}
           data-turn={turns[index].id} data-current={index === current} data-hover={index === hovered}
-          style={{ "--tick-position": `${layout.start + index * layout.gap}px`,
+          style={{ "--tick-position": `${tickOffset(index)}px`,
             "--proximity": Math.max(0, 1 - Math.abs(index - (hovered ?? -8)) / 4) }} />)}
       </div>
     </div>
     {hoveredTurn && <div className="transcript-ruler-preview" aria-hidden="true"
-      style={{ "--preview-position": `${layout.start + hovered * layout.gap - position.railTop}px` }}>
+      style={{ "--preview-position": `${position.railStart + tickOffset(hovered) - position.railTop}px` }}>
       <Preview turn={hoveredTurn} t={t} />
     </div>}
   </div>;

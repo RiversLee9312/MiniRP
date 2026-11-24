@@ -80,6 +80,7 @@ public sealed partial class Engine
 
     private void PublishPluginEvent(JsonObject item, SessionModelInfo? sessionInfo)
     {
+        if (item.GetString("private_participant").Length > 0) return;
         var name = item.GetString("kind") switch
         {
             "ensemble_message" => item.GetObject("item").GetString("role") switch
@@ -473,6 +474,8 @@ public sealed partial class Engine
             }
             finally { item.Gate.Release(); }
         }
+        if (context.GetBoolean("_private_ensemble_dm"))
+            throw new UnauthorizedAccessException("Room mutations are unavailable in the private chat.");
         var agent = op == "setWorldDate" ? "env" : args.GetString("agent", context.GetString("agent", "chat"));
         if (agent is not ("chat" or "env" or "preset") && !(op == "setPrompt" && agent is "search" or "fetch" or "title"))
             throw new ArgumentException("Choose a conversation agent.");

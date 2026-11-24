@@ -34,10 +34,12 @@ test("an assistant-first turn or an attachment-only prompt has a real preview wh
     { id: "question", kind: "user", attachments: [{ name: "manual.txt" }] },
     { id: "response", content: "The answer" },
     { id: "another", kind: "user", content: "A regular Room message" },
+    { id: "quotation", kind: "user", attachments: [{ kind: "quote", text: " An excerpt\n from a reply. " }] },
   ]);
   assert.deepEqual(turns.map(({ id, kind, prompt, answer, card }) => [id, kind, prompt, answer, card]), [
     ["greeting", "assistant", undefined, undefined, "Opening card"],
     ["question", "user", "manual.txt", "The answer", undefined],
     ["another", "user", "A regular Room message", undefined, undefined],
+    ["quotation", "user", "An excerpt from a reply.", undefined, undefined],
   ]);
 });

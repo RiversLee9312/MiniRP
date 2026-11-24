@@ -178,19 +178,68 @@ class NativeCoreTest {
                 assertEquals(4, server.requestCount)
                 val requests = List(4) {
                     JSONObject(checkNotNull(server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS))
-                        .body!!.utf8()).getJSONArray("messages")
+                        .body!!.utf8())
                 }
-                assertEquals(original, requests[0].getJSONObject(requests[0].length() - 1).getString("content"))
-                assertTrue(requests[1].getJSONObject(0).getString("content").startsWith("Write a continuation checkpoint"))
-                for (messages in requests.drop(2)) {
-                    assertTrue(messages.getJSONObject(0).getString("content").contains("保留绿色灯笼"))
-                    assertFalse(messages.toString().contains(original))
+                val messages = requests.map { it.getJSONArray("messages") }
+                assertEquals(original, messages[0].getJSONObject(messages[0].length() - 1).getString("content"))
+                val checkpoint = messages[1]
+                assertTrue(checkpoint.getJSONObject(0).getString("content").contains("PresetAgent"))
+                assertTrue((1 until checkpoint.length()).any {
+                    checkpoint.getJSONObject(it).getString("content").startsWith("Write a continuation checkpoint")
+                })
+                val tools = requests[1].getJSONArray("tools")
+                assertEquals(setOf("db_list", "db_read", "db_search", "history_search", "history_recall"),
+                    (0 until tools.length()).map { tools.getJSONObject(it).getJSONObject("function").getString("name") }.toSet())
+                for (retained in messages.drop(2)) {
+                    assertTrue(retained.getJSONObject(0).getString("content").contains("保留绿色灯笼"))
+                    assertFalse(retained.toString().contains(original))
                 }
-                assertEquals("再改一处", requests.last().getJSONObject(requests.last().length() - 1).getString("content"))
+                assertEquals("再改一处", messages.last().getJSONObject(messages.last().length() - 1).getString("content"))
             } finally {
                 core.close()
                 scope.cancel()
                 directory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun aPresetTurnRetriesAServiceUnavailableResponseOnAndroid() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = temporary.newFolder()
+        val context = object : ContextWrapper(app) { override fun getFilesDir() = directory }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        MockWebServer().use { server ->
+            server.start()
+            server.enqueue(MockResponse.Builder().code(503).body("Fixture provider unavailable").build())
+            server.enqueue(MockResponse.Builder().setHeader("Content-Type", "text/event-stream")
+                .body("data: {\"choices\":[{\"delta\":{\"content\":\"Preset reply after retry.\"}}]}\n\ndata: [DONE]\n\n").build())
+            val core = CoreClient(context, scope)
+            try {
+                val preset = core.query(JSONObject().put("op", "create_preset").put("open", true)
+                    .put("interview", false).put("name", "Retry fixture")).getString("preset")
+                core.send(JSONObject().put("op", "configure").put("provider", JSONObject()
+                    .put("id", "fixture").put("protocol", "openai").put("url", server.url("/v1").toString())
+                    .put("model", "fixture")))
+                val text = "Edit the existing preset."
+                core.send(JSONObject().put("op", "message").put("agent", "preset").put("preset", preset).put("text", text))
+                val completed = withTimeout(15_000) {
+                    core.events.first { event ->
+                        check(event.optString("kind") != "error") { event.optString("message") }
+                        event.optString("kind") == "completed" && event.optString("agent") == "preset"
+                    }
+                }
+                assertEquals("Preset reply after retry.", completed.getString("text"))
+                assertEquals(2, server.requestCount)
+                val messages = List(2) {
+                    JSONObject(checkNotNull(server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS))
+                        .body!!.utf8()).getJSONArray("messages")
+                }
+                assertEquals(messages[0].toString(), messages[1].toString())
+                assertEquals(text, messages[1].getJSONObject(messages[1].length() - 1).getString("content"))
+            } finally {
+                core.close()
+                scope.cancel()
             }
         }
     }

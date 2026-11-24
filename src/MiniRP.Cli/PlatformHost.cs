@@ -106,11 +106,27 @@ internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?
                     source.Token.ThrowIfCancellationRequested();
                     await execute(source.Token);
                 }
-                catch (Exception error) { Reply(id, new() { ["error"] = error.Message }); }
+                catch (Exception error)
+                {
+                    var reply = new JsonObject { ["error"] = error.Message };
+                    if (message.GetString("kind") == "http_request" && IsHttpTransportFailure(error, source.Token))
+                        reply["network_error"] = true;
+                    Reply(id, reply);
+                }
                 finally { requests.TryRemove(id, out _); }
             }
         }));
     }
+
+    private static bool IsHttpTransportFailure(Exception error, CancellationToken token) =>
+        !token.IsCancellationRequested && error switch
+        {
+            HttpRequestException request => request.HttpRequestError is HttpRequestError.NameResolutionError or
+                HttpRequestError.ConnectionError or HttpRequestError.ResponseEnded or HttpRequestError.HttpProtocolError,
+            IOException => true,
+            OperationCanceledException { InnerException: TimeoutException } => true,
+            _ => false
+        };
 
     private static void Cancel(CancellationTokenSource source)
     {

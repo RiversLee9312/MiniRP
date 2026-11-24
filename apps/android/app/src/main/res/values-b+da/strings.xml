@@ -30,6 +30,7 @@
     <string name="input_hint">Besked</string>
     <string name="open_menu">Åbn menu</string>
     <string name="send">Send</string>
+    <string name="sending">Sender…</string>
     <string name="stop">Stop</string>
     <string name="more_options">Flere muligheder</string>
     <string name="reasoning">Tanker</string>
@@ -219,4 +220,10 @@
     <string name="tool_arguments">Argumenter</string>
     <string name="tool_result">Resultat</string>
     <string name="quote_reply">Citér</string>
+    <string name="ensemble_private_messages">Private beskeder</string>
+    <string name="ensemble_member_thinking">%1$s tænker</string>
+    <string name="ensemble_out_of_story">Disse beskeder er uden for historien og sendes som systembeskeder.</string>
+    <string name="ensemble_member_trace">Aktivitetslog</string>
+    <string name="ensemble_no_trace">Ingen aktivitet endnu</string>
+    <string name="ensemble_trace_load_failed">Aktiviteten kunne ikke indlæses.</string>
 </resources>

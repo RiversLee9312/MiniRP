@@ -1,7 +1,10 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="MiniRP" Manufacturer="MiniRP" Version="$(Version)" Scope="perMachine"
            UpgradeCode="EC1B1223-FF6E-4BCB-8F22-EBDAFD4669C7">
-    <MajorUpgrade DowngradeErrorMessage="A newer version of MiniRP is already installed." />
+    <!-- Start the transaction before removing the legacy MSI so upgrade rollback also covers its removal. -->
+    <MajorUpgrade Schedule="afterInstallInitialize" AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of MiniRP is already installed." />
+    <Property Id="MSIFASTINSTALL" Value="1" />
     <MediaTemplate EmbedCab="yes" />
     <Icon Id="MiniRPIcon" SourceFile="$(Payload)/minirp.exe" />
     <Property Id="ARPPRODUCTICON" Value="MiniRPIcon" />

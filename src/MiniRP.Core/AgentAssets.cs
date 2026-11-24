@@ -74,7 +74,7 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
     {
         if (message.GetBoolean("_harness_asset") || message.GetString("role") != "user") return;
         foreach (var file in message.GetArray("attachments").OfType<JsonObject>())
-            file["url"] = StoreFile(file);
+            if (!MessageAttachments.IsQuote(file)) file["url"] = StoreFile(file);
     }
 
     private JsonObject? FileGrant(string url)

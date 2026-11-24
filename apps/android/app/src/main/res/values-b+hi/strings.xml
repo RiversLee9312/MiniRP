@@ -30,6 +30,7 @@
     <string name="input_hint">संदेश</string>
     <string name="open_menu">मेनू खोलें</string>
     <string name="send">भेजें</string>
+    <string name="sending">भेज रहे हैं…</string>
     <string name="stop">रोकें</string>
     <string name="more_options">और विकल्प</string>
     <string name="reasoning">विचार</string>
@@ -219,4 +220,10 @@
     <string name="tool_arguments">आर्ग्युमेंट</string>
     <string name="tool_result">नतीजा</string>
     <string name="quote_reply">उद्धृत करें</string>
+    <string name="ensemble_private_messages">निजी संदेश</string>
+    <string name="ensemble_member_thinking">%1$s सोच रहे हैं</string>
+    <string name="ensemble_out_of_story">ये संदेश कहानी से बाहर हैं और सिस्टम संदेशों के रूप में भेजे जाते हैं।</string>
+    <string name="ensemble_member_trace">गतिविधि का विवरण</string>
+    <string name="ensemble_no_trace">अभी कोई गतिविधि नहीं है</string>
+    <string name="ensemble_trace_load_failed">गतिविधि लोड नहीं हो सकी।</string>
 </resources>

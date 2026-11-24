@@ -30,6 +30,7 @@
     <string name="input_hint">메시지</string>
     <string name="open_menu">메뉴 열기</string>
     <string name="send">보내기</string>
+    <string name="sending">전송 중…</string>
     <string name="stop">중지</string>
     <string name="more_options">추가 옵션</string>
     <string name="reasoning">생각</string>
@@ -217,4 +218,10 @@
     <string name="tool_arguments">인수</string>
     <string name="tool_result">결과</string>
     <string name="quote_reply">인용</string>
+    <string name="ensemble_private_messages">개인 메시지</string>
+    <string name="ensemble_member_thinking">%1$s 님이 생각 중</string>
+    <string name="ensemble_out_of_story">이 메시지는 이야기 밖에서 시스템 메시지로 전송됩니다.</string>
+    <string name="ensemble_member_trace">활동 기록</string>
+    <string name="ensemble_no_trace">아직 활동이 없습니다</string>
+    <string name="ensemble_trace_load_failed">활동을 불러오지 못했습니다.</string>
 </resources>

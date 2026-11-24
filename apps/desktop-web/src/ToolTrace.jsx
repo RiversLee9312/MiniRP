@@ -4,6 +4,7 @@ import { Icon, IconButton } from "./ui.jsx";
 import { OpenUi } from "./OpenUi.jsx";
 
 const fieldLimit = 180;
+const fieldCountLimit = 16;
 const nodeText = (source, node) => source.slice(node.offset, node.offset + node.length);
 
 function FoldedField({ prefix, suffix, preview, render }) {
@@ -43,7 +44,7 @@ function JsonValue({ source, node, name, suffix = "", depth = 0 }) {
     </>;
   }
 
-  if ((depth > 0 && node.length > fieldLimit) || fields.length > 80)
+  if ((depth > 0 && node.length > fieldLimit) || fields.length > fieldCountLimit)
     return <FoldedField {...{ prefix, suffix }} preview={open + "…" + close} render={contents} />;
   return contents();
 }

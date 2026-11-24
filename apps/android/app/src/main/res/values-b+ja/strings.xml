@@ -30,6 +30,7 @@
     <string name="input_hint">メッセージ</string>
     <string name="open_menu">メニューを開く</string>
     <string name="send">送信</string>
+    <string name="sending">送信中…</string>
     <string name="stop">停止</string>
     <string name="more_options">その他のオプション</string>
     <string name="reasoning">考え</string>
@@ -217,4 +218,10 @@
     <string name="tool_arguments">引数</string>
     <string name="tool_result">結果</string>
     <string name="quote_reply">引用</string>
+    <string name="ensemble_private_messages">個別メッセージ</string>
+    <string name="ensemble_member_thinking">%1$sが考え中</string>
+    <string name="ensemble_out_of_story">ここでのメッセージは物語の外で、システムメッセージとして送信されます。</string>
+    <string name="ensemble_member_trace">アクティビティ ログ</string>
+    <string name="ensemble_no_trace">まだアクティビティはありません</string>
+    <string name="ensemble_trace_load_failed">アクティビティを読み込めませんでした。</string>
 </resources>

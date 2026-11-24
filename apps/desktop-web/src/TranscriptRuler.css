@@ -4,7 +4,7 @@
 
 /* The transcript remains the native scroll container for wheels, touch and keyboard. */
 .transcript-shell:has(.transcript-ruler:not([hidden])) > .transcript {
-  inset-inline-start: var(--ruler-width);
+  right: var(--ruler-width);
   scrollbar-width: none;
 }
 
@@ -12,13 +12,16 @@
   display: none;
 }
 
+.transcript-shell:has(.transcript-ruler:not([hidden])) > .jump:dir(ltr) {
+  right: max(calc(var(--ruler-width) + 18px), calc((100% - var(--measure) + var(--ruler-width)) / 2));
+}
+
 .transcript-ruler {
   position: absolute;
   inset-block: 0;
-  inset-inline-start: 0;
+  right: 0;
   inline-size: var(--ruler-width);
   z-index: 3;
-  cursor: ns-resize;
   user-select: none;
 }
 
@@ -45,8 +48,10 @@
 }
 
 .transcript-ruler-viewport {
-  block-size: 100%;
-  max-block-size: 100%;
+  position: absolute;
+  inset: 0;
+  margin-block: auto;
+  block-size: min(100%, var(--ruler-track-height));
   overflow: hidden auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -55,13 +60,15 @@
 }
 
 .transcript-ruler-ticks {
+  --tick-edge-inset: clamp(6px, 1vw, 12px);
   position: relative;
+  cursor: ns-resize;
 }
 
 .transcript-ruler-ticks span {
   position: absolute;
-  inset-inline-start: clamp(6px, 1vw, 12px);
-  inset-inline-end: 4px;
+  right: var(--tick-edge-inset);
+  inline-size: calc(100% - var(--tick-edge-inset) - 4px);
   inset-block-start: var(--tick-position);
   max-inline-size: calc(6px + var(--proximity) * (100% - clamp(12px, 1.5vw, 18px)));
   block-size: 2px;
@@ -94,7 +101,7 @@
   position: absolute;
   z-index: 3;
   inset-block: 4px;
-  inset-inline-start: 100%;
+  right: 100%;
   inline-size: min(290px, calc(100vw - var(--ruler-width) - 24px));
   pointer-events: none;
   container-type: size;

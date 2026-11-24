@@ -6,6 +6,7 @@ internal sealed class MessageAttachments(string root)
 {
     public const int MaxBytes = 16_000_000;
     public const int MaxAssetBytes = 128 * 1024 * 1024;
+    private const int MaxQuoteLength = 32_768;
     private const int GeminiMaxBytes = 14_000_000;
     internal const string AssetPrefix = "minirp://assets/minirp.attachments/";
 
@@ -13,6 +14,16 @@ internal sealed class MessageAttachments(string root)
         PluginUrls.Route(url, "assets").StartsWith("minirp.attachments/", StringComparison.Ordinal);
 
     internal static string AssetUrl(JsonNode? file) => AssetPrefix + Workspace.Safe(file.GetString("id"));
+
+    internal static bool IsQuote(JsonNode? attachment) => attachment.GetString("kind") == "quote";
+
+    private static void ValidateQuote(JsonNode? attachment)
+    {
+        var text = attachment.GetString("text");
+        if (attachment is not JsonObject { Count: 3 } || !WorkspaceIds.IsValid(attachment.GetString("id")) ||
+            text.Length > MaxQuoteLength || string.IsNullOrWhiteSpace(text))
+            throw new InvalidDataException("Invalid quote attachment.");
+    }
 
     internal static string Mime(JsonNode? file)
     {
@@ -59,6 +70,11 @@ internal sealed class MessageAttachments(string root)
         long total = 0;
         foreach (var item in attachments)
         {
+            if (IsQuote(item))
+            {
+                ValidateQuote(item);
+                continue;
+            }
             var info = FileFor(item);
             if (!info.Exists || (info.Attributes & FileAttributes.ReparsePoint) != 0 || info.Length == 0)
                 throw new FileNotFoundException("The original attachment is unavailable.");
@@ -76,6 +92,11 @@ internal sealed class MessageAttachments(string root)
         }
         foreach (var item in attachments)
         {
+            if (IsQuote(item))
+            {
+                ValidateQuote(item);
+                continue;
+            }
             if (!Supports(provider, Mime(item)))
             {
                 throw new InvalidOperationException("This model protocol cannot send this type of attachment.");
@@ -101,6 +122,7 @@ internal sealed class MessageAttachments(string root)
             var media = new List<Media>();
             foreach (var file in files)
             {
+                if (IsQuote(file)) continue;
                 var mime = Mime(file);
                 if (!Supports(provider, mime))
                 {
@@ -128,9 +150,17 @@ internal sealed class MessageAttachments(string root)
         var content = original ?? message.GetString("content");
         var files = message.GetArray("attachments");
         if (files.Count == 0) return content;
+        foreach (var quote in files.Where(IsQuote))
+        {
+            var text = quote.GetString("text").ReplaceLineEndings("\n");
+            if (content.Length > 0) content += "\n\n";
+            content += "Quoted passage (reference):\n> " + text.Replace("\n", "\n> ", StringComparison.Ordinal);
+        }
+        var assets = files.OfType<JsonObject>().Where(file => !IsQuote(file)).ToArray();
+        if (assets.Length == 0) return content;
         if (message.GetBoolean("_harness_asset"))
-            return content + "\n\nAttachments: " + string.Join(", ", files.Select(file => file.GetString("name")));
-        return content + "\n\nResources:\n" + string.Join("\n", files.OfType<JsonObject>().Where(file => file.GetString("url").Length > 0)
+            return content + "\n\nAttachments: " + string.Join(", ", assets.Select(file => file.GetString("name")));
+        return content + "\n\nResources:\n" + string.Join("\n", assets.Where(file => file.GetString("url").Length > 0)
             .Select(file => "- " + file.GetString("url") + " (" + Mime(file) + ", " + JsonValues.Serialize(file["name"]) + ")"));
     }
 

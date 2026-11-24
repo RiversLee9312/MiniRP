@@ -5,10 +5,16 @@ import org.json.JSONObject
 
 data class AttachmentThumbnail(val url: String, val attachment: JSONObject)
 
+data class QuoteAttachment(val id: String, val text: String)
+
+internal const val maxMessageAttachments = 20
+internal const val maxQuoteLength = 32_768
+
 data class BranchDraft(
     val text: String,
     val attachments: Map<String, JSONObject>,
     val openUiAction: JSONObject?,
+    val quotes: List<QuoteAttachment> = emptyList(),
 )
 
 data class ReplyEnd(val text: String, val firstBlock: String)
@@ -48,6 +54,7 @@ data class TraceBlock(
     val toolResultUi: ToolTraceUi? = null,
     val toolTitle: String = "",
     val skillTitle: String = "",
+    val quotes: List<QuoteAttachment> = emptyList(),
 ) {
     val role: AgentRole
         get() =
@@ -112,9 +119,13 @@ data class ModelCatalog(
     val request: String = "",
 )
 
-data class ReplyError(val agent: AgentRole, val message: String)
+data class ReplyError(val agent: AgentRole, val message: String, val presetInterview: Boolean = false)
 
 data class EnsembleChat(val id: String, val name: String, val members: List<String>)
+
+data class EnsembleActivity(val conversation: String, val participant: String, val speaker: String)
+
+internal data class EnsembleTraceScene(val id: String, val name: String, val blocks: List<TraceBlock>)
 
 data class RoomLoading(val id: String, val ready: Int, val total: Int, val progress: Float, val messages: List<String>)
 
@@ -129,7 +140,7 @@ data class ChatState(
     val generating: AgentRole? = null,
     val ready: Boolean = false,
     val showOnboarding: Boolean = false,
-    val submitting: Boolean = false,
+    val submitting: AgentRole? = null,
     val preset: String = "",
     val presetSetupPending: Boolean = false,
     val presetHomeHintSeen: Boolean = false,
@@ -143,6 +154,9 @@ data class ChatState(
     val roomLoading: RoomLoading? = null,
     val participants: List<Choice> = emptyList(),
     val ensembleChatId: String = "",
+    val ensembleActivity: List<EnsembleActivity> = emptyList(),
+    val ensemblePrivateParticipant: String = "",
+    val ensemblePrivateInStory: Boolean = true,
     val chatMode: String = "character",
     val chatGreeting: Boolean = false,
     val providers: List<ProviderConfig> = emptyList(),
@@ -166,7 +180,7 @@ data class ChatState(
     val archiveSaved: Boolean = false,
 ) {
     val preparing
-        get() = submitting || presetEditor == PresetEditorPhase.Opening
+        get() = submitting != null || presetEditor == PresetEditorPhase.Opening
 
     val canExportTranscript
         get() = ready && generating == null && !preparing && !archiveBusy
@@ -175,7 +189,7 @@ data class ChatState(
         get() = presetEditor == PresetEditorPhase.Open
 
     val presetWorking
-        get() = generating == AgentRole.Preset || submitting ||
+        get() = generating == AgentRole.Preset || submitting != null ||
             blocks.any { it.pluginStatus == "running" }
 
     val presetExitLocked

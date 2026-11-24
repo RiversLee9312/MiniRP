@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +35,27 @@ import kotlinx.coroutines.launch
 
 private val symbols = FontFamily(Font(R.font.material_symbols_rounded))
 
+internal data class ComposerSubmission(
+    val text: String,
+    val files: List<String>,
+    val system: Boolean,
+    val pluginAttachment: PluginAttachmentType?,
+    val quotes: List<QuoteAttachment>,
+)
+
+private val draftQuoteSaver = listSaver<List<QuoteAttachment>, String>(
+    save = { quotes -> quotes.flatMap { listOf(it.id, it.text) } },
+    restore = { saved -> saved.chunked(2).map { (id, text) -> QuoteAttachment(id, text) } },
+)
+
+@Composable
+internal fun rememberDraftQuotes(draft: BranchDraft?): MutableState<List<QuoteAttachment>> =
+    rememberSaveable(stateSaver = draftQuoteSaver) { mutableStateOf(draft?.quotes.orEmpty()) }
+
+@Composable
+internal fun rememberDraftFiles(draft: BranchDraft?): MutableState<ArrayList<String>> =
+    rememberSaveable { mutableStateOf(ArrayList(draft?.attachments.orEmpty().keys)) }
+
 @Composable
 fun Symbol(name: String, description: String? = null, size: Int = 24) {
     val mirrored =
@@ -55,8 +77,8 @@ fun Composer(busy: Boolean, onCancel: () -> Unit, onSend: (String) -> Unit) =
         busy,
         false,
         onCancel,
-        onSubmit = { text, _, _, _ ->
-            onSend(text)
+        onSubmit = { message ->
+            onSend(message.text)
             true
         },
         allowAttachments = false,
@@ -67,30 +89,38 @@ internal fun Composer(
     busy: Boolean,
     preparing: Boolean,
     onCancel: () -> Unit,
-    onSubmit: suspend (String, List<String>, Boolean, PluginAttachmentType?) -> Boolean,
+    onSubmit: suspend (ComposerSubmission) -> Boolean,
     allowAttachments: Boolean = true,
     steering: Boolean = busy,
     pluginTypes: List<PluginAttachmentType> = emptyList(),
     draft: BranchDraft? = null,
     documentTypes: Array<String> = com.minirp.app.data.AttachmentStore.documentTypes,
     textState: MutableState<String> = rememberSaveable { mutableStateOf(draft?.text.orEmpty()) },
+    systemMessageMode: Boolean? = null,
+    filesState: MutableState<ArrayList<String>> = rememberDraftFiles(draft),
+    quotesState: MutableState<List<QuoteAttachment>> = rememberDraftQuotes(draft),
 ) {
     var text by textState
     val retained = draft?.attachments.orEmpty()
-    var files by rememberSaveable { mutableStateOf(ArrayList(retained.keys)) }
+    var files by filesState
+    var quotes by quotesState
     var submitting by remember { mutableStateOf(false) }
     var mediaMenu by remember { mutableStateOf(false) }
     var sendMenu by remember { mutableStateOf(false) }
     var pendingType by rememberSaveable { mutableStateOf("") }
     var attachedType by rememberSaveable { mutableStateOf("") }
     val selectedType = pluginTypes.firstOrNull { it.key == attachedType }
-    val attachmentsAvailable = files.isEmpty() || attachedType.isEmpty() || selectedType != null
+    val submittedFiles = if (systemMessageMode == true) emptyList() else files
+    val submittedQuotes = if (systemMessageMode == true) emptyList() else quotes
+    val hasAttachments = submittedFiles.isNotEmpty() || submittedQuotes.isNotEmpty()
+    val fileLimit = (maxMessageAttachments - quotes.size).coerceAtLeast(0)
+    val attachmentsAvailable = submittedFiles.isEmpty() || attachedType.isEmpty() || selectedType != null
     val context = LocalContext.current
     val picker =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
             if (uris.isNotEmpty()) {
                 val existing = if (attachedType == pendingType) files else emptyList()
-                files = ArrayList((existing + uris.map { it.toString() }).distinct().take(20))
+                files = ArrayList((existing + uris.map { it.toString() }).distinct().take(fileLimit))
                 attachedType = pendingType
             }
             pendingType = ""
@@ -100,32 +130,34 @@ internal fun Composer(
             uris ->
             if (uris.isNotEmpty()) {
                 val existing = if (attachedType.isEmpty()) files else emptyList()
-                files = ArrayList((existing + uris.map { it.toString() }).distinct().take(20))
+                files = ArrayList((existing + uris.map { it.toString() }).distinct().take(fileLimit))
                 attachedType = ""
             }
         }
     val drafts by
-        produceState(emptyList<DraftAttachment>(), files, retained) {
-            value = AttachmentStore(context).describe(files, retained)
+        produceState(emptyList<DraftAttachment>(), submittedFiles, retained) {
+            value = AttachmentStore(context).describe(submittedFiles, retained)
         }
     val scope = rememberCoroutineScope()
-    fun send(system: Boolean = false) {
+    fun send(system: Boolean = systemMessageMode == true) {
         if (
-            (text.isNotBlank() || files.isNotEmpty()) &&
+            (text.isNotBlank() || hasAttachments) &&
                 (!busy || steering) &&
                 !submitting &&
                 !preparing &&
                 attachmentsAvailable &&
-                (!(system || steering) || (files.isEmpty() && text.isNotBlank()))
+                (!(system || steering) || (!hasAttachments && text.isNotBlank()))
         ) {
-            val submittedText = text
+            val message = ComposerSubmission(
+                text, submittedFiles, system, selectedType.takeUnless { system }, submittedQuotes,
+            )
             submitting = true
             scope.launch {
                 try {
-                    if (onSubmit(submittedText, files, system, selectedType)) {
-                        // A quote inserted while an upload was in flight belongs to the next draft.
-                        if (text.startsWith(submittedText))
-                            text = text.removePrefix(submittedText).trimStart('\n')
+                    if (onSubmit(message)) {
+                        if (text.startsWith(message.text))
+                            text = text.removePrefix(message.text).trimStart('\n')
+                        quotes = quotes - message.quotes.toSet()
                         files = arrayListOf()
                         attachedType = ""
                     }
@@ -135,11 +167,27 @@ internal fun Composer(
             }
         }
     }
-    if (drafts.isNotEmpty())
+    if (drafts.isNotEmpty() || submittedQuotes.isNotEmpty())
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            items(submittedQuotes, key = { it.id }) { quote ->
+                val label = stringResource(R.string.quote_reply)
+                InputChip(
+                    selected = false,
+                    onClick = { quotes = quotes - quote },
+                    enabled = !submitting,
+                    leadingIcon = { Symbol("reply", label, size = 18) },
+                    label = {
+                        Text(quote.text, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    },
+                    trailingIcon = {
+                        Symbol("close", stringResource(R.string.remove_attachment, label), size = 16)
+                    },
+                    modifier = Modifier.widthIn(max = 230.dp).testTag("draft-quote:${quote.id}"),
+                )
+            }
             items(drafts, key = { it.uri }) { draft ->
                 InputChip(
                     selected = false,
@@ -171,7 +219,7 @@ internal fun Composer(
             Box {
                 IconButton(
                     onClick = { mediaMenu = true },
-                    enabled = !busy && !preparing && !submitting,
+                    enabled = !busy && !preparing && !submitting && fileLimit > 0,
                 ) {
                     Symbol("add", stringResource(R.string.add_attachment))
                 }
@@ -210,7 +258,7 @@ internal fun Composer(
         OutlinedTextField(
             value = text,
             onValueChange = { text = it },
-            placeholder = { Text(stringResource(R.string.input_hint)) },
+            placeholder = { Text(stringResource(if (systemMessageMode == true) R.string.system_message else R.string.input_hint)) },
             modifier = Modifier.weight(1f).testTag("composer"),
             shape = MaterialTheme.shapes.extraLarge,
             minLines = 1,
@@ -227,9 +275,10 @@ internal fun Composer(
                 (!busy || steering) &&
                 (stopping ||
                     attachmentsAvailable &&
-                        (text.isNotBlank() && (!steering || files.isEmpty()) ||
-                            !steering && files.isNotEmpty()))
+                        (text.isNotBlank() && (!steering || !hasAttachments) ||
+                            !steering && hasAttachments))
         val systemLabel = stringResource(R.string.send_as_system)
+        val canChooseSystem = systemMessageMode == null && text.isNotBlank() && !hasAttachments
         Box {
             Surface(
                 shape = MaterialTheme.shapes.large,
@@ -247,11 +296,8 @@ internal fun Composer(
                             enabled = canSend,
                             role = androidx.compose.ui.semantics.Role.Button,
                             onClick = { if (stopping) onCancel() else send() },
-                            onLongClickLabel =
-                                if (text.isNotBlank() && files.isEmpty()) systemLabel else null,
-                            onLongClick =
-                                if (text.isNotBlank() && files.isEmpty()) ({ sendMenu = true })
-                                else null,
+                            onLongClickLabel = systemLabel.takeIf { canChooseSystem },
+                            onLongClick = if (canChooseSystem) ({ sendMenu = true }) else null,
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -268,6 +314,7 @@ internal fun Composer(
                                 when {
                                     stopping -> R.string.stop
                                     steering -> R.string.steer
+                                    systemMessageMode == true -> R.string.send_as_system
                                     else -> R.string.send
                                 }
                             ),

@@ -30,6 +30,7 @@
     <string name="input_hint">Nachricht</string>
     <string name="open_menu">Menü öffnen</string>
     <string name="send">Senden</string>
+    <string name="sending">Wird gesendet…</string>
     <string name="stop">Stoppen</string>
     <string name="more_options">Weitere Optionen</string>
     <string name="reasoning">Gedanken</string>
@@ -219,4 +220,10 @@
     <string name="tool_arguments">Argumente</string>
     <string name="tool_result">Ergebnis</string>
     <string name="quote_reply">Zitieren</string>
+    <string name="ensemble_private_messages">Privatnachrichten</string>
+    <string name="ensemble_member_thinking">%1$s denkt nach</string>
+    <string name="ensemble_out_of_story">Diese Nachrichten liegen außerhalb der Handlung und werden als Systemnachrichten gesendet.</string>
+    <string name="ensemble_member_trace">Aktivitätsprotokoll</string>
+    <string name="ensemble_no_trace">Noch keine Aktivität</string>
+    <string name="ensemble_trace_load_failed">Aktivität konnte nicht geladen werden.</string>
 </resources>

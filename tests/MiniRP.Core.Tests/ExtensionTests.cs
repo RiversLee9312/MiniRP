@@ -459,6 +459,21 @@ public sealed class ExtensionTests
         Assert.AreEqual(lab, transcript[0].GetString("chat"));
         Assert.IsTrue(transcript.Any(row => row.GetString("content") == "Welcome from Bryn." && row.GetString("speaker") == "Bryn"));
         Assert.IsFalse(transcript.Any(row => row.GetString("content") is "Welcome from Ada." or "Give a private station welcome."));
+
+        reopened.Workspace.Chat["name"] = "Station fixture";
+        var quote = new JsonObject { ["id"] = WorkspaceIds.New(), ["kind"] = "quote", ["text"] = "Welcome from Bryn." };
+        reopened.Dispatch(new() { ["op"] = "message", ["chat"] = roomId, ["conversation"] = lab,
+            ["attachments"] = new JsonArray(quote.DeepClone()) });
+        var deliveryEvents = new List<JsonObject>();
+        var delivery = await NextModel(reopened, reopenedScripts, deliveryEvents.Add);
+        var posted = deliveryEvents.Single(item => item.GetString("kind") == "ensemble_message").GetObject("item");
+        Assert.AreEqual("", posted.GetString("content"));
+        Assert.IsTrue(JsonNode.DeepEquals(quote, posted.GetArray("attachments").Single()));
+        var messagesWithQuotes = JsonValues.ParseObject(delivery.GetString("body")).GetArray("messages")
+            .Where(message => message.GetString("content").Contains("\"quotes\":[", StringComparison.Ordinal)).ToArray();
+        Assert.AreEqual(1, messagesWithQuotes.Length);
+        StringAssert.Contains(messagesWithQuotes[0].GetString("content"), "\"quotes\":[\"Welcome from Bryn.\"]");
+        Reply(reopened, delivery, "Bryn has read the excerpt.");
     }
 
     [TestMethod]
@@ -569,6 +584,59 @@ public sealed class ExtensionTests
     }
 
     [TestMethod]
+    public async Task InterruptedDraftBootstrapRestartsWithoutRepeatingItsCommittedReply()
+    {
+        var root = NewRoot();
+        var workspace = new Workspace(root, seedDefaultPreset: false);
+        var preset = workspace.CreatePreset("Interrupted draft", interview: true);
+        workspace.UsePreset(preset);
+        var previous = new PresetConversation(workspace);
+        previous.Blocks.AddNode(new JsonObject
+        {
+            ["id"] = WorkspaceIds.New(), ["agent"] = "PresetAgent", ["content"] = "The interrupted setup began."
+        });
+        previous.Blocks.AddNode(new JsonObject
+        {
+            ["id"] = WorkspaceIds.New(), ["agent"] = "PluginAgent", ["plugin_status"] = "running", ["content"] = "Preparing a plugin."
+        });
+        previous.Save();
+
+        using (var scripts = new PluginScripts())
+        await using (var engine = new Engine(root, seedDefaultPreset: false))
+        {
+            Configure(engine);
+            engine.Dispatch(new() { ["op"] = "home", ["preset"] = preset, ["restore"] = true, ["locale"] = "en" });
+            var opened = await Until(engine, "preset_opened", scripts);
+            Assert.IsTrue(opened.GetBoolean("selected"));
+            Assert.AreEqual("interrupted", opened.GetArray("blocks")[1].GetString("plugin_status"));
+            var first = await NextModel(engine, scripts);
+            StringAssert.Contains(first.GetString("body"), "A previous setup attempt was interrupted");
+            engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = first.GetString("id"),
+                ["error"] = "Fixture setup failure.", ["done"] = true });
+            Assert.IsTrue((await Until(engine, "error", scripts)).GetBoolean("preset_interview"));
+
+            engine.Dispatch(new() { ["op"] = "resume_preset_interview", ["preset"] = preset });
+            Reply(engine, await NextModel(engine, scripts), "What should we configure next?");
+            await Until(engine, "completed", scripts);
+        }
+
+        using (var scripts = new PluginScripts())
+        await using (var engine = new Engine(root, seedDefaultPreset: false))
+        {
+            Configure(engine);
+            engine.Dispatch(new() { ["op"] = "home", ["preset"] = preset, ["restore"] = true });
+            var opened = await Until(engine, "preset_opened", scripts);
+            Assert.IsTrue(opened.GetArray("blocks").Any(item => item.GetString("content") == "What should we configure next?"));
+            for (var pass = 0; pass < 2; pass++)
+            {
+                engine.Dispatch(new() { ["op"] = "list_presets" });
+                await Until(engine, "presets", scripts, item =>
+                    Assert.AreNotEqual("http_request", item.GetString("kind"), "A completed interview opening must not be repeated."));
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task PresetReadsAnAttachedCardAndResearchesWithoutCreatingARoom()
     {
         var root = NewRoot();
@@ -662,11 +730,16 @@ public sealed class ExtensionTests
         Assert.HasCount(3, new[] { room, bridgeId, labId }.Distinct());
         engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = bridgeId, ["text"] = "Status?" });
 
-        var requests = await NextModels(engine, scripts, 2);
+        var ongoing = new List<JsonObject>();
+        var requests = await NextModels(engine, scripts, 2, ongoing.Add);
         var ada = requests.Single(request => IsCharacter(request, "Ada"));
         var bryn = requests.Single(request => IsCharacter(request, "Bryn"));
         StringAssert.Contains(ada.GetString("body"), "Your character is Ada");
-        var ongoing = new List<JsonObject>();
+        CollectionAssert.AreEquivalent(new[] { "ada", "bryn" }, ongoing.Where(e => e.GetString("kind") == "ensemble_activity" &&
+            e.GetBoolean("running") && e.GetString("conversation") == bridgeId).Select(e => e.GetString("participant")).ToArray());
+        engine.Dispatch(new() { ["op"] = "select_ensemble_chat", ["conversation"] = bridgeId, ["chat"] = room });
+        var bridgeActivity = (await Until(engine, "ensemble_chat_loaded", scripts, ongoing.Add)).GetArray("activity");
+        CollectionAssert.AreEquivalent(new[] { "ada", "bryn" }, bridgeActivity.Select(item => item.GetString("participant")).ToArray());
         engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = bridgeId,
             ["request"] = "second-message", ["text"] = "Check the forecast." });
         var accepted = await Until(engine, "message_accepted", scripts, ongoing.Add);
@@ -786,6 +859,87 @@ public sealed class ExtensionTests
         StringAssert.Contains(reopened.GetString("body"), "Private lab follow-up.");
         Assert.AreNotSame(brynSession, engine.LoadedCharacterSession("bryn", "chat"));
         Reply(engine, reopened, "Restored the room.");
+    }
+
+    [TestMethod]
+    [DataRow(true, "user", "system")]
+    [DataRow(false, "system", "user")]
+    public async Task EnsembleDirectMessagesKeepTheirModeAndContextPrivate(bool inStory, string allowed, string denied)
+    {
+        var root = NewRoot();
+        var preset = WriteEnsemblePreset(root);
+        var presetPath = Path.Combine(root, "presets", preset + ".json");
+        var config = JsonValues.ParseObject(File.ReadAllText(presetPath));
+        config.GetObject("ensemble")["direct_messages_in_story"] = inStory;
+        AtomicFile.Write(presetPath, JsonValues.Serialize(config));
+        await using var engine = new Engine(root, seedDefaultPreset: false);
+        using var scripts = new PluginScripts();
+        engine.Dispatch(new() { ["op"] = "configure",
+            ["provider"] = new JsonObject { ["url"] = "http://fixture.invalid/v1", ["model"] = "fixture" },
+            ["agents"] = new JsonObject { ["title"] = new JsonObject() } });
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
+        var loaded = await Until(engine, "loaded", scripts);
+        Assert.AreEqual(inStory, loaded.GetBoolean("private_in_story"));
+        var room = loaded.GetObject("chat").GetString("id");
+        var publicChat = loaded.GetArray("ensemble_chats").Single(scene => scene.GetString("name") == "Bridge").GetString("id");
+
+        async Task<JsonObject> OpenDirect()
+        {
+            engine.Dispatch(new() { ["op"] = "open_ensemble_dm", ["preset"] = preset, ["chat"] = room, ["participant"] = "ada" });
+            return await Until(engine, "ensemble_chat_loaded", scripts);
+        }
+        var first = await OpenDirect();
+        var direct = first.GetString("conversation");
+        AssertCanonicalUuid(direct);
+        Assert.AreEqual("ada", first.GetString("private_participant"));
+        Assert.AreEqual(inStory, first.GetBoolean("private_in_story"));
+        Assert.AreEqual(direct, (await OpenDirect()).GetString("conversation"));
+        Assert.AreNotEqual(publicChat, direct);
+
+        void Send(string text, string role) => engine.Dispatch(new()
+        {
+            ["op"] = "message", ["preset"] = preset, ["chat"] = room, ["conversation"] = direct, ["text"] = text, ["role"] = role
+        });
+        Send("Wrong message mode", denied);
+        Assert.AreEqual("error", (await Until(engine, "error", scripts)).GetString("kind"));
+        const string privateMessage = "Fixture private question.";
+        Send(privateMessage, allowed);
+        var request = await NextModel(engine, scripts);
+        var body = request.GetString("body");
+        StringAssert.Contains(body, "Your character is Ada.");
+        StringAssert.Contains(body, privateMessage);
+        StringAssert.Contains(body, inStory ? "In-story direct message from the user." : "Out-of-character system message from the user");
+        ReplyTool(engine, request, "chat_send", new() { ["chat"] = publicChat, ["text"] = "Invalid public forwarding" });
+        var wrongTarget = await NextModel(engine, scripts);
+        StringAssert.Contains(wrongTarget.GetString("body"), "This turn cannot post to that chat.");
+        ReplyTool(engine, wrongTarget, "chat_send", new() { ["chat"] = direct, ["text"] = "Fixture private answer." });
+        Reply(engine, await NextModel(engine, scripts), "Done.");
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        while (true)
+        {
+            var activity = await Until(engine, "ensemble_activity", scripts);
+            if (activity.GetString("conversation") == direct && !activity.GetBoolean("running")) break;
+            deadline.Token.ThrowIfCancellationRequested();
+        }
+
+        var reopened = await OpenDirect();
+        Assert.IsTrue(reopened.GetArray("blocks").Any(block => block.GetString("content") == "Fixture private answer."));
+        Assert.IsTrue(reopened.GetArray("blocks").Any(block => block.GetString("tool") == "chat_send"));
+        engine.Dispatch(new() { ["op"] = "select_ensemble_chat", ["chat"] = room, ["conversation"] = publicChat });
+        var publicLoaded = await Until(engine, "ensemble_chat_loaded", scripts);
+        Assert.AreEqual(0, publicLoaded.GetArray("blocks").Count);
+        engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = publicChat, ["text"] = "Public follow-up." });
+        foreach (var next in await NextModels(engine, scripts, 2))
+        {
+            Assert.IsFalse(next.GetString("body").Contains(privateMessage, StringComparison.Ordinal));
+            Assert.IsFalse(next.GetString("body").Contains("Fixture private answer.", StringComparison.Ordinal));
+            Reply(engine, next, "Keep the public scene separate.");
+        }
+        var roomDocument = JsonValues.ParseObject(File.ReadAllText(Path.Combine(root, "conversations", preset, room + ".json")));
+        Assert.HasCount(2, roomDocument.GetObject("ensemble").GetArray("chats"));
+        Assert.HasCount(1, roomDocument.GetObject("ensemble").GetArray("private_chats"));
+        Assert.IsFalse(roomDocument.GetArray("messages").Any(item => item.GetString("content") == privateMessage));
+        Assert.IsTrue(File.Exists(Path.Combine(engine.Workspace.ChatRoot, "ensemble", "ada", "direct-chat.sqlite")));
     }
 
     [TestMethod]
@@ -918,10 +1072,12 @@ public sealed class ExtensionTests
             using var database = MemoryDb.ReadOnly(SessionFiles.Fetch(engine.Workspace.ChatRoot, job));
             StringAssert.Contains(database.Get("page/markdown")!, name + " fixture content");
             var snapshot = await Select(scene);
-            Assert.IsTrue(snapshot.GetArray("blocks").Any(item => item.GetString("tool") == "capture_page" &&
+            Assert.IsTrue(snapshot.GetArray("blocks").All(EnsembleConversation.IsMessage));
+            engine.Dispatch(new() { ["op"] = "ensemble_member_trace", ["preset"] = preset, ["chat"] = room, ["participant"] = participant });
+            var debug = (await Until(engine, "ensemble_member_trace", scripts)).GetArray("blocks");
+            Assert.IsTrue(debug.Any(item => item.GetString("tool") == "capture_page" && item.GetString("conversation") == scene &&
                 item.GetString("session") == "fetch-" + job && item.GetString("participant") == participant));
-            Assert.IsFalse(snapshot.GetArray("blocks").Any(item => item.GetString("agent") == "FetchAgent" &&
-                item.GetString("session") != "fetch-" + job));
+            Assert.IsTrue(debug.All(item => item.GetString("participant") == participant));
         }
     }
 

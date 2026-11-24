@@ -21,8 +21,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -39,6 +37,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.ContextCompat
@@ -55,7 +54,9 @@ import kotlinx.serialization.Serializable
 internal sealed interface AppRoute {
     @Serializable data object Chat : AppRoute
 
-    @Serializable data class EnsembleChat(val room: String, val id: String) : AppRoute
+    @Serializable data class EnsembleChat(val room: String, val id: String, val privateParticipant: String = "") : AppRoute
+
+    @Serializable data class EnsembleTrace(val room: String, val participant: String) : AppRoute
 
     @Serializable data object Settings : AppRoute
 
@@ -162,11 +163,12 @@ fun MiniRP(model: ChatViewModel) {
         }
         LaunchedEffect(destination, state.ready, state.chatId) {
             val entry = destination ?: return@LaunchedEffect
-            if (
-                state.ready &&
-                    entry.destination.hasRoute<AppRoute.EnsembleChat>() &&
-                    entry.toRoute<AppRoute.EnsembleChat>().room != state.chatId
-            ) {
+            val room = when {
+                entry.destination.hasRoute<AppRoute.EnsembleChat>() -> entry.toRoute<AppRoute.EnsembleChat>().room
+                entry.destination.hasRoute<AppRoute.EnsembleTrace>() -> entry.toRoute<AppRoute.EnsembleTrace>().room
+                else -> null
+            }
+            if (state.ready && room != null && room != state.chatId) {
                 navigation.popBackStack<AppRoute.Chat>(inclusive = false)
             }
         }
@@ -378,9 +380,15 @@ fun MiniRP(model: ChatViewModel) {
                             snackbarHost = { if (activePanel.isBlank()) SnackbarHost(snackbars) },
                         ) {
                             if (state.ensembleChats != null) {
-                                EnsembleChats(state.ensembleChats.orEmpty()) {
-                                    open(AppRoute.EnsembleChat(state.chatId, it))
-                                }
+                                EnsembleRoom(
+                                    state.chatId,
+                                    state.ensembleChats.orEmpty(),
+                                    state.participants,
+                                    state.ensembleActivity,
+                                    state.ensemblePrivateInStory,
+                                    openChat = { open(AppRoute.EnsembleChat(state.chatId, it)) },
+                                    openPrivate = { open(AppRoute.EnsembleChat(state.chatId, "", privateParticipant = it)) },
+                                )
                             } else if (state.chatId.isBlank() && state.presetSetupPending) {
                                 HomeGreeting(
                                     state.presetName,
@@ -435,15 +443,7 @@ fun MiniRP(model: ChatViewModel) {
                                         AgentRole.Chat,
                                         Modifier.fillMaxSize(),
                                         model::cancel,
-                                        { text, files, system, type ->
-                                            model.send(
-                                                text,
-                                                files,
-                                                AgentRole.Chat,
-                                                system = system,
-                                                pluginAttachment = type,
-                                            )
-                                        },
+                                        { draft -> model.send(draft, AgentRole.Chat) },
                                         { modelPicker = it },
                                         onBranch = { model.branch(it) },
                                         onBranchReply = { model.branch(it, afterReply = true) },
@@ -480,15 +480,28 @@ fun MiniRP(model: ChatViewModel) {
                         }
                     }
                     page<AppRoute.EnsembleChat> { entry ->
-                        val (room, conversation) = entry.toRoute<AppRoute.EnsembleChat>()
+                        val (room, conversation, privateParticipant) = entry.toRoute<AppRoute.EnsembleChat>()
+                        val privateChat = privateParticipant.isNotBlank()
+                        val member = state.participants.firstOrNull { it.id == privateParticipant }
                         val info = state.ensembleChats?.firstOrNull { it.id == conversation }
-                        LaunchedEffect(room, conversation) {
-                            model.openEnsembleChat(room, conversation)
+                        val sceneId = if (privateChat) state.ensembleChatId else conversation
+                        val selectionLoaded = state.chatId == room && state.ensembleChatId == sceneId &&
+                            sceneId.isNotBlank() && state.ensemblePrivateParticipant == privateParticipant
+                        val systemOnly = privateChat && !state.ensemblePrivateInStory
+                        val activity = remember(state.ensembleActivity, sceneId, state.participants) {
+                            orderedThinkingMembers(state.ensembleActivity.filter { it.conversation == sceneId }, state.participants)
+                        }
+                        LaunchedEffect(room, conversation, privateParticipant) {
+                            model.openEnsembleChat(room, conversation, privateParticipant)
                         }
                         val focus = LocalFocusManager.current
                         PageScaffold(
                             topBar = {
-                                ChatToolbar(
+                                if (privateChat) EnsembleMemberToolbar(
+                                    member?.name ?: stringResource(R.string.ensemble_private_messages),
+                                    back,
+                                    onTrace = { open(AppRoute.EnsembleTrace(room, privateParticipant)) },
+                                ) else ChatToolbar(
                                     state,
                                     onMenu = {},
                                     onBack = back,
@@ -510,27 +523,19 @@ fun MiniRP(model: ChatViewModel) {
                             },
                             snackbarHost = { if (activePanel.isBlank()) SnackbarHost(snackbars) },
                         ) {
-                            if (state.chatId == room && state.ensembleChatId == conversation)
-                                screens.SaveableStateProvider("ensemble:$room:$conversation") {
+                            if (selectionLoaded)
+                                screens.SaveableStateProvider("ensemble:$room:$sceneId") {
                                     AgentConversation(
                                         state.copy(blocks = state.ensembleBlocks),
                                         AgentRole.Chat,
                                         Modifier.fillMaxSize(),
                                         model::cancel,
-                                        { text, files, system, type ->
-                                            model.send(
-                                                text,
-                                                files,
-                                                AgentRole.Chat,
-                                                system = system,
-                                                pluginAttachment = type,
-                                            )
-                                        },
+                                        { draft -> model.send(draft, AgentRole.Chat) },
                                         { modelPicker = it },
                                         loadThumbnail = { model.thumbnail(AgentRole.Chat, it) },
                                         background = background,
-                                        displayAssets = remember(model, assetDownloader, state.preset, room, conversation) {
-                                            DisplayAssets(model, assetDownloader, state.preset, room, conversation)
+                                        displayAssets = remember(model, assetDownloader, state.preset, room, sceneId) {
+                                            DisplayAssets(model, assetDownloader, state.preset, room, sceneId)
                                         },
                                         openUi =
                                             remember(model, room) {
@@ -543,13 +548,39 @@ fun MiniRP(model: ChatViewModel) {
                                                         model.saveOpenUiDraft(room, id, value)
                                                     },
                                                 )
-                                            },
+                                            }.takeUnless { systemOnly },
+                                        composerStatus = {
+                                            if (systemOnly)
+                                                PrivateMessageNotice(Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                                            if (!privateChat)
+                                                EnsembleThinking(activity, Modifier.padding(horizontal = 16.dp))
+                                        },
+                                        systemMessageMode = systemOnly.takeIf { privateChat },
                                     )
                                 }
                             else
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     CircularProgressIndicator()
                                 }
+                        }
+                    }
+                    page<AppRoute.EnsembleTrace> { entry ->
+                        val (room, participant) = entry.toRoute<AppRoute.EnsembleTrace>()
+                        val name = state.participants.firstOrNull { it.id == participant }?.name
+                        val publicScenes = remember(state.ensembleChats) { state.ensembleChats.orEmpty().map { it.id }.toSet() }
+                        PageScaffold(
+                            topBar = { EnsembleMemberToolbar(stringResource(R.string.ensemble_member_trace), back, subtitle = name) },
+                            snackbarHost = { SnackbarHost(snackbars) },
+                        ) {
+                            if (state.chatId == room) {
+                                EnsembleMemberTrace(
+                                    load = { model.loadEnsembleTrace(room, participant) },
+                                    activeScene = state.ensembleActivity.firstOrNull {
+                                        it.participant == participant && it.conversation in publicScenes
+                                    }?.conversation,
+                                    displayAssets = { scene -> DisplayAssets(model, assetDownloader, state.preset, room, scene) },
+                                )
+                            }
                         }
                     }
                 }
@@ -610,15 +641,18 @@ fun MiniRP(model: ChatViewModel) {
                         role,
                         modifier,
                         model::cancel,
-                        { text, files, system, type ->
-                            if (!system && text.trim() == "/close" && files.isEmpty()) {
+                        { draft ->
+                            if (!draft.system && draft.text.trim() == "/close" &&
+                                draft.files.isEmpty() && draft.quotes.isEmpty()
+                            ) {
                                 closePanel()
-                            } else model.sendFromPanel(text, files, role, system, type)
+                            } else model.sendFromPanel(role, draft)
                         },
                         { modelPicker = it },
                         loadThumbnail = { model.thumbnail(role, it) },
                         displayAssets = assets,
                         openUi = presetActions,
+                        onRetryPresetInterview = model::retryPresetInterview,
                     )
                 }
             }
@@ -672,33 +706,6 @@ fun MiniRP(model: ChatViewModel) {
                     if (isChat) open(AppRoute.Settings)
                     open(if (state.providers.isEmpty()) AppRoute.Providers else AppRoute.Models)
                 },
-            )
-        }
-    }
-}
-
-@Composable
-internal fun EnsembleChats(chats: List<EnsembleChat>, open: (String) -> Unit) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
-        item {
-            Text(
-                stringResource(R.string.conversations),
-                modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 8.dp),
-                style = MaterialTheme.typography.titleMedium,
-            )
-        }
-        items(chats, key = { it.id }, contentType = { "conversation" }) { chat ->
-            ListItem(
-                content = { Text(chat.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                supportingContent = {
-                    Text(
-                        chat.members.joinToString(" · "),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                trailingContent = { Symbol("chevron_right") },
-                modifier = Modifier.clickable { open(chat.id) },
             )
         }
     }
@@ -913,6 +920,7 @@ internal fun FullSheet(
     onBack: (() -> Unit)? = null,
     draftControls: DraftPresetControls? = null,
     actions: @Composable () -> Unit = {},
+    heightLimit: Dp = Dp.Unspecified,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val locked = draftControls?.locked == true
@@ -940,7 +948,7 @@ internal fun FullSheet(
         val body: @Composable () -> Unit = {
             BackHandler(locked && onBack == null && draftControls.drawer.isClosed) {}
             if (onBack != null) SheetPageBackHandler(onBack)
-            Column(Modifier.fillMaxSize()) {
+            Column(Modifier.heightIn(max = heightLimit).fillMaxSize()) {
                 if (draftControls != null) {
                     AnimatedVisibility(
                         visible = !locked,

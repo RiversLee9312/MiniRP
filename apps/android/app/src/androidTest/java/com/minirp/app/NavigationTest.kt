@@ -157,7 +157,25 @@ class NavigationTest {
                "ensemble":{"agents":[{"id":"ada","name":"Ada"},{"id":"bryn","name":"Bryn"}],
                  "chats":[{"name":"Bridge","members":["ada","bryn"]}]}}"""
         )
-        switchFromCreatedConversation(R.string.new_room)
+        MockWebServer().use { server ->
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.method == "GET")
+                        return MockResponse.Builder().setHeader("Content-Type", "application/json")
+                            .body("""{"data":[{"id":"fixture"}]}""").build()
+                    val ready = """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"ready","type":"function","function":{"name":"room_ready","arguments":"{}"}}]}}]}"""
+                    return MockResponse.Builder().setHeader("Content-Type", "text/event-stream")
+                        .body("data: $ready\n\ndata: [DONE]\n\n").build()
+                }
+            }
+            server.start()
+            compose.runOnIdle {
+                val provider = ProviderConfig(id = "room-fixture", name = "Room fixture", url = server.url("/v1").toString())
+                model.saveProvider(provider)
+                model.enableModel(SavedModel(provider.id, Choice("fixture", "Fixture")), true)
+            }
+            switchFromCreatedConversation(R.string.new_room)
+        }
     }
 
     private fun switchFromCreatedConversation(createLabel: Int) {
@@ -584,7 +602,7 @@ class EmptyHomeTest {
                     agent = AgentRole.Chat,
                     modifier = Modifier.fillMaxSize(),
                     onCancel = {},
-                    onSend = { _, _, _, _ -> error("An empty home must not send a message") },
+                    onSend = { error("An empty home must not send a message") },
                     onModels = {},
                     onCreatePreset = { created = true },
                 )

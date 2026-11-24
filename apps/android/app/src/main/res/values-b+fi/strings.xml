@@ -30,6 +30,7 @@
     <string name="input_hint">Viesti</string>
     <string name="open_menu">Avaa valikko</string>
     <string name="send">Lähetä</string>
+    <string name="sending">Lähetetään…</string>
     <string name="stop">Pysäytä</string>
     <string name="more_options">Lisää vaihtoehtoja</string>
     <string name="reasoning">Ajatukset</string>
@@ -219,4 +220,10 @@
     <string name="tool_arguments">Argumentit</string>
     <string name="tool_result">Tulos</string>
     <string name="quote_reply">Lainaa</string>
+    <string name="ensemble_private_messages">Yksityisviestit</string>
+    <string name="ensemble_member_thinking">%1$s miettii</string>
+    <string name="ensemble_out_of_story">Nämä viestit ovat tarinan ulkopuolisia ja ne lähetetään järjestelmäviesteinä.</string>
+    <string name="ensemble_member_trace">Toimintaloki</string>
+    <string name="ensemble_no_trace">Ei vielä toimintaa</string>
+    <string name="ensemble_trace_load_failed">Toimintaa ei voitu ladata.</string>
 </resources>

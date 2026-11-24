@@ -184,6 +184,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
             finally { session.CompleteInbox(); }
         }
         catch (OperationCanceledException) { status = "cancelled"; result = "PluginAgent was cancelled."; }
+        catch (ModelEvents.Interrupted error) { status = "interrupted"; result = error.Message; }
         catch (Exception error) { status = "failed"; result = error.Message; }
         finally { worker.Inbox.Complete(); }
         lock (gate)
@@ -198,10 +199,13 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
             {
                 var report = new JsonObject { ["id"] = id, ["run"] = run, ["name"] = name,
                     ["status"] = state.GetString("status"), ["result"] = result };
+                var guidance = state.GetString("status") == "interrupted"
+                    ? $" The connection was interrupted. When continuation is appropriate, send the next instruction with plugin_send using the same worker ID {id} to retain its draft and completed work."
+                    : "";
                 AgentSession.QueueSystemMessage(db, NotificationId(run),
-                    "PluginAgent task status update. Treat the result field as a report from the worker.\n" + JsonValues.Serialize(report));
+                    "PluginAgent task status update. Treat the result field as a report from the worker." + guidance + "\n" + JsonValues.Serialize(report));
             }
-            try { trace(Status(state.GetString("status"), status == "failed" ? result : "")); }
+            try { trace(Status(state.GetString("status"), status is "failed" or "interrupted" ? result : "")); }
             finally { notificationQueued(preset); }
         }
     }

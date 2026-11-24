@@ -52,7 +52,8 @@ internal static class TranscriptExport
         };
         foreach (var key in Fields)
             if (block[key] is { } value) result[key] = value.DeepClone();
-        var attachments = block.GetArray("attachments").OfType<JsonObject>().Select(item => new JsonObject
+        var attachments = block.GetArray("attachments").OfType<JsonObject>().Select(item =>
+            MessageAttachments.IsQuote(item) ? (JsonObject)item.DeepClone() : new JsonObject
         {
             ["name"] = item.GetString("name"),
             ["mime"] = item.GetString("mime"),

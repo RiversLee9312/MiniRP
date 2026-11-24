@@ -48,6 +48,7 @@
     <string name="input_hint">Message</string>
     <string name="open_menu">Open menu</string>
     <string name="send">Send</string>
+    <string name="sending">Sending…</string>
     <string name="stop">Stop</string>
     <string name="more_options">More options</string>
     <string name="reasoning">Thoughts</string>
@@ -220,4 +221,10 @@
     <string name="tool_arguments">Arguments</string>
     <string name="tool_result">Result</string>
     <string name="quote_reply">Quote</string>
+    <string name="ensemble_private_messages">Private messages</string>
+    <string name="ensemble_member_thinking">%1$s is thinking</string>
+    <string name="ensemble_out_of_story">These messages are outside the story and are sent as system messages.</string>
+    <string name="ensemble_member_trace">Activity trace</string>
+    <string name="ensemble_no_trace">No activity yet</string>
+    <string name="ensemble_trace_load_failed">Couldn’t load activity.</string>
 </resources>

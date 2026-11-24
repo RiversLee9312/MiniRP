@@ -63,6 +63,7 @@ internal constructor(
     private val engine = CompletableDeferred<CoreClient>()
     @Volatile private var core: CoreClient? = null
     private var saveJob: Job? = null
+    private var presetEditorToRestore: String? = null
 
     internal class LibraryFeed(
         val preset: String,
@@ -169,16 +170,22 @@ internal constructor(
                             receiveReady(event, showOnboarding)
                             val initial = event.optString("preset")
                             val preferred = savedPreset.ifBlank { initial }
+                            if (savedPreset.isNotBlank() && options.optBoolean("preset_editor_open")) {
+                                presetEditorToRestore = savedPreset
+                            }
                             if (preferred != initial || event.optJSONObject("config").presetSetupPending()) {
                                 command("home") {
                                     put("preset", preferred)
                                     put("restore", true)
                                     put("locale", workspace.resources.configuration.locales[0].toLanguageTag())
                                 }
+                            } else {
+                                restorePresetEditor(initial)
                             }
                         }
                         "preset_opened" -> {
                             if (event.optBoolean("selected")) {
+                                presetEditorToRestore = null
                                 val blocks = withContext(Dispatchers.Default) {
                                     event.getJSONArray("blocks").objects().map { decodeBlock(it).finishMarkdown() }
                                 }
@@ -200,7 +207,11 @@ internal constructor(
                         }
                         "ensemble_chat_loaded" -> {
                             val decoded = withContext(Dispatchers.Default) {
-                                event.getJSONArray("blocks").objects().map { decodeBlock(it).finishMarkdown() }
+                                val private = event.optString("private_participant").takeUnless { event.isNull("private_participant") }
+                                event.getJSONArray("blocks").objects().asSequence()
+                                    .filter { !private.isNullOrBlank() || it.isEnsembleMessage() }
+                                    .map { decodeBlock(it).finishMarkdown() }
+                                    .toList()
                             }
                             receive(event, decoded)
                         }
@@ -302,7 +313,11 @@ internal constructor(
             "preset_removed" ->
                 if (chatFeed.value.preset == event.optString("id"))
                     selectLibraryPreset(event.optString("fallback", state.value.preset))
-            "home" -> showHome(event.getString("preset"), event.getJSONObject("config"))
+            "home" -> {
+                val preset = event.getString("preset")
+                showHome(preset, event.getJSONObject("config"))
+                restorePresetEditor(preset)
+            }
             "plugin_action" -> actions.trySend(event.getString("url"))
             "plugin_settings" ->
                 mutableState.update {
@@ -359,6 +374,9 @@ internal constructor(
                         blocks = loadedBlocks.orEmpty(),
                         ensembleBlocks = emptyList(),
                         ensembleChatId = "",
+                        ensemblePrivateParticipant = "",
+                        ensemblePrivateInStory = event.optBoolean("private_in_story", true),
+                        ensembleActivity = event.optJSONArray("activity")?.objects()?.mapNotNull(::decodeEnsembleActivity).orEmpty(),
                         ensembleChats =
                             event
                                 .optJSONArray("ensemble_chats")
@@ -424,7 +442,7 @@ internal constructor(
                                 role.id == event.optString("agent")
                             }
                     if (agent != null && (it.generating != null || event.optBoolean("model_turn")))
-                        it.copy(replyError = ReplyError(agent, message))
+                        it.copy(replyError = ReplyError(agent, message, event.optBoolean("preset_interview")))
                     else it.copy(error = message)
                 }
             "models",
@@ -433,7 +451,28 @@ internal constructor(
             "ensemble_chat_loaded" ->
                 mutableState.update {
                     if (it.chatId != event.optString("chat") || it.preset != event.optString("preset")) it
-                    else it.copy(ensembleChatId = event.optString("conversation"), ensembleBlocks = loadedBlocks.orEmpty())
+                    else {
+                        val conversation = event.optString("conversation")
+                        val selectedActivity = event.optJSONArray("activity")?.objects()?.mapNotNull(::decodeEnsembleActivity)
+                        it.copy(
+                            ensembleChatId = conversation,
+                            ensembleBlocks = loadedBlocks.orEmpty(),
+                            ensemblePrivateParticipant = event.optString("private_participant")
+                                .takeUnless { event.isNull("private_participant") }.orEmpty(),
+                            ensemblePrivateInStory = event.optBoolean("private_in_story", it.ensemblePrivateInStory),
+                            ensembleActivity = if (conversation.isBlank() || selectedActivity == null) it.ensembleActivity
+                                else it.ensembleActivity.filterNot { active -> active.conversation == conversation } + selectedActivity,
+                        )
+                    }
+                }
+            "ensemble_activity" ->
+                mutableState.update {
+                    if (it.chatId != event.optString("chat") || it.preset != event.optString("preset")) return@update it
+                    val activity = decodeEnsembleActivity(event) ?: return@update it
+                    val others = it.ensembleActivity.filterNot { existing ->
+                        existing.conversation == activity.conversation && existing.participant == activity.participant
+                    }
+                    it.copy(ensembleActivity = if (event.optBoolean("running")) others + activity else others)
                 }
             "ensemble_chats" ->
                 mutableState.update {
@@ -477,6 +516,7 @@ internal constructor(
                                     attachmentNames = event.attachmentNames(),
                                     system = event.optString("kind") == "system",
                                     thumbnails = event.thumbnails(),
+                                    quotes = event.quoteAttachments(),
                                 )
                             )
                     )
@@ -524,7 +564,8 @@ internal constructor(
             if (
                 inRoom &&
                     (event.optString("conversation") != current.ensembleChatId ||
-                        event.optString("chat") != current.chatId)
+                        event.optString("chat") != current.chatId ||
+                        current.ensemblePrivateParticipant.isBlank())
             )
                 return@update current
             val blocks = if (inRoom) current.ensembleBlocks else current.blocks
@@ -674,6 +715,7 @@ internal constructor(
         system: Boolean = false,
         pluginAttachment: PluginAttachmentType? = null,
         openUiAction: JSONObject? = null,
+        quotes: List<QuoteAttachment> = emptyList(),
     ): Boolean {
         val current = state.value
         if (!current.ready || current.preparing || current.preset.isBlank()) return false
@@ -684,8 +726,10 @@ internal constructor(
         )
             return false
         if (openUiAction != null && current.busy) return false
-        if (current.generating == role) {
-            if (text.isBlank() || documents.isNotEmpty()) return false
+        val privateMessage = role == AgentRole.Chat && current.ensemblePrivateParticipant.isNotBlank()
+        if (privateMessage && system == current.ensemblePrivateInStory) return false
+        if (current.generating == role && !privateMessage) {
+            if (text.isBlank() || documents.isNotEmpty() || quotes.isNotEmpty()) return false
             return try {
                 engine
                     .await()
@@ -708,7 +752,13 @@ internal constructor(
             }
         }
         if (current.busy) return false
-        if (system && (text.isBlank() || documents.isNotEmpty())) return false
+        if (system && (text.isBlank() || documents.isNotEmpty() || quotes.isNotEmpty())) return false
+        if (quotes.size + documents.size > maxMessageAttachments || quotes.any {
+                it.text.isBlank() || it.text.length > maxQuoteLength
+            }) {
+            mutableState.update { it.copy(error = getApplication<Application>().getString(R.string.attachment_too_large)) }
+            return false
+        }
         val provider = current.providers.find { it.id == current.assigned(role)?.provider }
         if (provider == null) {
             mutableState.update {
@@ -718,7 +768,7 @@ internal constructor(
             }
             return false
         }
-        mutableState.update { it.copy(submitting = true, replyError = null) }
+        mutableState.update { it.copy(submitting = role, replyError = null) }
         try {
             val draft = current.branchDraft.takeIf { role == AgentRole.Chat }
             val imported =
@@ -727,6 +777,7 @@ internal constructor(
                     pluginAttachment,
                     draft?.attachments.orEmpty(),
                 )
+            quotes.forEach { imported.put(it.toJson()) }
             val action = openUiAction ?: draft?.takeIf { !system && it.text == text }?.openUiAction
             currentCoroutineContext().ensureActive()
             val result =
@@ -756,14 +807,15 @@ internal constructor(
             report(error)
             return false
         } finally {
-            mutableState.update { it.copy(submitting = false) }
+            mutableState.update { it.copy(submitting = null) }
         }
     }
 
-    internal suspend fun sendFromPanel(
-        text: String, documents: List<String>, role: AgentRole,
-        system: Boolean, pluginAttachment: PluginAttachmentType?,
-    ): Boolean = viewModelScope.async { send(text, documents, role, system, pluginAttachment) }.await()
+    internal suspend fun sendFromPanel(role: AgentRole, draft: ComposerSubmission): Boolean =
+        viewModelScope.async { send(draft, role) }.await()
+
+    internal suspend fun send(draft: ComposerSubmission, role: AgentRole): Boolean =
+        send(draft.text, draft.files, role, draft.system, draft.pluginAttachment, quotes = draft.quotes)
 
     internal fun openUiDraft(chatId: String, id: String): String =
         openUiDrafts.get(chatId to id).orEmpty()
@@ -832,7 +884,7 @@ internal constructor(
         val current = state.value
         if (current.ensembleChats == null) return
         if (current.ensembleChatId.isNotBlank())
-            mutableState.update { it.copy(ensembleChatId = "", ensembleBlocks = emptyList()) }
+            mutableState.update { it.copy(ensembleChatId = "", ensembleBlocks = emptyList(), ensemblePrivateParticipant = "") }
         command("select_ensemble_chat") {
             put("preset", current.preset)
             put("chat", current.chatId)
@@ -840,17 +892,17 @@ internal constructor(
         }
     }
 
-    suspend fun openEnsembleChat(room: String, conversation: String) {
+    suspend fun openEnsembleChat(room: String, conversation: String, privateParticipant: String = "") {
         val current = state.value
         if (current.chatId != room) return
         try {
-            // Consume the scene snapshot and subsequent posts from the same event stream.
+            // Consume each snapshot and subsequent posts from the same event stream.
+            val selection = JSONObject().put("preset", current.preset).put("chat", room)
+            if (privateParticipant.isBlank()) selection
+                .put("op", "select_ensemble_chat").put("conversation", conversation)
+            else selection.put("op", "open_ensemble_dm").put("participant", privateParticipant)
             engine.await().send(
-                JSONObject()
-                    .put("op", "select_ensemble_chat")
-                    .put("preset", current.preset)
-                    .put("chat", room)
-                    .put("conversation", conversation)
+                selection
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -859,9 +911,32 @@ internal constructor(
         }
     }
 
+    internal suspend fun loadEnsembleTrace(room: String, participant: String): List<EnsembleTraceScene> {
+        val current = state.value
+        check(current.chatId == room)
+        val response = engine.await().query(
+            JSONObject().put("op", "ensemble_member_trace")
+                .put("preset", current.preset).put("chat", room).put("participant", participant)
+        )
+        return withContext(Dispatchers.Default) {
+            response.optJSONArray("blocks")?.objects().orEmpty()
+                .groupBy { it.optString("conversation") }
+                .map { (id, blocks) ->
+                    EnsembleTraceScene(id, blocks.first().optString("scene_name"), blocks.map { decodeBlock(it).finishMarkdown() })
+                }
+        }
+    }
+
     fun selectPreset(preset: String) {
         val current = state.value
         if (current.chatId.isNotBlank() || current.preset != preset || current.presetSetupPending) chooseChat(preset)
+    }
+
+    private fun restorePresetEditor(preset: String) {
+        if (presetEditorToRestore == null) return
+        val reopen = preset == presetEditorToRestore
+        presetEditorToRestore = null
+        if (reopen) openPresetEditor()
     }
 
     private fun showHome(
@@ -885,6 +960,9 @@ internal constructor(
                 participants = emptyList(),
                 ensembleChatId = "",
                 ensembleBlocks = emptyList(),
+                ensembleActivity = emptyList(),
+                ensemblePrivateParticipant = "",
+                ensemblePrivateInStory = true,
                 chatMode = config.optString("chat_mode", "character"),
                 chatGreeting = config.hasChatGreeting(),
                 branchDraft = null,
@@ -960,7 +1038,10 @@ internal constructor(
                         )
                     }
                 }
-                if (state.value.presetEditorOpen) trace.forEach { applyTrace(it) }
+                if (state.value.presetEditorOpen) {
+                    trace.forEach { applyTrace(it) }
+                    if (!result.optBoolean("created")) persist()
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -979,7 +1060,21 @@ internal constructor(
     fun closePresetEditor(): Boolean {
         if (state.value.presetExitLocked) return false
         mutableState.update { it.copy(presetEditor = PresetEditorPhase.Closed) }
+        persist()
         return true
+    }
+
+    internal fun retryPresetInterview() {
+        val current = state.value
+        if (!current.presetEditorOpen || !current.presetSetupPending || current.presetWorking ||
+            current.replyError?.presetInterview != true) return
+        mutableState.update { it.copy(replyError = null) }
+        resumePresetInterview(current.preset)
+    }
+
+    private fun resumePresetInterview(preset: String) = command("resume_preset_interview") {
+        put("preset", preset)
+        put("locale", workspace.resources.configuration.locales[0].toLanguageTag())
     }
 
     internal fun returnHomeFromPresetCard(preset: String, blockId: String): PresetHomeResult {
@@ -1347,19 +1442,7 @@ internal constructor(
             model != null &&
                 (role == AgentRole.Preset || role == AgentRole.Chat) &&
                 state.value.presetEditorOpen
-        ) {
-            command("resume_preset_interview") {
-                put("preset", state.value.preset)
-                put(
-                    "locale",
-                    getApplication<Application>()
-                        .resources
-                        .configuration
-                        .locales[0]
-                        .toLanguageTag(),
-                )
-            }
-        }
+        ) resumePresetInterview(state.value.preset)
     }
 
     fun thoughts(value: Boolean) {
@@ -1424,6 +1507,7 @@ internal constructor(
     private fun persist() {
         configure()
         val current = state.value
+        val reopenEditor = current.presetEditorOpen || current.preset == presetEditorToRestore
         saveJob?.cancel()
         saveJob =
             viewModelScope.launch(Dispatchers.IO) {
@@ -1438,6 +1522,7 @@ internal constructor(
                             .put("models", JSONArray(current.savedModels.map(::encodeModel)))
                             .put("assignments", assignments)
                             .put("preset", current.preset)
+                            .put("preset_editor_open", reopenEditor)
                             .put("chat", current.chatId)
                             .put("cot", current.expandThoughts)
                             .put("onboarding_complete", !current.showOnboarding)

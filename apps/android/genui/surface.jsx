@@ -119,11 +119,27 @@ document.addEventListener("click", (event) => {
 }, true);
 
 let previousHeight = -1;
-new ResizeObserver(() => {
+const reportToolScroll = toolPresentation && !desktop;
+let previousScrollRegions = "[]";
+
+function reportLayout() {
     const height = Math.ceil(container.getBoundingClientRect().height);
-    if (height !== previousHeight) {
+    const scrollRegions = reportToolScroll
+        ? [...container.querySelectorAll(".tool-fact-full")]
+            .filter((field) => field.clientHeight > 0 && field.scrollHeight - field.clientHeight > 1)
+            .slice(0, 64)
+            .map((field) => {
+                const { left, top, right, bottom } = field.getBoundingClientRect();
+                return [left, top, right, bottom].map((value) => Math.round(value * devicePixelRatio));
+            })
+        : [];
+    const layout = JSON.stringify(scrollRegions);
+    if (height !== previousHeight || layout !== previousScrollRegions) {
         previousHeight = height;
-        post("height", { height });
+        previousScrollRegions = layout;
+        post("height", reportToolScroll ? { height, scrollRegions } : { height });
     }
-}).observe(container);
+}
+new ResizeObserver(reportLayout).observe(container);
+if (reportToolScroll) document.addEventListener("toggle", reportLayout, true);
 post("ready");

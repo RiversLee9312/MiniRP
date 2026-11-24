@@ -30,6 +30,7 @@
     <string name="input_hint">Tin nhắn</string>
     <string name="open_menu">Mở menu</string>
     <string name="send">Gửi</string>
+    <string name="sending">Đang gửi…</string>
     <string name="stop">Dừng</string>
     <string name="more_options">Tùy chọn khác</string>
     <string name="reasoning">Suy nghĩ</string>
@@ -217,4 +218,10 @@
     <string name="tool_arguments">Đối số</string>
     <string name="tool_result">Kết quả</string>
     <string name="quote_reply">Trích dẫn</string>
+    <string name="ensemble_private_messages">Tin nhắn riêng</string>
+    <string name="ensemble_member_thinking">%1$s đang suy nghĩ</string>
+    <string name="ensemble_out_of_story">Các tin nhắn này nằm ngoài câu chuyện và được gửi dưới dạng tin nhắn hệ thống.</string>
+    <string name="ensemble_member_trace">Nhật ký hoạt động</string>
+    <string name="ensemble_no_trace">Chưa có hoạt động</string>
+    <string name="ensemble_trace_load_failed">Không thể tải hoạt động.</string>
 </resources>

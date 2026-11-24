@@ -85,7 +85,7 @@ class PresetBackgroundTest {
                     SideEffect { theme = colors }
                     Scaffold(topBar = { ChatToolbar(state.value, {}, {}, {}, {}) }) { padding ->
                         AgentConversation(state.value, AgentRole.Chat, Modifier.fillMaxSize().padding(padding),
-                            {}, { _, _, _, _ -> false }, {}, background = media)
+                            {}, { false }, {}, background = media)
                     }
                 }
             }

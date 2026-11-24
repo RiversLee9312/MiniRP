@@ -20,6 +20,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
@@ -31,11 +32,17 @@ import com.minirp.app.ui.AgentConversation
 import com.minirp.app.ui.AgentRole
 import com.minirp.app.ui.BranchDraft
 import com.minirp.app.ui.ChatState
+import com.minirp.app.ui.ComposerSubmission
+import com.minirp.app.ui.QuoteAttachment
 import com.minirp.app.ui.TraceBlock
-import com.minirp.app.ui.appendReplyQuote
+import com.minirp.app.ui.branchDraft
+import com.minirp.app.ui.decodeBlock
+import com.minirp.app.ui.toJson
 import kotlinx.coroutines.CompletableDeferred
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -44,7 +51,7 @@ class ReplyQuoteTest {
     @get:Rule val compose = createComposeRule()
 
     @Test
-    fun selectionMenuCopiesAndQuotesOnlyTheSelectedWordIntoTheCurrentDraft() {
+    fun selectionMenuCopiesAndAttachesOnlyTheSelectedWordToTheCurrentDraft() {
         val firstRoom = "first-room"
         val activeRoom = mutableStateOf(firstRoom)
         val source = "Before **selected** after"
@@ -52,7 +59,7 @@ class ReplyQuoteTest {
         val file = "saved-attachment:notes"
         val toolbar = TestSelectionToolbar()
         var copied: String? = null
-        var sends = 0
+        var submitted: ComposerSubmission? = null
         compose.setContent {
             val stateHolder = rememberSaveableStateHolder()
             val clipboard = LocalClipboard.current
@@ -77,7 +84,10 @@ class ReplyQuoteTest {
                             state = ChatState(ready = true, chatId = room, blocks = listOf(reply), branchDraft = draft),
                             agent = AgentRole.Chat,
                             onCancel = {},
-                            onSend = { _, _, _, _ -> sends++; true },
+                            onSend = { message ->
+                                submitted = message
+                                true
+                            },
                             onModels = {},
                         )
                     }
@@ -108,16 +118,28 @@ class ReplyQuoteTest {
 
         openMenu()
         chooseMenuItem(instrumentation.targetContext.getString(R.string.quote_reply))
-        input.assertTextContains("Keep my text\n\n> selected\n\n")
+        input.assertTextContains("Keep my text")
+        val quote = compose.onNodeWithText("selected")
+        quote.assertIsDisplayed()
         compose.onNodeWithText("Notes.pdf").assertIsDisplayed()
         compose.runOnIdle {
-            assertEquals(0, sends)
+            assertNull(submitted)
             activeRoom.value = "another-room"
         }
         input.assertTextContains("Other room draft")
+        quote.assertDoesNotExist()
         compose.runOnIdle { activeRoom.value = firstRoom }
-        input.assertTextContains("Keep my text\n\n> selected\n\n")
+        input.assertTextContains("Keep my text")
+        quote.assertIsDisplayed()
         compose.onNodeWithText("Notes.pdf").assertIsDisplayed()
+        compose.onNodeWithTag("send").performClick()
+        compose.runOnIdle {
+            val message = checkNotNull(submitted)
+            assertEquals("Keep my text", message.text)
+            assertEquals(listOf(file), message.files)
+            assertEquals("selected", message.quotes.single().text)
+        }
+        quote.assertDoesNotExist()
     }
 
     private class TestSelectionToolbar : TextContextMenuProvider {
@@ -150,9 +172,16 @@ class ReplyQuoteTest {
     }
 
     @Test
-    fun selectedLinesAreQuotedWithoutChangingTheExistingDraft() {
-        assertEquals("> first\n> second\n\n", appendReplyQuote("", "first\r\nsecond"))
-        assertEquals("draft  \n\n> one\n>\n> two\n\n", appendReplyQuote("draft  \n", "one\n\ntwo"))
-        assertEquals("draft", appendReplyQuote("draft", " \t\n"))
+    fun quotedAttachmentIsRestoredInSentMessagesAndBranchesWithoutBecomingAFile() {
+        val quote = QuoteAttachment("b4c346e2-896a-487e-a2c0-711451689f67", "First\n\nSecond")
+        val packet = JSONObject().put("id", "message").put("kind", "user").put("text", "Draft")
+            .put("attachments", JSONArray().put(quote.toJson()).put(JSONObject().put("id", "file").put("name", "Notes.txt")))
+
+        val branch = packet.branchDraft()
+        assertEquals(listOf(quote), branch.quotes)
+        assertEquals(setOf("saved-attachment:file"), branch.attachments.keys)
+        val message = decodeBlock(packet)
+        assertEquals(listOf(quote), message.quotes)
+        assertEquals(listOf("Notes.txt"), message.attachmentNames)
     }
 }

@@ -37,7 +37,23 @@ function Trace({ block, expanded, t, view }) {
   </details>;
 }
 
-function Attachment({ file, scope }) {
+function QuoteAttachment({ file, t, onRemove }) {
+  return <div className="attachment quote-attachment">
+    <details>
+      <summary aria-label={t("quote_reply")}>
+        <Icon name="format_quote" />
+        <span className="quote-label">{t("quote_reply")}</span>
+        <span className="quote-preview" dir="auto" aria-hidden="true">{file.text}</span>
+        <Icon name="expand_more" />
+      </summary>
+      <blockquote dir="auto">{file.text}</blockquote>
+    </details>
+    {onRemove && <IconButton icon="close" label={t("remove_attachment", t("quote_reply"))} onClick={onRemove} />}
+  </div>;
+}
+
+function Attachment({ file, scope, t }) {
+  if (file.kind === "quote") return <QuoteAttachment file={file} t={t} />;
   const thumbnail = file.thumbnail_url || (file.thumbnail && "minirp://assets/minirp.legacy/attachment-thumbnail?attachment=" + file.id);
   return <a className="attachment" href={attachmentUrl(file)} download>
     {thumbnail && <img alt="" loading="lazy" src={assetUrl(thumbnail, scope, { inline: "1", attachment: JSON.stringify(file) })} />}
@@ -96,7 +112,7 @@ function BlockView({ block, scope, locale, dark, theme, expanded, busy, t, branc
     {block.open_ui && <OpenUi block={block} scope={scope} identity={JSON.stringify([scope.preset, scope.room, scope.conversation, block.id])}
       locale={locale} dark={dark} theme={theme} t={t} onAction={(action) => openAction(block, action)} />}
     {block.attachments?.length > 0 && <div className="attachments">
-      {block.attachments.map((file) => <Attachment key={file.id} file={file} scope={scope} />)}
+      {block.attachments.map((file) => <Attachment key={file.id} file={file} scope={scope} t={t} />)}
     </div>}
     {user && block.version && scope.agent === "chat" && !scope.conversation && <footer className="message-actions">
       {branchButton(block.id, "edit")}
@@ -265,48 +281,53 @@ export function Transcript({ blocks, contextKey, history, pane, addHistory, onHi
     </div>
     <TranscriptRuler key={contextKey} scroller={list} controls={controls} rowPrefix={rowPrefix} turns={turns}
       hasOlder={Boolean(before)} loadOlder={loadOlder} t={t} />
-    {quoteReply && <ReplySelectionMenu key={contextKey} transcript={list} onQuote={quoteReply} t={t} />}
+    <ReplySelectionMenu key={"selection:" + contextKey} transcript={list} onQuote={quoteReply} t={t} />
     {!atEnd && <IconButton className="jump" icon="arrow_downward" label={t("latest_message")} onClick={jump} />}
   </div>;
 }
 
 export function Composer({ draft, change, attachments, addFiles, removeFile, submit, stop, t, role,
-  generating, disabled, modelPicker }) {
+  generating, sending, disabled, modelPicker, delivery = "both" }) {
   const input = useRef(null);
-  const canSend = !disabled && (draft.trim() || attachments.length > 0) && (!generating || attachments.length === 0);
+  const systemOnly = delivery === "system";
+  const canSend = !disabled && (draft.trim() || !systemOnly && attachments.length > 0)
+    && (!generating || systemOnly || attachments.length === 0);
+  const inputLabel = t(systemOnly ? "system_message" : "input_hint");
   useLayoutEffect(() => {
     const area = input.current;
     area.style.height = "auto";
     area.style.height = Math.min(area.scrollHeight, 160) + "px";
   }, [draft]);
-  return <form className="composer" onSubmit={(event) => { event.preventDefault(); if (canSend) submit(false); }}
-    onDragOver={(event) => { if (!disabled) event.preventDefault(); }}
-    onDrop={(event) => { event.preventDefault(); if (!disabled && !generating) addFiles(Array.from(event.dataTransfer.files)); }}>
-    {attachments.length > 0 && <div className="attachments">
-      {attachments.map((file) => <span className="attachment" key={file.id}>
-        {file.name}<IconButton icon="close" label={t("remove_attachment")} onClick={() => removeFile(file.id)} />
-      </span>)}
+  return <form className="composer" onSubmit={(event) => { event.preventDefault(); if (canSend) submit(systemOnly); }}
+    onDragOver={(event) => { if (!disabled || systemOnly) event.preventDefault(); }}
+    onDrop={(event) => { event.preventDefault(); if (!systemOnly && !disabled && !generating) addFiles(Array.from(event.dataTransfer.files)); }}>
+    {!systemOnly && attachments.length > 0 && <div className="attachments">
+      {attachments.map((file) => file.kind === "quote"
+        ? <QuoteAttachment key={file.id} file={file} t={t} onRemove={() => removeFile(file.id)} />
+        : <span className="attachment" key={file.id}>
+          {file.name}<IconButton icon="close" label={t("remove_attachment", file.name)} onClick={() => removeFile(file.id)} />
+        </span>)}
     </div>}
     <textarea ref={input} value={draft} onChange={(event) => change(event.target.value)} rows="1"
-      aria-label={t("input_hint")} placeholder={t(role === "preset" ? "describe_changes" : "input_hint")}
+      aria-label={inputLabel} placeholder={role === "preset" ? t("describe_changes") : inputLabel}
       onKeyDown={(event) => {
         if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
         event.preventDefault();
-        if (canSend) submit(false);
+        if (canSend) submit(systemOnly);
       }} />
     <div className="composer-actions">
       <div className="composer-tools">
-        <FileChoice label={t("add_attachment")} icon="add" disabled={disabled || generating} choose={addFiles} multiple
-          iconOnly className="icon-button tonal attach-button" />
+        {!systemOnly && <FileChoice label={t("add_attachment")} icon="add" disabled={disabled || generating} choose={addFiles} multiple
+          iconOnly className="icon-button tonal attach-button" />}
         {modelPicker}
       </div>
       <div className="composer-submit">
-        {draft.trim() && !attachments.length && <button className="text-button" type="button" disabled={disabled} onClick={() => submit(true)}>
+        {delivery === "both" && draft.trim() && !attachments.length && <button className="text-button" type="button" disabled={disabled} onClick={() => submit(true)}>
           {t("send_as_system")}
         </button>}
         {generating && <IconButton className="stop-action" icon="stop" label={t("stop")} onClick={stop} />}
         <button className="filled send-action" disabled={!canSend} type="submit"><Icon name="arrow_upward" />
-          {t(generating ? "steer" : "send")}</button>
+          {t(sending ? "sending" : systemOnly ? "send_as_system" : generating ? "steer" : "send")}</button>
       </div>
     </div>
   </form>;

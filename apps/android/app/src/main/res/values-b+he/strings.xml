@@ -30,6 +30,7 @@
     <string name="input_hint">הודעה</string>
     <string name="open_menu">פתיחת התפריט</string>
     <string name="send">שליחה</string>
+    <string name="sending">בשליחה…</string>
     <string name="stop">עצירה</string>
     <string name="more_options">אפשרויות נוספות</string>
     <string name="reasoning">מחשבות</string>
@@ -221,4 +222,10 @@
     <string name="tool_arguments">ארגומנטים</string>
     <string name="tool_result">תוצאה</string>
     <string name="quote_reply">צטט</string>
+    <string name="ensemble_private_messages">הודעות פרטיות</string>
+    <string name="ensemble_member_thinking">%1$s בתהליך חשיבה</string>
+    <string name="ensemble_out_of_story">ההודעות האלה מחוץ לסיפור ונשלחות כהודעות מערכת.</string>
+    <string name="ensemble_member_trace">יומן פעילות</string>
+    <string name="ensemble_no_trace">אין עדיין פעילות</string>
+    <string name="ensemble_trace_load_failed">לא ניתן לטעון את הפעילות.</string>
 </resources>

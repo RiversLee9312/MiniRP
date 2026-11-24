@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 namespace MiniRP.Core;
 
 public sealed class SearchAgent(Workspace world, Func<AgentSession> getSession, PageSource web,
-    string identity = "", Func<string>? roomReference = null)
+    string identity = "", Func<string>? roomReference = null, bool persistResults = true)
 {
     public SearchAgent(Workspace world, AgentSession session, PageSource web, string identity = "", Func<string>? roomReference = null)
         : this(world, () => session, web, identity, roomReference) { }
@@ -30,7 +30,7 @@ public sealed class SearchAgent(Workspace world, Func<AgentSession> getSession, 
             token, attachments: attachments, inputRole: inputRole, privateInput: privateInput));
         token.ThrowIfCancellationRequested();
         var answer = response.GetString("content");
-        if (!turn.Failed && turn.Changed && !string.IsNullOrWhiteSpace(answer))
+        if (persistResults && !turn.Failed && turn.Changed && !string.IsNullOrWhiteSpace(answer))
         {
             turn.Commit(world);
         }
@@ -68,7 +68,7 @@ public sealed class SearchAgent(Workspace world, Func<AgentSession> getSession, 
             historySubmission: () => session.ToolText(turn.HistoryAnswer()),
             reference: "Recent conversation reference:\n" + (roomReference?.Invoke() ?? world.RecentConversation(2400))));
         cancellationToken.ThrowIfCancellationRequested();
-        if (!turn.Failed)
+        if (persistResults && !turn.Failed)
         {
             turn.Commit(world);
         }

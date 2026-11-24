@@ -75,17 +75,17 @@ export function ReplySelectionMenu({ transcript, onQuote, t }) {
     action(text);
   }
 
-  return <div ref={popup} className="action-menu reply-selection-menu" popover="auto" role="menu" aria-label={t("quote_reply")}
+  return <div ref={popup} className="action-menu reply-selection-menu" popover="auto" role="menu" aria-label={t(onQuote ? "quote_reply" : "copy")}
     onPointerDown={(event) => event.preventDefault()} onKeyDown={(event) => {
       if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
       event.preventDefault();
       const items = Array.from(event.currentTarget.querySelectorAll("button"));
       (event.key === "Home" ? items[0] : event.key === "End" ? items.at(-1)
-        : items.find((item) => item !== document.activeElement)).focus();
+        : items.find((item) => item !== document.activeElement))?.focus();
     }}>
-    <button type="button" role="menuitem" className="action-menu-item" onClick={() => act(onQuote)}>
-      <span className="directional"><Icon name="arrow_forward" /></span>{t("quote_reply")}
-    </button>
+    {onQuote && <button type="button" role="menuitem" className="action-menu-item" onClick={() => act(onQuote)}>
+      <Icon name="format_quote" />{t("quote_reply")}
+    </button>}
     <button type="button" role="menuitem" className="action-menu-item" onClick={() => act((text) => navigator.clipboard.writeText(text))}>
       <Icon name="content_copy" />{t("copy")}
     </button>

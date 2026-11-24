@@ -30,6 +30,7 @@
     <string name="input_hint">پیام</string>
     <string name="open_menu">بازکردن منو</string>
     <string name="send">ارسال</string>
+    <string name="sending">در حال ارسال…</string>
     <string name="stop">توقف</string>
     <string name="more_options">گزینه‌های بیشتر</string>
     <string name="reasoning">اندیشه‌ها</string>
@@ -219,4 +220,10 @@
     <string name="tool_arguments">آرگومان‌ها</string>
     <string name="tool_result">نتیجه</string>
     <string name="quote_reply">نقل‌قول</string>
+    <string name="ensemble_private_messages">پیام‌های خصوصی</string>
+    <string name="ensemble_member_thinking">%1$s در حال فکر کردن است</string>
+    <string name="ensemble_out_of_story">این پیام‌ها خارج از داستان هستند و به‌صورت پیام سیستمی فرستاده می‌شوند.</string>
+    <string name="ensemble_member_trace">گزارش فعالیت</string>
+    <string name="ensemble_no_trace">هنوز فعالیتی نیست</string>
+    <string name="ensemble_trace_load_failed">بارگیری فعالیت ممکن نبود.</string>
 </resources>

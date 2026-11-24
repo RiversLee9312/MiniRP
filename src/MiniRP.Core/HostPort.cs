@@ -51,16 +51,31 @@ public sealed class HostPort(Action<JsonObject> emit, CancellationToken lifetime
         request["id"] = id;
         request["kind"] = "http_request";
         emit(request);
-        using var timeout = request.GetBoolean("stream") ? null : CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout?.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(request.GetInt32("timeout_ms", 240000), 1000, 600000)));
+        var streaming = request.GetBoolean("stream");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var idle = TimeSpan.FromMilliseconds(Math.Clamp(request.GetInt32("read_idle_timeout_ms", 120000), 1000, 600000));
+        if (!streaming)
+            timeout.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(request.GetInt32("timeout_ms", 240000), 1000, 600000)));
         var decoder = Encoding.UTF8.GetDecoder();
+        async ValueTask<JsonObject> ReadPart()
+        {
+            if (streaming) timeout.CancelAfter(idle);
+            try { return await channel.Reader.ReadAsync(timeout.Token); }
+            catch (OperationCanceledException) when (streaming && !ct.IsCancellationRequested && timeout.IsCancellationRequested)
+            {
+                throw new HttpTransportError("The model connection stopped sending data.");
+            }
+            finally { if (streaming) timeout.CancelAfter(Timeout.InfiniteTimeSpan); }
+        }
         try
         {
-            await foreach (var part in channel.Reader.ReadAllAsync(timeout?.Token ?? ct))
+            while (true)
             {
-                if (part.GetString("error").Length > 0)
+                var part = await ReadPart();
+                if (part.GetString("error") is { Length: > 0 } error)
                 {
-                    throw new IOException(part.GetString("error"));
+                    if (part.GetBoolean("network_error")) throw new HttpTransportError(error);
+                    throw new IOException(error);
                 }
 
                 var status = part.GetInt32("status", 200);
@@ -107,6 +122,8 @@ public sealed class HostPort(Action<JsonObject> emit, CancellationToken lifetime
     {
         internal int Status { get; } = status;
     }
+
+    internal sealed class HttpTransportError(string message) : IOException(message);
 
     internal sealed class PlatformError(string operation, string message, bool timedOut = false) : IOException(message)
     {

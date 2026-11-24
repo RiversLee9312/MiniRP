@@ -30,6 +30,7 @@
     <string name="input_hint">Zpráva</string>
     <string name="open_menu">Otevřít nabídku</string>
     <string name="send">Odeslat</string>
+    <string name="sending">Odesílání…</string>
     <string name="stop">Zastavit</string>
     <string name="more_options">Další možnosti</string>
     <string name="reasoning">Myšlenky</string>
@@ -223,4 +224,10 @@
     <string name="tool_arguments">Argumenty</string>
     <string name="tool_result">Výsledek</string>
     <string name="quote_reply">Citovat</string>
+    <string name="ensemble_private_messages">Soukromé zprávy</string>
+    <string name="ensemble_member_thinking">%1$s přemýšlí</string>
+    <string name="ensemble_out_of_story">Tyto zprávy jsou mimo příběh a odesílají se jako systémové zprávy.</string>
+    <string name="ensemble_member_trace">Záznam aktivity</string>
+    <string name="ensemble_no_trace">Zatím žádná aktivita</string>
+    <string name="ensemble_trace_load_failed">Aktivitu se nepodařilo načíst.</string>
 </resources>

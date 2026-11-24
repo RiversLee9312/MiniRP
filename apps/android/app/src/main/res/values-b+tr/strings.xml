@@ -30,6 +30,7 @@
     <string name="input_hint">Mesaj</string>
     <string name="open_menu">Menüyü aç</string>
     <string name="send">Gönder</string>
+    <string name="sending">Gönderiliyor…</string>
     <string name="stop">Durdur</string>
     <string name="more_options">Diğer seçenekler</string>
     <string name="reasoning">Düşünceler</string>
@@ -217,4 +218,10 @@
     <string name="tool_arguments">Bağımsız değişkenler</string>
     <string name="tool_result">Sonuç</string>
     <string name="quote_reply">Alıntıla</string>
+    <string name="ensemble_private_messages">Özel mesajlar</string>
+    <string name="ensemble_member_thinking">%1$s düşünüyor</string>
+    <string name="ensemble_out_of_story">Bu mesajlar hikâyenin dışındadır ve sistem mesajı olarak gönderilir.</string>
+    <string name="ensemble_member_trace">Etkinlik günlüğü</string>
+    <string name="ensemble_no_trace">Henüz etkinlik yok</string>
+    <string name="ensemble_trace_load_failed">Etkinlik yüklenemedi.</string>
 </resources>

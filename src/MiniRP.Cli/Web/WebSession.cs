@@ -255,10 +255,10 @@ internal sealed partial class WebSession : IAsyncDisposable
                 if (request.Length > 0 && queries.TryGetValue(request, out var completion))
                 {
                     if (kind is not ("models_loading" or "busy")) completion.TrySetResult(item);
-                    if (kind is "error" or "asset_result" or "transcript_page" or "memory" or "models" or "models_error" or "model_effort_levels" or "plugin_page" or "plugin")
+                    if (kind is "error" or "asset_result" or "transcript_page" or "ensemble_member_trace" or "memory" or "models" or "models_error" or "model_effort_levels" or "plugin_page" or "plugin")
                         continue;
                 }
-                if (kind == "transcript_page") continue;
+                if (kind is "transcript_page" or "ensemble_member_trace") continue;
                 if (kind == "ready")
                 {
                     var preset = item.GetString("preset");
@@ -324,6 +324,11 @@ internal sealed partial class WebSession : IAsyncDisposable
             case "ensemble_chat_loaded":
                 journal.RemoveAll(entry => entry.GetString("kind") is "ensemble_chat_loaded" or "ensemble_message" ||
                     IsTrace(entry) && entry.GetString("conversation").Length > 0);
+                break;
+            case "ensemble_activity":
+                journal.RemoveAll(entry => entry.GetString("kind") == kind &&
+                    entry.GetString("preset") == item.GetString("preset") && entry.GetString("chat") == item.GetString("chat") &&
+                    entry.GetString("conversation") == item.GetString("conversation") && entry.GetString("participant") == item.GetString("participant"));
                 break;
             case "ready" or "presets" or "chats" or "plugins" or "plugin_settings" or "preset_config" or
                 "ensemble_chats" or "world_changed" or "title" or "generating" or "busy":

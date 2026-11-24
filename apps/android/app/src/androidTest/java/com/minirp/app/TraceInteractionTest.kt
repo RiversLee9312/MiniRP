@@ -7,15 +7,19 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
@@ -36,6 +40,7 @@ import androidx.compose.ui.test.swipeDown
 import androidx.test.core.app.ApplicationProvider
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
 import com.minirp.app.ui.AgentConversation
 import com.minirp.app.ui.AgentRole
 import com.minirp.app.ui.ChatState
@@ -52,6 +57,12 @@ class TraceInteractionTest {
     @get:Rule val compose = createComposeRule()
 
     private fun label(id: Int) = ApplicationProvider.getApplicationContext<Context>().getString(id)
+
+    @Composable
+    private fun StandaloneStep(step: TraceBlock) {
+        var expanded by remember { mutableStateOf(false) }
+        TraceStep(step, 0, expanded, { expanded = !expanded })
+    }
 
     @Test
     fun toolTraceFormatsJsonAndKeepsPayloadsIndependentlyExpandableAndCopyable() {
@@ -71,8 +82,8 @@ class TraceInteractionTest {
             MaterialExpressiveTheme {
                 CompositionLocalProvider(LocalClipboard provides testClipboard) {
                     Column(Modifier.verticalScroll(rememberScrollState())) {
-                        TraceStep(TraceBlock("reason", reasoning = "Explanation in prose"), 0)
-                        TraceStep(TraceBlock("tool", tool = "fixture_tool", arguments = arguments, result = result), 0)
+                        StandaloneStep(TraceBlock("reason", reasoning = "Explanation in prose"))
+                        StandaloneStep(TraceBlock("tool", tool = "fixture_tool", arguments = arguments, result = result))
                     }
                 }
             }
@@ -113,6 +124,37 @@ class TraceInteractionTest {
         compose.onNodeWithText("final argument", substring = true).assertDoesNotExist()
         compose.onNodeWithTag("trace-copy:result").performClick()
         compose.runOnIdle { assertEquals(result, copied) }
+    }
+
+    @Test
+    fun manyShortJsonFieldsStartCollapsedAndScrollInsideTheirCard() {
+        val result = (0..90).joinToString(prefix = "{", postfix = "}") { index ->
+            if (index == 90) "\"tail\":\"End of payload\"" else "\"field$index\":$index"
+        }
+        compose.setContent {
+            MaterialExpressiveTheme {
+                StandaloneStep(TraceBlock("large-json", tool = "fixture_tool", result = result))
+            }
+        }
+        compose.onNodeWithText("fixture tool").performClick()
+        val toggle = compose.onNodeWithTag("trace-toggle:result")
+        val json = compose.onNodeWithTag("trace-json:result", useUnmergedTree = true)
+        val tail = compose.onNodeWithText("End of payload", substring = true)
+        compose.waitUntil(5_000) { toggle.isDisplayed() }
+        json.assertDoesNotExist()
+        tail.assertDoesNotExist()
+        toggle.performClick()
+        compose.waitUntil(5_000) { json.isDisplayed() }
+        val body = compose.onNodeWithTag("trace-payload-body:result")
+        assertTrue(body.fetchSemanticsNode().boundsInRoot.height <= with(compose.density) { 280.dp.toPx() } + 1)
+        body.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 20_000f) }
+        compose.waitUntil(5_000) {
+            val scroll = body.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+            scroll.maxValue() > 0f && scroll.value() >= scroll.maxValue()
+        }
+        tail.assertIsDisplayed()
+        toggle.performClick()
+        json.assertDoesNotExist()
     }
 
     @Test
@@ -175,7 +217,7 @@ class TraceInteractionTest {
                     ),
                     AgentRole.Preset,
                     onCancel = {},
-                    onSend = { _, _, _, _ -> false },
+                    onSend = { false },
                     onModels = {},
                 )
             }
@@ -245,6 +287,51 @@ class TraceInteractionTest {
     }
 
     @Test
+    fun anExpandedToolCanBeClosedFromItsPinnedHeading() {
+        val blocks = listOf(
+            TraceBlock("sticky-tool", tool = "fixture_tool", result = "Output detail\n".repeat(30)),
+        ) + List(80) { TraceBlock("following-$it", content = "Following speech $it") }
+        val list = LazyListState()
+        compose.setContent {
+            MaterialExpressiveTheme {
+                TraceLog(blocks, expandThoughts = true, list = list, standalonePluginTrace = true)
+            }
+        }
+        compose.onNodeWithText("fixture tool").performClick()
+        val offset = with(compose.density) { 72.dp.roundToPx() }
+        compose.runOnIdle { list.requestScrollToItem(1, offset) }
+        val heading = compose.onNodeWithTag("pinned:activity-step:sticky-tool")
+        compose.waitUntil(5_000) { heading.isDisplayed() }
+        compose.onAllNodesWithText("fixture tool").assertCountEquals(1)
+        heading.performClick()
+        heading.assertDoesNotExist()
+        compose.onNodeWithTag("trace-payload-body:result").assertDoesNotExist()
+        compose.onNodeWithText("fixture tool").assertIsDisplayed()
+    }
+
+    @Test
+    fun sendingTakesPrecedenceUntilTheMessageIsAccepted() {
+        val state = mutableStateOf(ChatState(
+            ready = true, preset = "fixture", chatId = "fixture-chat",
+            generating = AgentRole.Chat, submitting = AgentRole.Chat,
+            blocks = listOf(TraceBlock("user", user = true, content = "Hello")),
+        ))
+        compose.setContent {
+            MaterialExpressiveTheme {
+                AgentConversation(
+                    state.value, AgentRole.Chat,
+                    onCancel = {}, onSend = { false }, onModels = {},
+                )
+            }
+        }
+        compose.onNodeWithText(label(R.string.sending)).assertIsDisplayed()
+        compose.onNodeWithText(label(R.string.running)).assertDoesNotExist()
+        compose.runOnIdle { state.value = state.value.copy(submitting = null) }
+        compose.onNodeWithText(label(R.string.sending)).assertDoesNotExist()
+        compose.onNodeWithText(label(R.string.running)).assertIsDisplayed()
+    }
+
+    @Test
     fun growingVisibleTraceKeepsItsReadingPositionUntilReturningToLatest() {
         val trace = TraceBlock("live-trace", reasoning = "Thinking line\n".repeat(160), streaming = true)
         val blocks = mutableStateOf(listOf(trace))
@@ -293,7 +380,7 @@ class TraceInteractionTest {
                     state.value,
                     AgentRole.Chat,
                     onCancel = {},
-                    onSend = { _, _, _, _ -> false },
+                    onSend = { false },
                     onModels = {},
                 )
             }

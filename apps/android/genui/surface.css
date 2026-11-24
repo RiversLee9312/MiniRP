@@ -117,7 +117,18 @@ html:not(.expanded) {
     font-size: .8125rem;
 }
 .tool-fact-toggle:hover { background: color-mix(in srgb, currentColor 9%, transparent); }
-.tool-fact-preview { display: block; }
+.tool-fact-preview {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+}
+.tool-fact-full {
+    max-block-size: 16rem;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+}
 .tool-fact-details:not([open]) .tool-fact-less,
 .tool-fact-details:not([open]) .tool-fact-full,
 .tool-fact-details[open] .tool-fact-more,

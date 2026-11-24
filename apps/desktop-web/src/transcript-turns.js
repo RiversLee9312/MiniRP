@@ -45,10 +45,11 @@ export function transcriptTurns(pages, recent) {
         continue;
       }
       if (kind === "user" || kind === "system") {
+        const attachment = block.attachments?.[0];
         const turn = {
           id: block.id, kind: block.interjection === true ? "interjection" : kind,
           checkpoint: Boolean(block.version),
-          prompt: excerpt(block.content) || block.attachments?.[0]?.name || "",
+          prompt: excerpt(block.content) || (attachment?.kind === "quote" ? excerpt(attachment.text) : attachment?.name) || "",
         };
         starts.set(turn.id, turns.length);
         turns.push(turn);

@@ -41,7 +41,7 @@ ChatAgent、PresetAgent 和 PluginAgent 可激活 `container` 技能运行 x86-6
 
 ### 安装包
 
-- Windows x64 双击安装 MSI。开始菜单的「MiniRP」打开独立的 WebUI 窗口，关闭窗口会停止该次启动的本机服务。「MiniRP Terminal」打开终端。MSI 自带 Node.js 和抓取代码。两个入口共用 `%LOCALAPPDATA%\MiniRP`，可在命令行传入现有工作区路径。
+- Windows x64 双击 MSI 安装或覆盖升级。开始菜单的「MiniRP」打开独立的 WebUI 窗口，关闭窗口会停止该次启动的本机服务。「MiniRP Terminal」打开终端。MSI 自带 Node.js 和抓取代码。两个入口共用 `%LOCALAPPDATA%\MiniRP`，可在命令行传入现有工作区路径。
 - Debian 和 Ubuntu 可用 `sudo apt install ./minirp_<版本>_amd64.deb` 安装。RPM 系发行版可用 `sudo dnf install ./minirp-<版本>-1.x86_64.rpm`。ARM64 使用对应架构的包。运行 `minirp` 进入终端，或从应用菜单打开 MiniRP WebUI。两个入口共用 `$XDG_DATA_HOME/minirp`，默认是 `~/.local/share/minirp`。升级和卸载保留工作区。
 
 Windows 用 WiX Toolset 6 构建 MSI。脚本从当前 Node.js x64 发行包复制运行时和许可证，可用 `-NodeRuntime` 指定发行包目录。
@@ -175,7 +175,9 @@ ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conve
 
 各智能体通过同一会话路径构建请求、估算输入和应用压缩。输入估算基于协议实际会发送的指令、消息、附件和工具定义。提供商返回输入 token 数时，后续请求沿用仍然匹配的用量基准，只估算新增内容。压缩、历史改写和模型切换会使旧用量基准失效。PresetAgent 用 `inspect_preset` 读取当前配置，预设快照留在预设存储中。
 
-异步压缩默认开启。用量到上下文窗口的 70% 时后台生成检查点，到 80% 时校验并应用，接回这期间新增的消息。应用检查点后会按保留的内容重新估算。Android 在「设置 → 模型」的已保存模型旁可编辑两个阈值和异步开关。窗口优先取模型 API 返回的大小，缺少时使用提供商配置，调度会为模型输出预留空间。
+异步压缩默认开启。用量到上下文窗口的 70% 时后台生成检查点，到 80% 时校验并应用，接回这期间新增的消息。同步和异步压缩都从当前会话分支，用会话所选的模型续跑，并在分支末尾附加生成检查点的系统消息。分支保留模型窗口能容纳的原始消息前缀，可只读检索会话笔记和归档，生成的检查点会提示后续智能体关注相关事实和准确的 DB key。前缀能否命中缓存取决于模型提供商。
+
+应用检查点后会按保留的内容重新估算。Android 在「设置 → 模型」的已保存模型旁可编辑两个阈值和异步开关。窗口优先取模型 API 返回的大小，缺少时使用提供商配置，调度会为模型输出预留空间。
 
 旧 Python 格式的对话会自动导入，并把原档备份到对话目录的 `migration/python-v1.json`。旧 `world_state.json` 保留；导入时迁移该预设的世界进度和缓存。Python 运行时已从主线移除，最后可运行的 Python 检查点为 Git 提交 `24a52c2`。
 

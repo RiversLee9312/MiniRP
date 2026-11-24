@@ -166,6 +166,7 @@ internal fun decodeBlock(value: JSONObject) =
         pluginStatus = value.optString("plugin_status"),
         pluginSequence = value.optInt("plugin_sequence"),
         running = value.optString("plugin_status") == "running",
+        quotes = value.quoteAttachments(),
     ).withToolTraceMetadata(value)
 
 internal fun decodeEnsembleChat(value: JSONObject): EnsembleChat {
@@ -177,14 +178,21 @@ internal fun decodeEnsembleChat(value: JSONObject): EnsembleChat {
     )
 }
 
+internal fun decodeEnsembleActivity(value: JSONObject): EnsembleActivity? {
+    val conversation = value.optString("conversation")
+    val participant = value.optString("participant")
+    return if (conversation.isBlank() || participant.isBlank()) null
+        else EnsembleActivity(conversation, participant, value.optString("speaker"))
+}
+
+internal fun JSONObject.isEnsembleMessage(): Boolean =
+    optString("role", optString("kind")) in setOf("user", "system", "assistant")
+
 internal fun JSONObject.branchDraft(): BranchDraft {
-    val files =
-        optJSONArray("attachments")
-            ?.objects()
-            .orEmpty()
-            .filter { it.optString("id").isNotBlank() }
-            .associateBy { "saved-attachment:${it.optString("id")}" }
-    return BranchDraft(optString("text"), files, optJSONObject("open_ui_action"))
+    val files = optJSONArray("attachments")?.objects().orEmpty()
+        .filter { it.optString("kind") != "quote" && it.optString("id").isNotBlank() }
+        .associateBy { "saved-attachment:${it.optString("id")}" }
+    return BranchDraft(optString("text"), files, optJSONObject("open_ui_action"), quoteAttachments())
 }
 
 internal fun List<TraceBlock>.withLegacyReplyActions(): List<TraceBlock> {
@@ -224,7 +232,20 @@ internal fun List<TraceBlock>.withLegacyReplyActions(): List<TraceBlock> {
 }
 
 internal fun JSONObject.attachmentNames(): List<String> =
-    optJSONArray("attachments")?.objects()?.map { it.optString("name") }.orEmpty()
+    optJSONArray("attachments")?.objects().orEmpty()
+        .filter { it.optString("kind") != "quote" }.map { it.optString("name") }
+
+internal fun JSONObject.quoteAttachments(): List<QuoteAttachment> =
+    optJSONArray("attachments")?.objects().orEmpty().mapNotNull { item ->
+        val text = item.optString("text")
+        val id = item.optString("id")
+        if (item.optString("kind") == "quote" && id.isNotBlank() && text.isNotBlank())
+            QuoteAttachment(id, text)
+        else null
+    }
+
+internal fun QuoteAttachment.toJson(): JSONObject =
+    JSONObject().put("id", id).put("kind", "quote").put("text", text)
 
 internal fun JSONObject.thumbnails(): List<AttachmentThumbnail> =
     optJSONArray("attachments")

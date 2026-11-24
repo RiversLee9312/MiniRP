@@ -5,6 +5,7 @@ import { assetUrl, download, request, send, upload } from "./api.js";
 import { resolveLocale, setDocumentLocale, translator } from "./i18n.js";
 import { applyEvents, initial, prependHistory } from "./workspace.js";
 import { Composer, Transcript } from "./Conversation.jsx";
+import { EnsembleOverview, EnsembleRoster, EnsembleTraceDialog, OutOfStoryNotice, PrivateMessagesFab, RoomThinking } from "./EnsembleRoom.jsx";
 import { OpenUi } from "./OpenUi.jsx";
 import { ModelPicker } from "./ModelSettings.jsx";
 import { Settings } from "./Settings.jsx";
@@ -283,17 +284,19 @@ function App() {
   const seenOpened = useRef(0);
   const currentAction = useRef(null);
   const menuButton = useRef(null);
+  const privateFab = useRef(null);
   const locale = resolveLocale(preferences.locale ? [preferences.locale] : navigator.languages);
   const t = useMemo(() => translator(locale), [locale]);
   const onError = useCallback((message) => setNotice(message), []);
   const onLink = useCallback((url) => { if (/^https?:\/\//i.test(url || "")) setLink(url); }, []);
   const { workspace, connected, addHistory } = useWorkspace(onError, onLink);
   const dark = preferences.theme === "dark" || preferences.theme === "system_default" && systemDark;
-  const { preset, chat, conversation, config, busy, generating } = workspace;
+  const { preset, chat, conversation, config, busy, generating, privateParticipant, privateInStory } = workspace;
   const setupPending = config.setup_status === "draft";
   const role = setupPending ? "preset" : selectedRole;
-  const presetWorking = generating === "preset" || role === "preset" && sending ||
+  const presetRunning = generating === "preset" ||
     workspace.panes.preset.some((block) => block.plugin_status === "running");
+  const presetWorking = presetRunning || role === "preset" && sending;
   const navigationBusy = !connected || !workspace.ready || busy || presetWorking || creatingPreset;
   const presetExitLocked = setupPending || navigationBusy;
   const background = config.appearance?.background_url;
@@ -301,6 +304,10 @@ function App() {
   const seed = explicitAccent || (sampledAccent && sampledAccent.background === background && sampledAccent.preset === preset
     ? sampledAccent.color : "");
   const pane = role === "chat" && workspace.ensemble !== null ? "ensemble" : role;
+  const ensembleRoom = pane === "ensemble" && Boolean(chat);
+  const privateChat = ensembleRoom && Boolean(privateParticipant);
+  const systemOnly = privateChat && !privateInStory;
+  const privatePerson = privateChat && workspace.participants.find((person) => person.id === privateParticipant);
   const history = workspace.history[pane];
   const scope = useMemo(() => ({ preset, room: role === "preset" ? "" : chat,
     conversation: role === "chat" ? conversation : "", agent: role }), [preset, chat, conversation, role]);
@@ -310,11 +317,16 @@ function App() {
   const draft = drafts[draftKey] || { text: "", files: [], action: null };
   const changeDraft = (data) => setDrafts((current) => ({ ...current, [draftKey]: data }));
   function quoteReply(text) {
-    const quote = text.split(/\r?\n/).map((line) => line ? "> " + line : ">").join("\n");
+    const excerpt = text.trim();
+    if (!excerpt) return;
+    if (excerpt.length > 32768 || draft.files.length >= 20) {
+      setNotice(t("attachment_too_large"));
+      return;
+    }
+    const quote = { id: crypto.randomUUID(), kind: "quote", text: excerpt };
     setDrafts((current) => {
       const previous = current[draftKey] || draft;
-      const separator = !previous.text || previous.text.endsWith("\n\n") ? "" : previous.text.endsWith("\n") ? "\n" : "\n\n";
-      return { ...current, [draftKey]: { ...previous, text: previous.text + separator + quote + "\n\n" } };
+      return { ...current, [draftKey]: { ...previous, files: [...previous.files, quote] } };
     });
     requestAnimationFrame(() => {
       const input = document.querySelector(".composer textarea");
@@ -324,6 +336,7 @@ function App() {
   }
   const title = role === "preset" ? t("edit_preset")
     : role === "env" ? t("world")
+      : privateChat ? privatePerson?.name || t("ensemble_private_messages")
       : workspace.ensemble?.find((room) => room.id === conversation)?.name || workspace.title || config.name || "MiniRP";
 
   const run = useCallback(async (action) => {
@@ -370,12 +383,12 @@ function App() {
     seenOpened.current = workspace.opened;
   }, [workspace.opened, presetWorking]);
   useEffect(() => {
-    if (!workspace.draft || !chat) return;
+    if (!workspace.draft || !chat || workspace.ensemble !== null) return;
     const key = JSON.stringify(["chat", preset, chat, conversation]);
     setDrafts((values) => values[key] ? values : {
       ...values, [key]: { text: workspace.draft.text || "", files: workspace.draft.attachments || [], action: workspace.draft.open_ui_action },
     });
-  }, [workspace.draft, preset, chat, conversation]);
+  }, [workspace.draft, preset, chat, conversation, workspace.ensemble]);
   useEffect(() => {
     if (notice.length === 0) return;
     const timer = setTimeout(() => setNotice(""), 10000);
@@ -402,6 +415,11 @@ function App() {
   const select = (op, args = {}) => run(async () => {
     setRole("chat");
     await send(op, { locale, ...args });
+  });
+  const openScene = (id) => select("select_ensemble_chat", { preset, chat, conversation: id });
+  const openPrivateChat = (participant) => run(async () => {
+    await send("open_ensemble_dm", { preset, chat, participant, locale });
+    return true;
   });
   const roomPreset = config.chat_mode === "ensemble";
   const startConversation = () => select(roomPreset ? "select_chat" : "start_chat", { preset });
@@ -438,10 +456,16 @@ function App() {
   }
   function submit(asSystem = false, reply = null) {
     if (sending || !connected) return;
+    if (privateChat) asSystem = systemOnly;
     const text = (reply?.text || draft.text).trim();
     if (!text && (asSystem || !draft.files.length)) return;
-    const operation = generating === role ? "steer" : asSystem ? "system_message" : "message";
-    const attachments = reply ? [] : draft.files;
+    const steering = !ensembleRoom && generating === role;
+    const operation = steering ? "steer" : asSystem && !privateChat ? "system_message" : "message";
+    const attachments = reply || systemOnly ? [] : draft.files;
+    if (attachments.length > 20) {
+      setNotice(t("attachment_too_large"));
+      return;
+    }
     setSending(true);
     run(async () => {
       try {
@@ -472,7 +496,7 @@ function App() {
       select("home", { preset });
       return;
     }
-    if (busy || sending) return;
+    if (busy || sending || systemOnly) return;
     if (action.text?.trim()) submit(false, { text: action.text,
       action: { block: block.id, data: { form: action.form, context: action.context } } });
   };
@@ -487,7 +511,7 @@ function App() {
     [action("export_chat", "share", () => exportType("room", { room: item.id, conversation: "", agent: "chat", name: item.name }))],
     [action("delete_chat", "delete", () => confirmDelete({ ...item, name: item.name || t("chat") }, "chat"), { danger: true })],
   ];
-  const canRename = role === "chat" && Boolean(chat);
+  const canRename = role === "chat" && Boolean(chat) && !privateChat;
   const canGenerateTitle = canRename && !conversation &&
     (workspace.panes.chat.some((block) => (block.kind || block.role) === "user") || Boolean(workspace.ensemble));
   const rename = () => setDialog({
@@ -530,6 +554,29 @@ function App() {
   }
   const emptyAgent = role !== "chat" && !workspace.panes[pane].length;
   const loadingPreset = workspace.presets.find((item) => item.id === workspace.roomLoading?.preset);
+  const canQuote = canCompose && connected && !systemOnly && !sending && !busy && (ensembleRoom || generating !== role);
+  const composer = canCompose && <div className="composer-deck">
+    {!systemOnly && pluginTypes.length > 0 && <label className="model-picker plugin-attachment-type">
+      <span>{t("add_attachment")}</span>
+      <Select value={attachmentType} onChange={(event) => setAttachmentType(event.target.value)}>
+        <option value="">{t("choose_files")}</option>
+        {pluginTypes.map((item) => <option key={item.plugin + "/" + item.id} value={item.plugin + "/" + item.id}>{item.title || item.id}</option>)}
+      </Select>
+    </label>}
+    <Composer t={t} role={role} draft={draft.text} change={(text) => changeDraft({ ...draft, text })}
+      attachments={draft.files} addFiles={chooseFiles} removeFile={(id) => changeDraft({ ...draft, files: draft.files.filter((file) => file.id !== id) })}
+      generating={!ensembleRoom && generating === role} sending={sending}
+      disabled={!connected || sending || (busy && generating !== role)}
+      delivery={systemOnly ? "system" : privateChat ? "user" : "both"}
+      submit={submit} stop={() => run(() => send("cancel", { agent: role }))}
+      modelPicker={settings && <ModelPicker role={role} settings={settings} t={t} disabled={busy} label={t("select_model")}
+        select={(model) => run(() => {
+          const agents = { ...(settings.agents || {}) };
+          if (model) agents[role] = model;
+          else delete agents[role];
+          return saveSettings({ ...settings, agents });
+        })} />} />
+  </div>;
 
   return <div className="app-layout">
     <button aria-label={t("close")} className="scrim" type="button" data-open={sidebar && compact}
@@ -546,58 +593,51 @@ function App() {
           {role !== "chat" && <IconButton icon="arrow_back" className="directional" label={t("back")}
             disabled={role === "preset" && presetExitLocked} onClick={() => setRole("chat")} />}
           {role === "chat" && conversation && <IconButton icon="arrow_back" className="directional" label={t("back")} disabled={busy}
-            onClick={() => select("select_ensemble_chat", { preset, chat, conversation: "" })} />}
+            onClick={() => openScene(privateChat ? workspace.returnConversation : "")} />}
           {!home && <h1>{canRename ? <button type="button" className="toolbar-rename" title={t("rename")} disabled={busy}
             onClick={rename}>
             <span className="choice-label" dir="auto">{title}</span><Icon name="edit" />
-          </button> : title}</h1>}
+          </button> : privateChat ? <span className="ensemble-private-title">
+            <small>{t("ensemble_private_messages")}</small><bdi className="choice-label">{title}</bdi>
+          </span> : title}</h1>}
         </div>
         <div className="toolbar-actions">
+          {privateChat && <IconButton icon="visibility" label={t("ensemble_member_trace")}
+            onClick={() => setDialog({ type: "ensembleTrace", chat, participant: privateParticipant })} />}
           <IconButton icon="settings" label={t("settings")} disabled={!settings} onClick={() => show("settings")} />
           {preset && <ActionMenu label={t("more_options")} groups={conversationActions} />}
         </div>
       </header>
-      {workspace.ensemble && role === "chat" && <nav className="ensemble-bar" aria-label={t("conversations")}>
+      {ensembleRoom && conversation && !privateChat && <nav className="ensemble-bar" aria-label={t("conversations")}>
         {workspace.ensemble.map((room) => <button type="button" className="chip" key={room.id} disabled={busy}
-          aria-pressed={conversation === room.id} onClick={() => select("select_ensemble_chat", { preset, chat, conversation: room.id })}>
-          {room.name || t("chat")}
+          aria-pressed={conversation === room.id} onClick={() => openScene(room.id)}>
+          <bdi className="choice-label">{room.name || t("chat")}</bdi>
         </button>)}
       </nav>}
       {background && <img className={"workspace-background" + (!home && config.appearance.background_blur !== false ? " blurred" : "")}
         aria-hidden="true" alt="" src={assetUrl(background, { preset }, { mode: "background", inline: "1" })}
         onLoad={(event) => { if (!explicitAccent) setSampledAccent({ background, preset, color: backgroundAccent(event.currentTarget) }); }} />}
       <div className="chat-body">
-        {role === "preset" && presetWorking && <p className="preset-working" role="status">{t("running")}</p>}
+        {role === "preset" && presetRunning && <p className="preset-working" role="status">{t("running")}</p>}
+        {systemOnly && <div className="ensemble-ooc-inset"><OutOfStoryNotice t={t} /></div>}
         {!connected || !workspace.ready ? <p className="empty" role="status">{t(connected ? "running" : "connection_failed")}</p>
           : home ? <PresetHome key={preset} name={preset ? config.name || t("preset") : ""}
             startLabel={requiresStart ? t(roomPreset ? "new_room" : "new_chat") : undefined}
             busy={navigationBusy} {...{ t, createPreset, openPreset, startConversation }} />
+          : ensembleRoom && !conversation ? <EnsembleOverview scenes={workspace.ensemble} activity={workspace.ensembleActivity}
+            open={openScene} disabled={navigationBusy} t={t} />
           : preset && (emptyAgent ? <section className="agent-empty">
             {!presetWorking && <><span className="welcome-emblem"><Icon name={role === "env" ? "auto_awesome" : "edit"} /></span>
               <h2>{t("describe_changes")}</h2></>}
           </section> : <Transcript key={transcriptKey} blocks={workspace.panes[pane]} contextKey={transcriptKey} history={history} pane={pane}
-            addHistory={addHistory} onHistoryError={onError} quoteReply={canCompose ? quoteReply : undefined} {...{ scope, locale, dark, theme,
+            addHistory={addHistory} onHistoryError={onError} quoteReply={canQuote ? quoteReply : undefined} {...{ scope, locale, dark, theme,
             expanded: preferences.thoughts, busy, t, branch, openAction, runExport }} />)}
-        {canCompose && <div className="composer-deck">
-          {pluginTypes.length > 0 && <label className="model-picker plugin-attachment-type">
-            <span>{t("add_attachment")}</span>
-            <Select value={attachmentType} onChange={(event) => setAttachmentType(event.target.value)}>
-              <option value="">{t("choose_files")}</option>
-              {pluginTypes.map((item) => <option key={item.plugin + "/" + item.id} value={item.plugin + "/" + item.id}>{item.title || item.id}</option>)}
-            </Select>
-          </label>}
-          <Composer t={t} role={role} draft={draft.text} change={(text) => changeDraft({ ...draft, text })}
-            attachments={draft.files} addFiles={chooseFiles} removeFile={(id) => changeDraft({ ...draft, files: draft.files.filter((file) => file.id !== id) })}
-            generating={generating === role} disabled={!connected || sending || (busy && generating !== role)}
-            submit={submit} stop={() => run(() => send("cancel", { agent: role }))}
-            modelPicker={settings && <ModelPicker role={role} settings={settings} t={t} disabled={busy} label={t("select_model")}
-              select={(model) => run(() => {
-                const agents = { ...(settings.agents || {}) };
-                if (model) agents[role] = model;
-                else delete agents[role];
-                return saveSettings({ ...settings, agents });
-              })} />} />
-        </div>}
+        {ensembleRoom && !privateChat ? <footer className="ensemble-footer" data-composer={canCompose}>
+          {connected && conversation && <RoomThinking people={Object.values(workspace.ensembleActivity[conversation] || {})} t={t} />}
+          {composer}
+          <PrivateMessagesFab extended={!canCompose} disabled={!connected || navigationBusy || !workspace.participants.length}
+            open={() => setDialog({ type: "ensembleRoster", chat })} buttonRef={privateFab} t={t} />
+        </footer> : composer}
       </div>
     </main>
 
@@ -608,6 +648,15 @@ function App() {
       <a href={link} target="_blank" rel="noreferrer" onClick={() => setLink("")}>{link}</a>
     </Modal>}</Surface>
     <Surface>{dialog && <>
+      {dialog?.type === "ensembleRoster" && dialog.chat === chat && <EnsembleRoster people={workspace.participants} inStory={privateInStory}
+        open={openPrivateChat} t={t} close={(restoreFocus) => {
+          closeDialog();
+          if (restoreFocus) requestAnimationFrame(() => privateFab.current?.focus({ preventScroll: true }));
+        }} />}
+      {dialog?.type === "ensembleTrace" && dialog.chat === chat && dialog.participant === privateParticipant &&
+        <EnsembleTraceDialog participant={privateParticipant} active={workspace.ensemble.some((scene) =>
+          Object.hasOwn(workspace.ensembleActivity[scene.id] || {}, privateParticipant))}
+          expanded={preferences.thoughts} close={closeDialog} {...{ scope, locale, dark, theme, t }} />}
       {dialog?.type === "settings" && settings && <Settings {...{ settings, workspace, preferences, locale, t }}
         setPreferences={savePreferences} close={closeDialog} update={saveSettings}
         renderPlugins={(close) => <Plugins {...{ workspace, locale, t, close }} />} />}

@@ -128,6 +128,7 @@ public sealed partial class MemoryDb : IDisposable
     {
         lock (_gate)
         {
+            ObjectDisposedException.ThrowIf(_db == 0, this);
             Execute("ATTACH DATABASE ? AS branch", NativePath(path));
             try
             {

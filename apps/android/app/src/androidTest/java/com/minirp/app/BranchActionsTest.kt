@@ -111,8 +111,8 @@ class BranchActionsTest {
                         busy = false,
                         preparing = false,
                         onCancel = {},
-                        onSubmit = { text, files, _, _ ->
-                            submitted += text to files
+                        onSubmit = { message ->
+                            submitted += message.text to message.files
                             true
                         },
                         draft = draft.value,

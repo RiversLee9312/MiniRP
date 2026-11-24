@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -146,6 +147,19 @@ class OpenUiRendererTest {
                 "getComputedStyle(document.querySelector('.tool-fact-full')).userSelect === 'text'",
             cardId = argumentView,
         ))
+        assertEquals("true", js(
+            "document.querySelector('.tool-fact-toggle').click(); !document.querySelector('.tool-fact-details').open",
+            cardId = argumentView,
+        ))
+        js("window.retainedToolDocument = true", cardId = argumentView)
+        val disclosure = compose.onNodeWithText("设置日历")
+        repeat(3) {
+            disclosure.performClick()
+            compose.waitUntil(5_000) { js("true", cardId = argumentView) == null }
+            disclosure.performClick()
+            compose.waitUntil(5_000) { textContains("由插件管理", cardId = argumentView) }
+            assertEquals("true", js("window.retainedToolDocument === true", cardId = argumentView))
+        }
     }
 
     @Test
@@ -380,14 +394,114 @@ class OpenUiRendererTest {
             }
         }
         compose.waitUntil(15000) { textContains("Basic monthly") }
-        click("Plus")
-        compose.waitUntil(10000) { textContains("Plus monthly") }
+        val expanded = js("Math.ceil(document.getElementById('surface').getBoundingClientRect().height) > 420") == "true"
+        if (expanded) {
+            val expand = compose.onNodeWithText(compose.activity.getString(R.string.expand))
+            compose.waitUntil(5_000) { expand.isDisplayed() }
+            expand.performClick()
+            compose.waitUntil(10_000) { js("document.body.innerText.includes('Basic monthly')", expanded = true) == "true" }
+        }
+        click("Plus", expanded = expanded)
+        compose.waitUntil(10000) { js("document.body.innerText.includes('Plus monthly')", expanded = expanded) == "true" }
         assertNull(answer.get())
-        click("Compare this plan")
+        click("Compare this plan", expanded = expanded)
         compose.waitUntil(10000) { answer.get() != null }
         val context = answer.get()!!.getJSONObject("context")
         assertEquals("Plus", context.getString("plan"))
         assertEquals(1, context.length())
+    }
+
+    @SdkSuppress(minSdkVersion = 29)
+    @Test
+    fun openingAndClosingTheToolPreviewReturnsToTheSameTrace() {
+        val rows = JSONArray()
+        repeat(16) { rows.put(JSONObject().put("label", "Fixture row $it").put("value", "Fixture value $it")) }
+        val args = JSONObject()
+            .put("program", "root = ToolFacts(\$rows, \"\", \"\", \"More\", \"Less\")")
+            .put("title", "Tall tool preview")
+            .put("state", JSONObject().put("rows", rows))
+        val tool = decodeBlock(JSONObject().put("id", "tall-tool").put("tool", "fixture_tool")
+            .put("tool_title", "Preview fixture").put("tool_arguments_ui", args))
+        compose.setContent {
+            MaterialExpressiveTheme {
+                TraceLog(listOf(TraceBlock("thought", reasoning = "A thought"), tool), expandThoughts = true)
+            }
+        }
+        val disclosure = compose.onNodeWithText("Preview fixture")
+        val expand = compose.onNodeWithText(compose.activity.getString(R.string.expand))
+        val close = compose.onNodeWithContentDescription(compose.activity.getString(R.string.close))
+        val inline = "tall-tool:trace-arguments"
+        val density = compose.activity.resources.displayMetrics.density
+        disclosure.performClick()
+        repeat(3) {
+            compose.waitUntil(15_000) { expand.isDisplayed() && textContains("Fixture row 0", cardId = inline) }
+            val preview = compose.onNodeWithTag("open-ui-preview:$inline").fetchSemanticsNode().boundsInRoot
+            assertTrue(preview.height <= 144 * density + 1)
+            compose.activityRule.scenario.onActivity { activity ->
+                val webView = checkNotNull(findWebView(activity.window.decorView, inline))
+                assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, (webView.parent as View).importantForAccessibility)
+            }
+            expand.performClick()
+            compose.waitUntil(8_000) {
+                js("document.body.innerText.includes('Fixture row 15')", expanded = true) == "true"
+            }
+            val body = compose.onNodeWithTag("open-ui-expanded:$inline").fetchSemanticsNode().boundsInRoot
+            assertTrue(body.height <= 560 * density + 1)
+            close.performClick()
+            compose.waitUntil(8_000) { !close.isDisplayed() && textContains("Fixture row 0", cardId = inline) }
+        }
+        disclosure.performClick()
+        compose.waitUntil(5_000) { js("true", cardId = inline) == null }
+    }
+
+    @SdkSuppress(minSdkVersion = 29)
+    @Test
+    fun expandedToolFactCanScrollWithinItsInlineCard() {
+        val excerpt = List(100) { "Excerpt line $it" }.joinToString("\n")
+        val rows = JSONArray().put(JSONObject().put("label", "Text").put("value", excerpt))
+        val result = JSONObject()
+            .put("program", "root = ToolFacts(\$rows, \"\", \"\", \"More\", \"Less\")")
+            .put("state", JSONObject().put("rows", rows))
+        val tool = decodeBlock(JSONObject().put("id", "doc-fixture").put("tool", "read_doc")
+            .put("tool_title", "Read documentation").put("tool_result_ui", result))
+        val id = "doc-fixture:trace-result"
+        val list = LazyListState()
+        val following = List(28) { TraceBlock("following-$it", content = "Following reply $it") }
+        compose.setContent {
+            MaterialExpressiveTheme {
+                TraceLog(listOf(TraceBlock("thought", reasoning = "A thought"), tool) + following,
+                    expandThoughts = true, list = list)
+            }
+        }
+        compose.onNodeWithText("Read documentation").performClick()
+        compose.waitUntil(12_000) { textContains("Excerpt line 0", id) }
+        assertTrue(!textContains("Excerpt line 99", id))
+        click(cardId = id, selector = ".tool-fact-toggle")
+        compose.waitUntil(5_000) {
+            js("document.querySelector('.tool-fact-full').clientHeight > 0", cardId = id) == "true"
+        }
+        val center = JSONArray(checkNotNull(js("""
+            (() => {
+                const { x, y, width, height } = document.querySelector('.tool-fact-full').getBoundingClientRect();
+                return [(x + width / 2) * devicePixelRatio, (y + height * .8) * devicePixelRatio,
+                    (y + height * .25) * devicePixelRatio];
+            })()
+        """.trimIndent(), cardId = id)))
+        val origin = IntArray(2)
+        compose.activityRule.scenario.onActivity { activity ->
+            checkNotNull(findWebView(activity.window.decorView, id)).getLocationOnScreen(origin)
+        }
+        compose.runOnIdle { assertTrue(list.canScrollForward) }
+        swipeAt(
+            origin[0] + center.getDouble(0).toFloat(),
+            origin[1] + center.getDouble(1).toFloat(),
+            origin[1] + center.getDouble(2).toFloat(),
+        )
+        compose.waitUntil(5_000) { js("document.querySelector('.tool-fact-full').scrollTop > 40", cardId = id) == "true" }
+        compose.runOnIdle {
+            assertEquals(0, list.firstVisibleItemIndex)
+            assertEquals(0, list.firstVisibleItemScrollOffset)
+        }
     }
 
     @SdkSuppress(minSdkVersion = 29)
@@ -421,7 +535,12 @@ class OpenUiRendererTest {
     private fun textContains(text: String, cardId: String? = null): Boolean =
         js("document.body.innerText.includes(${JSONObject.quote(text)})", cardId = cardId) == "true"
 
-    private fun click(label: String, cardId: String? = null) {
+    private fun click(
+        label: String? = null,
+        cardId: String? = null,
+        selector: String = "button,a[href]",
+        expanded: Boolean = false,
+    ) {
         compose.waitForIdle()
         val center =
             JSONArray(
@@ -429,8 +548,9 @@ class OpenUiRendererTest {
                     js(
                         """
             (() => {
-                const button = [...document.querySelectorAll('button,a[href]')]
-                    .find(element => element.innerText.trim() === ${JSONObject.quote(label)});
+                const label = ${label?.let(JSONObject::quote) ?: "null"};
+                const button = [...document.querySelectorAll(${JSONObject.quote(selector)})]
+                    .find(element => label === null || element.innerText.trim() === label);
                 if (!button) return null;
                         window.lastTestClick = null;
                         button.addEventListener("click", () => { window.lastTestClick = button.innerText; }, { once: true });
@@ -439,13 +559,15 @@ class OpenUiRendererTest {
             })()
         """
                             .trimIndent(),
+                        expanded = expanded,
                         cardId = cardId,
                     )
                 )
             )
         val origin = IntArray(2)
         compose.activityRule.scenario.onActivity { activity ->
-            checkNotNull(findWebView(activity.window.decorView, cardId)).getLocationOnScreen(origin)
+            val view = if (expanded) expandedWebView(activity) else findWebView(activity.window.decorView, cardId)
+            checkNotNull(view).getLocationOnScreen(origin)
         }
         val x = origin[0] + center.getDouble(0).toFloat()
         val y = origin[1] + center.getDouble(1).toFloat()
@@ -460,7 +582,7 @@ class OpenUiRendererTest {
                 event.recycle()
             }
         }
-        compose.waitUntil(3000) { js("window.lastTestClick != null", cardId = cardId) == "true" }
+        compose.waitUntil(3000) { js("window.lastTestClick != null", expanded = expanded, cardId = cardId) == "true" }
     }
 
     private fun swipeExpanded(from: Float, to: Float, fromHeader: Boolean = false) {
@@ -475,6 +597,10 @@ class OpenUiRendererTest {
         val x = frame[0] + frame[2] / 2f
         val start = frame[1] + if (fromHeader) -frame[2] * 0.05f else frame[3] * from
         val end = frame[1] + frame[3] * to
+        swipeAt(x, start, end)
+    }
+
+    private fun swipeAt(x: Float, start: Float, end: Float) {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         val downTime = SystemClock.uptimeMillis()
         for (step in 0..14) {

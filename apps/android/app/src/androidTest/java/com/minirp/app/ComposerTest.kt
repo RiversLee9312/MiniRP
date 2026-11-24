@@ -75,7 +75,7 @@ class ComposerTest {
                             ),
                             agent = AgentRole.Chat,
                             onCancel = {},
-                            onSend = { _, _, _, _ -> false },
+                            onSend = { false },
                             onModels = { opened = it },
                         )
                     }
@@ -229,8 +229,8 @@ class ComposerTest {
                     preparing = false,
                     onCancel = {},
                     allowAttachments = false,
-                    onSubmit = { text, _, system, _ ->
-                        sent = text to system
+                    onSubmit = { message ->
+                        sent = message.text to message.system
                         true
                     },
                 )
@@ -373,7 +373,7 @@ class ComposerTest {
                     false,
                     {},
                     allowAttachments = false,
-                    onSubmit = { _, _, _, _ ->
+                    onSubmit = {
                         acceptance.await()
                     },
                 )

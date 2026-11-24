@@ -63,7 +63,7 @@ class ChatChromeTest {
                         AgentRole.Chat,
                         Modifier.fillMaxSize().padding(padding),
                         {},
-                        { _, _, _, _ -> false },
+                        { false },
                         {},
                     )
                 }
@@ -106,7 +106,7 @@ class ChatChromeTest {
                             role.value,
                             Modifier.weight(1f),
                             {},
-                            { _, _, _, _ -> false },
+                            { false },
                             {},
                         )
                     }

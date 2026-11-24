@@ -4,7 +4,7 @@ import { z } from "zod";
 
 const row = z.object({ label: z.string(), value: z.string(), mono: z.boolean().optional() });
 
-function FactValue({ value, mono, more, less }) {
+function FactValue({ label, value, mono, more, less }) {
     const style = "tool-fact-value" + (mono ? " tool-fact-code" : "");
     const lines = value.split("\n");
     if (value.length <= 180 && lines.length <= 4) return h("div", { className: style, dir: "auto" }, value);
@@ -13,7 +13,7 @@ function FactValue({ value, mono, more, less }) {
         h("summary", { className: "tool-fact-toggle" },
             h("span", { className: "tool-fact-more" }, more), h("span", { className: "tool-fact-less" }, less),
             h("span", { className: style + " tool-fact-preview", dir: "auto" }, excerpt)),
-        h("div", { className: style + " tool-fact-full", dir: "auto" }, value));
+        h("div", { className: style + " tool-fact-full", dir: "auto", role: "region", "aria-label": label, tabIndex: 0 }, value));
 }
 
 export const ToolFacts = defineComponent({
@@ -26,6 +26,6 @@ export const ToolFacts = defineComponent({
         status && h("p", { className: "tool-facts-status", dir: "auto" }, status),
         rows.length > 0 && h("dl", { className: "tool-facts-list" }, rows.map(({ label, value, mono }, index) =>
             h("div", { key: index, className: "tool-fact-row" }, h("dt", { dir: "auto" }, label),
-                h("dd", null, h(FactValue, { value, mono, more, less }))))),
+                h("dd", null, h(FactValue, { label, value, mono, more, less }))))),
         note && h("p", { className: "tool-facts-note", dir: "auto" }, note)),
 });

@@ -70,10 +70,13 @@ public sealed partial class Engine
 
     private void RequirePluginMembership(JsonObject context, string room, string conversation, JsonObject args)
     {
+        if (context.GetBoolean("_private_ensemble_dm") || room == Workspace.ChatId && ensemble?.IsPrivateChat(conversation) == true)
+            throw new UnauthorizedAccessException("Use the direct chat's own messaging tool.");
         if (!context.GetBoolean("_ensemble") || context.GetString("participant") is not { Length: > 0 } member) return;
         var recipient = args.GetString("participant");
         if (room != context.GetString("room") || room != Workspace.ChatId || ensemble is not { } hub ||
             (recipient.Length > 0 ? recipient != member : !hub.IsMember(conversation, member)))
             throw new UnauthorizedAccessException("A character can only send to its own chats.");
+
     }
 }

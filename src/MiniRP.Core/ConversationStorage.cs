@@ -66,6 +66,11 @@ internal static class ConversationStorage
             ct.ThrowIfCancellationRequested();
             if (Directory.GetLastWriteTimeUtc(run) < now.AddDays(-1)) Try(() => DeleteDirectory(run));
         }
+        foreach (var run in Directories(root, "checkpoint-runs").Where(VersionName))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (Directory.GetLastWriteTimeUtc(run) < now.AddDays(-1)) Try(() => DeleteDirectory(run));
+        }
         Try(() => PruneVersions(root, old, ct));
         Try(() => PruneOwnedAssets(root, old, ct));
     }

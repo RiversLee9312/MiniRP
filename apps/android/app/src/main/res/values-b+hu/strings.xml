@@ -30,6 +30,7 @@
     <string name="input_hint">Üzenet</string>
     <string name="open_menu">Menü megnyitása</string>
     <string name="send">Küldés</string>
+    <string name="sending">Küldés…</string>
     <string name="stop">Leállítás</string>
     <string name="more_options">További lehetőségek</string>
     <string name="reasoning">Gondolatok</string>
@@ -219,4 +220,10 @@
     <string name="tool_arguments">Argumentumok</string>
     <string name="tool_result">Eredmény</string>
     <string name="quote_reply">Idézés</string>
+    <string name="ensemble_private_messages">Privát üzenetek</string>
+    <string name="ensemble_member_thinking">%1$s gondolkodik</string>
+    <string name="ensemble_out_of_story">Ezek az üzenetek a történeten kívüliek, és rendszerüzenetként küldhetők el.</string>
+    <string name="ensemble_member_trace">Tevékenységnapló</string>
+    <string name="ensemble_no_trace">Még nincs tevékenység</string>
+    <string name="ensemble_trace_load_failed">Nem sikerült betölteni a tevékenységet.</string>
 </resources>

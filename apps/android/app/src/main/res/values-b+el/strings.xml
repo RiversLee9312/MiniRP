@@ -30,6 +30,7 @@
     <string name="input_hint">Μήνυμα</string>
     <string name="open_menu">Άνοιγμα μενού</string>
     <string name="send">Αποστολή</string>
+    <string name="sending">Αποστολή…</string>
     <string name="stop">Διακοπή</string>
     <string name="more_options">Περισσότερες επιλογές</string>
     <string name="reasoning">Σκέψεις</string>
@@ -219,4 +220,10 @@
     <string name="tool_arguments">Ορίσματα</string>
     <string name="tool_result">Αποτέλεσμα</string>
     <string name="quote_reply">Παράθεση</string>
+    <string name="ensemble_private_messages">Ιδιωτικά μηνύματα</string>
+    <string name="ensemble_member_thinking">Ο/Η %1$s σκέφτεται</string>
+    <string name="ensemble_out_of_story">Αυτά τα μηνύματα είναι εκτός ιστορίας και αποστέλλονται ως μηνύματα συστήματος.</string>
+    <string name="ensemble_member_trace">Αρχείο δραστηριότητας</string>
+    <string name="ensemble_no_trace">Καμία δραστηριότητα ακόμη</string>
+    <string name="ensemble_trace_load_failed">Δεν ήταν δυνατή η φόρτωση της δραστηριότητας.</string>
 </resources>

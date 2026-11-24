@@ -2,9 +2,14 @@ package com.minirp.app.ui
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.RectF
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.LruCache
 import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -12,6 +17,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -19,11 +25,13 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -49,6 +57,10 @@ data class OpenUiInteractions(
 internal const val PresetHomeAction = "preset-home"
 internal enum class PresetHomeResult { Returned, SetupPending, Working, Unavailable }
 
+private const val openUiInlineLimit = 420
+private const val openUiPreviewHeight = 144
+private const val openUiSheetHeightLimit = 560
+
 @Composable
 internal fun OpenUiReply(
     block: TraceBlock,
@@ -62,6 +74,7 @@ internal fun OpenUiReply(
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var measuredHeight by rememberSaveable { mutableIntStateOf(120) }
+    val hasPreview = measuredHeight > openUiInlineLimit
     val toolRevision = block.openUiRevision.takeIf { toolPresentation }
     var loaded by remember(viewKey, toolRevision) { mutableStateOf(false) }
     var failed by remember(viewKey, toolRevision) { mutableStateOf(false) }
@@ -152,10 +165,12 @@ internal fun OpenUiReply(
     ) {
         Column {
             Box(
-                Modifier.fillMaxWidth().height(measuredHeight.coerceAtMost(420).dp),
+                Modifier.fillMaxWidth()
+                    .height((if (hasPreview) openUiPreviewHeight else measuredHeight).dp)
+                    .testTag("open-ui-preview:$viewKey"),
                 contentAlignment = Alignment.Center,
             ) {
-                if (!expanded && !failed)
+                if (!expanded && !failed) {
                     OpenUiWebView(
                         renderedBlock,
                         interactions,
@@ -165,8 +180,20 @@ internal fun OpenUiReply(
                         displayAssets,
                         viewKey,
                         toolPresentation,
-                        ::handleMessage,
+                        previewOnly = hasPreview,
+                        onMessage = ::handleMessage,
                     )
+                    if (hasPreview && loaded) {
+                        Box(
+                            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(24.dp)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, MaterialTheme.colorScheme.surfaceContainerLow),
+                                    )
+                                ),
+                        )
+                    }
+                }
                 if (!loaded && !failed)
                     CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                 if (failed && !loaded)
@@ -176,7 +203,7 @@ internal fun OpenUiReply(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
             }
-            if (measuredHeight > 420 && !failed)
+            if (hasPreview && !failed)
                 TextButton(
                     onClick = { expanded = true },
                     modifier = Modifier.align(Alignment.End).padding(horizontal = 6.dp),
@@ -186,17 +213,17 @@ internal fun OpenUiReply(
         }
     }
     if (expanded && !failed)
-        FullSheet(title, onDismiss = ::closeExpanded) {
+        FullSheet(title, onDismiss = ::closeExpanded, heightLimit = openUiSheetHeightLimit.dp) {
             OpenUiWebView(
                 renderedBlock,
                 interactions,
-                Modifier.weight(1f).fillMaxWidth(),
+                Modifier.weight(1f).fillMaxWidth().testTag("open-ui-expanded:$viewKey"),
                 true,
                 null,
                 displayAssets,
                 viewKey,
                 toolPresentation,
-                ::handleMessage,
+                onMessage = ::handleMessage,
             )
         }
 }
@@ -211,6 +238,7 @@ private fun OpenUiWebView(
     displayAssets: DisplayAssets?,
     viewKey: String,
     toolPresentation: Boolean,
+    previewOnly: Boolean = false,
     onMessage: (JSONObject) -> Unit,
 ) {
     val dark = isSystemInDarkTheme()
@@ -242,6 +270,7 @@ private fun OpenUiWebView(
         factory = ::OpenUiSlot,
         modifier = modifier,
         update = { slot ->
+            slot.setPreviewOnly(previewOnly)
             val page = slot.bind(viewKey, expanded, pages, toolPresentation, onMessage)
             page.openMedia = if (toolPresentation) null
                 else displayAssets?.let { assets -> { url -> assets.openMedia(block.id, url) } }
@@ -249,7 +278,9 @@ private fun OpenUiWebView(
                 if (toolPresentation) null else interactions?.restore?.invoke(block.id)
             }
         },
-        onReset = OpenUiSlot::unbind,
+        // The detached document cache already reuses the expensive WebView. Keep a
+        // fresh Compose interop holder when a signed tool disclosure removes its body.
+        onReset = if (toolPresentation) null else OpenUiSlot::unbind,
         onRelease = OpenUiSlot::unbind,
     )
 }
@@ -327,8 +358,47 @@ private fun openUiCacheKey(id: String, toolPresentation: Boolean): String =
     if (toolPresentation) "tool:$id" else "reply:$id"
 
 private class OpenUiSlot(context: Context) : FrameLayout(context) {
-    private var cardId: String? = null
-    private var cache: OpenUiPageCache? = null
+    private class Binding(
+        val key: String,
+        val cache: OpenUiPageCache?,
+        val page: OpenUiPage,
+        var onMessage: (JSONObject) -> Unit,
+    )
+
+    private val main = Handler(Looper.getMainLooper())
+    private var previewOnly = false
+    private val normalFocusability = descendantFocusability
+    private var bound: Binding? = null
+    private val messages = mutableListOf<JSONObject>()
+    private var pendingHeight: JSONObject? = null
+    private var scheduled = false
+    private val publish = Runnable {
+        scheduled = false
+        val binding = bound ?: return@Runnable
+        val height = pendingHeight
+        val batch = messages.toList()
+        pendingHeight = null
+        messages.clear()
+        // AndroidView.update can run during lazy-list measurement. Replay and
+        // resize after layout returns, and drop callbacks from released holders.
+        if (height != null) binding.onMessage(height)
+        for (message in batch) {
+            if (bound !== binding) break
+            binding.onMessage(message)
+        }
+    }
+
+    fun setPreviewOnly(value: Boolean) {
+        if (previewOnly == value) return
+        previewOnly = value
+        if (value) findFocus()?.clearFocus()
+        descendantFocusability = if (value) ViewGroup.FOCUS_BLOCK_DESCENDANTS else normalFocusability
+        importantForAccessibility = if (value) View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            else View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean =
+        !previewOnly && super.dispatchTouchEvent(event)
 
     fun bind(
         id: String,
@@ -338,28 +408,51 @@ private class OpenUiSlot(context: Context) : FrameLayout(context) {
         onMessage: (JSONObject) -> Unit,
     ): OpenUiPage {
         val cacheKey = openUiCacheKey(id, toolPresentation)
-        if (cardId == cacheKey && cache === pages) {
-            return (getChildAt(0) as OpenUiPage).apply { callback = onMessage }
+        val existing = bound
+        if (existing != null && existing.key == cacheKey && existing.cache === pages) {
+            existing.onMessage = onMessage
+            return existing.page
         }
         unbind()
         val page = pages?.take(cacheKey) ?: OpenUiPage(context, expanded, toolPresentation = toolPresentation)
         page.tag = id
-        cardId = cacheKey
-        cache = pages
+        val binding = Binding(cacheKey, pages, page, onMessage)
+        bound = binding
         addView(page, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        page.attach(onMessage)
+        var replaying = true
+        page.attach { message ->
+            if (bound !== binding) return@attach
+            when (message.optString("type")) {
+                "height", "rendered", "error" -> {
+                    if (message.optString("type") == "height") pendingHeight = message else messages.add(message)
+                    if (!scheduled) {
+                        scheduled = true
+                        main.post(publish)
+                    }
+                }
+                "state" -> {
+                    // Live form changes must be saved before a following action
+                    // closes the view. Cached state can replay during attachment.
+                    if (replaying) main.post { binding.onMessage(message) } else binding.onMessage(message)
+                }
+                else -> binding.onMessage(message)
+            }
+        }
+        replaying = false
         return page
     }
 
     fun unbind() {
-        val id = cardId ?: return
-        val page = getChildAt(0) as OpenUiPage
-        page.detach()
+        val binding = bound ?: return
+        bound = null
+        main.removeCallbacks(publish)
+        pendingHeight = null
+        messages.clear()
+        scheduled = false
+        val page = binding.page
         removeView(page)
-        val pages = cache
-        if (pages == null) page.destroy() else pages.release(id, page)
-        cardId = null
-        cache = null
+        page.detach()
+        if (binding.cache == null) page.destroy() else binding.cache.release(binding.key, page)
     }
 }
 
@@ -375,6 +468,8 @@ internal class OpenUiPage(
     private var height: JSONObject? = null
     private var status: JSONObject? = null
     private var pendingState: JSONObject? = null
+    private var toolScrollRegions: List<RectF> = emptyList()
+    private var handlingVerticalScroll = false
     var callback: ((JSONObject) -> Unit)? = null
     @Volatile var openMedia: (suspend (String) -> Pair<String, InputStream>?)? = null
     val failed: Boolean
@@ -393,7 +488,7 @@ internal class OpenUiPage(
         settings.javaScriptCanOpenWindowsAutomatically = false
         settings.setSupportMultipleWindows(false)
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        isVerticalScrollBarEnabled = false
+        isVerticalScrollBarEnabled = ownsVerticalScroll
         webViewClient =
             object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(
@@ -474,6 +569,8 @@ internal class OpenUiPage(
     }
 
     fun detach() {
+        if (handlingVerticalScroll) parent?.requestDisallowInterceptTouchEvent(false)
+        handlingVerticalScroll = false
         callback = null
         openMedia = null
         onPause()
@@ -490,7 +587,11 @@ internal class OpenUiPage(
 
     private fun receive(event: JSONObject) {
         when (event.optString("type")) {
-            "height" -> height = event
+            "height" -> {
+                height = event
+                if (toolPresentation && !ownsVerticalScroll)
+                    toolScrollRegions = event.toolScrollBounds()
+            }
             "rendered",
             "error" -> status = event
             "state" -> if (callback == null) pendingState = event
@@ -508,20 +609,36 @@ internal class OpenUiPage(
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        // Keep WebView gestures in the expanded body. The sheet's handle remains draggable.
-        if (ownsVerticalScroll && event.actionMasked == MotionEvent.ACTION_DOWN) {
-            parent?.requestDisallowInterceptTouchEvent(true)
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            // The sheet body owns its scroll. Inline cards claim only gestures
+            // starting within a scrollable read-only field.
+            handlingVerticalScroll = ownsVerticalScroll || toolScrollRegions.any { it.contains(event.x, event.y) }
+            if (handlingVerticalScroll) parent?.requestDisallowInterceptTouchEvent(true)
         }
         val handled = super.dispatchTouchEvent(event)
         if (
-            ownsVerticalScroll &&
+            handlingVerticalScroll &&
                 (!handled ||
                     event.actionMasked == MotionEvent.ACTION_UP ||
                     event.actionMasked == MotionEvent.ACTION_CANCEL)
         ) {
             parent?.requestDisallowInterceptTouchEvent(false)
+            handlingVerticalScroll = false
         }
         return handled
+    }
+
+    private fun JSONObject.toolScrollBounds(): List<RectF> {
+        val regions = optJSONArray("scrollRegions") ?: return emptyList()
+        return (0 until regions.length().coerceAtMost(64)).mapNotNull { index ->
+            val bounds = regions.optJSONArray(index) ?: return@mapNotNull null
+            val left = bounds.optDouble(0).toFloat()
+            val top = bounds.optDouble(1).toFloat()
+            val right = bounds.optDouble(2).toFloat()
+            val bottom = bounds.optDouble(3).toFloat()
+            if (listOf(left, top, right, bottom).any { !it.isFinite() } || right <= left || bottom <= top) null
+            else RectF(left, top, right, bottom)
+        }
     }
 
     private fun sendLatest() {

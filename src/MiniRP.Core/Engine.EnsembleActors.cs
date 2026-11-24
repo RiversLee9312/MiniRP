@@ -102,7 +102,7 @@ public sealed partial class Engine
                 }
             });
             if (openings.Length > 0)
-                await Together(characters.Values, character => Task.Run(character.Synchronize, preparation.Token));
+                await Together(characters.Values, character => Task.Run(() => character.Synchronize(), preparation.Token));
         }
         catch
         {
@@ -132,12 +132,35 @@ public sealed partial class Engine
     {
         private readonly CancellationTokenSource stopped = CancellationTokenSource.CreateLinkedTokenSource(engine.lifetime.Token);
         private readonly Dictionary<string, CancellationTokenSource> turns = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, JsonObject> thinking = new(StringComparer.Ordinal);
         private readonly List<CancellationTokenSource> retired = [];
         private Task workers = Task.CompletedTask;
         private bool closing;
 
         public void Start() => workers = Task.WhenAll(characters.Values.Select(character =>
             Task.Run(() => character.Listen(this, stopped.Token))));
+
+        public void Report(Workspace workspace, string scene, string participant, string name, bool running)
+        {
+            lock (room.SyncRoot)
+            {
+                var item = new JsonObject
+                {
+                    ["kind"] = "ensemble_activity", ["preset"] = workspace.PresetId, ["chat"] = workspace.ChatId,
+                    ["conversation"] = scene, ["participant"] = participant, ["speaker"] = name, ["running"] = running
+                };
+                if (running) thinking[participant] = item;
+                else thinking.Remove(participant);
+                engine.Emit(item);
+            }
+        }
+
+        public JsonArray Snapshot(string? scene = null)
+        {
+            lock (room.SyncRoot)
+                return new JsonArray(thinking.Values.Where(item => scene is null || item.GetString("conversation") == scene)
+                    .Select(JsonValues.Clone).ToArray());
+        }
 
         public void Publish(string scene, JsonObject item, string interaction = "", string? locale = null,
             RoomCause? cause = null, string[]? ancestry = null)
@@ -196,8 +219,12 @@ public sealed partial class Engine
             { SingleReader = true, AllowSynchronousContinuations = false });
         private readonly Dictionary<string, JsonObject> currentTrace = new(StringComparer.Ordinal);
         private AgentSession? search;
+        private AgentSession? directSession;
+        private AgentSession? directSearch;
+        private ChatAgent? directAgent;
         private string conversation = "";
         private bool opening;
+        private bool direct;
         private Action<string, JsonObject>? posted;
 
         public string Id { get; }
@@ -218,15 +245,24 @@ public sealed partial class Engine
 
         public async Task Initialize(CancellationToken token)
         {
-            var chatStart = Task.Run(() => Session = engine.agentSessions.Open("chat", room.Database(Id, "chat"),
-                () => Volatile.Read(ref engine.routing).For("chat"), () => Context("chat"), (item, info) => Record("chat", item, info),
-                () => [room.CharacterSkill(Id, conversation, posted!, PublishAssets, opening)], CanReadChat,
-                conversationWorkspace: workspace), token);
-            var searchStart = workspace.AgenticSearch ? Task.Run(() => SearchSession(), token) : Task.CompletedTask;
+            var chatStart = Task.Run(() => Session = ChatSession(isDirect: false), token);
+            var searchStart = workspace.AgenticSearch ? Task.Run(() => SearchSession(isDirect: false), token) : Task.CompletedTask;
             await Task.WhenAll(chatStart, searchStart);
-            var research = new SearchAgent(workspace, SearchSession, CreatePageSource(), "Research for " + name + ". " + prompt,
-                () => RecentEnsembleChatReference(room, conversation));
-            Agent = new(workspace, Session, research, "Your character is " + name + ". " + prompt);
+            Agent = CreateAgent(Session, isDirect: false);
+        }
+
+        private AgentSession ChatSession(bool isDirect) => engine.agentSessions.Open("chat", room.Database(Id, "chat", isDirect),
+            () => Volatile.Read(ref engine.routing).For("chat"), () => Context("chat"), (item, info) => Record("chat", item, info),
+            () => [room.CharacterSkill(Id, conversation, posted!, PublishAssets, opening)], CanReadChat,
+            conversationWorkspace: workspace);
+
+        private AgentSession DirectSession() => directSession ??= ChatSession(isDirect: true);
+
+        private ChatAgent CreateAgent(AgentSession session, bool isDirect)
+        {
+            var research = new SearchAgent(workspace, () => SearchSession(isDirect), CreatePageSource(),
+                "Research for " + name + ". " + prompt, () => RecentEnsembleChatReference(room, conversation), persistResults: !isDirect);
+            return new(workspace, session, research, "Your character is " + name + ". " + prompt);
         }
 
         public async Task Prepare(Action<int> progress, CancellationToken token)
@@ -256,11 +292,14 @@ public sealed partial class Engine
             {
                 await foreach (var delivery in deliveries.Reader.ReadAllAsync(stopping))
                 {
-                    if (delivery.Token.IsCancellationRequested || !CanReadChat(delivery.Scene)) continue;
+                    if (delivery.Token.IsCancellationRequested || !room.IsMember(delivery.Scene, Id)) continue;
                     try
                     {
-                        Synchronize();
-                        if (!delivery.Respond) continue;
+                        if (!delivery.Respond)
+                        {
+                            if (room.PrivateParticipant(delivery.Scene).Length == 0) Synchronize();
+                            continue;
+                        }
                         var input = "A new post in this chat may need your response. In the conversation history, the triggering post has ID " +
                             delivery.Message.GetString("id") + ". Decide whether a useful visible reply is appropriate; otherwise stay silent." +
                             delivery.Interaction;
@@ -270,14 +309,15 @@ public sealed partial class Engine
                         {
                             engine.PostEnsembleMessage(target, message, notifyCharacters: false);
                             activity.Publish(target, message, locale: delivery.Locale, cause: delivery.Cause, ancestry: lineage);
-                        }, delivery.Token, attachments: delivery.Message.GetArray("attachments"));
+                        }, delivery.Token, attachments: new JsonArray(delivery.Message.GetArray("attachments")
+                            .Where(file => !MessageAttachments.IsQuote(file)).Select(JsonValues.Clone).ToArray()), activity: activity);
                     }
                     catch (OperationCanceledException) when (delivery.Token.IsCancellationRequested || stopping.IsCancellationRequested) { }
                     catch (Exception error)
                     {
                         engine.Emit(new() { ["kind"] = "error", ["agent"] = "chat", ["model_turn"] = true,
                             ["preset"] = workspace.PresetId, ["chat"] = workspace.ChatId, ["conversation"] = delivery.Scene, ["participant"] = Id,
-                            ["message"] = error.Message });
+                            ["private_participant"] = room.PrivateParticipant(delivery.Scene), ["message"] = error.Message });
                     }
                     finally { engine.operationLocale.Value = null; }
                 }
@@ -286,17 +326,23 @@ public sealed partial class Engine
         }
 
         private async Task Run(string scene, string input, Action<string, JsonObject> publish, CancellationToken token,
-            bool isOpening = false, JsonArray? attachments = null)
+            bool isOpening = false, JsonArray? attachments = null, RoomActivity? activity = null)
         {
             conversation = scene;
             opening = isOpening;
+            direct = room.PrivateParticipant(scene).Length > 0;
             posted = publish;
             var finishMessage = "Cancelled.";
             try
             {
-                if (isOpening) Synchronize();
-                var context = "The active chat is " + room.Name(scene) + " (" + scene + "). Only chat_send posts a visible reply.";
-                await Agent.Run(input, token, attachments, inputRole: "system", privateInput: true, turnInstructions: context);
+                activity?.Report(workspace, scene, Id, name, running: true);
+                Synchronize(direct ? scene : "");
+                var context = direct
+                    ? "This is a private exchange with the user. The only permitted recipient is this private chat (" + scene +
+                        "). Use chat_send for your visible reply. Respect the in-story or out-of-character framing of the message."
+                    : "The active chat is " + room.Name(scene) + " (" + scene + "). Only chat_send posts a visible reply.";
+                var agent = direct ? directAgent ??= CreateAgent(DirectSession(), isDirect: true) : Agent;
+                await agent.Run(input, token, attachments, inputRole: "system", privateInput: true, turnInstructions: context);
                 finishMessage = "Finished.";
             }
             catch (Exception error)
@@ -306,39 +352,51 @@ public sealed partial class Engine
             }
             finally
             {
-                lock (room.SyncRoot)
+                try
                 {
-                    foreach (var block in currentTrace.Values.Where(block => block.GetBoolean("running")).ToArray())
+                    lock (room.SyncRoot)
                     {
-                        var end = new JsonObject { ["kind"] = block.GetBoolean("compaction") ? "context_trace" : "tool_end",
-                            ["agent"] = block.GetString("agent"), ["block"] = block.GetString("id"), ["chat"] = workspace.ChatId,
-                            ["preset"] = workspace.PresetId, ["conversation"] = scene, ["participant"] = Id, ["speaker"] = name,
-                            ["session"] = JsonValues.Clone(block["session"]),
-                            ["name"] = block.GetString("tool"), ["text"] = finishMessage };
-                        RecordTrace(end, currentTrace, room.Blocks(scene));
-                        if (!isOpening) engine.Emit(end);
+                        foreach (var block in currentTrace.Values.Where(block => block.GetBoolean("running")).ToArray())
+                        {
+                            var end = new JsonObject { ["kind"] = block.GetBoolean("compaction") ? "context_trace" : "tool_end",
+                                ["agent"] = block.GetString("agent"), ["block"] = block.GetString("id"), ["chat"] = workspace.ChatId,
+                                ["preset"] = workspace.PresetId, ["conversation"] = scene, ["participant"] = Id, ["speaker"] = name,
+                                ["session"] = JsonValues.Clone(block["session"]),
+                                ["name"] = block.GetString("tool"), ["text"] = finishMessage };
+                            if (direct) end["private_participant"] = Id;
+                            RecordTrace(end, currentTrace, room.Blocks(scene));
+                            if (!isOpening) engine.Emit(end);
+                        }
+                        workspace.Save();
                     }
-                    currentTrace.Clear();
-                    workspace.Save();
                 }
-                posted = null;
-                conversation = "";
-                opening = false;
+                finally
+                {
+                    currentTrace.Clear();
+                    posted = null;
+                    conversation = "";
+                    opening = false;
+                    direct = false;
+                    activity?.Report(workspace, scene, Id, name, running: false);
+                }
             }
         }
 
-        public void Synchronize()
+        public void Synchronize(string directScene = "")
         {
-            Session.ConfigureWorldMode(workspace.AgenticSearch);
-            if (workspace.AgenticSearch) _ = SearchSession();
+            var isDirect = directScene.Length > 0;
+            var session = isDirect ? DirectSession() : Session;
+            session.ConfigureWorldMode(workspace.AgenticSearch);
+            if (workspace.AgenticSearch) _ = SearchSession(isDirect);
             lock (room.SyncRoot)
             {
-                EnsembleConversation.DeliverPrivate(Session);
-                room.Deliver(Id, Session);
+                if (!isDirect) EnsembleConversation.DeliverPrivate(session);
+                room.Deliver(Id, session, directScene);
             }
         }
 
-        private bool CanReadChat(string target) => room.IsMember(target, Id);
+        private bool CanReadChat(string target) => room.IsMember(target, Id) &&
+            (direct ? target == conversation : room.PrivateParticipant(target).Length == 0);
 
         public AgentSession? LoadedSession(string role) => role switch
         {
@@ -351,10 +409,17 @@ public sealed partial class Engine
         {
             ["agent"] = role, ["preset"] = workspace.PresetId, ["room"] = workspace.ChatId,
             ["chat"] = conversation.Length > 0 ? conversation : null, ["_ensemble"] = true,
-            ["participant"] = Id, ["session"] = role + "-" + workspace.ChatId + "-" + Id
+            ["_private_ensemble_dm"] = direct,
+            ["participant"] = Id, ["session"] = role + "-" + workspace.ChatId + "-" + Id + (direct ? "-direct" : "")
         };
 
-        private AgentSession SearchSession() => search ??= engine.agentSessions.Open("search", room.Database(Id, "search"),
+        private AgentSession SearchSession(bool isDirect)
+        {
+            if (isDirect) return directSearch ??= OpenSearch(isDirect);
+            return search ??= OpenSearch(isDirect);
+        }
+
+        private AgentSession OpenSearch(bool isDirect) => engine.agentSessions.Open("search", room.Database(Id, "search", isDirect),
             () => Volatile.Read(ref engine.routing).For("search"), () => Context("search"), (item, info) => Record("search", item, info),
             canReadChat: CanReadChat, conversationWorkspace: workspace);
 
@@ -386,6 +451,7 @@ public sealed partial class Engine
             item["participant"] = Id;
             item["speaker"] = name;
             item["session"] = session;
+            if (direct) item["private_participant"] = Id;
             lock (room.SyncRoot)
             {
                 RecordTrace(item, currentTrace, room.Blocks(scene));
@@ -398,12 +464,15 @@ public sealed partial class Engine
             }
         }
 
-        private void PublishAssets(JsonObject message, string text) => Session.AddPublishedAssets(message, text);
+        private void PublishAssets(JsonObject message, string text) =>
+            (direct ? DirectSession() : Session).AddPublishedAssets(message, text);
 
         public void Dispose()
         {
             search?.Dispose();
             Session?.Dispose();
+            directSearch?.Dispose();
+            directSession?.Dispose();
         }
     }
 }

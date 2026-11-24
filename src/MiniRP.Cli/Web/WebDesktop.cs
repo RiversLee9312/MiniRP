@@ -18,13 +18,13 @@ internal static class WebDesktop
     private static readonly HashSet<string> Operations = new(StringComparer.Ordinal)
     {
         "home", "list_presets", "list_chats", "library_page", "select_chat", "start_chat", "create_preset", "open_preset",
-        "resume_preset_interview", "select_ensemble_chat", "rename_ensemble_chat", "message", "system_message", "steer",
+        "resume_preset_interview", "select_ensemble_chat", "open_ensemble_dm", "ensemble_member_trace", "rename_ensemble_chat", "message", "system_message", "steer",
         "cancel", "branch", "rename", "generate_title", "delete_chat", "delete_preset", "save_prompt", "save_search_mode",
         "reset_world", "memory", "models", "model_effort_levels", "plugins_list", "plugin_locale", "plugin_settings", "plugin_page",
         "plugin_setting", "plugin_action", "plugin_enabled", "plugin_scope", "plugin_uninstall", "plugin_command", "interaction_open"
     };
     private static readonly HashSet<string> Queries = new(StringComparer.Ordinal)
-        { "library_page", "memory", "models", "model_effort_levels", "plugin_page", "message" };
+        { "library_page", "memory", "models", "model_effort_levels", "plugin_page", "open_ensemble_dm", "ensemble_member_trace", "message" };
 
     public static string ContentType(string name) =>
         Types.TryGetContentType(name, out var type) ? type : "application/octet-stream";

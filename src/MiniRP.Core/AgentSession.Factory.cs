@@ -11,7 +11,23 @@ public sealed partial class AgentSession
         Func<string, string>? LanguageGuidance = null);
 
     private sealed record Bindings(Func<Provider, Action<JsonObject>, string, IEnumerable<AgentSkill>> Skills, Func<string, JsonObject?> State,
-        AgentAssets? Assets, Func<string> OpenUi, Func<string> Locale);
+        AgentAssets? Assets, Func<string> OpenUi, Func<string> Locale, string? CheckpointRoot = null);
+
+    private AgentSession OpenCheckpointBranch(string database, ModelClient model, JsonArray history, string guide,
+        string locale, Action<string>? reasoning) =>
+        new AgentSession(profile with { FollowUp = false, BackgroundMessages = false, LanguageGuidance = null },
+            database, model, (item, _) =>
+            {
+                if (item.GetString("kind") == "delta" && item.GetString("type") == "reasoning")
+                    reasoning?.Invoke(item.GetString("text"));
+            }, null, _ => new((_, _, _) => [], _ => null, null, () => "", () => locale))
+        {
+            history = history,
+            // The parent's first prompt message already includes its previous checkpoint.
+            instructionState = new() { ["base"] = guide },
+            Summary = "",
+            delegatedSearch = delegatedSearch
+        };
 
     /// <summary>Resolves role permissions and attaches every session to the same runtime.</summary>
     internal sealed class Factory(HostPort port, PluginRuntime? plugins, string? attachmentRoot, Func<string> openUi,
@@ -82,7 +98,7 @@ public sealed partial class AgentSession
                         var owner = context();
                         var preset = owner.GetString("preset");
                         var room = role is "preset" or "plugin" ? preset : owner.GetString("room", owner.GetString("chat"));
-                        if (WorkspaceIds.IsValid(preset) && WorkspaceIds.IsValid(room))
+                        if (!owner.GetBoolean("_private_ensemble_dm") && WorkspaceIds.IsValid(preset) && WorkspaceIds.IsValid(room))
                             yield return new AgentContainer(container, assets, session.Db, preset, room,
                                 presetWorkspace is null ? null : assetDb.Path).Skill();
                     }
@@ -92,7 +108,8 @@ public sealed partial class AgentSession
                 return new(ResolveSkills, key => scoped ? plugins?.ReadStateProjection(role, context(), key, canReadChat) : null,
                     assets, () => profile.InteractiveUi ? openUi() : "",
                     () => AgentLanguage.Normalize(delegatedLocale) ?? AgentLanguage.Normalize(requestedLocale?.Invoke()) ??
-                        AgentLanguage.Normalize(session.Db.Get(LocaleKey)) ?? AgentLanguage.Normalize(context().GetString("locale")) ?? AgentLanguage.Default);
+                        AgentLanguage.Normalize(session.Db.Get(LocaleKey)) ?? AgentLanguage.Normalize(context().GetString("locale")) ?? AgentLanguage.Default,
+                    attachmentRoot is null ? null : Path.Combine(Path.GetDirectoryName(attachmentRoot)!, "checkpoint-runs"));
             });
         }
     }

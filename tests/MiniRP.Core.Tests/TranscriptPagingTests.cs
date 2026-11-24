@@ -152,8 +152,16 @@ public sealed class TranscriptPagingTests
             var ensemble = new EnsembleConversation(world);
             var bridge = ensemble.List().Single(item => item.GetString("name") == "Bridge").GetString("id");
             var lab = ensemble.List().Single(item => item.GetString("name") == "Lab").GetString("id");
-            for (var index = 0; index < 95; index++) ensemble.Blocks(bridge).AddNode(Block("Bridge", index));
-            ensemble.Blocks(lab).AddNode(Block("Lab", 0));
+            for (var index = 0; index < 95; index++)
+            {
+                var entry = Block("Bridge", index);
+                entry["role"] = "user";
+                ensemble.Blocks(bridge).AddNode(entry);
+                ensemble.Blocks(bridge).AddNode(new JsonObject { ["id"] = JsonValues.NewId(), ["participant"] = "ada", ["reasoning"] = "Hidden trace." });
+            }
+            var labMessage = Block("Lab", 0);
+            labMessage["role"] = "assistant";
+            ensemble.Blocks(lab).AddNode(labMessage);
             foreach (var name in new[] { "ada", "bryn" })
             {
                 using var character = new MemoryDb(ensemble.Database(name, "chat"));
@@ -178,6 +186,11 @@ public sealed class TranscriptPagingTests
             var old = await Read(bridge);
             Assert.HasCount(15, old.GetArray("blocks"));
             Assert.AreEqual("Bridge-0", old.GetArray("blocks")[0].GetString("content"));
+            var traces = (await Request(engine, new JsonObject { ["op"] = "ensemble_member_trace", ["preset"] = preset,
+                ["chat"] = room, ["participant"] = "ada" })).GetArray("blocks");
+            Assert.HasCount(30, traces);
+            Assert.IsTrue(traces.All(block => block.GetString("scene_name") == "Bridge" && block.GetString("conversation") == bridge &&
+                block.GetString("reasoning") == "Hidden trace."));
             Assert.IsTrue((await Read(lab)).ContainsKey("error"));
             var labLoaded = await Select(lab);
             Assert.AreEqual("Lab-0", labLoaded.GetArray("blocks").Single().GetString("content"));

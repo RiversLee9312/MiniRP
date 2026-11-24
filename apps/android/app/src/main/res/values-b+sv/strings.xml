@@ -30,6 +30,7 @@
     <string name="input_hint">Meddelande</string>
     <string name="open_menu">Öppna menyn</string>
     <string name="send">Skicka</string>
+    <string name="sending">Skickar…</string>
     <string name="stop">Stoppa</string>
     <string name="more_options">Fler alternativ</string>
     <string name="reasoning">Tankar</string>
@@ -219,4 +220,10 @@
     <string name="tool_arguments">Argument</string>
     <string name="tool_result">Resultat</string>
     <string name="quote_reply">Citera</string>
+    <string name="ensemble_private_messages">Privata meddelanden</string>
+    <string name="ensemble_member_thinking">%1$s tänker</string>
+    <string name="ensemble_out_of_story">De här meddelandena ligger utanför berättelsen och skickas som systemmeddelanden.</string>
+    <string name="ensemble_member_trace">Aktivitetslogg</string>
+    <string name="ensemble_no_trace">Ingen aktivitet än</string>
+    <string name="ensemble_trace_load_failed">Aktiviteten kunde inte läsas in.</string>
 </resources>

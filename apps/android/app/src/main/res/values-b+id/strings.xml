@@ -30,6 +30,7 @@
     <string name="input_hint">Pesan</string>
     <string name="open_menu">Buka menu</string>
     <string name="send">Kirim</string>
+    <string name="sending">Mengirim…</string>
     <string name="stop">Hentikan</string>
     <string name="more_options">Opsi lainnya</string>
     <string name="reasoning">Pemikiran</string>
@@ -217,4 +218,10 @@
     <string name="tool_arguments">Argumen</string>
     <string name="tool_result">Hasil</string>
     <string name="quote_reply">Kutip</string>
+    <string name="ensemble_private_messages">Pesan pribadi</string>
+    <string name="ensemble_member_thinking">%1$s sedang berpikir</string>
+    <string name="ensemble_out_of_story">Pesan ini terjadi di luar cerita dan dikirim sebagai pesan sistem.</string>
+    <string name="ensemble_member_trace">Log aktivitas</string>
+    <string name="ensemble_no_trace">Belum ada aktivitas</string>
+    <string name="ensemble_trace_load_failed">Aktivitas tidak dapat dimuat.</string>
 </resources>

@@ -30,6 +30,7 @@
     <string name="input_hint">Bericht</string>
     <string name="open_menu">Menu openen</string>
     <string name="send">Verzenden</string>
+    <string name="sending">Verzenden…</string>
     <string name="stop">Stoppen</string>
     <string name="more_options">Meer opties</string>
     <string name="reasoning">Gedachten</string>
@@ -219,4 +220,10 @@
     <string name="tool_arguments">Argumenten</string>
     <string name="tool_result">Resultaat</string>
     <string name="quote_reply">Citeren</string>
+    <string name="ensemble_private_messages">Privéberichten</string>
+    <string name="ensemble_member_thinking">%1$s denkt na</string>
+    <string name="ensemble_out_of_story">Deze berichten vallen buiten het verhaal en worden als systeemberichten verzonden.</string>
+    <string name="ensemble_member_trace">Activiteitenlogboek</string>
+    <string name="ensemble_no_trace">Nog geen activiteit</string>
+    <string name="ensemble_trace_load_failed">De activiteit kon niet worden geladen.</string>
 </resources>

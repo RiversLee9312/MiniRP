@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Icon } from "./ui.jsx";
 
 const savedState = new Map();
+const foldHeight = 360;
 
 async function previewImage(document, result, request) {
   const host = document?.getElementById("surface");
@@ -28,9 +30,19 @@ async function previewImage(document, result, request) {
 
 export function OpenUi({ block, scope, identity, locale, dark, theme, t, onAction, preview, onPreview, toolPresentation, onRenderStatus }) {
   const iframe = useRef(null);
+  const frameId = useId();
   const [height, setHeight] = useState(48);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [expandedCard, setExpandedCard] = useState(null);
+  const presetHome = !preview && block.open_ui_host_action === "preset-home";
+  const title = presetHome ? t("preset_return_home") : block.open_ui_title || t("interactive_reply");
+  const program = presetHome
+    ? `root = Col([Text(${JSON.stringify(t("preset_return_home_detail"))}), Button(${JSON.stringify(title)}, @ToAssistant("preset-home"))])`
+    : block.open_ui;
+  const long = !preview && !failed && height > foldHeight;
+  const expanded = long && expandedCard === identity;
+  const collapsed = long && !expanded;
   const callbacks = useRef({ onAction, onPreview, onRenderStatus });
   callbacks.current = { onAction, onPreview, onRenderStatus };
   useEffect(() => {
@@ -39,7 +51,13 @@ export function OpenUi({ block, scope, identity, locale, dark, theme, t, onActio
       const message = event.data.minirp;
       switch (message.type) {
         case "ready": setReady(true); break;
-        case "height": setHeight(Math.max(40, Math.min(1800, Number(message.height) || 48))); break;
+        case "height": {
+          const measured = Math.max(40, Math.min(1800, Number(message.height) || 48));
+          if (!preview && measured > foldHeight && document.activeElement === iframe.current)
+            setExpandedCard(identity);
+          setHeight(measured);
+          break;
+        }
         case "state":
           savedState.set(identity, message.value);
           if (savedState.size > 96) savedState.delete(savedState.keys().next().value);
@@ -65,7 +83,7 @@ export function OpenUi({ block, scope, identity, locale, dark, theme, t, onActio
   useEffect(() => {
     if (!ready) return;
     const state = {
-      program: block.open_ui, streaming: Boolean(block.streaming), locale,
+      program, expanded, streaming: Boolean(block.streaming), locale,
       rtl: ["ar", "fa", "he"].includes(locale.split("-")[0]), dark, theme,
       managedState: block.open_ui_state, managedRevision: block.open_ui_revision,
       initialState: savedState.get(identity),
@@ -75,12 +93,22 @@ export function OpenUi({ block, scope, identity, locale, dark, theme, t, onActio
       scope: { preset, room, conversation, agent, mode: "display", block: block.id }, state,
     } }, location.origin);
   }, [ready, identity, locale, dark, theme, preset, room, conversation, agent,
-    block.id, block.open_ui, block.streaming, block.open_ui_state, block.open_ui_revision, preview]);
-  return <>
-    <iframe ref={iframe} className="open-ui" src={toolPresentation ? "/openui/tool.html" : preview ? "/openui/preview.html" : "/openui/index.html"} title={block.open_ui_title || t("interactive_reply")}
-      onLoad={() => setReady(true)}
-      style={{ height: height + "px" }} loading={preview ? "eager" : "lazy"}
-      sandbox="allow-scripts allow-same-origin" />
+    block.id, program, expanded, block.streaming, block.open_ui_state, block.open_ui_revision, preview]);
+  return <div className="open-ui-card" data-card-expanded={expanded || undefined}
+    role={long ? "group" : undefined} aria-label={long ? title : undefined}>
+    {long && <div className="open-ui-controls">
+      <button type="button" className="text-button open-ui-toggle" aria-expanded={expanded} aria-controls={frameId}
+        onClick={() => setExpandedCard(expanded ? null : identity)}>
+        <Icon name={expanded ? "expand_less" : "expand_more"} />
+        {t(expanded ? "collapse" : "expand")}
+      </button>
+    </div>}
+    <div className="open-ui-viewport" data-collapse-preview={collapsed || undefined}>
+      <iframe ref={iframe} id={frameId} className="open-ui" src={toolPresentation ? "/openui/tool.html" : preview ? "/openui/preview.html" : "/openui/index.html"}
+        title={title} onLoad={() => setReady(true)} inert={collapsed} aria-hidden={collapsed || undefined}
+        style={{ "--open-ui-height": `${height}px` }} data-expanded={expanded || undefined}
+        loading={preview ? "eager" : "lazy"} sandbox="allow-scripts allow-same-origin" />
+    </div>
     {failed && !preview && !toolPresentation && <p className="muted">{t("interactive_reply_unavailable")}</p>}
-  </>;
+  </div>;
 }

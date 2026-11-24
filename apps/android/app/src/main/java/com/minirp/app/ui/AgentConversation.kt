@@ -1,6 +1,8 @@
 package com.minirp.app.ui
 
 import android.content.ClipData
+import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -24,13 +26,16 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -50,6 +55,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
+import java.util.UUID
 
 @Composable
 internal fun AgentConversation(
@@ -57,7 +63,7 @@ internal fun AgentConversation(
     agent: AgentRole,
     modifier: Modifier = Modifier,
     onCancel: () -> Unit,
-    onSend: suspend (String, List<String>, Boolean, PluginAttachmentType?) -> Boolean,
+    onSend: suspend (ComposerSubmission) -> Boolean,
     onModels: (AgentRole) -> Unit,
     onBranch: ((String) -> Unit)? = null,
     loadThumbnail: (suspend (AttachmentThumbnail) -> ByteArray)? = null,
@@ -68,6 +74,9 @@ internal fun AgentConversation(
     background: PresetBackground? = null,
     displayAssets: DisplayAssets? = null,
     onPresetHintSeen: (() -> Unit)? = null,
+    onRetryPresetInterview: (() -> Unit)? = null,
+    composerStatus: @Composable (() -> Unit)? = null,
+    systemMessageMode: Boolean? = null,
 ) {
     val home = state.chatId.isBlank() && agent == AgentRole.Chat
     if (home && state.preset.isBlank()) {
@@ -91,6 +100,23 @@ internal fun AgentConversation(
         }
     val draft = state.branchDraft.takeIf { agent == AgentRole.Chat }
     val draftText = rememberSaveable { mutableStateOf(draft?.text.orEmpty()) }
+    val draftFiles = rememberDraftFiles(draft)
+    val draftQuotes = rememberDraftQuotes(draft)
+    val context = LocalContext.current
+    val addQuote: ((String) -> Unit)? = if (systemMessageMode == true) null else { selection ->
+        if (selection.length > maxQuoteLength || draftFiles.value.size + draftQuotes.value.size >= maxMessageAttachments) {
+            Toast.makeText(context, R.string.attachment_too_large, Toast.LENGTH_SHORT).show()
+        } else {
+            draftQuotes.value = draftQuotes.value + QuoteAttachment(UUID.randomUUID().toString(), selection)
+        }
+    }
+    val sending = state.submitting == agent
+    val transcriptStatus = when {
+        sending -> R.string.sending
+        state.generating == agent && blocks.lastOrNull()?.user != false &&
+            blocks.none { it.running || it.streaming } -> R.string.running
+        else -> null
+    }
     Column(modifier) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             PresetBackdrop(
@@ -113,23 +139,28 @@ internal fun AgentConversation(
                     Modifier.fillMaxSize(),
                     onBranch = onBranch.takeUnless { state.busy || state.preparing },
                     onBranchReply = onBranchReply.takeUnless { state.busy || state.preparing },
-                    waiting =
-                        state.generating == agent &&
-                            blocks.lastOrNull()?.user != false &&
-                            blocks.none { it.running || it.streaming },
+                    status = transcriptStatus,
                     replyError = state.replyError?.takeIf { it.agent == agent }?.message,
+                    onRetry = onRetryPresetInterview.takeIf {
+                        agent == AgentRole.Preset && state.presetSetupPending && !state.presetWorking &&
+                            state.replyError?.presetInterview == true
+                    },
                     loadThumbnail = loadThumbnail,
                     openUi = openUi,
                     displayAssets = displayAssets,
-                    onQuote = { selection -> draftText.value = appendReplyQuote(draftText.value, selection) },
+                    onQuote = addQuote,
                 )
         }
+        if (home && sending)
+            ConversationStatus(R.string.sending, Modifier.padding(horizontal = 16.dp))
+        composerStatus?.invoke()
         Composer(
             state.busy,
             state.preparing,
             onCancel,
             onSend,
             steering = state.generating == agent,
+            allowAttachments = systemMessageMode != true,
             pluginTypes =
                 state.installedPlugins
                     .filter { it.availableIn(state.preset) }
@@ -138,6 +169,9 @@ internal fun AgentConversation(
             textState = draftText,
             documentTypes = if (agent == AgentRole.Preset) arrayOf("*/*")
                 else com.minirp.app.data.AttachmentStore.documentTypes,
+            systemMessageMode = systemMessageMode,
+            filesState = draftFiles,
+            quotesState = draftQuotes,
         )
         val presetModels = agent == AgentRole.Preset
         val modelsLayout =
@@ -438,7 +472,7 @@ internal fun TraceLog(
     expandThoughts: Boolean,
     modifier: Modifier = Modifier,
     onBranch: ((String) -> Unit)? = null,
-    waiting: Boolean = false,
+    @StringRes status: Int? = null,
     replyError: String? = null,
     list: LazyListState = rememberLazyListState(initialFirstVisibleItemIndex = Int.MAX_VALUE),
     loadThumbnail: (suspend (AttachmentThumbnail) -> ByteArray)? = null,
@@ -447,6 +481,7 @@ internal fun TraceLog(
     onBranchReply: ((String) -> Unit)? = null,
     standalonePluginTrace: Boolean = false,
     onQuote: ((String) -> Unit)? = null,
+    onRetry: (() -> Unit)? = null,
 ) {
     val streamed = buildMap {
         blocks.forEach { block ->
@@ -477,7 +512,7 @@ internal fun TraceLog(
         }
     // Keep the visible row anchored at its top as it grows. Pin to the end only
     // when the reader was already there before the content changed.
-    val content = Triple(entries, waiting, replyError)
+    val content = Triple(entries, status, replyError)
     var previousContent by remember(list) { mutableStateOf(content) }
     var followingLatest by rememberSaveable { mutableStateOf(list.firstVisibleItemIndex == Int.MAX_VALUE) }
     val latestIndex by rememberUpdatedState(entries.size)
@@ -505,15 +540,16 @@ internal fun TraceLog(
         }
     }
     val itemsByKey = remember(entries) { entries.associateBy { it.id } }
-    val pinned by
-        remember(list, itemsByKey) {
+    val headingHeight = with(LocalDensity.current) { traceHeadingMinHeight.roundToPx() }
+    val pinnedHeaders by
+        remember(list, itemsByKey, expanded, headingHeight) {
             derivedStateOf {
                 val layout = list.layoutInfo
                 val top =
                     layout.visibleItemsInfo.firstOrNull { it.offset + it.size > layout.viewportStartOffset }
-                        ?: return@derivedStateOf emptyList()
+                        ?: return@derivedStateOf emptyList<TraceHeader>() to null
                 val entry = itemsByKey[top.key]
-                when (entry) {
+                val groups = when (entry) {
                     is TimelineItem.ActivityStep -> listOfNotNull(entry.group, entry.child)
                     is TimelineItem.ActivityHeader ->
                         buildList {
@@ -526,8 +562,14 @@ internal fun TraceLog(
                         }
                     else -> emptyList()
                 }
+                val tool = (entry as? TimelineItem.ActivityStep)?.takeIf {
+                    expanded[it.id] == true &&
+                        top.offset < layout.viewportStartOffset + groups.size * headingHeight
+                }
+                groups to tool
             }
         }
+    val (pinned, pinnedTool) = pinnedHeaders
     fun toggleTrace(header: TraceHeader, pinnedHeader: Boolean = false) {
         if (pinnedHeader && list.canScrollForward) {
             val remaining =
@@ -536,6 +578,14 @@ internal fun TraceLog(
             if (index >= 0) list.requestScrollToItem((index - 1).coerceAtLeast(0))
         }
         expansion[header.id] = !header.expanded
+    }
+    fun toggleStep(item: TimelineItem.ActivityStep) {
+        val open = expansion[item.id] == true
+        if (open && pinnedTool?.id == item.id) {
+            val index = entries.indexOfFirst { it.id == item.id }
+            if (index >= 0) list.requestScrollToItem(index, -pinned.size * headingHeight)
+        }
+        expansion[item.id] = !open
     }
     val canReturn by remember {
         derivedStateOf { list.canScrollForward && list.layoutInfo.totalItemsCount > 1 }
@@ -571,7 +621,14 @@ internal fun TraceLog(
                             val nestedCard = item.child != null && !item.step.openUi.isNullOrBlank()
                             if (!nestedCard || item.step.reasoning.isNotBlank() || item.step.content.isNotBlank() ||
                                 item.step.toolArgumentsUi != null || item.step.toolResultUi != null)
-                                TraceStep(item.step, depth, openUiPages)
+                                TraceStep(
+                                    item.step,
+                                    depth,
+                                    details = expanded[item.id] == true,
+                                    toggleDetails = { toggleStep(item) },
+                                    openUiPages = openUiPages,
+                                    obscureHeading = pinnedTool?.id == item.id,
+                                )
                             if (nestedCard) {
                                 Box(Modifier.traceQuote(depth)) { OpenUiReply(item.step, openUi, openUiPages, displayAssets) }
                             }
@@ -629,18 +686,12 @@ internal fun TraceLog(
             }
             item(key = "latest-edge", contentType = "status") {
                 Box(Modifier.fillMaxWidth().heightIn(min = 1.dp)) {
-                    if (replyError != null)
-                        Text(
-                            replyError,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(vertical = 8.dp),
-                        )
-                    else if (waiting)
-                        Text(
-                            stringResource(R.string.running),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 8.dp),
-                        )
+                    if (replyError != null) {
+                        Column(Modifier.padding(vertical = 8.dp)) {
+                            Text(replyError, color = MaterialTheme.colorScheme.error)
+                            if (onRetry != null) TextButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
+                        }
+                    } else if (status != null) ConversationStatus(status)
                 }
             }
         }
@@ -657,6 +708,15 @@ internal fun TraceLog(
                         TraceHeading(header, pinned = true) {
                             toggleTrace(header, pinnedHeader = true)
                         }
+                    }
+                    pinnedTool?.let { item ->
+                        TraceStepHeading(
+                            item.step,
+                            expanded = true,
+                            modifier = Modifier.testTag("pinned:${item.id}")
+                                .traceQuote(if (item.child == null) 1 else 2),
+                            toggle = { toggleStep(item) },
+                        )
                     }
                 }
             }
@@ -675,6 +735,15 @@ internal fun TraceLog(
                 Symbol("arrow_downward", stringResource(R.string.latest_message))
             }
     }
+}
+
+@Composable
+private fun ConversationStatus(@StringRes status: Int, modifier: Modifier = Modifier) {
+    Text(
+        stringResource(status),
+        modifier = modifier.padding(vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable
@@ -771,6 +840,9 @@ private fun UserMessage(
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                         )
+                    block.quotes.forEach { quote ->
+                        key(quote.id) { QuoteAttachmentCard(quote) }
+                    }
                     if (loadThumbnail != null)
                         block.thumbnails.forEach { thumbnail ->
                             val image by

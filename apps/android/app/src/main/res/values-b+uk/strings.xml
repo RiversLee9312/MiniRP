@@ -30,6 +30,7 @@
     <string name="input_hint">Повідомлення</string>
     <string name="open_menu">Відкрити меню</string>
     <string name="send">Надіслати</string>
+    <string name="sending">Надсилання…</string>
     <string name="stop">Зупинити</string>
     <string name="more_options">Інші параметри</string>
     <string name="reasoning">Думки</string>
@@ -223,4 +224,10 @@
     <string name="tool_arguments">Аргументи</string>
     <string name="tool_result">Результат</string>
     <string name="quote_reply">Цитувати</string>
+    <string name="ensemble_private_messages">Приватні повідомлення</string>
+    <string name="ensemble_member_thinking">%1$s думає</string>
+    <string name="ensemble_out_of_story">Ці повідомлення поза сюжетом і надсилаються як системні.</string>
+    <string name="ensemble_member_trace">Журнал активності</string>
+    <string name="ensemble_no_trace">Активності ще немає</string>
+    <string name="ensemble_trace_load_failed">Не вдалося завантажити активність.</string>
 </resources>

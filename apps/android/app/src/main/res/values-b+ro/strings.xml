@@ -30,6 +30,7 @@
     <string name="input_hint">Mesaj</string>
     <string name="open_menu">Deschide meniul</string>
     <string name="send">Trimite</string>
+    <string name="sending">Se trimite…</string>
     <string name="stop">Oprește</string>
     <string name="more_options">Mai multe opțiuni</string>
     <string name="reasoning">Gânduri</string>
@@ -221,4 +222,10 @@
     <string name="tool_arguments">Argumente</string>
     <string name="tool_result">Rezultat</string>
     <string name="quote_reply">Citează</string>
+    <string name="ensemble_private_messages">Mesaje private</string>
+    <string name="ensemble_member_thinking">%1$s se gândește</string>
+    <string name="ensemble_out_of_story">Aceste mesaje sunt în afara poveștii și sunt trimise ca mesaje de sistem.</string>
+    <string name="ensemble_member_trace">Jurnal de activitate</string>
+    <string name="ensemble_no_trace">Nicio activitate deocamdată</string>
+    <string name="ensemble_trace_load_failed">Activitatea nu a putut fi încărcată.</string>
 </resources>

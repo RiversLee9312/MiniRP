@@ -11,7 +11,7 @@ public sealed partial class Engine
     private readonly Dictionary<JsonObject, WebDisplayBlock> webDisplay = new(ReferenceEqualityComparer.Instance);
     private Workspace? transcriptOwner;
 
-    private sealed record TranscriptSource(Workspace Workspace, string Pane, string Conversation, JsonArray Blocks, string Generation);
+    private sealed record TranscriptSource(Workspace Workspace, string Pane, string Conversation, JsonArray Blocks, string Generation, bool MessagesOnly);
     private sealed record WebDisplayBlock(Workspace Workspace, JsonObject Block, string Id, string Conversation);
 
     private bool WebHistory => Volatile.Read(ref routing).Settings.GetBoolean("_web_transcripts");
@@ -105,13 +105,15 @@ public sealed partial class Engine
                 return item;
             }
             var blocks = hub.Blocks(conversation);
+            var messagesOnly = hub.PrivateParticipant(conversation).Length == 0;
             if (!WebHistory)
-                item["blocks"] = new JsonArray(blocks.OfType<JsonObject>().Select(block => LoadBlock(block, conversation)).ToArray());
+                item["blocks"] = new JsonArray(blocks.OfType<JsonObject>()
+                    .Where(block => !messagesOnly || EnsembleConversation.IsMessage(block)).Select(block => LoadBlock(block, conversation)).ToArray());
             else
             {
                 var history = new JsonObject();
                 var result = new JsonArray();
-                ProjectTranscript("ensemble", blocks, history, result, conversation);
+                ProjectTranscript("ensemble", blocks, history, result, conversation, preserveRunning: !messagesOnly, messagesOnly: messagesOnly);
                 item["blocks"] = result;
                 item["history"] = history;
             }
@@ -120,7 +122,7 @@ public sealed partial class Engine
     }
 
     private void ProjectTranscript(string pane, JsonArray blocks, JsonObject history, JsonArray result, string conversation = "",
-        bool preserveRunning = false)
+        bool preserveRunning = false, bool messagesOnly = false)
     {
         TranscriptSource source;
         lock (transcriptGate)
@@ -129,8 +131,8 @@ public sealed partial class Engine
             // Tail checkpoints keep saved cursors valid as new blocks append to the same array.
             var current = transcriptSources.GetValueOrDefault(pane);
             source = current is not null && ReferenceEquals(current.Workspace, Workspace) &&
-                ReferenceEquals(current.Blocks, blocks) && current.Conversation == conversation
-                ? current : new(Workspace, pane, conversation, blocks, JsonValues.NewId());
+                ReferenceEquals(current.Blocks, blocks) && current.Conversation == conversation && current.MessagesOnly == messagesOnly
+                ? current : new(Workspace, pane, conversation, blocks, JsonValues.NewId(), messagesOnly);
             transcriptSources[pane] = source;
         }
         var (page, older) = ReadTranscript(source, blocks.Count, preserveRunning);
@@ -146,6 +148,7 @@ public sealed partial class Engine
         for (var index = end - 1; index >= 0; index--)
         {
             if (source.Blocks[index] is not JsonObject block ||
+                source.MessagesOnly && !EnsembleConversation.IsMessage(block) ||
                 source.Pane is "chat" or "env" && TranscriptPane(block) != source.Pane)
                 continue;
             if (page.Count == TranscriptPageSize)
@@ -174,10 +177,10 @@ public sealed partial class Engine
             {
                 var history = new JsonObject();
                 var panes = new JsonObject();
-                void Project(string pane, JsonArray source, string conversation = "")
+                void Project(string pane, JsonArray source, string conversation = "", bool messagesOnly = false)
                 {
                     var blocks = new JsonArray();
-                    ProjectTranscript(pane, source, history, blocks, conversation, preserveRunning: true);
+                    ProjectTranscript(pane, source, history, blocks, conversation, preserveRunning: true, messagesOnly: messagesOnly);
                     panes[pane] = blocks;
                 }
                 if (workspace.ChatId.Length > 0)
@@ -188,12 +191,20 @@ public sealed partial class Engine
                 }
                 if (presetConversation is { } preset) Project("preset", preset.Blocks);
                 var selected = activeEnsembleChat;
-                if (selected.Length > 0 && ensemble is { } room) Project("ensemble", room.Blocks(selected), selected);
+                if (selected.Length > 0 && ensemble is { } room)
+                    Project("ensemble", room.Blocks(selected), selected, messagesOnly: room.PrivateParticipant(selected).Length == 0);
                 reply["preset"] = workspace.PresetId;
                 reply["chat"] = workspace.ChatId;
                 reply["conversation"] = selected;
                 reply["panes"] = panes;
                 reply["history"] = history;
+                if (ensemble is { } group)
+                {
+                    reply["activity"] = Volatile.Read(ref roomActivity)?.Snapshot() ?? new JsonArray();
+                    reply["private_in_story"] = group.DirectMessagesInStory;
+                    if (selected.Length > 0 && group.PrivateParticipant(selected) is { Length: > 0 } participant)
+                        reply["private_participant"] = participant;
+                }
             }
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)

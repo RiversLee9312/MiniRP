@@ -30,6 +30,7 @@
     <string name="input_hint">Wiadomość</string>
     <string name="open_menu">Otwórz menu</string>
     <string name="send">Wyślij</string>
+    <string name="sending">Wysyłanie…</string>
     <string name="stop">Zatrzymaj</string>
     <string name="more_options">Więcej opcji</string>
     <string name="reasoning">Myśli</string>
@@ -223,4 +224,10 @@
     <string name="tool_arguments">Argumenty</string>
     <string name="tool_result">Wynik</string>
     <string name="quote_reply">Cytuj</string>
+    <string name="ensemble_private_messages">Prywatne wiadomości</string>
+    <string name="ensemble_member_thinking">%1$s myśli</string>
+    <string name="ensemble_out_of_story">Te wiadomości są poza fabułą i są wysyłane jako wiadomości systemowe.</string>
+    <string name="ensemble_member_trace">Dziennik aktywności</string>
+    <string name="ensemble_no_trace">Brak aktywności</string>
+    <string name="ensemble_trace_load_failed">Nie udało się wczytać aktywności.</string>
 </resources>

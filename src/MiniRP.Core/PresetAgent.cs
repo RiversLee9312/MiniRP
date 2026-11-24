@@ -36,11 +36,12 @@ public sealed class PresetAgent(Workspace world, AgentSession session)
             ["path"] = Tools.String(),
             ["index"] = Tools.Integer()
         }, "path", "index"));
-        tools.AddNode(Tools.Define("configure_experience", "Set the agreed conversation mode, delegated search choice and initial ensemble. For an ensemble supply agents [{id,name,prompt}] and shared scenes as chats [{name,members:[agent IDs]}]. The app assigns chat UUIDs.", new()
+        tools.AddNode(Tools.Define("configure_experience", "Set the agreed conversation mode, delegated search choice and initial ensemble. For an ensemble supply agents [{id,name,prompt}] and shared scenes as chats [{name,members:[agent IDs]}]. Set ensemble.direct_messages_in_story to true for in-story private messages, or false for out-of-character system messages only. The app assigns chat UUIDs.", new()
         {
             ["mode"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("character", "ensemble", "tabletop") },
             ["agentic_search"] = Tools.Boolean(),
-            ["ensemble"] = new JsonObject { ["type"] = "object", ["additionalProperties"] = true }
+            ["ensemble"] = new JsonObject { ["type"] = "object", ["additionalProperties"] = true,
+                ["properties"] = new JsonObject { ["direct_messages_in_story"] = Tools.Boolean() } }
         }, "mode", "agentic_search"));
         tools.AddNode(Tools.Define("list_chat_backgrounds", "List image, GIF and video Asset URLs declared by installed plugins belonging to this preset."));
         tools.AddNode(Tools.Define("configure_date", "Choose the calendar source for this preset. Real follows the device's local date. Plugin lets a plugin advance each room's date. Optionally set initial_date for new plugin-managed rooms in YYYY-MM-DD format.", new()

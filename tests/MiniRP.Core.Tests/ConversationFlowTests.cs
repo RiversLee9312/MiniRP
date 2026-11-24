@@ -232,6 +232,45 @@ public sealed class ConversationFlowTests
     }
 
     [TestMethod]
+    public async Task QuoteOnlyMessageReachesTheModelAndRestoresTheAttachmentInABranch()
+    {
+        await using var engine = new Engine(NewRoot());
+        Configure(engine);
+        var preset = engine.Workspace.PresetId;
+        await Run(engine, new() { ["op"] = "select_chat", ["preset"] = preset });
+        var chat = engine.Workspace.ChatId;
+        var quote = new JsonObject
+        {
+            ["id"] = WorkspaceIds.New(),
+            ["kind"] = "quote",
+            ["text"] = "第一行\r\nSecond line"
+        };
+        var turn = await Run(engine, new()
+        {
+            ["op"] = "message", ["text"] = "", ["attachments"] = new JsonArray(quote.DeepClone())
+        }, "Reply to the excerpt");
+        var accepted = turn.Single(item => item.GetString("kind") == "user");
+        Assert.AreEqual("", accepted.GetString("text"));
+        Assert.IsTrue(JsonNode.DeepEquals(quote, accepted.GetArray("attachments").Single()));
+        var request = JsonValues.ParseObject(turn.First(item => item.GetString("kind") == "http_request").GetString("body"));
+        Assert.AreEqual("Quoted passage (reference):\n> 第一行\n> Second line",
+            request.GetArray("messages").Last().GetString("content"));
+
+        var path = Path.Combine(engine.Workspace.Root, "quote-transcript.jsonl");
+        engine.Dispatch(new() { ["op"] = "archive_export", ["type"] = "transcript", ["agent"] = "chat",
+            ["preset"] = preset, ["chat"] = chat, ["path"] = path });
+        await Wait(engine, "archive_exported");
+        var exported = File.ReadLines(path).Select(JsonValues.ParseObject).Single(row => row.GetString("role") == "user");
+        Assert.IsTrue(JsonNode.DeepEquals(quote, exported.GetArray("attachments").Single()));
+
+        var branch = (await Run(engine, new() { ["op"] = "branch", ["chat"] = chat,
+            ["block"] = accepted.GetString("block"), ["mode"] = "edit" })).Single(IsLoaded);
+        var draft = branch.GetObject("draft");
+        Assert.AreEqual("", draft.GetString("text"));
+        Assert.IsTrue(JsonNode.DeepEquals(quote, draft.GetArray("attachments").Single()));
+    }
+
+    [TestMethod]
     public async Task GeminiReceivesVideoReferenceWithoutUploadingBytes()
     {
         var root = NewRoot();

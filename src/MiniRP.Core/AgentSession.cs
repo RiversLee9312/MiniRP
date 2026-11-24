@@ -21,6 +21,8 @@ public sealed partial class AgentSession : IDisposable
     private JsonArray history;
     public JsonArray History => (JsonArray)history.DeepClone();
     internal bool HasHistory => history.Count > 0;
+    internal bool HasAssistantReply => Summary.Length > 0 || history.Any(message =>
+        message.GetString("role") == "assistant" && !string.IsNullOrWhiteSpace(message.GetString("content")));
     public string Summary
     {
         get; private set;
@@ -61,8 +63,7 @@ public sealed partial class AgentSession : IDisposable
         instructionState = JsonValues.ParseObject(Db.Get("_context/instructions") ?? "{}");
         transcript = new(Db, Name);
         transcript.Backfill(history);
-        compactor = new(Db, Name, Archive, this.emit, (selected, messages, delta, ct) =>
-            Complete(selected, messages, null, delta, ct, requireComplete: true));
+        compactor = new(Db, Name, Archive, this.emit);
         usage = new(Db);
         bindings = bind(this);
     }
@@ -227,7 +228,8 @@ public sealed partial class AgentSession : IDisposable
 
     private async Task<JsonObject> RunTurn(string system, string input, IReadOnlyList<AgentSkill> taskSkills, CancellationToken ct,
         Func<bool>? submitted, IReadOnlySet<string>? terminalTools, JsonArray? attachments,
-        string? historyInput, Func<string?>? historySubmission, string inputRole, string? reference, bool privateInput)
+        string? historyInput, Func<string?>? historySubmission, string inputRole, string? reference, bool privateInput,
+        bool checkpointBranch = false)
     {
         var locale = bindings.Locale();
         if (profile.LanguageGuidance is { } languageGuidance)
@@ -276,7 +278,7 @@ public sealed partial class AgentSession : IDisposable
             }
             return added;
         }
-        async Task Commit(JsonArray definitions, IEnumerable<string> activeSkills)
+        async Task Commit(JsonArray definitions, IEnumerable<string> activeSkills, bool finishTurn = true)
         {
             ct.ThrowIfCancellationRequested();
             MeasureSessionInfo(definitions);
@@ -298,11 +300,11 @@ public sealed partial class AgentSession : IDisposable
             }
             foreach (var notification in notifications)
                 transcript.Record("system", notification.GetString("content"));
-            if (historySubmission?.Invoke() is { } submission)
+            if (finishTurn && historySubmission?.Invoke() is { } submission)
             {
                 transcript.Record("assistant", submission);
             }
-            if (profile.FollowUp) await Compact(definitions, prepareOnly: true);
+            if (finishTurn && profile.FollowUp) await Compact(definitions, prepareOnly: true);
         }
         if (privateInput) messageInput["_harness_hidden"] = true;
         if (attachments is { Count: > 0 })
@@ -316,7 +318,7 @@ public sealed partial class AgentSession : IDisposable
         // Some providers require a user message to request a completion even after a system event.
         if (inputRole == "system")
         {
-            request = new() { ["role"] = "user", ["content"] = "Apply the preceding system instruction and respond as appropriate.",
+            request = new() { ["role"] = "user", ["content"] = SystemEventContinue,
                 ["_harness_hidden"] = true };
             working.AddNode(request);
         }
@@ -347,7 +349,8 @@ public sealed partial class AgentSession : IDisposable
             return messages;
         }
 
-        Task<string> Compact(JsonArray definitions, bool prepareOnly = false, int? initialTokens = null)
+        Task<string> Compact(JsonArray definitions, bool prepareOnly = false, int? initialTokens = null,
+            JsonArray? promptBeforeFrameFold = null)
         {
             int Measure(JsonArray history, string checkpoint, bool useProviderUsage)
             {
@@ -372,9 +375,13 @@ public sealed partial class AgentSession : IDisposable
                 Summary = checkpoint;
                 instructionState = savedInstructions;
             }
-            return compactor.Compact(turnModel, working, summary, budget, Measure, MessageCost, messageInput, request,
+            var baseline = summary;
+            return compactor.Compact(turnModel, working, summary, instructions.Base, budget, Measure, MessageCost, messageInput, request,
                 notifications.Concat(interruptions.TakeLast(1).Select(item => item.Input)),
-                committed.Contains, Applied, ct, prepareOnly, initialTokens);
+                committed.Contains, Applied, (records, checkpoint) =>
+                    promptBeforeFrameFold is not null && checkpoint == baseline ? promptBeforeFrameFold : Prompt(records, checkpoint),
+                (prompt, outputBudget, reasoning, token) => ForkCheckpoint(turnModel, prompt, locale, outputBudget, reasoning, token),
+                ct, prepareOnly, initialTokens);
         }
 
         IEnumerable<AgentSkill> Skills()
@@ -391,39 +398,45 @@ public sealed partial class AgentSession : IDisposable
                     Instructions: openUi);
         }
         AgentSkill.Turn? previousSkills = null;
+        var replayedResponse = false;
         Task<JsonNode?> MemoryTool(string name, JsonObject args, CancellationToken _) => Task.FromResult<JsonNode?>(name switch
         {
             "history_search" => transcript.Search(args),
             "history_recall" => transcript.Recall(args),
             "db_watch" => watches.Set(args),
-            _ => CallMemory(name, args)
+            _ => checkpointBranch ? ReadCheckpointMemory(name, args) : CallMemory(name, args)
         });
 
         try
         {
             if (profile.BackgroundMessages) acknowledgedMessages = new(StringComparer.Ordinal);
+            var checkpointToolRounds = 0;
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
-                Inbox?.Drain(Append);
+                if (Inbox?.Drain(Append) == true) replayedResponse = false;
                 var firstRequest = previousSkills is null;
                 if (profile.BackgroundMessages) Inbox?.ClearSystemMessageSignal();
                 AppendPendingSystemMessages(beforeInput: firstRequest);
-                var enabled = new AgentSkill.Turn(Skills(), previousSkills?.ActiveNames ?? instructions.ActiveSkills, locale);
+                var enabled = checkpointBranch
+                    ? CheckpointSkills(MemoryTool, locale, checkpointToolRounds < CheckpointReadRounds)
+                    : new AgentSkill.Turn(Skills(), previousSkills?.ActiveNames ?? instructions.ActiveSkills, locale);
                 previousSkills = enabled;
                 var definitions = enabled.Definitions();
-                if (instructions.Update(system, enabled, definitions) is { } update)
+                if (!checkpointBranch && instructions.Update(system, enabled, definitions) is { } update)
                 {
                     if (firstRequest) working.Insert(working.IndexOf(messageInput), update);
                     else working.AddNode(update);
                 }
-                watches.AppendUpdates(working);
+                if (!checkpointBranch) watches.AppendUpdates(working);
                 var messages = Prompt(working, summary);
                 var estimatedInput = turnModel.EstimateInput(messages, definitions);
                 var used = usage.Forecast(turnModel, messages, definitions, estimatedInput);
-                if (working.Any(SessionInstructions.IsFrame) &&
+                JsonArray? promptBeforeFrameFold = null;
+                if (!checkpointBranch && working.Any(SessionInstructions.IsFrame) &&
                     used >= (budget.Background ? budget.Soft : budget.Hard))
                 {
+                    promptBeforeFrameFold = messages;
                     for (var i = working.Count - 1; i >= 0; i--)
                         if (SessionInstructions.IsFrame(working[i])) working.RemoveAt(i);
                     instructions.Reset();
@@ -434,8 +447,11 @@ public sealed partial class AgentSession : IDisposable
                     used = estimatedInput = turnModel.EstimateInput(messages, definitions);
                 }
                 UpdateSessionInfo(used);
-                var compacted = await Compact(definitions, initialTokens: used);
-                if (compacted != summary)
+                if (checkpointBranch)
+                {
+                    if (estimatedInput > budget.Capacity) throw IncompleteCheckpoint();
+                }
+                else if (await Compact(definitions, initialTokens: used, promptBeforeFrameFold: promptBeforeFrameFold) is { } compacted && compacted != summary)
                 {
                     summary = compacted;
                     messages = Prompt(working, summary);
@@ -454,11 +470,13 @@ public sealed partial class AgentSession : IDisposable
                 var generation = Inbox?.BeginGeneration(ct);
                 var partial = new System.Text.StringBuilder();
                 var display = new Dictionary<string, System.Text.StringBuilder>(StringComparer.Ordinal);
+                var retrying = false;
                 void EmitDisplay(JsonObject item)
                 {
                     var id = item.GetString("block");
                     if (item.GetString("kind") is "turn_end" or "open_ui_end")
                     {
+                        if (retrying) item["retrying"] = true;
                         if (display.Remove(id, out var text)) AddPublishedAssets(item, text.ToString());
                     }
                     else
@@ -483,7 +501,7 @@ public sealed partial class AgentSession : IDisposable
                             }
                         }
                         emit(new() { ["kind"] = "delta", ["agent"] = Name, ["block"] = block, ["type"] = type, ["text"] = value });
-                    }, generation?.Token ?? ct, requireComplete: false,
+                    }, generation?.Token ?? ct, requireComplete: checkpointBranch,
                         inputUsage: tokens =>
                         {
                             usage.Observe(turnModel, messages, definitions, estimatedInput, tokens);
@@ -499,6 +517,18 @@ public sealed partial class AgentSession : IDisposable
                         replies.Add(text);
                     }
                 }
+                catch (ModelEvents.Interrupted error) when (error.ResponseStarted && !replayedResponse)
+                {
+                    // No tool from an unfinished response has been dispatched. The next block
+                    // uses the messages and tool results already in this turn.
+                    replayedResponse = true;
+                    retrying = true;
+                }
+                catch (ModelEvents.Interrupted) when (!checkpointBranch && profile.Name == "PluginAgent")
+                {
+                    await Commit(definitions, enabled.ActiveNames, finishTurn: false);
+                    throw;
+                }
                 finally
                 {
                     Inbox?.EndGeneration();
@@ -507,11 +537,13 @@ public sealed partial class AgentSession : IDisposable
                     else
                     {
                         var end = new JsonObject { ["kind"] = "turn_end", ["agent"] = Name, ["block"] = block, ["interrupted"] = message is null };
+                        if (retrying) end["retrying"] = true;
                         AddPublishedAssets(end, partial.ToString());
                         emit(end);
                     }
                 }
                 if (message is null) continue;
+                replayedResponse = false;
                 working.AddNode(message);
                 var replyText = message.GetString("content");
                 if (!string.IsNullOrWhiteSpace(replyText))
@@ -519,6 +551,12 @@ public sealed partial class AgentSession : IDisposable
                     replies.Add(replyText);
                 }
                 var calls = message.GetArray("tool_calls");
+                if (checkpointBranch)
+                {
+                    if (calls.Count == 0) return message;
+                    if (++checkpointToolRounds > CheckpointReadRounds || calls.Count > CheckpointBatchLimit)
+                        throw IncompleteCheckpoint();
+                }
                 if (calls.Count == 0)
                 {
                     if (submitted is not null && !submitted())
@@ -560,6 +598,7 @@ public sealed partial class AgentSession : IDisposable
                     {
                         ct.ThrowIfCancellationRequested();
                         var args = ToolDiagnostics.ReadArguments(call.GetObject("function").GetString("arguments", "{}"));
+                        if (checkpointBranch) LimitCheckpointRead(args, budget);
                         if (terminalTools?.Contains(name) == true && callIndex != calls.Count - 1)
                         {
                             throw new ToolFailure("A submission must be the final tool in its batch. No changes submitted.",
