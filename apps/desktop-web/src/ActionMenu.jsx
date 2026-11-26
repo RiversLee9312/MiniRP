@@ -18,9 +18,10 @@ function positionMenu(anchor, menu) {
   menu.dataset.origin = (opensUp ? "bottom" : "top") + (rtl ? " left" : " right");
 }
 
-export function ActionMenu({ label, groups, disabled }) {
+export function ActionMenu({ label, groups, disabled, buttonRef }) {
   const id = useId();
-  const trigger = useRef(null);
+  const localTrigger = useRef(null);
+  const trigger = buttonRef || localTrigger;
   const menu = useRef(null);
   const [open, setOpen] = useState(false);
   const items = () => Array.from(menu.current.querySelectorAll('[role="menuitem"]:enabled'));

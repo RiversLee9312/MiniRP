@@ -226,4 +226,14 @@
     <string name="ensemble_member_trace">Αρχείο δραστηριότητας</string>
     <string name="ensemble_no_trace">Καμία δραστηριότητα ακόμη</string>
     <string name="ensemble_trace_load_failed">Δεν ήταν δυνατή η φόρτωση της δραστηριότητας.</string>
+    <string name="image_description_model">Μοντέλο περιγραφής εικόνων</string>
+    <string name="audio_description_model">Μοντέλο περιγραφής ήχου</string>
+    <string name="media_description_off">Ανενεργό</string>
+    <string name="image_description_help">Στέλνει εικόνες σε αυτό το μοντέλο όταν το μοντέλο απάντησης δεν μπορεί να τις διαβάσει.</string>
+    <string name="audio_description_help">Στέλνει ήχο σε αυτό το μοντέλο όταν το μοντέλο απάντησης δεν μπορεί να τον επεξεργαστεί.</string>
+    <string name="describe_images_for_model">Χρήση περιγραφών εικόνων</string>
+    <string name="describe_audio_for_model">Χρήση περιγραφών ήχου</string>
+    <string name="ensemble_archived_chats">Αρχειοθετημένες συνομιλίες</string>
+    <string name="ensemble_no_archived_chats">Δεν υπάρχουν αρχειοθετημένες συνομιλίες</string>
+    <string name="ensemble_archive_empty_history">Δεν υπάρχουν μηνύματα</string>
 </resources>

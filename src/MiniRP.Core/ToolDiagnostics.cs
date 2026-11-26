@@ -76,13 +76,13 @@ internal static class ToolDiagnostics
     internal static JsonNode? AnnotateResult(string tool, string? skill, JsonNode? value)
     {
         if (value is not JsonObject result) return value;
-        if (tool == "plugin_base_project_publish" && result["verification"] is JsonObject verification &&
+        if (tool == "plugin_publish" && result["verification"] is JsonObject verification &&
             verification.GetString("error").Length > 0 &&
             !verification.ContainsKey("diagnostic"))
             verification["diagnostic"] = Describe(tool, skill, "verification_failed", "post_install",
-                "The plugin is installed. Inspect the verification error before retrying with project_verify.");
+                "The plugin is installed. Inspect the verification error before retrying with plugin_verify.");
         if (result.ContainsKey("diagnostic")) return result;
-        if (tool == "plugin_base_project_card_preview" &&
+        if (tool == "plugin_card_preview" &&
             (!result.GetBoolean("available", true) || !result.GetBoolean("rendered", true)))
         {
             var available = result.GetBoolean("available", true);
@@ -90,9 +90,9 @@ internal static class ToolDiagnostics
                 available ? "Read the renderer diagnostics and re-run the same card fixture after correcting the input." :
                     "Run the card preview on a platform with an Android OpenUI renderer.");
         }
-        else if (tool is ("shell" or "curl") && result.ContainsKey("exit_code") && result.GetInt32("exit_code") != 0)
+        else if (tool is ("shell" or "curl" or "ffmpeg" or "ffprobe") && result.ContainsKey("exit_code") && result.GetInt32("exit_code") != 0)
             result["diagnostic"] = Describe(tool, skill, "command_failed", "execution",
-                tool == "shell" ? "Read the command output before retrying." : "Read curl's reported error and output before retrying.",
+                tool == "shell" ? "Read the command output before retrying." : "Read the reported error and output before retrying.",
                 new() { ["exit_code"] = result.GetInt32("exit_code") });
         else if (result.GetString("error").Length > 0)
             result["diagnostic"] = Describe(tool, skill, result.GetString("code", "tool_reported_error"), "execution",

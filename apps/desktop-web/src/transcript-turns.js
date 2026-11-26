@@ -1,12 +1,18 @@
 const pageItems = new WeakMap();
 const positionKind = (block) => block.kind || block.role;
 
+export function researchAgentLabel(agent) {
+  if (agent === "search" || agent === "SearchAgent") return "search_agent";
+  if (agent === "fetch" || agent === "BrowserAgent" || agent === "FetchAgent") return "fetch_agent";
+  return "";
+}
+
 function turnItems(blocks) {
   if (!pageItems.has(blocks)) pageItems.set(blocks, blocks.filter((block) => {
     const kind = positionKind(block);
     if (kind === "reply_end") return true;
     if (kind === "user" || kind === "system") return Boolean(block.content || block.attachments?.length);
-    return !["SearchAgent", "FetchAgent", "search", "fetch"].includes(block.agent) &&
+    return !researchAgentLabel(block.agent) &&
       !block.tool && !block.compaction && !block.plugin_status && (block.content?.trim() || block.open_ui);
   }));
   return pageItems.get(blocks);

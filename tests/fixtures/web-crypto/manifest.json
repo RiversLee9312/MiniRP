@@ -1,0 +1,17 @@
+{
+  "id": "web-crypto-probe",
+  "packageName": "test.web_crypto",
+  "name": "Web Crypto probe",
+  "apiVersion": 2,
+  "entry": "index.js",
+  "actions": { "handlers": { "probe": "probe" } },
+  "assets": [
+    {
+      "id": "probe",
+      "type": "dynamic",
+      "mimeType": "text/plain",
+      "accessibility": "public",
+      "handler": "minirp://actions/test.web_crypto/hooks/probe"
+    }
+  ]
+}

@@ -79,7 +79,7 @@ class NativeCurlTest {
                                 received = result().getString("asset_url")
                                 activate("view_asset")
                             }
-                            6 -> call("plugin_base_raw_grep", JSONObject().put("url", received)
+                            6 -> call("raw_grep", JSONObject().put("url", received)
                                 .put("pattern", "50 6F 72 74 61 62 6C 65 20 63 75 72 6C").put("literal", true))
                             7 -> {
                                 assertEquals(1, result().getInt("match_count"))

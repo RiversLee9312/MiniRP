@@ -224,4 +224,14 @@
     <string name="ensemble_member_trace">활동 기록</string>
     <string name="ensemble_no_trace">아직 활동이 없습니다</string>
     <string name="ensemble_trace_load_failed">활동을 불러오지 못했습니다.</string>
+    <string name="image_description_model">이미지 설명 모델</string>
+    <string name="audio_description_model">오디오 설명 모델</string>
+    <string name="media_description_off">끔</string>
+    <string name="image_description_help">응답 모델이 이미지를 읽을 수 없으면 이 모델에 이미지를 보냅니다.</string>
+    <string name="audio_description_help">응답 모델이 오디오를 처리할 수 없으면 이 모델에 오디오를 보냅니다.</string>
+    <string name="describe_images_for_model">이미지 설명 사용</string>
+    <string name="describe_audio_for_model">오디오 설명 사용</string>
+    <string name="ensemble_archived_chats">보관된 채팅</string>
+    <string name="ensemble_no_archived_chats">보관된 채팅 없음</string>
+    <string name="ensemble_archive_empty_history">메시지 없음</string>
 </resources>

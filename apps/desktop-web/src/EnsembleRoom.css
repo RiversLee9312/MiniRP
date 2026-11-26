@@ -48,6 +48,14 @@
   gap: 13px;
 }
 
+.main[data-background="true"] .ensemble-scene-list > li {
+  background: color-mix(in srgb, var(--surface-low) 24%, transparent);
+}
+
+.main[data-background="true"] .room-select.ensemble-scene {
+  background: transparent;
+}
+
 .ensemble-scene-text,
 .ensemble-private-title {
   display: grid;
@@ -212,6 +220,12 @@
 .ensemble-contact-list {
   display: grid;
   gap: 5px;
+}
+
+.ensemble-archive-transcript > .dialog-content {
+  block-size: min(64dvh, 620px);
+  grid-template-rows: minmax(0, 1fr);
+  padding-inline: 0;
 }
 
 .room-select.ensemble-contact {

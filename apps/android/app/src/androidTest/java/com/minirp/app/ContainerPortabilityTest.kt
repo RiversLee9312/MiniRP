@@ -36,6 +36,82 @@ class ContainerPortabilityTest {
     @get:Rule val temporary = TemporaryFolder()
 
     @Test
+    fun roomAndPresetAgentsCanUseTheirContainersWhileBothAreOpen() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = temporary.newFolder()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        MockWebServer().use { server ->
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    val body = JSONObject(checkNotNull(request.body).utf8())
+                    val messages = body.getJSONArray("messages")
+                    val history = (0 until messages.length()).map(messages::getJSONObject)
+                    val prompt = history.lastOrNull { it.optString("role") == "user" }?.optString("content")
+                    val command = when (prompt) {
+                        "room-write" -> "printf room > marker; cat marker"
+                        "preset-write" -> "test ! -e marker && printf preset > marker && cat marker"
+                        "room-read", "preset-read" -> "cat marker"
+                        else -> null
+                    }
+                    val tools = body.optJSONArray("tools")
+                    val delta = JSONObject()
+                    if (command == null || tools == null) {
+                        delta.put("content", "Container fixture")
+                    } else {
+                        val latest = history.last()
+                        val result = if (latest.optString("role") == "tool") JSONObject(latest.getString("content")) else null
+                        if (result != null && !result.has("tools")) {
+                            delta.put("content", if (result.optInt("exit_code", -1) == 0) result.getString("output") else result.toString())
+                        } else {
+                            val shell = (0 until tools.length()).any {
+                                tools.getJSONObject(it).getJSONObject("function").optString("name") == "shell"
+                            }
+                            val arguments = if (shell) JSONObject().put("command", command).put("seconds", 10)
+                                else JSONObject().put("name", "container")
+                            val tool = JSONObject().put("name", if (shell) "shell" else "activate_skill")
+                                .put("arguments", arguments.toString())
+                            delta.put("tool_calls", JSONArray().put(JSONObject().put("index", 0)
+                                .put("id", "$prompt-${if (shell) "shell" else "activate"}").put("type", "function")
+                                .put("function", tool)))
+                        }
+                    }
+                    val event = JSONObject().put("choices", JSONArray().put(JSONObject().put("delta", delta)))
+                    return MockResponse.Builder().setHeader("Content-Type", "text/event-stream")
+                        .body("data: $event\n\ndata: [DONE]\n\n").build()
+                }
+            }
+            server.start()
+            val core = CoreClient(object : ContextWrapper(app) { override fun getFilesDir() = directory }, scope)
+            try {
+                val preset = core.query(JSONObject().put("op", "create_preset").put("open", true)
+                    .put("interview", false).put("name", "Container fixture")).getString("preset")
+                core.send(JSONObject().put("op", "configure").put("provider", JSONObject()
+                    .put("url", server.url("/v1").toString()).put("model", "fixture")))
+                core.send(JSONObject().put("op", "select_chat").put("preset", preset))
+                withTimeout(20_000) { core.events.first { it.optString("kind") == "loaded" } }
+
+                suspend fun turn(agent: String, prompt: String, expected: String) {
+                    core.send(JSONObject().put("op", "message").put("agent", agent).put("preset", preset).put("text", prompt))
+                    val result = withTimeout(100_000) {
+                        core.events.first {
+                            check(it.optString("kind") != "error") { it.optString("message") }
+                            it.optString("kind") == "completed" && it.optString("agent") == agent
+                        }
+                    }
+                    assertEquals(prompt, expected, result.getString("text"))
+                }
+                turn("chat", "room-write", "room")
+                turn("preset", "preset-write", "preset")
+                turn("chat", "room-read", "room")
+                turn("preset", "preset-read", "preset")
+            } finally {
+                core.close()
+                scope.cancel()
+            }
+        }
+    }
+
+    @Test
     fun restoresWindowsGuestFilesAndBranchesIndependently() = runBlocking {
         val argument = InstrumentationRegistry.getArguments().getString("containerArchive")
         assumeTrue("Pass a Windows container archive to test cross-device restore.", !argument.isNullOrBlank())
@@ -129,7 +205,7 @@ class ContainerPortabilityTest {
                                     checkedOutput = true
                                     JSONObject().put("content", "Output recovered")
                                 }
-                                latest.has("tools") -> call("plugin_base_grep", JSONObject().put("url", jobUrl).put("pattern", "timeout marker"))
+                                latest.has("tools") -> call("grep", JSONObject().put("url", jobUrl).put("pattern", "timeout marker"))
                                 else -> {
                                     check(latest.has("content")) { latest.toString() }
                                     val status = JSONObject(latest.getString("content"))

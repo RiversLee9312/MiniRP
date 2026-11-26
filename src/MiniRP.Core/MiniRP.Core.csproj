@@ -20,6 +20,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="MiniRP.Core.Tests" />
     <EmbeddedResource Include="PluginBootstrap.js" LogicalName="MiniRP.PluginBootstrap.js" />
+    <EmbeddedResource Include="PluginWebCrypto.js" LogicalName="MiniRP.PluginWebCrypto.js" />
+    <EmbeddedResource Include="PluginWebCryptoProvider.js" LogicalName="MiniRP.PluginWebCryptoProvider.js" />
     <EmbeddedResource Include="Vendor/web-streams-polyfill.js" LogicalName="MiniRP.WebStreams.js" />
     <EmbeddedResource Include="BasePlugin/manifest.json" LogicalName="MiniRP.BasePlugin.manifest.json" />
     <EmbeddedResource Include="BasePlugin/index.js" LogicalName="MiniRP.BasePlugin.index.js" />

@@ -226,4 +226,14 @@
     <string name="ensemble_member_trace">Journal d’activité</string>
     <string name="ensemble_no_trace">Aucune activité pour le moment</string>
     <string name="ensemble_trace_load_failed">Impossible de charger l’activité.</string>
+    <string name="image_description_model">Modèle de description d’images</string>
+    <string name="audio_description_model">Modèle de description audio</string>
+    <string name="media_description_off">Désactivé</string>
+    <string name="image_description_help">Envoie les images à ce modèle quand le modèle de réponse ne peut pas les lire.</string>
+    <string name="audio_description_help">Envoie l’audio à ce modèle quand le modèle de réponse ne peut pas le traiter.</string>
+    <string name="describe_images_for_model">Utiliser les descriptions d’images</string>
+    <string name="describe_audio_for_model">Utiliser les descriptions audio</string>
+    <string name="ensemble_archived_chats">Discussions archivées</string>
+    <string name="ensemble_no_archived_chats">Aucune discussion archivée</string>
+    <string name="ensemble_archive_empty_history">Aucun message</string>
 </resources>

@@ -226,4 +226,14 @@
     <string name="ensemble_member_trace">Registro de actividad</string>
     <string name="ensemble_no_trace">Aún no hay actividad</string>
     <string name="ensemble_trace_load_failed">No se pudo cargar la actividad.</string>
+    <string name="image_description_model">Modelo para describir imágenes</string>
+    <string name="audio_description_model">Modelo para describir audio</string>
+    <string name="media_description_off">Desactivado</string>
+    <string name="image_description_help">Envía las imágenes a este modelo cuando el modelo de respuesta no puede leerlas.</string>
+    <string name="audio_description_help">Envía el audio a este modelo cuando el modelo de respuesta no puede procesarlo.</string>
+    <string name="describe_images_for_model">Usar descripciones de imágenes</string>
+    <string name="describe_audio_for_model">Usar descripciones de audio</string>
+    <string name="ensemble_archived_chats">Chats archivados</string>
+    <string name="ensemble_no_archived_chats">No hay chats archivados</string>
+    <string name="ensemble_archive_empty_history">No hay mensajes</string>
 </resources>

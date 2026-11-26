@@ -52,7 +52,9 @@ internal fun ModelsScreen(
                 leadingContent = { Symbol("smart_toy") },
                 supportingContent = {
                     Text(
-                        selection?.choice?.name ?: stringResource(R.string.select_model),
+                        selection?.choice?.name ?: stringResource(
+                            if (role.descriptionKind == null) R.string.select_model else R.string.media_description_off
+                        ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -160,8 +162,8 @@ internal fun ModelsScreen(
             catalog.loading,
             fetchEffortLevels = model::fetchModelEffortLevels,
             onDismiss = { editingModel = null },
-            onSave = { compaction, effort, levels ->
-                model.saveModelSettings(selected, compaction, effort, levels)
+            onSave = { compaction, effort, levels, mediaInput ->
+                model.saveModelSettings(selected, compaction, effort, levels, mediaInput)
                 editingModel = null
             },
         )
@@ -197,7 +199,7 @@ private fun ModelSettingsDialog(
     catalogLoading: Boolean,
     fetchEffortLevels: suspend (ProviderConfig, String) -> List<String>,
     onDismiss: () -> Unit,
-    onSave: (CompactionSettings, String, List<String>?) -> Unit,
+    onSave: (CompactionSettings, String, List<String>?, MediaInputSettings) -> Unit,
 ) {
     var value by rememberSaveable(model.provider, model.choice.id) {
         mutableStateOf(model.compaction.threshold.toString())
@@ -209,6 +211,8 @@ private fun ModelSettingsDialog(
         mutableStateOf(model.compaction.backgroundThreshold.toString())
     }
     var requestedEffort by rememberSaveable(model.provider, model.choice.id) { mutableStateOf(model.reasoningEffort) }
+    var describeImages by rememberSaveable(model.provider, model.choice.id) { mutableStateOf(model.mediaInput.describeImages) }
+    var describeAudio by rememberSaveable(model.provider, model.choice.id) { mutableStateOf(model.mediaInput.describeAudio) }
     val (effortLevels, loadFailed) = rememberThinkingEffortOptions(provider, model.choice, catalogLoading, fetchEffortLevels)
     val effort = requestedEffort.takeIf { effortLevels == null || it in effortLevels }.orEmpty()
     val percent = value.toIntOrNull()?.takeIf { it in 1..100 }
@@ -221,6 +225,14 @@ private fun ModelSettingsDialog(
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(model.choice.name, style = MaterialTheme.typography.titleSmall)
                 ThinkingEffortField(effortLevels, effort, loadFailed) { requestedEffort = it }
+                ListItem(
+                    content = { Text(stringResource(R.string.describe_images_for_model)) },
+                    trailingContent = { Switch(describeImages, { describeImages = it }) },
+                )
+                ListItem(
+                    content = { Text(stringResource(R.string.describe_audio_for_model)) },
+                    trailingContent = { Switch(describeAudio, { describeAudio = it }) },
+                )
                 Text(stringResource(R.string.compaction_threshold), style = MaterialTheme.typography.titleSmall)
                 Text(
                     if (context > 0) stringResource(R.string.compaction_model_context, context)
@@ -262,7 +274,8 @@ private fun ModelSettingsDialog(
             TextButton(
                 onClick = {
                     if (percent != null) {
-                        onSave(CompactionSettings(percent, background, start ?: model.compaction.backgroundThreshold), effort, effortLevels)
+                        onSave(CompactionSettings(percent, background, start ?: model.compaction.backgroundThreshold),
+                            effort, effortLevels, MediaInputSettings(describeImages, describeAudio))
                     }
                 },
                 enabled = percent != null && (!background || start != null),
@@ -381,12 +394,26 @@ internal fun AssignmentSheet(
             ),
     ) {
         var query by rememberSaveable { mutableStateOf("") }
+        val kind = role.descriptionKind
+        val choices = state.savedModels.filter { entry ->
+            val protocol = state.providers.find { it.id == entry.provider }?.protocol
+            (kind != "audio" || protocol in listOf("openai", "gemini")) &&
+                (kind == null || entry.choice.inputModalities?.any {
+                    it.equals(kind, true) || it.startsWith("$kind/", true)
+                } != false)
+        }
         Text(
             stringResource(role.label),
             Modifier.padding(start = 20.dp, bottom = 12.dp),
             style = MaterialTheme.typography.headlineSmall,
         )
-        if (state.savedModels.isNotEmpty())
+        if (kind != null)
+            Text(
+                stringResource(if (kind == "image") R.string.image_description_help else R.string.audio_description_help),
+                Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        if (choices.isNotEmpty())
             OutlinedTextField(
                 query,
                 { query = it },
@@ -403,7 +430,11 @@ internal fun AssignmentSheet(
                     ListItem(
                         content = {
                             Text(stringResource(
-                                if (role == AgentRole.Plugin) R.string.use_preset_model else R.string.use_chat_model
+                                when {
+                                    kind != null -> R.string.media_description_off
+                                    role == AgentRole.Plugin -> R.string.use_preset_model
+                                    else -> R.string.use_chat_model
+                                }
                             ))
                         },
                         trailingContent = {
@@ -413,7 +444,7 @@ internal fun AssignmentSheet(
                     )
                 }
             items(
-                state.savedModels.filter {
+                choices.filter {
                     it.choice.name.contains(query, true) || it.choice.id.contains(query, true)
                 },
                 key = { "${it.provider}:${it.choice.id}" },
@@ -429,7 +460,7 @@ internal fun AssignmentSheet(
                 )
             }
         }
-        if (state.savedModels.isEmpty())
+        if (choices.isEmpty())
             TextButton(onClick = onManage, modifier = Modifier.padding(horizontal = 16.dp)) {
                 Text(stringResource(R.string.manage_models))
             }

@@ -35,7 +35,7 @@ internal static class ToolTrace
         "PresetAgent" => "preset",
         "PluginAgent" => "plugin",
         "SearchAgent" => "search",
-        "FetchAgent" => "fetch",
+        "BrowserAgent" or "FetchAgent" => "fetch",
         "TemporaryAgent" => "temporary",
         _ => agent
     };

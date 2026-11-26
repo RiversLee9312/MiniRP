@@ -20,52 +20,57 @@ internal sealed class PluginProjectAssets(string root, string id, string preset,
             throw new UnauthorizedAccessException("Plugin draft Assets are read-only for PresetAgent. Send the change to the project's PluginAgent.");
     }
 
-    internal AgentSkill Skill() => new(
-        "project_assets", "Associate Asset URLs with files in the assigned plugin draft.",
-        new(
-            Tools.Define("project_asset_list", "List draft paths and their Asset URLs. Use next_offset for more files.",
-                new() { ["offset"] = Tools.Integer(), ["limit"] = Tools.Integer() }),
-            Tools.Define("project_asset_add", "Associate an existing Asset URL with a new relative path in the draft.",
-                new() { ["path"] = Tools.String(), ["url"] = Tools.String() }, "path", "url"),
-            Tools.Define("project_asset_remove", "Remove an Asset URL from the draft. Omit path to unlink all occurrences. The Asset is kept.",
-                new() { ["url"] = Tools.String(), ["path"] = Tools.String() }, "url")),
-        async (tool, args, ct) =>
+    internal const string Instructions = """
+        Start with plugin_file_list. Read and edit existing files through their listed Asset URLs using assets.
+        To add a file, call create_asset, then link the returned URL to a relative package path with plugin_file_add.
+        Link each module at the path its import resolves to. To replace a file association, unlink it first.
+        Unlinking a path keeps the original Asset.
+        """;
+
+    internal static JsonArray Definitions() => new(
+        Tools.Define("plugin_file_list", "List draft paths and their Asset URLs. Use next_offset for more files.",
+            new() { ["offset"] = Tools.Integer(), ["limit"] = Tools.Integer() }),
+        Tools.Define("plugin_file_add", "Associate an existing Asset URL with a new relative path in the draft.",
+            new() { ["path"] = Tools.String(), ["url"] = Tools.String() }, "path", "url"),
+        Tools.Define("plugin_file_remove", "Unlink an Asset URL from the draft. Omit path to unlink all occurrences. The Asset is kept.",
+            new() { ["url"] = Tools.String(), ["path"] = Tools.String() }, "url"));
+
+    internal async Task<JsonNode?> Execute(string tool, JsonObject args, CancellationToken ct)
+    {
+        var files = await Files(ct);
+        var path = args.GetString("path");
+        var url = args.GetString("url");
+        switch (tool)
         {
-            var files = await Files(ct);
-            var path = args.GetString("path");
-            var url = args.GetString("url");
-            switch (tool)
-            {
-                case "project_asset_list":
-                    var offset = Math.Max(0, args.GetInt32("offset"));
-                    var limit = Math.Clamp(args.GetInt32("limit", 20), 1, 50);
-                    var page = files.OrderBy(item => item.Key, StringComparer.Ordinal).Skip(offset).Take(limit + 1).ToArray();
-                    return new JsonObject
-                    {
-                        ["files"] = new JsonArray(page.Take(limit).Select(item => (JsonNode?)new JsonObject
-                            { ["path"] = item.Key, ["url"] = JsonValues.Clone(item.Value) }).ToArray()),
-                        ["next_offset"] = page.Length > limit ? JsonValue.Create(offset + limit) : null
-                    };
-                case "project_asset_add":
-                    ValidatePath(path);
-                    _ = open(url, new());
-                    if (files.GetString(path) == url) return FileReference(path, url);
-                    if (files.Any(item => PathsConflict(item.Key, path)))
-                        throw new ArgumentException("The draft path conflicts with an existing path. Remove the existing association first.");
-                    files[path] = url;
-                    Save(files);
-                    return FileReference(path, url);
-                case "project_asset_remove":
-                    var matches = files.Where(item => JsonValues.GetText(item.Value) == url &&
-                        (path.Length == 0 || item.Key == path)).Select(item => item.Key).ToArray();
-                    foreach (var match in matches) files.Remove(match);
-                    if (matches.Length > 0) Save(files);
-                    return new JsonObject { ["url"] = url, ["removed"] = matches.Length };
-                default:
-                    throw new InvalidOperationException("Unknown project Asset tool.");
-            }
-        },
-        Instructions: "Start with project_asset_list. Read and edit existing files, including manifest.json, through their listed Asset URLs. For a new file, use create_asset and link its returned URL to a relative package path. For .mjs imports, link every source at the path the import resolves to. If replacing an association, unlink the old URL first. Unlinking keeps the old Asset.");
+            case "plugin_file_list":
+                var offset = Math.Max(0, args.GetInt32("offset"));
+                var limit = Math.Clamp(args.GetInt32("limit", 20), 1, 50);
+                var page = files.OrderBy(item => item.Key, StringComparer.Ordinal).Skip(offset).Take(limit + 1).ToArray();
+                return new JsonObject
+                {
+                    ["files"] = new JsonArray(page.Take(limit).Select(item => (JsonNode?)new JsonObject
+                        { ["path"] = item.Key, ["url"] = JsonValues.Clone(item.Value) }).ToArray()),
+                    ["next_offset"] = page.Length > limit ? JsonValue.Create(offset + limit) : null
+                };
+            case "plugin_file_add":
+                ValidatePath(path);
+                _ = open(url, new());
+                if (files.GetString(path) == url) return FileReference(path, url);
+                if (files.Any(item => PathsConflict(item.Key, path)))
+                    throw new ArgumentException("The draft path conflicts with an existing path. Remove the existing association first.");
+                files[path] = url;
+                Save(files);
+                return FileReference(path, url);
+            case "plugin_file_remove":
+                var matches = files.Where(item => JsonValues.GetText(item.Value) == url &&
+                    (path.Length == 0 || item.Key == path)).Select(item => item.Key).ToArray();
+                foreach (var match in matches) files.Remove(match);
+                if (matches.Length > 0) Save(files);
+                return new JsonObject { ["url"] = url, ["removed"] = matches.Length };
+            default:
+                throw new InvalidOperationException("Unknown plugin draft file tool.");
+        }
+    }
 
     internal async Task Stage(string destination, CancellationToken ct)
     {

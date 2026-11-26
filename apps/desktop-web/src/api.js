@@ -22,6 +22,13 @@ export function transcriptPage(scope, before, locale, signal) {
   return request("/api/transcript?" + query, undefined, signal);
 }
 
+export function archivedChatPage(scope, before, locale, signal) {
+  const query = new URLSearchParams(scope);
+  if (before) query.set("before", before);
+  if (locale) query.set("locale", locale);
+  return request("/api/ensemble/archive?" + query, undefined, signal);
+}
+
 export function upload(path, files) {
   const form = new FormData();
   for (const file of files) form.append("files", file);

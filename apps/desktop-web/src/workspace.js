@@ -1,3 +1,5 @@
+import { researchAgentLabel } from "./transcript-turns.js";
+
 export const initial = {
   ready: false, busy: false, generating: "", preset: "", chat: "", conversation: "",
   roomLoading: null,
@@ -23,7 +25,7 @@ function split(blocks) {
 const positions = new WeakMap();
 
 const publicMessage = (block) => ["user", "system", "assistant"].includes(block.kind || block.role) &&
-  !block.tool && !block.compaction && !["search", "SearchAgent", "fetch", "FetchAgent"].includes(block.agent);
+  !block.tool && !block.compaction && !researchAgentLabel(block.agent);
 
 function publicMessages(blocks) {
   return blocks.filter(publicMessage).map(withoutTrace);
@@ -203,8 +205,13 @@ function applyEvent(state, event, editing) {
     case "title":
       return { ...state, title: event.id === state.chat ? event.name : state.title,
         chats: state.chats.map((chat) => chat.id === event.id ? { ...chat, name: event.name } : chat) };
-    case "ensemble_chats":
-      return event.chat === state.chat ? { ...state, ensemble: event.items || [] } : state;
+    case "ensemble_chats": {
+      if (event.chat !== state.chat || event.preset && event.preset !== state.preset) return state;
+      if (!event.removed) return { ...state, ensemble: event.items || [] };
+      const { [event.removed]: _, ...ensembleActivity } = state.ensembleActivity;
+      return { ...state, ensemble: event.items || [], ensembleActivity,
+        returnConversation: state.returnConversation === event.removed ? "" : state.returnConversation };
+    }
     case "ensemble_chat_loaded": {
       if (event.chat !== state.chat || event.preset && event.preset !== state.preset) return state;
       const privateParticipant = event.private_participant || "";

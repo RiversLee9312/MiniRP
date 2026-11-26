@@ -230,4 +230,14 @@
     <string name="ensemble_member_trace">Záznam aktivity</string>
     <string name="ensemble_no_trace">Zatím žádná aktivita</string>
     <string name="ensemble_trace_load_failed">Aktivitu se nepodařilo načíst.</string>
+    <string name="image_description_model">Model pro popis obrázků</string>
+    <string name="audio_description_model">Model pro popis zvuku</string>
+    <string name="media_description_off">Vypnuto</string>
+    <string name="image_description_help">Obrázky se odešlou tomuto modelu, pokud je model odpovědi neumí číst.</string>
+    <string name="audio_description_help">Zvuk se odešle tomuto modelu, pokud ho model odpovědi neumí zpracovat.</string>
+    <string name="describe_images_for_model">Používat popisy obrázků</string>
+    <string name="describe_audio_for_model">Používat popisy zvuku</string>
+    <string name="ensemble_archived_chats">Archivované chaty</string>
+    <string name="ensemble_no_archived_chats">Žádné archivované chaty</string>
+    <string name="ensemble_archive_empty_history">Žádné zprávy</string>
 </resources>

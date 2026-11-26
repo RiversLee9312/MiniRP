@@ -93,6 +93,7 @@ internal fun decodeModel(value: JSONObject) =
             backgroundThreshold = value.optInt("background_compact_at_percent", DEFAULT_BACKGROUND_COMPACTION_PERCENT).coerceIn(1, 99),
         ),
         reasoningEffort = value.optString("reasoning_effort"),
+        mediaInput = MediaInputSettings(value.optBoolean("describe_images"), value.optBoolean("describe_audio")),
     )
 
 internal fun encodeModel(value: SavedModel) =
@@ -105,7 +106,11 @@ internal fun encodeModel(value: SavedModel) =
         .put("input_modalities", value.choice.inputModalities?.let(::JSONArray))
         .put("effort_levels", JSONArray(value.choice.effortLevels))
         .put("reasoning_effort", value.reasoningEffort)
+        .putMediaInput(value.mediaInput)
         .putCompaction(value.compaction)
+
+internal fun JSONObject.putMediaInput(value: MediaInputSettings): JSONObject =
+    put("describe_images", value.describeImages).put("describe_audio", value.describeAudio)
 
 internal fun JSONObject.putCompaction(value: CompactionSettings): JSONObject =
     put("compact_at_percent", value.threshold)

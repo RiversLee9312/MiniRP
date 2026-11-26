@@ -44,8 +44,19 @@ if [ -f "$curl_runtime/minirp-curl" ]; then
     install -D -m 755 "$curl_runtime/minirp-curl" "$output/curl/minirp-curl"
     find "$curl_runtime" -maxdepth 1 -name '*-license.txt' -exec cp '{}' "$output/curl/" ';'
 fi
+ffmpeg_runtime=${MINIRP_FFMPEG_RUNTIME:-"$workspace/artifacts/ffmpeg-x264-runtime/linux"}
+if [ -d "$ffmpeg_runtime" ]; then
+    test -x "$ffmpeg_runtime/ffmpeg"
+    test -x "$ffmpeg_runtime/ffprobe"
+    test -f "$ffmpeg_runtime/ffmpeg-source.tar.xz"
+    test -f "$ffmpeg_runtime/ffmpeg-license.txt"
+    test -f "$ffmpeg_runtime/LIBX264"
+    mkdir -p "$output/ffmpeg"
+    cp -R "$ffmpeg_runtime/." "$output/ffmpeg/"
+fi
 container_image=${MINIRP_CONTAINER_IMAGE:-"$workspace/artifacts/container-image"}
 if [ -f "$container_image/ROOM_VM" ]; then
+    test -f "$container_image/HOST_FFMPEG" || { echo "Rebuild the Alpine image without FFmpeg." >&2; exit 1; }
     mkdir -p "$output/container-image"
     for name in kernel initrd.gz root.squashfs SHA256SUMS ROOM_VM; do
         cp "$container_image/$name" "$output/container-image/"

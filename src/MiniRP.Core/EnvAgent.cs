@@ -1,7 +1,7 @@
 using System.Text.Json.Nodes;
 namespace MiniRP.Core;
 
-public sealed class EnvAgent(Workspace world, AgentSession session)
+public sealed class EnvAgent(Workspace world, AgentSession session, PageSource? web = null)
 {
     public async Task<string> Run(string input, bool advanceRequested, CancellationToken ct, JsonArray? attachments = null, string inputRole = "user")
     {
@@ -106,26 +106,33 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
 
             return Task.FromResult<JsonNode?>(new JsonObject { ["staged"] = true });
         }
-        var system = "You are EnvAgent, managing story and established facts. Inspect and make minimal precise edits with tools. World rules constrain you. Speculation in chat is not established fact. Changes are staged and committed only on successful completion. Explain actual changes concisely in the user's language. " +
+        var system = "You are EnvAgent, managing story and established facts. Inspect and make minimal precise edits with tools. World rules constrain you. Speculation in chat is not established fact. World-state edits are staged and committed on successful completion. Explain actual changes concisely in the user's language. " +
             "Decide whether to advance the story using the current request, conversation, established facts, and stage policy. Advance only when they support a concrete next step, and only as far as they support. Leave the phase unchanged for questions and corrections unless they establish that an advancement condition has been met. " +
             (advanceRequested ? "The caller has asked you to consider advancing the story this turn. " : "") +
             "The room calendar follows the real date or advances through a plugin. Use set_date only for an explicit date change, including during story advancement.\n" +
             world.WorldText + "\nStage policy:\n" + JsonValues.Serialize(world.Config["stage"]);
+        if (world.Mode == "ensemble")
+            system += "\nManage public group chats with ensemble-management. Inspect existing chats and members first. " +
+                "Create a chat when the story needs a new group, change its members when who can participate changes, " +
+                "and archive a chat when it should leave the active story. Membership and chat changes take effect when the tool succeeds. " +
+                "Characters choose where to post within their memberships.";
         if (!world.AgenticSearch)
         {
             system += "\nChatAgent handles search directly. When changes affect search, use set_chat_search_guidance to explain how ChatAgent should apply current canon, interpret real sources, use simulated pages, and keep caches consistent. Preserve unrelated guidance and the preset's base prompt.";
         }
         var reference = "Conversation reference:\n" + session.ToolText(JsonValue.Create(world.Conversation));
-        var answer = await session.Run(system + "\n" + world.AgentPrompt("env"), input,
+        var research = web is not null && session.Assets is not null ? new SearchTurn("direct", "", world, session) : null;
+        Task<JsonObject> Ask() => session.Run(system + "\n" + world.AgentPrompt("env"), input,
             new AgentSkill("world-state", "Inspect and edit the staged world state.", tools, Apply, Required: true), ct,
             attachments: attachments, inputRole: inputRole, reference: reference);
+        var answer = research is null ? await Ask() : await SearchAgent.InResearch(session, research, web!, Ask);
         ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(answer.GetString("content")))
         {
             throw new IOException("Empty response. Changes not saved.");
         }
 
-        if (!JsonNode.DeepEquals(initial, state))
+        if (!JsonNode.DeepEquals(initial, state) || research?.Changed == true)
         {
             lock (world.RoomGate)
             {
@@ -137,6 +144,7 @@ public sealed class EnvAgent(Workspace world, AgentSession session)
                     if (!state.TryGetPropertyValue(key, out var value)) current.Remove(key);
                     else current[key] = JsonValues.Clone(value);
                 }
+                research?.MergeInto(current);
                 world.Commit(current);
             }
         }

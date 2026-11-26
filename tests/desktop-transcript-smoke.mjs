@@ -168,7 +168,10 @@ try {
   assert.equal(await input.inputValue(), "Keep current card input");
   await row(882).locator(".assistant-reply p").dispatchEvent("contextmenu", { bubbles: true, cancelable: true });
   await page.getByRole("menuitem", { name: "Quote", exact: true }).click();
-  assert.equal(await page.locator(".composer textarea").inputValue(), "> selected\n\n");
+  const quote = page.locator(".composer .quote-attachment");
+  await quote.getByRole("button", { name: "Remove Quote" }).waitFor();
+  assert.equal(await quote.locator(".quote-preview").textContent(), "selected");
+  assert.equal(await page.locator(".composer textarea").inputValue(), "");
 
   const trace = row(firstRecent + 5);
   await trace.locator("summary").click();
@@ -347,8 +350,11 @@ try {
   const rtlRuler = touch.locator(".transcript-ruler");
   await rtlRuler.waitFor();
   const rtlRail = await rtlRuler.boundingBox();
+  const rtlCurrentTick = rtlRuler.locator('[data-current="true"]');
+  await rtlCurrentTick.waitFor();
+  const rtlTick = await rtlCurrentTick.boundingBox();
   const beforeHover = await touch.locator(".transcript").evaluate((element) => element.scrollTop);
-  await touch.mouse.move(rtlRail.x + rtlRail.width / 2, rtlRail.y + rtlRail.height * .86);
+  await touch.mouse.move(rtlRail.x + rtlRail.width / 2, rtlTick.y + rtlTick.height / 2);
   const rtlPreview = touch.locator(".transcript-ruler-card");
   await rtlPreview.waitFor();
   const box = await rtlPreview.boundingBox();

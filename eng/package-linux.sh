@@ -32,6 +32,10 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 payload="$stage/payload"
 PATH="$MINIRP_NODE_RUNTIME/bin:$PATH" MINIRP_DESKTOP_NO_SYMBOLS=1 sh eng/build-desktop.sh "$payload/usr/lib/minirp"
+if ! test -x "$payload/usr/lib/minirp/ffmpeg/ffmpeg" || ! test -x "$payload/usr/lib/minirp/ffmpeg/ffprobe"; then
+    echo "Build the shared FFmpeg runtime before packaging MiniRP." >&2
+    exit 2
+fi
 install -m 755 "$node_binary" "$payload/usr/lib/minirp/browser/node"
 install -m 644 "$node_license" "$payload/usr/lib/minirp/browser/node-LICENSE.txt"
 find "$payload" -name '*.pdb' -delete

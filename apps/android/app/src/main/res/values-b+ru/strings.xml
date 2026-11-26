@@ -230,4 +230,14 @@
     <string name="ensemble_member_trace">Журнал активности</string>
     <string name="ensemble_no_trace">Пока нет активности</string>
     <string name="ensemble_trace_load_failed">Не удалось загрузить активность.</string>
+    <string name="image_description_model">Модель для описания изображений</string>
+    <string name="audio_description_model">Модель для описания аудио</string>
+    <string name="media_description_off">Выключено</string>
+    <string name="image_description_help">Изображения отправляются этой модели, если модель ответа не умеет их читать.</string>
+    <string name="audio_description_help">Аудио отправляется этой модели, если модель ответа не умеет его обрабатывать.</string>
+    <string name="describe_images_for_model">Использовать описания изображений</string>
+    <string name="describe_audio_for_model">Использовать описания аудио</string>
+    <string name="ensemble_archived_chats">Архивные чаты</string>
+    <string name="ensemble_no_archived_chats">Нет архивных чатов</string>
+    <string name="ensemble_archive_empty_history">Нет сообщений</string>
 </resources>

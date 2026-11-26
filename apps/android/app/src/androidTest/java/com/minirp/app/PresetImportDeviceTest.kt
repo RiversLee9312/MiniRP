@@ -207,7 +207,7 @@ class PresetImportDeviceTest {
                 ?.optString("content").orEmpty()
             val result = history.lastOrNull { it.optString("role") == "tool" }?.optString("content").orEmpty()
             val delta = when {
-                history.first().getString("content").startsWith("You are FetchAgent") -> when (fetchRounds.getAndIncrement()) {
+                history.first().getString("content").startsWith("You are BrowserAgent") -> when (fetchRounds.getAndIncrement()) {
                     0 -> { assertTrue(user.contains(lore)); tool("browser_navigate", "url" to lore) }
                     1 -> { assertTrue(result.contains(WebMarker)); tool("capture_page") }
                     2 -> { assertTrue(result.contains(WebMarker)); tool("finish_fetch", "complete" to true) }
@@ -241,7 +241,7 @@ class PresetImportDeviceTest {
 
         private fun setting(user: String, result: String): JSONObject = when (settingRounds.getAndIncrement()) {
             0 -> tool("activate_skill", "name" to "view_asset")
-            1 -> tool("plugin_base_grep", "url" to asset(user), "pattern" to "^")
+            1 -> tool("grep", "url" to asset(user), "pattern" to "^")
             2 -> {
                 val text = JSONObject(result).getJSONArray("lines").getJSONObject(0).getString("text")
                 assertEquals(Setting, text)
@@ -283,19 +283,19 @@ class PresetImportDeviceTest {
                 val downloaded = JSONObject(result)
                 assertEquals(0, downloaded.getInt("exit_code"))
                 assertEquals(CurlMarker, downloaded.getString("output").trim())
-                tool("real_search", "query" to "open source search engine", "limit" to 5)
+                tool("search", "query" to "open source search engine")
             }
             10 -> {
                 val hits = JSONObject(result).getJSONArray("results")
                 assertTrue("Expected a live web search result: $result",
                     hits.length() > 0 && hits.getJSONObject(0).getString("url").startsWith("http"))
-                tool("real_fetch", "url" to lore, "backend" to "local")
+                tool("open_url", "url" to lore, "backend" to "local")
             }
             11 -> {
                 assertTrue(JSONObject(result).getString("content").contains(WebMarker))
-                tool("cache_page", "ref" to JSONObject(result).getString("ref"))
+                tool("open_url", "url" to lore)
             }
-            12 -> { assertTrue(JSONObject(result).getBoolean("cached")); json("content" to CardDone) }
+            12 -> { assertTrue(JSONObject(result).getString("content").contains(WebMarker)); json("content" to CardDone) }
             else -> error("Unexpected card import step")
         }
 

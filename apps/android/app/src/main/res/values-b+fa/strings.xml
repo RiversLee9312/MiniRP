@@ -226,4 +226,14 @@
     <string name="ensemble_member_trace">گزارش فعالیت</string>
     <string name="ensemble_no_trace">هنوز فعالیتی نیست</string>
     <string name="ensemble_trace_load_failed">بارگیری فعالیت ممکن نبود.</string>
+    <string name="image_description_model">مدل توصیف تصویر</string>
+    <string name="audio_description_model">مدل توصیف صدا</string>
+    <string name="media_description_off">خاموش</string>
+    <string name="image_description_help">وقتی مدل پاسخ‌گو تصویر را نمی‌خواند، تصویر به این مدل فرستاده می‌شود.</string>
+    <string name="audio_description_help">وقتی مدل پاسخ‌گو صدا را پردازش نمی‌کند، صدا به این مدل فرستاده می‌شود.</string>
+    <string name="describe_images_for_model">استفاده از توصیف تصویر</string>
+    <string name="describe_audio_for_model">استفاده از توصیف صدا</string>
+    <string name="ensemble_archived_chats">گفت‌وگوهای بایگانی‌شده</string>
+    <string name="ensemble_no_archived_chats">گفت‌وگوی بایگانی‌شده‌ای وجود ندارد</string>
+    <string name="ensemble_archive_empty_history">پیامی وجود ندارد</string>
 </resources>

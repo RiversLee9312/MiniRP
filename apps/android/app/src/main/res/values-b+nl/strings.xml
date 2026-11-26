@@ -226,4 +226,14 @@
     <string name="ensemble_member_trace">Activiteitenlogboek</string>
     <string name="ensemble_no_trace">Nog geen activiteit</string>
     <string name="ensemble_trace_load_failed">De activiteit kon niet worden geladen.</string>
+    <string name="image_description_model">Model voor beeldbeschrijvingen</string>
+    <string name="audio_description_model">Model voor audiobeschrijvingen</string>
+    <string name="media_description_off">Uit</string>
+    <string name="image_description_help">Afbeeldingen worden naar dit model gestuurd als het antwoordmodel ze niet kan lezen.</string>
+    <string name="audio_description_help">Audio wordt naar dit model gestuurd als het antwoordmodel die niet kan verwerken.</string>
+    <string name="describe_images_for_model">Beeldbeschrijvingen gebruiken</string>
+    <string name="describe_audio_for_model">Audiobeschrijvingen gebruiken</string>
+    <string name="ensemble_archived_chats">Gearchiveerde chats</string>
+    <string name="ensemble_no_archived_chats">Geen gearchiveerde chats</string>
+    <string name="ensemble_archive_empty_history">Geen berichten</string>
 </resources>

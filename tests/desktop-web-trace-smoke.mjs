@@ -182,9 +182,36 @@ try {
   });
   await paragraph.dispatchEvent("contextmenu", { bubbles: true, cancelable: true });
   await page.getByRole("menuitem", { name: "Quote", exact: true }).click();
-  assert.equal(await draft.inputValue(), "Existing draft.\n\n> " + responseText + "\n\n");
+  const quote = page.locator(".composer .quote-attachment");
+  const removeQuote = quote.getByRole("button", { name: "Remove Quote" });
+  await removeQuote.waitFor();
+  assert.equal(await quote.locator(".quote-preview").textContent(), responseText);
+  assert.equal(await draft.inputValue(), "Existing draft.");
+  await removeQuote.click();
+  await quote.waitFor({ state: "detached" });
+  assert.equal(await draft.inputValue(), "Existing draft.");
   assert.ok(!commandRequests.includes("message"));
-  console.log("Trace pinning, localized titles and ToolFacts, exact JSON copy and fallback, display-only card restrictions, selection and quoting passed.");
+  publish([{ kind: "delta", agent: "ChatAgent", block: "following-trace",
+    text: "Following reply.\n\n".repeat(60) + "End of following reply." }]);
+  await page.getByText("End of following reply.", { exact: true }).waitFor({ state: "attached" });
+  await trace.evaluate((details) => { details.open = true; });
+  const height = await trace.locator("summary").evaluate((summary) => summary.getBoundingClientRect().height);
+  async function placeTraceEnd(distance) {
+    return trace.evaluate((details, distance) => {
+      const transcript = details.closest(".transcript");
+      const edge = transcript.getBoundingClientRect().top;
+      transcript.scrollTop += details.getBoundingClientRect().bottom - edge - distance;
+      const header = details.querySelector("summary").getBoundingClientRect();
+      return { top: header.top - edge, bottom: header.bottom - edge };
+    }, distance);
+  }
+  const pinned = await placeTraceEnd(height * 2);
+  assert.ok(Math.abs(pinned.top) < 2);
+  for (const distance of [height / 2, height / 4]) {
+    const leaving = await placeTraceEnd(distance);
+    assert.ok(leaving.top < 0 && Math.abs(leaving.bottom - distance) < 2);
+  }
+  console.log("Trace pinning and push-out, localized titles and ToolFacts, exact JSON copy and fallback, display-only card restrictions, selection and quoting passed.");
 } finally {
   await browser?.close();
   server.closeAllConnections();

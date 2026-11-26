@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import { send } from "./api.js";
-import { MessageBlock } from "./Conversation.jsx";
-import { Icon, Modal } from "./ui.jsx";
+import { useEffect, useMemo, useState } from "react";
+import { archivedChatPage, send } from "./api.js";
+import { MessageBlock, Transcript } from "./Conversation.jsx";
+import { Icon, Modal, Surface } from "./ui.jsx";
 import "./EnsembleRoom.css";
 
 function Avatar({ name }) {
@@ -46,6 +46,66 @@ export function EnsembleOverview({ scenes, activity, open, disabled, t }) {
       </li>)}
     </ul>
   </section>;
+}
+
+function useArchivePage(scope, locale) {
+  const [result, setResult] = useState(null);
+  const [attempt, retry] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setResult(null);
+    archivedChatPage(scope, null, locale, controller.signal).then(page => {
+      if (!controller.signal.aborted) setResult(page);
+    }).catch(() => {
+      if (!controller.signal.aborted) setResult({ failed: true });
+    });
+    return () => controller.abort();
+  }, [scope, locale, attempt]);
+  return [result, () => retry(attempt + 1)];
+}
+
+function ArchiveStatus({ page, retry, empty, t }) {
+  return <div className="ensemble-trace-empty" role="status">
+    <p>{t(!page ? "running" : page.failed ? "connection_failed" : empty)}</p>
+    {page?.failed && <button type="button" className="text-button" onClick={retry}>{t("retry")}</button>}
+  </div>;
+}
+
+function ArchivedTranscript({ chat, close, preset, room, locale, t, dark, theme, onError }) {
+  const scope = useMemo(() => ({ preset, room, conversation: chat.id, agent: "chat" }), [preset, room, chat.id]);
+  const [page, retry] = useArchivePage(scope, locale);
+  const [additional, setAdditional] = useState(null);
+  const history = additional?.initial === page ? additional : { initial: page, before: page?.before, pages: [] };
+  function addHistory(_pane, _version, before, older) {
+    if (before === history.before) setAdditional({ initial: page, before: older.before,
+      pages: older.blocks.length ? [older.blocks, ...history.pages] : history.pages });
+  }
+  return <Modal title={chat.name || t("chat")} back={close} close={close} t={t} wide className="ensemble-archive-transcript">
+    {page?.blocks?.length
+      ? <Transcript key={chat.id + ":" + locale} blocks={page.blocks} contextKey={chat.id} history={history}
+        pane="archive" addHistory={addHistory} onHistoryError={onError} loadPage={archivedChatPage}
+        {...{ scope, locale, t, dark, theme }} />
+      : <ArchiveStatus {...{ page, retry, t }} empty="ensemble_archive_empty_history" />}
+  </Modal>;
+}
+
+export function EnsembleArchive({ close, preset, room, locale, t, ...view }) {
+  const scope = useMemo(() => ({ preset, room }), [preset, room]);
+  const [page, retry] = useArchivePage(scope, locale);
+  const [selected, setSelected] = useState(null);
+  return <Modal title={t("ensemble_archived_chats")} close={close} t={t}>
+    {page?.items?.length ? <ul className="ensemble-contact-list">
+      {page.items.map(chat => <li key={chat.id}>
+        <button type="button" className="room-select ensemble-contact" onClick={() => setSelected(chat)}>
+          <span className="ensemble-scene-icon"><Icon name="archive" /></span>
+          <bdi className="choice-label">{chat.name || t("chat")}</bdi>
+          <span className="directional"><Icon name="chevron_right" /></span>
+        </button>
+      </li>)}
+    </ul> : <ArchiveStatus {...{ page, retry, t }} empty="ensemble_no_archived_chats" />}
+    <Surface>{selected && <ArchivedTranscript chat={selected} close={() => setSelected(null)}
+      {...{ preset, room, locale, t, ...view }} />}</Surface>
+  </Modal>;
 }
 
 export function OutOfStoryNotice({ t }) {

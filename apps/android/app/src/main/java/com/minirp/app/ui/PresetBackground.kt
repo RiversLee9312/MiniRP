@@ -24,6 +24,8 @@ import android.widget.ImageView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,11 +35,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -69,13 +85,20 @@ internal fun rememberPresetBackground(model: ChatViewModel, state: ChatState): P
         it.presetId == state.preset && it.availableIn(state.preset) && it.packageName == packageName
     } ?: return null
     val cache = LocalContext.current.cacheDir
-    var result by remember(model, state.preset, url, owner.generation) { mutableStateOf<PresetBackground?>(null) }
-    LaunchedEffect(model, state.preset, url, owner.generation) {
+    val size = LocalWindowInfo.current.containerSize
+    val frame = when {
+        size.width <= 0 || size.height <= 0 -> ""
+        size.width * 10 >= size.height * 11 -> "landscape"
+        size.height * 10 >= size.width * 11 -> "portrait"
+        else -> "square"
+    }
+    var result by remember(model, state.preset, url, owner.generation, frame) { mutableStateOf<PresetBackground?>(null) }
+    LaunchedEffect(model, state.preset, url, owner.generation, frame) {
         var file: File? = null
         try {
             result = withContext(Dispatchers.IO) {
                 val source = File.createTempFile("preset-background-", ".media", cache).also { file = it }
-                val mime = model.savePresetBackground(state.preset, url, source).lowercase()
+                val mime = model.savePresetBackground(state.preset, url, frame, source).lowercase()
                 decodePresetBackground(source, mime)
             }
             awaitCancellation()
@@ -128,13 +151,77 @@ private fun videoPoster(file: File): Bitmap? {
     } finally { video.release() }
 }
 
+private val conversationBlur = 20.dp
+private const val minimumScrimOpacity = 0.87f
+private const val minimumTextContrast = 4.5f
+
+internal fun backgroundScrim(colors: ColorScheme, dark: Boolean): Color {
+    val foregrounds = listOf(colors.onSurface, colors.onSurfaceVariant, colors.primary, colors.error)
+        .map { it.luminance() }
+    fun hasContrast(background: Color): Boolean {
+        val luminance = background.luminance()
+        return foregrounds.all { foreground ->
+            val contrast = (maxOf(foreground, luminance) + 0.05f) / (minOf(foreground, luminance) + 0.05f)
+            contrast >= minimumTextContrast
+        }
+    }
+
+    val neutral = if (dark) Color.Black else Color.White
+    // Use the image color that gives the least contrast with the theme's text.
+    val worstCaseImage = if (dark) Color.White else Color.Black
+    val base = if (hasContrast(colors.surface)) colors.surface else neutral
+    if (hasContrast(base.copy(alpha = minimumScrimOpacity).compositeOver(worstCaseImage))) {
+        return base.copy(alpha = minimumScrimOpacity)
+    }
+
+    var low = minimumScrimOpacity
+    var high = 1f
+    repeat(10) {
+        val opacity = (low + high) / 2
+        if (hasContrast(base.copy(alpha = opacity).compositeOver(worstCaseImage))) high = opacity
+        else low = opacity
+    }
+    return base.copy(alpha = high)
+}
+
 @Composable
-internal fun PresetBackdrop(background: PresetBackground?, conversation: Boolean, blur: Boolean, modifier: Modifier) {
+internal fun PresetHomeBackdrop(
+    background: PresetBackground?,
+    modifier: Modifier,
+    content: @Composable (Modifier?) -> Unit,
+) {
+    Box(modifier) {
+        if (background == null) {
+            content(null)
+        } else {
+            var origin by remember { mutableStateOf(Offset.Zero) }
+            var banner by remember { mutableStateOf<Rect?>(null) }
+            PresetBackdrop(
+                background, conversation = false, blur = false,
+                modifier = Modifier.matchParentSize().onGloballyPositioned { origin = it.positionInRoot() },
+                glassBounds = { banner?.translate(-origin) },
+            )
+            content(Modifier.testTag("preset-home-banner").onGloballyPositioned { banner = it.boundsInRoot() })
+        }
+    }
+}
+
+@Composable
+internal fun PresetBackdrop(
+    background: PresetBackground?,
+    conversation: Boolean,
+    blur: Boolean,
+    modifier: Modifier,
+    glassBounds: (() -> Rect?)? = null,
+) {
     if (background == null) return
     val dark = LocalMiniRPDarkTheme.current
-    val radius = if (conversation && blur) 20.dp else 0.dp
+    val colors = MaterialTheme.colorScheme
+    val tint = remember(colors, dark) { backgroundScrim(colors, dark) }
+    val radius = if (conversation && blur) conversationBlur else 0.dp
     val running = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(Lifecycle.State.RESUMED)
-    Box(modifier.clipToBounds().testTag("preset-background")) {
+    val glass = if (glassBounds != null) backdropGlass(glassBounds, tint) else Modifier
+    Box(modifier.clipToBounds().testTag("preset-background").then(glass)) {
         Image(
             remember(background) { background.poster.asImageBitmap() }, null,
             Modifier.matchParentSize().blur(radius), contentScale = ContentScale.Crop,
@@ -151,9 +238,31 @@ internal fun PresetBackdrop(background: PresetBackground?, conversation: Boolean
                 )
             background.mime == "image/gif" -> GifBackground(background.file, running, pixels, Modifier.matchParentSize())
         }
-        if (conversation) Box(Modifier.matchParentSize().background(
-            if (dark) Color.Black.copy(alpha = 0.30f) else Color.White.copy(alpha = 0.32f),
-        ))
+        if (conversation) Box(Modifier.matchParentSize().background(tint))
+    }
+}
+
+@Composable
+private fun backdropGlass(bounds: () -> Rect?, tint: Color): Modifier {
+    val source = rememberGraphicsLayer()
+    val glass = rememberGraphicsLayer()
+    val blur = with(LocalDensity.current) { conversationBlur.toPx() }
+    val effect = remember(blur) { BlurEffect(blur, blur, TileMode.Clamp) }
+    return Modifier.drawWithContent {
+        val area = bounds()
+        if (area == null) {
+            drawContent()
+            return@drawWithContent
+        }
+        // Reuse the rendered media frame so the banner stays aligned with moving backgrounds.
+        source.record { this@drawWithContent.drawContent() }
+        drawLayer(source)
+        glass.renderEffect = effect
+        glass.record { drawLayer(source) }
+        clipRect(area.left, area.top, area.right, area.bottom) {
+            drawLayer(glass)
+            drawRect(tint)
+        }
     }
 }
 

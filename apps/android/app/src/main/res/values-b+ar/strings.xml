@@ -234,4 +234,14 @@
     <string name="ensemble_member_trace">سجل النشاط</string>
     <string name="ensemble_no_trace">لا يوجد نشاط بعد</string>
     <string name="ensemble_trace_load_failed">تعذر تحميل النشاط.</string>
+    <string name="image_description_model">نموذج وصف الصور</string>
+    <string name="audio_description_model">نموذج وصف الصوت</string>
+    <string name="media_description_off">إيقاف</string>
+    <string name="image_description_help">يرسل الصور إلى هذا النموذج عندما يتعذر على نموذج الرد قراءتها.</string>
+    <string name="audio_description_help">يرسل الصوت إلى هذا النموذج عندما يتعذر على نموذج الرد قراءته.</string>
+    <string name="describe_images_for_model">استخدام أوصاف الصور</string>
+    <string name="describe_audio_for_model">استخدام أوصاف الصوت</string>
+    <string name="ensemble_archived_chats">المحادثات المؤرشفة</string>
+    <string name="ensemble_no_archived_chats">لا توجد محادثات مؤرشفة</string>
+    <string name="ensemble_archive_empty_history">لا توجد رسائل</string>
 </resources>

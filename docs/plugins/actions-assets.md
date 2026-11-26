@@ -23,7 +23,7 @@ Actions 是异步投递。需要回复时在协议里约定第二个 Hook 或事
 
 ### 长工具输出
 
-把网页正文、命令日志和生成的报告交给 `api.actions.publishOutput`。返回值可以与退出码、标题或来源 URL 等摘要字段合并。临时 Asset 保留完整 UTF-8 内容，最大 128 MiB，仅本次智能体会话可读，七天后由宿主回收。智能体用 `view_asset` 查找内容，也可以在回复中提供下载链接。已经发给用户的下载链接保留发布时的文件版本。
+把网页正文、命令日志和生成的报告交给 `api.actions.publishOutput`。返回值可以与退出码、标题或来源 URL 等摘要字段合并。临时 Asset 保留完整 UTF-8 内容，最大 128 MiB，仅本次智能体会话可读，七天后由宿主回收。智能体用 `assets` 查找内容，也可以在回复中提供下载链接。已经发给用户的下载链接保留发布时的文件版本。
 
 ```js
 return {
@@ -46,6 +46,31 @@ Asset URL 为 `minirp://assets/<packageName>/<id>`。清单中每项填写 `id`�
 - `type: "dynamic"` 填写本包 Actions `handler` URL。处理器收到 `asset.requested`，字段为 `url`、`request`（读取参数）、`sender`（调用包名或宿主的 `null`），以及附件预览请求的 `attachment`。返回 `Uint8Array`、`ReadableStream<Uint8Array>` 或相应 Promise。
 - `private` 为默认，仅资源所有者插件和宿主可访问。 `protected` 另允许使用同一 X.509 证书签名的包访问。 `public` 可被其他插件读取。相同包名、证书主题或相同公钥都不能代替同一证书指纹校验。
 
+### 监听 Asset 变更
+
+在 Asset 声明中设置 `listenable: true`，并将 `changeEvent` 指向本包 `actions.events` 已声明的 Event URL。每个 Asset 使用独立的变更事件源。监听方在 `actions.subscriptions` 将该 Event URL 绑定到自己声明的 Hook URL。所有者也可以用同样的方式订阅。
+
+```json
+{
+  "actions": {
+    "events": ["notes-changed"],
+    "handlers": { "refresh": "refresh" },
+    "subscriptions": {
+      "minirp://actions/com.example.notes/events/notes-changed": "minirp://actions/com.example.notes/hooks/refresh"
+    }
+  },
+  "assets": [{
+    "id": "notes", "type": "file", "path": "notes.txt", "mimeType": "text/plain",
+    "writable": true, "listenable": true,
+    "changeEvent": "minirp://actions/com.example.notes/events/notes-changed"
+  }]
+}
+```
+
+宿主在可写 Asset 的新版本提交成功后投递 `asset.changed`。动态 Asset 的所有者可以在更新数据后调用 `await api.assets.notifyChanged(api.assets.url("summary"))`。只有声明的动态 Asset 可手动通知。该事件源由宿主生成事件。
+
+Hook 收到 `url`、`source`、`sender`、`assets.asset` 及 `reason`。写入的原因是 `write`，并带新内容的 `size`。动态通知的原因是 `invalidate`。事件携带资源 URL，读取时会取得对应预设的当前内容。宿主使用变更发生时的预设和语言投递，只允许该预设中获准读取 Asset 的订阅方接收。通知使用有界事件队列，队列满时跳过该订阅方。`notifyChanged` 返回成功入队的订阅方数量。
+
 ### 发布并读取一份动态文本
 
 把示例里的 `com.example.notes` 换成清单里的 `packageName`。在 `actions.handlers` 声明 `"summary": "summary"`，再添加这项 `assets` 声明。
@@ -64,7 +89,7 @@ globalThis.handlers = {
 };
 ```
 
-发布后，负责该项目的 PluginAgent 激活 `view_asset`，用 `plugin_base_grep` 打开 `minirp://assets/com.example.notes/summary` 并匹配 `Ready`。读取会执行当前预设中已安装的资源处理器。项目自检入口只开放本项目已安装的公开资源。
+发布后，负责该项目的 PluginAgent 激活 `assets`，用 `grep` 打开 `minirp://assets/com.example.notes/summary` 并匹配 `Ready`。读取会执行当前预设中已安装的资源处理器。项目自检入口只开放本项目已安装的公开资源。
 
 | API | 参数与结果 |
 | --- | --- |
@@ -76,13 +101,35 @@ globalThis.handlers = {
 
 智能体可在 Markdown 回答里链接到已获授权的 Asset，点击后打开系统保存窗口。OpenUI 的 `Link` 和 `@OpenUrl` 支持相同的下载方式，`Image` 可以加载 PNG、JPEG、GIF、WebP、AVIF 等栅格图片。读取范围限定在对应的回复或卡片。会话自建文件和已分享的文件版本随 Room 或存档导出。
 
-base 插件的 `research` 技能为抓取页和搜索条目分配私有 Asset URL。页正文是 Markdown，条目是 JSON，两者都能通过 `view_asset` 和 `edit_asset` 操作。当前会话通过工具结果获得授权，分支从其快照解析对应的版本。暂存候选只在研究轮次可用，缓存后的资源随 Room 或预设存档导出。宿主按内容哈希保存正文，并在导入时校验。
+`search` 和 `search-full` 为抓取页和搜索条目提供私有 Asset URL。页正文是 Markdown，条目是 JSON，两者都能通过 `assets` 查看和编辑。当前会话通过工具结果获得授权，分支从其快照解析对应的版本。暂存候选只在研究轮次可用，缓存后的资源随 Room 或预设存档导出。宿主按内容哈希保存正文，并在导入时校验。
 
 ## 预设聊天背景
 
 在预设所属的签名插件中声明图片、GIF 或短视频 Asset。插件清单的 `presetId` 必须与预设 UUID 一致，插件作用域也须覆盖该预设。预设智能体使用 `preset-editing` 中的 `list_chat_backgrounds` 查找资源，再用 `configure_chat_appearance` 配置背景。常用格式包括 PNG、JPEG、WebP、GIF、MP4 和 WebM。视频按静音循环播放。
 
 预设保存在 `appearance` 中。`background_url` 是已声明的 Asset URL，`background_blur` 默认开启，`theme_color` 可用 `#RRGGBB` 覆盖从背景提取的主题色。动图和视频使用预览帧取色，播放时主题色保持稳定。`background_url` 或 `theme_color` 传空字符串可清除对应设置。Android 12 及以上支持背景模糊。聊天页还会按浅色或深色模式调整背景明暗。背景资源也会随其所属插件一起导出。
+
+同一背景可在主 Asset 上加 `backgroundVariants`，用 `square`、`landscape` 和 `portrait` 指向同一插件内的 Asset ID。三个画幅可按需填写。应用根据可用显示区域切换画幅，宽高相近时选方形。匹配项缺失时使用主 Asset。`list_chat_backgrounds` 在主 Asset 下的 `variants` 字段中列出画幅 URL。`background_url` 始终保存主 Asset URL，引用的画幅文件随插件一起打包。
+
+```json
+{
+  "assets": [
+    {
+      "id": "harbor",
+      "type": "file",
+      "path": "harbor-square.webp",
+      "mimeType": "image/webp",
+      "backgroundVariants": {
+        "square": "harbor",
+        "landscape": "harbor-wide",
+        "portrait": "harbor-tall"
+      }
+    },
+    {"id": "harbor-wide", "type": "file", "path": "harbor-wide.webp", "mimeType": "image/webp"},
+    {"id": "harbor-tall", "type": "file", "path": "harbor-tall.webp", "mimeType": "image/webp"}
+  ]
+}
+```
 
 ## 查看和转换资源
 

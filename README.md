@@ -9,7 +9,7 @@
 ## 从一句话开始
 
 - **把设定变成可玩的预设。**「把这张角色卡和我的设定文档导进去，开场让我在码头收到一封匿名信。」PresetAgent 读取附件，整理角色、世界规则和故事开场。
-- **让剧情有资料可依。**「查一下灯塔守夜人以前是怎么值班的，用查到的细节来写今晚的巡查。」ChatAgent 可以让 SearchAgent 查找来源，必要时由 FetchAgent 打开网页读取正文。
+- **让剧情有资料可依。**「查一下灯塔守夜人以前是怎么值班的，用查到的细节来写今晚的巡查。」ChatAgent 可以让 SearchAgent 查找来源，必要时由 BrowserAgent 打开网页读取正文。
 - **把剧情变化记进世界。**「港口停电了，把这条事实记下来，推进到下一班岗。」在世界面板发给 EnvAgent，它会更新当前世界的状态。
 - **当场做出能用的界面。**「做一张补给计算卡，改人数和天数时马上算出要带多少食物。」Android 对话里可以生成可直接操作的 OpenUI 卡片。
 - **给预设加一项长期玩法。**「给这个预设做一个线索板，把找到的线索保存下来。」PresetAgent 可以委派 PluginAgent 开发和调试，并按你的要求为该预设部署。
@@ -26,12 +26,14 @@ Android ARM64 下载 `MiniRP.apk`，可直接覆盖升级。Windows x64 使用 M
 - **EnvAgent**：根据对话、已确认的事实和预设规则判断何时推进剧情。它可以编辑事实、世界状态和剧情日期，完成后提交修改。
 - **PresetAgent**：用精确工具编辑预设，也能读取设定文档和角色卡，整理角色、世界规则和开场。Android 在预设对话中用文件选择器发送，桌面打开预设面板后用 `/attach`。未完成的预设打开时会继续进入 PresetAgent，直到它调用工具完成设置。
 - **SearchAgent**：每轮完成一次搜索或网页请求，自主决定是否搜索、搜索多少轮、抓取哪些页面，以及召回、编辑和缓存哪些材料。最终结果数量不设上限。
-- **FetchAgent**：临时浏览器智能体，操作网页、采集全文、在 DB 中精修 Markdown，再提交正文和单独的摘要。
+- **BrowserAgent**：临时浏览器智能体，操作网页、采集全文、在 DB 中精修 Markdown，再提交正文和单独的摘要。
 - **PluginAgent**：接手 PresetAgent 委派的插件开发，编写、调试、签名和部署属于该预设的插件。
 
 智能体共用 `AgentSession` 的流式事件、工具循环、取消、上下文压缩和记忆工具。UI 展开/折叠只影响展示，不修改模型请求中的思考设置。
 
 ChatAgent、PresetAgent 和 PluginAgent 可激活 `container` 技能运行 x86-64 Alpine 命令，并在 Asset 和客户机文件间传递数据。同一预设下的 PresetAgent 和 PluginAgent 共用 Asset URL 和容器工作目录。Android 和 Windows x64 随包提供运行时和镜像，工作目录随分支和存档迁移。构建前准备同一份 [智能体容器镜像和两端运行时](docs/project/agent-container.md)。
+
+智能体可分别激活 `ffprobe` 和 `ffmpeg`，读取媒体元数据或转码、裁剪媒体。两个技能在宿主运行，直接交换会话 Asset。 [宿主媒体技能](docs/project/agent-container.md#宿主媒体技能)
 
 ## 运行桌面版
 
@@ -80,7 +82,7 @@ Windows 和 Linux 的构建脚本都可用 `MINIRP_WEB_PREBUILT` 指定已生成
 
 Linux ARM64 的输出目录是 `linux-arm64`。构建会收录已准备的 Alpine Room 镜像和 Linux 独立 curl。用 `MINIRP_CONTAINER_IMAGE`、`MINIRP_QEMU_RUNTIME` 和 `MINIRP_CURL_RUNTIME` 指定其他位置。Linux 可用系统的 `qemu-system-x86_64`，镜像与 curl 的准备步骤见[智能体容器](docs/project/agent-container.md)。
 
-WebUI 窗口与 FetchAgent 共用经过验证的浏览器二进制，每个窗口和每个抓取任务使用各自的浏览器配置、Cookie 和缓存。Windows 优先使用 WebView2 Evergreen，再尝试系统 Chrome、Edge。Linux 优先复用完整的 Playwright Chromium，再尝试系统 Chromium、Chrome 或 Edge，包含可正常启动的 Snap Chromium。独立的 headless shell 无法提供应用窗口。用普通 Linux 用户启动，以便启用浏览器沙盒。
+WebUI 窗口与 BrowserAgent 共用经过验证的浏览器二进制，每个窗口和每个抓取任务使用各自的浏览器配置、Cookie 和缓存。Windows 优先使用 WebView2 Evergreen，再尝试系统 Chrome、Edge。Linux 优先复用完整的 Playwright Chromium，再尝试系统 Chromium、Chrome 或 Edge，包含可正常启动的 Snap Chromium。独立的 headless shell 无法提供应用窗口。用普通 Linux 用户启动，以便启用浏览器沙盒。
 
 找不到合适的运行时时，MiniRP 会先查找本地兼容的 CEF。首次下载会显示用途和大小，确认后显示进度，可随时取消。校验成功后保存到用户目录的版本化缓存，并继续刚才的操作。选「稍后」可以在下一次需要时再确认。Linux 图形化安装提示使用 Zenity。`MINIRP_BROWSER` 可设置首选项，`MINIRP_BROWSER=cef` 直接使用 CEF。便携环境可用绝对路径环境变量 `MINIRP_BROWSER_DATA_DIR` 指定缓存根目录。
 
@@ -136,30 +138,38 @@ UI 文案使用 Android 字符串资源，支持英文及另外 29 种语言；�
 
 Android 的提供商设置和桌面的 `/config` 都可以选择 [Coding Plan、Agent Plan 和模型订阅模板](docs/project/provider-plans.md)。
 
+在 Android 或桌面 WebUI 的「设置 → 模型和供应商 → 模型」分别指定图像描述模型和音频描述模型。终端版可在 `/config` 的模型设置中配置。两个选项默认关闭。对话模型缺少相应输入能力时，MiniRP 会把附件发给所选描述模型，再把生成的文字与原附件链接一起交给对话模型。
+
+音频描述包含可辨认的语音和相关声音。音频描述模型使用 Gemini 或支持音频输入的 OpenAI Chat Completions 兼容接口。音频需要转换时，描述可能只涵盖开头最多 30 秒，模型会收到片段范围。
+
+如果模型供应商未公布输入能力，可以在对话模型的设置中启用「使用图像描述」或「使用音频描述」。描述请求只包含对应附件和描述指令。
+
 兼容程度取决于服务实际支持的模型、工具调用和思考参数。协议回归使用本地夹具验证，没有逐个使用真实服务密钥联调。平台专有的云账号登录和签名认证不在当前密钥配置范围内。
 
 网页搜索支持 DeepSeek、Tavily、Exa 和 Brave Search。网页抓取支持 DeepSeek、Tavily 和 Exa。Android 和 WebUI 可在「设置 → 搜索和抓取 API → 供应商」分别选择两项服务并填写密钥。同一服务的密钥可用于搜索和抓取。DeepSeek 默认沿用已保存模型提供商的密钥。
 
 终端可通过 `/config` 填写服务和密钥，也可用 `MINIRP_SEARCH_PROVIDER` 与 `MINIRP_FETCH_PROVIDER` 选择服务。密钥分别使用 `MINIRP_SEARCH_API_KEY`（DeepSeek）、`MINIRP_TAVILY_API_KEY`、`MINIRP_EXA_API_KEY` 或 `MINIRP_BRAVE_SEARCH_API_KEY`。
 
-搜索和网页抓取密钥可选。`real_search` 在所选服务未配置、失败或没有结果时尝试 [Mwmbl 的免密钥搜索 API](https://developer.mwmbl.org/)。Mwmbl 也没有可用结果时，FetchAgent 用现有的本地浏览器顺序尝试搜索网站。中国大陆尝试百度和 Bing，其他地区尝试 Google、DuckDuckGo 和 Bing。所有来源沿用相同的搜索结果格式。默认网页抓取策略会在 API 不可用时使用本地浏览器 Fetch。
+搜索和网页抓取密钥可选。`real_search` 在所选服务未配置、失败或没有结果时尝试 [Mwmbl 的免密钥搜索 API](https://developer.mwmbl.org/)。Mwmbl 也没有可用结果时，BrowserAgent 用现有的本地浏览器顺序尝试搜索网站。中国大陆尝试百度和 Bing，其他地区尝试 Google、DuckDuckGo 和 Bing。所有来源沿用相同的搜索结果格式。默认网页抓取策略会在 API 不可用时使用本地浏览器 Fetch。
 
 ## 网页工作流
 
-预设的 `agentic_search` 默认开启。关闭后由 ChatAgent 直接调用相同的真实与虚拟搜索工具，不调用 SearchAgent；EnvAgent 可以为当前世界补充 ChatAgent 的搜索指引。
+预设的 `agentic_search` 默认开启。开启时，ChatAgent 的 `search` 技能通过 `search` 和 `open_url` 委托 SearchAgent。EnvAgent、PresetAgent 和 PluginAgent 也只得到这两个工具，直接使用各自作用域中的搜索和网页缓存。关闭时，ChatAgent 使用 `search-full` 自行处理研究，EnvAgent 可以为当前世界补充搜索指引。
 
 `real_fetch(url, backend)` 保持同一工具接口：
 
 - `api`：只调用所选网页抓取 API。
-- `local`：显式使用临时 FetchAgent；可用于重抓疑似截断的页面。
+- `local`：显式使用临时 BrowserAgent；可用于重抓疑似截断的页面。
 - `api_then_local`：API 出错、超时或返回空正文时使用本地浏览器。
 - `auto`：采用配置的默认策略。
 
 API 没有可靠的完整性字段时记录为 `unknown`。本地采集不加正文字符上限：原文完整归档，编辑稿存入 `page/markdown`，长内容通过 DB 分页读取。摘要保存在独立字段。无法访问的嵌入框架会被标记，避免宣称已完整采集。
 
-内置 base 插件的 `research` 技能提供真实搜索、抓取和缓存。候选项附有当前轮次的 `ref` 以及 `asset_url`。网页 Asset 提供 Markdown，搜索条目 Asset 提供 JSON。用 `view_asset` 查询全文，用 `edit_asset` 编辑，再按 `ref` 缓存或提交。缓存随对话分支和存档恢复。ChatAgent 的 `open_url` 同时返回 Markdown 和 Asset URL。
+`search-full` 在 `search` 和 `open_url` 之外提供 `real_search`、`real_fetch`、`virtual_search`、`cache_search_results` 和 `cache_page`。候选项附有当轮的 `ref` 和 `asset_url`。用 `assets` 读取完整 Markdown 或搜索条目的 JSON，并编辑可写资源。缓存随对话分支和存档恢复。SearchAgent 用 `search-workflow` 编辑、选择并提交结果。
 
-智能体可用 `asset_storage` 创建和管理会话文件，并在回答中提供 Markdown 下载链接。Android 的 OpenUI 卡片也支持 Asset 图片和下载链接。
+BrowserAgent 使用 `browser` 操作和采集当前网页。抓取任务通过 `browser-fetch-workflow` 提交正文，结果页任务通过 `browser-search-workflow` 提交结果。BrowserAgent 也可使用 `search-full` 调用配置的 API 或查询缓存，本地网页操作由当前浏览器任务完成。
+
+智能体可用 `assets` 创建和管理会话文件，并在回答中提供 Markdown 下载链接。Android 的 OpenUI 卡片也支持 Asset 图片和下载链接。
 
 调研后采用语义工具和稳定元素引用：`browser_navigate`、`browser_snapshot`、`browser_click`、`browser_type`、`browser_press_key`、`browser_scroll`、`browser_wait`，再用 `capture_page` / `finish_fetch` 提交。桌面复用官方 Playwright MCP 和 C# MCP SDK；Android 用 WebView 实现相同平台接口。页面 JavaScript 仅由固定采集代码执行，模型没有宿主代码执行工具。
 
@@ -167,7 +177,7 @@ API 没有可靠的完整性字段时记录为 `unknown`。本地采集不加正
 
 ## 上下文与存储
 
-ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conversations/<preset>/<chat>/agents`，彼此独立。PresetAgent 的会话和 DB 保存在 `preset_sessions/<preset>`，供该预设的所有聊天共享。临时 FetchAgent 的 DB 保存在该对话的 `fetch` 目录。Android 记忆面板按智能体显示、搜索和编辑普通笔记。
+ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conversations/<preset>/<chat>/agents`，彼此独立。PresetAgent 的会话和 DB 保存在 `preset_sessions/<preset>`，供该预设的所有聊天共享。临时 BrowserAgent 的 DB 保存在该对话的 `fetch` 目录。Android 记忆面板按智能体显示、搜索和编辑普通笔记。
 
 工具包括 `db_list`、`db_read`、`db_write`、`db_patch`、`db_delete`、`db_search`。索引是字符串；写入/删除校验 revision，修改使用精确文本替换。搜索采用 FTS5 trigram；短查询使用文本扫描，不使用向量和 RAG。分页以 UTF-16 偏移计数，并保留完整 Unicode 字符。
 
@@ -194,7 +204,7 @@ ChatAgent、EnvAgent、SearchAgent 的会话和 SQLite DB 分别保存在 `conve
 
 ## 插件
 
-Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己的 V8 isolate。清单声明 Actions、Assets、Skill、附件和设置。Actions 通过 URL 投递事件，Assets 以 WHATWG 字节流读取，跨包访问按资源可见性和签名证书校验。内置 `base` 插件提供应用设置、预设创建引导、开源许可证页和 `view_asset` 技能。智能体通过 Asset URL 接收附件和工具资源，按需调用 `view_asset` 查看内容。
+Android 和桌面使用同一种签名 `.plugin` 包，每个插件复用自己的 V8 isolate。清单声明 Actions、Assets、Skill、附件和设置。Actions 通过 URL 投递事件，Assets 以 WHATWG 字节流读取，跨包访问按资源可见性和签名证书校验。内置 `base` 插件提供应用设置、预设创建引导、开源许可证页和资源查看、编辑工具。智能体通过 Asset URL 接收附件和工具资源，按需激活 `assets` 查看内容。
 
 [开发、签名与安装](docs/plugins/getting-started.md) · [完整 API 参考](docs/plugins/README.md) · [插件 SDK](sdk/javascript/) · [示例插件](examples/stream-assets/plugin/) · [MIT 许可证](LICENSE)
 

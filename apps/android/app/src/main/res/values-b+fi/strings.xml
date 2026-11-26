@@ -226,4 +226,14 @@
     <string name="ensemble_member_trace">Toimintaloki</string>
     <string name="ensemble_no_trace">Ei vielä toimintaa</string>
     <string name="ensemble_trace_load_failed">Toimintaa ei voitu ladata.</string>
+    <string name="image_description_model">Kuvailumalli kuville</string>
+    <string name="audio_description_model">Kuvailumalli äänelle</string>
+    <string name="media_description_off">Pois</string>
+    <string name="image_description_help">Kuvat lähetetään tälle mallille, kun vastausmalli ei voi lukea niitä.</string>
+    <string name="audio_description_help">Ääni lähetetään tälle mallille, kun vastausmalli ei voi käsitellä sitä.</string>
+    <string name="describe_images_for_model">Käytä kuvien kuvauksia</string>
+    <string name="describe_audio_for_model">Käytä äänen kuvauksia</string>
+    <string name="ensemble_archived_chats">Arkistoidut keskustelut</string>
+    <string name="ensemble_no_archived_chats">Ei arkistoituja keskusteluja</string>
+    <string name="ensemble_archive_empty_history">Ei viestejä</string>
 </resources>

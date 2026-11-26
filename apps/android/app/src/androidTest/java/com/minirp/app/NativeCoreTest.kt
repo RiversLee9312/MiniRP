@@ -69,9 +69,9 @@ class NativeCoreTest {
                                 researchAsset.set(result.getString("asset_url"))
                                 pageRef.set(result.getString("ref"))
                                 assertTrue(researchAsset.get().startsWith("minirp://assets/minirp.base/research-"))
-                                tool("activate_skill", JSONObject().put("name", "edit_asset"))
+                                tool("activate_skill", JSONObject().put("name", "assets"))
                             }
-                            4 -> tool("plugin_base_text_edit", JSONObject().put("url", researchAsset.get())
+                            4 -> tool("text_edit", JSONObject().put("url", researchAsset.get())
                                 .put("old_string", "# Article").put("new_string", "# Updated article"))
                             5 -> {
                                 assertEquals(1, JSONObject(latest.getString("content")).getInt("changes"))
@@ -420,6 +420,7 @@ class NativeCoreTest {
                 server.enqueue(stream(JSONObject().put("content", "Report saved.")))
                 val preset = seededPreset(core)
                 core.query(JSONObject().put("op", "plugin_install").put("path", fixture))
+                core.query(JSONObject().put("op", "plugin_locale").put("locale", "zh-Hans"))
                 core.send(JSONObject().put("op", "configure")
                     .put("provider", JSONObject().put("protocol", "openai")
                         .put("url", server.url("/v1").toString()).put("model", "fixture").put("key", "fixture"))
@@ -514,7 +515,7 @@ class NativeCoreTest {
             val docsUrl = "minirp://assets/example.minichat.stream/about"
             val second =
                 core
-                    .query(JSONObject().put("op", "create_preset").put("open", true))
+                    .query(JSONObject().put("op", "create_preset").put("open", true).put("interview", false))
                     .getString("preset")
             fun selectScope(
                 mode: String,
@@ -527,7 +528,12 @@ class NativeCoreTest {
                     .put("scope", JSONObject().put("mode", mode).put("presets", JSONArray(ids)))
             suspend fun home(id: String) {
                 core.send(JSONObject().put("op", "home").put("preset", id))
-                withTimeout(10_000) { core.events.first { it.optString("kind") == "home" } }
+                withTimeout(10_000) {
+                    core.events.first { event ->
+                        check(event.optString("kind") != "error") { event.optString("message") }
+                        event.optString("kind") == "home" && event.optString("preset") == id
+                    }
+                }
             }
             assertTrue(
                 runCatching { core.query(selectScope("include", listOf("default"))) }.isFailure

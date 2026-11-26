@@ -79,7 +79,8 @@ public sealed partial class AgentSession : IDisposable
     internal static JsonArray ReadHistory(MemoryDb db) =>
         JsonNode.Parse(db.Get(HistoryKey) ?? "[]") as JsonArray ?? new();
 
-    private void Save(JsonArray history, string summary, JsonObject instructions, IEnumerable<string>? deliveries = null, string? locale = null)
+    private void Save(JsonArray history, string summary, JsonObject instructions, IEnumerable<string>? deliveries = null,
+        string? locale = null, (string, string?)[]? assetAcknowledgements = null)
     {
         var delivered = (deliveries ?? []).Where(id => id.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
         Db.WriteInternal(
@@ -87,6 +88,7 @@ public sealed partial class AgentSession : IDisposable
                 ("_context/summary", summary),
                 ("_context/instructions", JsonValues.Serialize(instructions)),
                 usage.Record(),
+                .. (assetAcknowledgements ?? []),
                 .. (locale is null ? [] : new (string, string?)[] { (LocaleKey, locale) }),
                 .. delivered.Select(id => ("_inbox/" + id, "1")),
                 .. delivered.Select(id => (PendingSystemPrefix + id, (string?)null))]);
@@ -153,7 +155,7 @@ public sealed partial class AgentSession : IDisposable
             var preview = (JsonObject)page.DeepClone();
             preview["content"] = ContextCompactor.FitText(markdown, limit / 2, "");
             preview["total_chars"] = page.GetInt32("total_chars", markdown.Length);
-            preview["instruction"] = "Use view_asset with asset_url to read the full Markdown.";
+            preview["instruction"] = "Use the assets skill with asset_url to read the full Markdown.";
             return JsonValues.Serialize(preview);
         }
 
@@ -226,10 +228,10 @@ public sealed partial class AgentSession : IDisposable
     internal Task<JsonObject> Run(string system, string input, CancellationToken ct, bool privateInput = false) =>
         RunTurn(system, input, [], ct, null, null, null, null, null, "user", null, privateInput);
 
-    private async Task<JsonObject> RunTurn(string system, string input, IReadOnlyList<AgentSkill> taskSkills, CancellationToken ct,
-        Func<bool>? submitted, IReadOnlySet<string>? terminalTools, JsonArray? attachments,
-        string? historyInput, Func<string?>? historySubmission, string inputRole, string? reference, bool privateInput,
-        bool checkpointBranch = false)
+    internal async Task<JsonObject> RunTurn(string system, string input, IReadOnlyList<AgentSkill> taskSkills, CancellationToken ct,
+        Func<bool>? submitted = null, IReadOnlySet<string>? terminalTools = null, JsonArray? attachments = null,
+        string? historyInput = null, Func<string?>? historySubmission = null, string inputRole = "user", string? reference = null, bool privateInput = false,
+        bool checkpointBranch = false, Func<bool>? finishAfterTool = null)
     {
         var locale = bindings.Locale();
         if (profile.LanguageGuidance is { } languageGuidance)
@@ -240,6 +242,7 @@ public sealed partial class AgentSession : IDisposable
         var summaryCommitted = true;
         var turnModel = model.Bind(model.SelectedProvider);
         var provider = turnModel.SelectedProvider;
+        var descriptions = bindings.DescribeMedia?.Invoke(provider, locale);
         sessionInfo = null;
         var messageInput = new JsonObject { ["role"] = inputRole, ["content"] = input };
         var budget = new ContextBudget(turnModel.SelectedProvider);
@@ -251,6 +254,7 @@ public sealed partial class AgentSession : IDisposable
         IEnumerable<string> Deliveries() => interruptions.Select(item => item.Original.GetString("_inbox_id"));
         var samples = new JsonArray();
         var watches = new SessionStateWatches(Db, bindings.State);
+        var assetWatches = bindings.Assets is { } watchAssets ? new AgentAssetWatches(Db, watchAssets) : null;
         void UpdateSessionInfo(int tokens) => sessionInfo = new(provider.Model, provider.Id, provider.ContextWindow, tokens);
         void MeasureSessionInfo(JsonArray definitions)
         {
@@ -283,7 +287,8 @@ public sealed partial class AgentSession : IDisposable
             ct.ThrowIfCancellationRequested();
             MeasureSessionInfo(definitions);
             instructions.RememberActiveSkills(activeSkills);
-            Save(working, summary, instructions.State, Deliveries().Concat(acknowledgedMessages ?? []), locale);
+            Save(working, summary, instructions.State, Deliveries().Concat(acknowledgedMessages ?? []), locale,
+                assetWatches?.Acknowledgements());
             historyCommitted = true;
             history = working;
             Summary = summary;
@@ -390,7 +395,8 @@ public sealed partial class AgentSession : IDisposable
                 yield return new("session-memory", "Save durable notes and recall earlier messages.", Tools.Memory(), MemoryTool,
                     Required: true, Instructions: MemoryInstructions);
             foreach (var skill in taskSkills) yield return skill;
-            foreach (var extra in bindings.Skills(turnModel.SelectedProvider, attachment => samples.AddNode(attachment), locale)) yield return extra;
+            foreach (var extra in bindings.Skills(provider, attachment => samples.AddNode(attachment), locale, descriptions, assetWatches))
+                yield return extra;
             if (bindings.OpenUi() is { Length: > 0 and <= 60000 } openUi)
                 yield return new("interactive-ui",
                     "Build a rich interactive answer if a dashboard, calculator, editable itinerary, visual explanation, or working tool helps the user.",
@@ -409,6 +415,8 @@ public sealed partial class AgentSession : IDisposable
 
         try
         {
+            if (descriptions is not null && bindings.Assets is { } descriptionAssets)
+                await descriptions.DescribeMessage(messageInput, descriptionAssets, ct);
             if (profile.BackgroundMessages) acknowledgedMessages = new(StringComparer.Ordinal);
             var checkpointToolRounds = 0;
             while (true)
@@ -428,7 +436,11 @@ public sealed partial class AgentSession : IDisposable
                     if (firstRequest) working.Insert(working.IndexOf(messageInput), update);
                     else working.AddNode(update);
                 }
-                if (!checkpointBranch) watches.AppendUpdates(working);
+                if (!checkpointBranch)
+                {
+                    watches.AppendUpdates(working);
+                    assetWatches?.AppendUpdates(working, firstRequest ? messageInput : null);
+                }
                 var messages = Prompt(working, summary);
                 var estimatedInput = turnModel.EstimateInput(messages, definitions);
                 var used = usage.Forecast(turnModel, messages, definitions, estimatedInput);
@@ -604,7 +616,7 @@ public sealed partial class AgentSession : IDisposable
                             throw new ToolFailure("A submission must be the final tool in its batch. No changes submitted.",
                                 "submission_order", "execution", "Make any prerequisite calls first and submit last.");
                         }
-                        if (submitted?.Invoke() == true)
+                        if (submitted?.Invoke() == true || finishAfterTool?.Invoke() == true)
                         {
                             throw new ToolFailure("Submission must be the final tool in a batch.",
                                 "submission_order", "execution", "Make any prerequisite calls before the submission.");
@@ -627,7 +639,7 @@ public sealed partial class AgentSession : IDisposable
                         ["content"] = "Media returned by your tools, in tool call order.", ["attachments"] = samples });
                     samples = new();
                 }
-                if (submitted?.Invoke() == true)
+                if (submitted?.Invoke() == true || finishAfterTool?.Invoke() == true)
                 {
                     await Commit(definitions, enabled.ActiveNames);
                     return message;

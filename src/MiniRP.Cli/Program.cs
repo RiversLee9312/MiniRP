@@ -9,14 +9,17 @@ var root = Path.GetFullPath(args.FirstOrDefault(value => !value.StartsWith("--",
 var web = windowed || args.Contains("--web", StringComparer.Ordinal);
 var noOpen = args.Contains("--no-open", StringComparer.Ordinal);
 using var core = new NativeCore(root, seedDefaultPreset: false);
-var settings = new EnvironmentSettings(root);
+var secrets = new DesktopSecretStorage(root);
+var settings = new EnvironmentSettings(root, secrets);
 settings.Load();
 await using var browser = new BrowserHost(root, new DesktopBrowserRuntime(root, BrowserData(), settings["MINIRP_BROWSER"]));
-await using var platform = new PlatformHost(core.Send, core.TakeBinary, core.WriteBinary, browser, root);
+await using var platform = new PlatformHost(core.Send, core.TakeBinary, core.WriteBinary, browser, root, secrets, settings.ResearchDefault);
 core.Send(settings.Configure(web));
 var containerImage = Environment.GetEnvironmentVariable("MINIRP_CONTAINER_IMAGE") ?? Path.Combine(AppContext.BaseDirectory, "container-image");
 if (File.Exists(Path.Combine(containerImage, "ROOM_VM"))) core.Send(new() { ["op"] = "_container_available" });
-if (File.Exists(CurlHost.Executable)) core.Send(new() { ["op"] = "_curl_available" });
+if (File.Exists(AssetCommandHost.Executable("curl"))) core.Send(new() { ["op"] = "_curl_available" });
+if (File.Exists(AssetCommandHost.Executable("ffmpeg")) && File.Exists(AssetCommandHost.Executable("ffprobe")))
+    core.Send(new() { ["op"] = "_ffmpeg_available" });
 
 if (args.Contains("--stdio", StringComparer.Ordinal))
 {
@@ -67,6 +70,7 @@ if (!web)
         ready = window.Ready;
     }
     await window.PumpCompletion;
+    if (web) core.Send(settings.Configure(web: true));
 }
 if (web)
 {

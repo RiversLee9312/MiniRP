@@ -6,10 +6,11 @@
   "entry": "index.mjs",
   "permissions": ["db"],
   "actions": {
-    "handlers": { "announce": "announce", "consume": "consume", "produce": "produce", "sample-url": "sampleUrl", "measure": "measure", "encode-about": "encodeAbout", "about-url": "aboutUrl" },
-    "events": ["ready"],
+    "handlers": { "announce": "announce", "consume": "consume", "produce": "produce", "sample-url": "sampleUrl", "measure": "measure", "encode-about": "encodeAbout", "about-url": "aboutUrl", "sample-changed": "sampleChanged" },
+    "events": ["ready", "sample-changed"],
     "subscriptions": {
-      "minirp://actions/example.minichat.stream/events/ready": "minirp://actions/example.minichat.stream/hooks/consume"
+      "minirp://actions/example.minichat.stream/events/ready": "minirp://actions/example.minichat.stream/hooks/consume",
+      "minirp://actions/example.minichat.stream/events/sample-changed": "minirp://actions/example.minichat.stream/hooks/sample-changed"
     }
   },
   "hooks": {
@@ -23,6 +24,8 @@
       "type": "dynamic",
       "mimeType": "application/octet-stream",
       "accessibility": "protected",
+      "listenable": true,
+      "changeEvent": "minirp://actions/example.minichat.stream/events/sample-changed",
       "handler": "minirp://actions/example.minichat.stream/hooks/produce"
     }
   ],

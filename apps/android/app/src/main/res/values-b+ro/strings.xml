@@ -228,4 +228,14 @@
     <string name="ensemble_member_trace">Jurnal de activitate</string>
     <string name="ensemble_no_trace">Nicio activitate deocamdată</string>
     <string name="ensemble_trace_load_failed">Activitatea nu a putut fi încărcată.</string>
+    <string name="image_description_model">Model pentru descrierea imaginilor</string>
+    <string name="audio_description_model">Model pentru descrierea audio</string>
+    <string name="media_description_off">Dezactivat</string>
+    <string name="image_description_help">Trimite imaginile acestui model când modelul de răspuns nu le poate citi.</string>
+    <string name="audio_description_help">Trimite sunetul acestui model când modelul de răspuns nu îl poate procesa.</string>
+    <string name="describe_images_for_model">Folosește descrieri ale imaginilor</string>
+    <string name="describe_audio_for_model">Folosește descrieri audio</string>
+    <string name="ensemble_archived_chats">Conversații arhivate</string>
+    <string name="ensemble_no_archived_chats">Nicio conversație arhivată</string>
+    <string name="ensemble_archive_empty_history">Niciun mesaj</string>
 </resources>

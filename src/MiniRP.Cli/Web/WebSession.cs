@@ -255,10 +255,10 @@ internal sealed partial class WebSession : IAsyncDisposable
                 if (request.Length > 0 && queries.TryGetValue(request, out var completion))
                 {
                     if (kind is not ("models_loading" or "busy")) completion.TrySetResult(item);
-                    if (kind is "error" or "asset_result" or "transcript_page" or "ensemble_member_trace" or "memory" or "models" or "models_error" or "model_effort_levels" or "plugin_page" or "plugin")
+                    if (kind is "error" or "asset_result" or "transcript_page" or "ensemble_archive" or "ensemble_member_trace" or "memory" or "models" or "models_error" or "model_effort_levels" or "plugin_page" or "plugin")
                         continue;
                 }
-                if (kind is "transcript_page" or "ensemble_member_trace") continue;
+                if (kind is "transcript_page" or "ensemble_archive" or "ensemble_member_trace") continue;
                 if (kind == "ready")
                 {
                     var preset = item.GetString("preset");

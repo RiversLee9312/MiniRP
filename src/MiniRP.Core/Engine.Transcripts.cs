@@ -68,7 +68,7 @@ public sealed partial class Engine
                 if (role == "chat") header["chat"] = Workspace.ChatId;
                 bool Matches(JsonObject block) => role == "env"
                     ? block.GetString("agent") is "env" or "EnvAgent"
-                    : block.GetString("agent") is "" or "chat" or "ChatAgent" or "search" or "SearchAgent" or "fetch" or "FetchAgent";
+                    : ToolTrace.Role(block.GetString("agent")) is "" or "chat" or "search" or "fetch";
                 lock (Workspace.RoomGate)
                 {
                     var history = Workspace.Chat.GetArray("blocks").OfType<JsonObject>().Where(Matches);

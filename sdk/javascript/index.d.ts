@@ -14,6 +14,20 @@ export interface PluginManifestIdentity {
     /** Canonical lowercase UUID of the owning preset. */
     presetId?: UUID;
 }
+export interface RoomLoadingDeclaration {
+    /** Maps ensemble character IDs to their positive integer progress ceilings, starting from zero. */
+    progress: Readonly<Record<string, number>>;
+}
+export type BackgroundVariants = Readonly<Partial<Record<"square" | "landscape" | "portrait", string>>>;
+export type PluginAssetDeclaration = {
+    id: string;
+    mimeType: string;
+    accessibility?: "private" | "protected" | "public";
+    writable?: boolean;
+    /** IDs of alternate media Assets in this manifest. */
+    backgroundVariants?: BackgroundVariants;
+} & ({ type: "file"; path: string } | { type: "dynamic"; handler: HookUrl })
+  & ({ listenable: true; changeEvent: EventUrl } | { listenable?: false; changeEvent?: never });
 /** Display-only RFC 6901 pointers into fields already declared in manifest.json. */
 export type ManifestTextPointer = `/${string}`;
 export interface PluginManifestI18n {
@@ -123,10 +137,13 @@ export interface AssetMetadata {
     readonly url: AssetUrl;
     readonly package: string;
     readonly id: string;
-    readonly source: "workspace_file" | "plugin";
+    readonly source: "workspace_file" | "plugin" | "agent_file";
     readonly mime: string;
     readonly length: number | null;
     readonly name: string | null;
+    readonly writable: boolean;
+    readonly listenable: boolean;
+    readonly changeEvent?: EventUrl;
 }
 export type TextEncoding = "utf-8" | "utf-16le" | "utf-16be";
 export type TextPage = { text: string; offset: number; next_offset: number | null };
@@ -165,6 +182,8 @@ export interface MiniRPApi {
         open(url: AssetUrl, options?: JsonObject): Promise<AssetBody>;
         read(url: AssetUrl, options?: JsonObject): Promise<AssetBytes>;
         describe(url: AssetUrl): Promise<AssetMetadata>;
+        /** Notifies subscribers of a change to a listenable dynamic Asset owned by this plugin. */
+        notifyChanged(url: AssetUrl): Promise<Accepted & { subscribers: number }>;
     };
     readonly text: {
         encode(text: string, options?: { encoding?: TextEncoding }): Promise<Uint8Array>;
@@ -234,6 +253,12 @@ export interface MiniRPApi {
         }>;
     };
     readonly settings: { get(args: { key: string }): Promise<string | boolean | null> };
+    readonly secretStorage: {
+        getSecret(id: string): Promise<string | null>;
+        setSecret(id: string, secret: string): Promise<void>;
+        listSecrets(): Promise<string[]>;
+        deleteSecret(id: string): Promise<void>;
+    };
     readonly state: {
         get(args: { key: string }): Promise<StructuredState>;
         set(args: { key: string; value: JsonObject; expected_revision: number }): Promise<StructuredState>;
@@ -299,6 +324,15 @@ export interface AssetRequest extends PluginEvent {
     readonly request: JsonObject;
     readonly sender: string | null;
     readonly attachment?: SelectedFile;
+}
+export interface AssetChangedEvent extends PluginEvent {
+    readonly name: "asset.changed";
+    readonly url: AssetUrl;
+    readonly source: EventUrl;
+    readonly sender: string;
+    readonly reason: "write" | "invalidate";
+    readonly size?: number;
+    readonly assets: Readonly<{ asset: AssetUrl }>;
 }
 export interface AttachmentEvent extends PluginEvent {
     readonly name: "attachment.process";

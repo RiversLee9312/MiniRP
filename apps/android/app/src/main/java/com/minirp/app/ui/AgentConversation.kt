@@ -21,9 +21,10 @@ import androidx.compose.runtime.saveable.mapSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
@@ -40,6 +41,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.mikepenz.markdown.compose.MarkdownElement
 import com.mikepenz.markdown.m3.Markdown
@@ -119,20 +121,22 @@ internal fun AgentConversation(
     }
     Column(modifier) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            PresetBackdrop(
-                background, conversation = !home, blur = state.appearance.blurBackground,
-                modifier = Modifier.matchParentSize(),
-            )
             if (home) {
-                HomeGreeting(
-                    state.presetName,
-                    Modifier.fillMaxSize(),
-                    onOpenPreset,
-                    enabled = state.ready && !state.busy && !state.preparing,
-                    onBackground = background != null,
-                    onHintSeen = onPresetHintSeen,
+                PresetHomeBackdrop(background, Modifier.matchParentSize()) { banner ->
+                    HomeGreeting(
+                        state.presetName,
+                        Modifier.fillMaxSize(),
+                        onOpenPreset,
+                        enabled = state.ready && !state.busy && !state.preparing,
+                        glassBanner = banner,
+                        onHintSeen = onPresetHintSeen,
+                    )
+                }
+            } else {
+                PresetBackdrop(
+                    background, conversation = true, blur = state.appearance.blurBackground,
+                    modifier = Modifier.matchParentSize(),
                 )
-            } else
                 TraceLog(
                     blocks,
                     state.expandThoughts,
@@ -150,72 +154,83 @@ internal fun AgentConversation(
                     displayAssets = displayAssets,
                     onQuote = addQuote,
                 )
+            }
         }
-        if (home && sending)
-            ConversationStatus(R.string.sending, Modifier.padding(horizontal = 16.dp))
-        composerStatus?.invoke()
-        Composer(
-            state.busy,
-            state.preparing,
-            onCancel,
-            onSend,
-            steering = state.generating == agent,
-            allowAttachments = systemMessageMode != true,
-            pluginTypes =
-                state.installedPlugins
-                    .filter { it.availableIn(state.preset) }
-                    .flatMap { it.attachments },
-            draft = draft,
-            textState = draftText,
-            documentTypes = if (agent == AgentRole.Preset) arrayOf("*/*")
-                else com.minirp.app.data.AttachmentStore.documentTypes,
-            systemMessageMode = systemMessageMode,
-            filesState = draftFiles,
-            quotesState = draftQuotes,
-        )
-        val presetModels = agent == AgentRole.Preset
-        val modelsLayout =
-            if (presetModels) Modifier else Modifier.horizontalScroll(rememberScrollState())
-        Row(
-            Modifier.fillMaxWidth()
-                .testTag("agent-models")
-                .then(modelsLayout)
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        val coloredComposer = agent == AgentRole.Chat && background != null
+        val scheme = MaterialTheme.colorScheme
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = if (coloredComposer) scheme.secondaryContainer else Color.Transparent,
+            contentColor = if (coloredComposer) scheme.onSecondaryContainer else LocalContentColor.current,
         ) {
-            val roles =
-                when {
-                    presetModels -> listOf(agent, AgentRole.Plugin)
-                    agent == AgentRole.Chat && state.agenticSearch -> listOf(agent, AgentRole.Search)
-                    else -> listOf(agent)
-                }
-            roles.forEach { role ->
-                val label = stringResource(role.label)
-                val name =
-                    state.assigned(role)?.choice?.name ?: stringResource(R.string.select_model)
-                AssistChip(
-                    onClick = { onModels(role) },
-                    enabled = !state.preparing,
-                    label = {
-                        if (presetModels) {
-                            Column(Modifier.padding(vertical = 4.dp)) {
-                                Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(
-                                    name,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        } else {
-                            Text("$label · $name", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    },
-                    trailingIcon = { Symbol("expand_more", size = 16) },
-                    modifier = (if (presetModels) Modifier.weight(1f) else Modifier.widthIn(max = 290.dp))
-                        .testTag("agent-model:${role.id}"),
+            Column {
+                if (home && sending)
+                    ConversationStatus(R.string.sending, Modifier.padding(horizontal = 16.dp))
+                composerStatus?.invoke()
+                Composer(
+                    state.busy,
+                    state.preparing,
+                    onCancel,
+                    onSend,
+                    steering = state.generating == agent,
+                    allowAttachments = systemMessageMode != true,
+                    pluginTypes =
+                        state.installedPlugins
+                            .filter { it.availableIn(state.preset) }
+                            .flatMap { it.attachments },
+                    draft = draft,
+                    textState = draftText,
+                    documentTypes = if (agent == AgentRole.Preset) arrayOf("*/*")
+                        else com.minirp.app.data.AttachmentStore.documentTypes,
+                    systemMessageMode = systemMessageMode,
+                    filesState = draftFiles,
+                    quotesState = draftQuotes,
                 )
+                val presetModels = agent == AgentRole.Preset
+                val modelsLayout =
+                    if (presetModels) Modifier else Modifier.horizontalScroll(rememberScrollState())
+                Row(
+                    Modifier.fillMaxWidth()
+                        .testTag("agent-models")
+                        .then(modelsLayout)
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    val roles =
+                        when {
+                            presetModels -> listOf(agent, AgentRole.Plugin)
+                            agent == AgentRole.Chat && state.agenticSearch -> listOf(agent, AgentRole.Search)
+                            else -> listOf(agent)
+                        }
+                    roles.forEach { role ->
+                        val label = stringResource(role.label)
+                        val name =
+                            state.assigned(role)?.choice?.name ?: stringResource(R.string.select_model)
+                        AssistChip(
+                            onClick = { onModels(role) },
+                            enabled = !state.preparing,
+                            label = {
+                                if (presetModels) {
+                                    Column(Modifier.padding(vertical = 4.dp)) {
+                                        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(
+                                            name,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                } else {
+                                    Text("$label · $name", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            },
+                            trailingIcon = { Symbol("expand_more", size = 16) },
+                            modifier = (if (presetModels) Modifier.weight(1f) else Modifier.widthIn(max = 290.dp))
+                                .testTag("agent-model:${role.id}"),
+                        )
+                    }
+                }
             }
         }
     }
@@ -227,24 +242,20 @@ internal fun HomeGreeting(
     modifier: Modifier,
     onPresetAction: (() -> Unit)?,
     enabled: Boolean,
-    onBackground: Boolean = false,
+    glassBanner: Modifier? = null,
     onHintSeen: (() -> Unit)? = null,
 ) {
     val hasPreset = presetName.isNotBlank()
-    val dark = LocalMiniRPDarkTheme.current
-    val foreground = if (!onBackground) Color.Unspecified else if (dark) Color.White else Color.Black
-    val shadow = if (onBackground) Shadow(
-        color = (if (dark) Color.Black else Color.White).copy(alpha = 0.82f),
-        blurRadius = with(LocalDensity.current) { 14.dp.toPx() },
-    ) else null
-    Box(modifier.padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    val bannerLayout = if (glassBanner != null) Modifier.fillMaxWidth()
+        .then(glassBanner).padding(horizontal = 16.dp, vertical = 12.dp) else Modifier
+    val sideInset = if (glassBanner == null) 24.dp else 0.dp
+    Box(modifier.padding(horizontal = sideInset), contentAlignment = Alignment.Center) {
+        Column(bannerLayout, horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 stringResource(
                     if (hasPreset) R.string.welcome_to_preset else R.string.no_presets_yet
                 ),
-                color = foreground,
-                style = MaterialTheme.typography.headlineSmall.copy(shadow = shadow),
+                style = MaterialTheme.typography.headlineSmall,
                 textAlign = TextAlign.Center,
             )
             PresetEntryHint(stringResource(R.string.preset_home_hint), onHintSeen) {
@@ -268,8 +279,7 @@ internal fun HomeGreeting(
                                         .heightIn(min = 48.dp)
                                         .wrapContentHeight(Alignment.CenterVertically)
                             ),
-                    color = foreground,
-                    style = MaterialTheme.typography.headlineMedium.copy(shadow = shadow),
+                    style = MaterialTheme.typography.headlineMedium,
                     textDecoration = TextDecoration.Underline,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
@@ -411,7 +421,7 @@ private fun timeline(
                     var end = start + 1
                     while (end < activity.size && activity[end].isSearchTrace) end++
                     val steps = activity.subList(start, end)
-                    val agent = if (steps.any { it.role == AgentRole.Search }) AgentRole.Search else AgentRole.Fetch
+                    val agent = if (steps.any { it.role == AgentRole.Search }) AgentRole.Search else AgentRole.Browser
                     addChild(steps, "search-activity:${step.id}", agent = agent)
                     start = end
                 } else {
@@ -465,6 +475,8 @@ private fun timeline(
     }
     flush()
 }
+
+private data class PinnedTrace(val item: TimelineItem, val offset: Int, val height: Int)
 
 @Composable
 internal fun TraceLog(
@@ -540,14 +552,37 @@ internal fun TraceLog(
         }
     }
     val itemsByKey = remember(entries) { entries.associateBy { it.id } }
+    val groupEnds = remember(entries) {
+        buildMap {
+            entries.forEachIndexed { index, entry ->
+                when (entry) {
+                    is TimelineItem.ActivityHeader -> {
+                        put(entry.id, index)
+                        entry.header.parent?.let { put(it.id, index) }
+                    }
+                    is TimelineItem.ActivityStep -> {
+                        put(entry.group.id, index)
+                        entry.child?.let { put(it.id, index) }
+                    }
+                    else -> Unit
+                }
+            }
+        }
+    }
     val headingHeight = with(LocalDensity.current) { traceHeadingMinHeight.roundToPx() }
-    val pinnedHeaders by
-        remember(list, itemsByKey, expanded, headingHeight) {
+    val headingHeights = remember(headingHeight) { mutableStateMapOf<String, Int>() }
+    fun measureHeading(id: String) = Modifier.onSizeChanged { size ->
+        if (size.height == headingHeight) headingHeights.remove(id)
+        else headingHeights[id] = size.height
+    }
+    val pinned by
+        remember(list, itemsByKey, groupEnds, expanded, headingHeights, headingHeight) {
             derivedStateOf {
                 val layout = list.layoutInfo
-                val top =
-                    layout.visibleItemsInfo.firstOrNull { it.offset + it.size > layout.viewportStartOffset }
-                        ?: return@derivedStateOf emptyList<TraceHeader>() to null
+                val edge = layout.viewportStartOffset
+                val visible = layout.visibleItemsInfo
+                val top = visible.firstOrNull { it.offset + it.size > edge }
+                    ?: return@derivedStateOf emptyList()
                 val entry = itemsByKey[top.key]
                 val groups = when (entry) {
                     is TimelineItem.ActivityStep -> listOfNotNull(entry.group, entry.child)
@@ -556,20 +591,39 @@ internal fun TraceLog(
                             entry.header.parent?.let(::add)
                             if (
                                 entry.header.expanded &&
-                                    top.offset < layout.viewportStartOffset
+                                    top.offset < edge + (entry.header.parent?.let { headingHeights[it.id] ?: headingHeight } ?: 0)
                             )
                                 add(entry.header)
                         }
                     else -> emptyList()
                 }
-                val tool = (entry as? TimelineItem.ActivityStep)?.takeIf {
-                    expanded[it.id] == true &&
-                        top.offset < layout.viewportStartOffset + groups.size * headingHeight
+                val stackHeight = groups.sumOf { headingHeights[it.id] ?: headingHeight }
+                val toolRow = visible.firstOrNull { it.offset + it.size > edge + stackHeight }
+                val tool = toolRow?.let { row ->
+                    (itemsByKey[row.key] as? TimelineItem.ActivityStep)?.takeIf {
+                        expanded[it.id] == true && it.group.id == groups.firstOrNull()?.id &&
+                            it.child?.id == groups.getOrNull(1)?.id && row.offset < edge + stackHeight
+                    }
                 }
-                groups to tool
+                buildList {
+                    var anchor = 0
+                    var covered = 0
+                    fun pin(item: TimelineItem, lastIndex: Int) {
+                        val height = headingHeights[item.id] ?: headingHeight
+                        val last = visible.firstOrNull { it.index == lastIndex }
+                        val offset = if (last == null) anchor else minOf(anchor, last.offset + last.size - edge - height)
+                        if (offset + height > covered) {
+                            add(PinnedTrace(item, offset, height))
+                            covered = offset + height
+                        }
+                        anchor += height
+                    }
+                    groups.forEach { pin(TimelineItem.ActivityHeader(it), groupEnds.getValue(it.id)) }
+                    if (toolRow != null && tool != null) pin(tool, toolRow.index)
+                }
             }
         }
-    val (pinned, pinnedTool) = pinnedHeaders
+    val pinnedTool = pinned.lastOrNull()?.takeIf { it.item is TimelineItem.ActivityStep }
     fun toggleTrace(header: TraceHeader, pinnedHeader: Boolean = false) {
         if (pinnedHeader && list.canScrollForward) {
             val remaining =
@@ -581,9 +635,9 @@ internal fun TraceLog(
     }
     fun toggleStep(item: TimelineItem.ActivityStep) {
         val open = expansion[item.id] == true
-        if (open && pinnedTool?.id == item.id) {
+        if (open && pinnedTool?.item?.id == item.id) {
             val index = entries.indexOfFirst { it.id == item.id }
-            if (index >= 0) list.requestScrollToItem(index, -pinned.size * headingHeight)
+            if (index >= 0) list.requestScrollToItem(index, -pinned.dropLast(1).sumOf { it.height })
         }
         expansion[item.id] = !open
     }
@@ -613,7 +667,11 @@ internal fun TraceLog(
                 Box(Modifier.fillMaxWidth().padding(bottom = spacing)) {
                     when (item) {
                         is TimelineItem.ActivityHeader ->
-                            TraceHeading(item.header, obscured = pinned.any { it.id == item.id }) {
+                            TraceHeading(
+                                item.header,
+                                obscured = pinned.any { it.item.id == item.id },
+                                modifier = measureHeading(item.id),
+                            ) {
                                 toggleTrace(item.header)
                             }
                         is TimelineItem.ActivityStep -> {
@@ -627,7 +685,8 @@ internal fun TraceLog(
                                     details = expanded[item.id] == true,
                                     toggleDetails = { toggleStep(item) },
                                     openUiPages = openUiPages,
-                                    obscureHeading = pinnedTool?.id == item.id,
+                                    obscureHeading = pinnedTool?.item?.id == item.id,
+                                    headingModifier = measureHeading(item.id),
                                 )
                             if (nestedCard) {
                                 Box(Modifier.traceQuote(depth)) { OpenUiReply(item.step, openUi, openUiPages, displayAssets) }
@@ -696,27 +755,32 @@ internal fun TraceLog(
             }
         }
         if (pinned.isNotEmpty()) {
-            Surface(
-                modifier =
-                    Modifier.align(Alignment.TopCenter)
-                        .fillMaxWidth()
-                        .scrollable(list, Orientation.Vertical, reverseDirection = true),
-                color = MaterialTheme.colorScheme.surface,
-            ) {
-                Column(Modifier.padding(horizontal = 16.dp)) {
-                    pinned.forEach { header ->
-                        TraceHeading(header, pinned = true) {
-                            toggleTrace(header, pinnedHeader = true)
+            Box(Modifier.matchParentSize().clipToBounds()) {
+                // Draw ancestors above departing descendants as each reaches its own region boundary.
+                pinned.asReversed().forEach { header ->
+                    key(header.item.id) {
+                        Surface(
+                            modifier = Modifier.offset { IntOffset(0, header.offset) }
+                                .fillMaxWidth()
+                                .scrollable(list, Orientation.Vertical, reverseDirection = true),
+                            color = MaterialTheme.colorScheme.surface,
+                        ) {
+                            Box(Modifier.padding(horizontal = 16.dp)) {
+                                when (val item = header.item) {
+                                    is TimelineItem.ActivityHeader -> TraceHeading(item.header, pinned = true) {
+                                        toggleTrace(item.header, pinnedHeader = true)
+                                    }
+                                    is TimelineItem.ActivityStep -> TraceStepHeading(
+                                        item.step,
+                                        expanded = true,
+                                        modifier = Modifier.testTag("pinned:${item.id}")
+                                            .traceQuote(if (item.child == null) 1 else 2),
+                                        toggle = { toggleStep(item) },
+                                    )
+                                    else -> Unit
+                                }
+                            }
                         }
-                    }
-                    pinnedTool?.let { item ->
-                        TraceStepHeading(
-                            item.step,
-                            expanded = true,
-                            modifier = Modifier.testTag("pinned:${item.id}")
-                                .traceQuote(if (item.child == null) 1 else 2),
-                            toggle = { toggleStep(item) },
-                        )
                     }
                 }
             }
@@ -918,7 +982,7 @@ private val TraceBlock.hasTraceContent: Boolean
     get() = compaction || tool.isNotBlank() || reasoning.isNotBlank() || content.isNotBlank() || !openUi.isNullOrBlank()
 
 private val TraceBlock.isSearchTrace: Boolean
-    get() = role == AgentRole.Search || role == AgentRole.Fetch
+    get() = role == AgentRole.Search || role == AgentRole.Browser
 
 @Composable
 internal fun MessageMarkdown(text: String, streaming: Boolean = false) {

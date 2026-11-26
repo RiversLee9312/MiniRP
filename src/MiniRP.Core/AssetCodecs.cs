@@ -59,7 +59,7 @@ internal sealed class AssetCodecs(string directory, HostPort port) : IDisposable
     };
 
     public async Task<(JsonObject Info, PluginRuntime.AssetContent? Result)> Media(
-        string mode, PluginRuntime.AssetContent asset, JsonObject args, CancellationToken ct)
+        string mode, PluginRuntime.AssetContent asset, JsonObject args, CancellationToken ct, int? imageMaxSide = null)
     {
         var mime = asset.MimeType.Split(';', 2)[0].Trim().ToLowerInvariant();
         var valid = mode switch
@@ -84,6 +84,7 @@ internal sealed class AssetCodecs(string directory, HostPort port) : IDisposable
             {
                 ["source"] = Path.GetFileName(source), ["output"] = Path.GetFileName(output), ["mode"] = mode,
                 ["format"] = format, ["quality"] = Math.Clamp(args.GetInt32("quality", 90), 1, 100),
+                ["max_side"] = imageMaxSide,
                 ["page"] = Math.Max(1, args.GetInt32("page", 1)),
                 ["start_ms"] = Math.Max(0, args.GetInt32("start_ms")),
                 ["duration_ms"] = Math.Clamp(args.GetInt32("duration_ms", 10000), 100, 30000),

@@ -250,7 +250,7 @@ public sealed class ModelRecoveryTests
             runtime.Load();
             var model = Model(port);
             var factory = new AgentSession.Factory(port, runtime, Path.Combine(root, "attachments"), () => "", () => workspace);
-            var pages = new PageSource(port, new FetchAgent(port, _ => throw new AssertFailedException("Unexpected browser job.")), () => new());
+            var pages = new PageSource(port, new BrowserAgent(port, _ => throw new AssertFailedException("Unexpected browser job.")), () => new());
             var coordinator = new PluginAgentCoordinator(root, factory, runtime, () => model.SelectedProvider, (_, _) => pages,
                 () => { }, _ => { }, token);
             var context = new JsonObject { ["agent"] = "preset", ["preset"] = preset };
@@ -260,7 +260,7 @@ public sealed class ModelRecoveryTests
             }
             Task<JsonNode?> Execute(JsonObject command) => coordinator.Execute(context, command, Trace, null, token);
 
-            var created = await Execute(new() { ["action"] = "plugin_spawn", ["name"] = "Fixture worker", ["message"] = "Record the fixture." });
+            var created = await Execute(new() { ["action"] = "subagent_spawn", ["name"] = "Fixture worker", ["message"] = "Record the fixture." });
             var id = created.GetString("id");
             Assert.AreEqual("running", (await statuses.Reader.ReadAsync(token)).GetString("status"));
             var request = await requests.Reader.ReadAsync(token);
@@ -277,11 +277,11 @@ public sealed class ModelRecoveryTests
             using (var owner = MemoryDb.ReadOnly(presetDatabase))
             {
                 var report = owner.Get("_context/inbox/plugin-agent-" + interrupted.GetString("plugin_run"));
-                StringAssert.Contains(report, "plugin_send using the same worker ID " + id);
+                StringAssert.Contains(report, "subagent_send using the same worker ID " + id);
             }
-            var workers = (JsonArray)(await Execute(new() { ["action"] = "plugin_list" }))!;
+            var workers = (JsonArray)(await Execute(new() { ["action"] = "subagent_list" }))!;
             Assert.AreEqual("interrupted", workers.Single().GetString("status"));
-            await Execute(new() { ["action"] = "plugin_send", ["id"] = id, ["message"] = "Describe the saved fixture." });
+            await Execute(new() { ["action"] = "subagent_send", ["id"] = id, ["message"] = "Describe the saved fixture." });
             var restarted = await statuses.Reader.ReadAsync(token);
             Assert.AreEqual(id, restarted.GetString("plugin_agent"));
             Assert.AreEqual("running", restarted.GetString("status"));

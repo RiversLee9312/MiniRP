@@ -9,6 +9,23 @@
 - 每个插件有独立且有界的事件队列。普通 Hook 和 Actions 按入队顺序运行。技能工具、附件处理和动态资源由各自的调用方等待，可以在同一 isolate 内和普通 Hook 交错执行。每次调用拥有自己的参数、环境和待完成 Promise。单次 V8 执行仍是单线程，两个调用可在 `await` 边界交错。
 - V8 步骤和宿主 I/O 在后台运行。一个插件等待模型、文件选择或网络时，别的插件照常接收事件。动态资源在首次拉取时执行。打开的 Asset 句柄 5 分钟后过期。单次 V8 步骤和 JS 清理均有 2 秒执行限制。取消宿主 I/O 后，宿主会清理对应调用。同一个 isolate 上的 V8 执行如果被中断、超时或未能完成清理，宿主会关闭它并在下一次调用时重新加载入口脚本。独立 isolate 继续运行。队列容量为 128，宿主流式事件在队列满时可能被丢弃，Actions 有明确的接受回执。
 - JavaScript 基线是 ECMAScript 2022，宿主提供 WHATWG Streams。可以用原生 `Uint8Array`、`ArrayBuffer`、`DataView` 和 Promise。运行环境是内嵌 V8，可用能力以本文所列为准。HTTP、文件选择、模型和持久化通过各自的宿主 API 完成。
+
+### Web Crypto
+
+插件可直接使用全局 `crypto`，包括入口脚本同步初始化时。访问随机数和加密运算无需额外清单权限。
+
+- `crypto.getRandomValues(view)` 同步使用平台安全随机源填充整数类型的 TypedArray，返回同一个视图。每次最多 65,536 字节。
+- `crypto.randomUUID()` 同步返回随机 UUID v4。
+- `crypto.subtle` 提供异步摘要、密钥生成与导入导出、加密解密、签名验签、密钥派生、包装和解包。桌面使用随包的 Node.js 提供器，Android 使用系统 WebView 的原生 Web Crypto。算法和实验扩展取决于平台提供器。可参考 [Web Crypto 规范](https://www.w3.org/TR/webcrypto/) 和 [Node.js Web Crypto 算法表](https://nodejs.org/dist/latest-v24.x/docs/api/webcrypto.html)。
+
+`CryptoKey` 可在同一插件 isolate 的后续调用中继续使用。只有允许导出的密钥可以用 `exportKey` 导出后再持久化。插件卸载、停用或运行时重建时，内存密钥会随 isolate 释放。TypeScript 项目可用 `DOM` 类型库取得标准 `Crypto` 和 `CryptoKey` 类型。
+
+```js
+const bytes = Uint8Array.of(97, 98, 99);
+const digest = await crypto.subtle.digest("SHA-256", bytes);
+const nonce = crypto.getRandomValues(new Uint8Array(12));
+```
+
 ## 清单
 
 `manifest.json` 位于 ZIP 根目录，UTF-8 编码，只读，由包签名覆盖。完整示例见 [示例清单](../../examples/stream-assets/plugin/manifest.json)。
@@ -20,10 +37,11 @@
 | `name` | 安装界面显示的名称，1–120 字符。 |
 | `apiVersion` | 宿主契约版本，当前为 `2`。 |
 | `entry` | ZIP 内的 UTF-8 入口路径。`.js` 是单脚本，最大 2 MiB。`.mjs` 是 ES 模块入口，包内 `.js` 和 `.mjs` 文件合计至多 2 MiB。 |
-| `permissions` | 可选。声明 `db`、`harness.read`、`harness.write`、`http`、`model`、`picker`、`settings`。 |
+| `permissions` | 可选。声明 `db`、`harness.read`、`harness.write`、`http`、`model`、`picker`、`secrets`、`settings`。 |
 | `network` | 使用 HTTP 时列出精确 HTTP(S) origin，例如 `https://example.com`。路径、通配符和自动重定向不参与授权。 |
 | `actions` | `handlers` 把 Hook ID 映射到 JS 导出名，`events` 声明本包的事件源 ID，`subscriptions` 将事件源 URL 映射到本包的 Hook URL。 |
 | `hooks` | 宿主事件名到本包 Hook URL 的映射。 |
+| `roomLoading` | 可选。声明群像角色的准备进度上限。 |
 | `assets` | 资源声明数组，详见 Assets。 |
 | `skills` | 智能体技能声明数组，详见 Skills。 |
 | `stateEntries` | 插件维护的结构化状态声明，可按角色技能投影为会话 DB 的只读项。 |
@@ -43,6 +61,22 @@ Hook 的实现以 `handlers[导出名](event, api)` 被调用，可返回 Promis
 用户可在插件管理中设置预设作用域。第三方插件默认在所有预设中运行，可仅启用所选预设，也可排除所选预设。仅启用所选预设时，插件也会跳过无预设上下文的事件。排除模式仍接收无预设上下文的事件。内置插件固定为全局。宿主保存此配置，签名包及其 `manifest.json` 保持只读。
 
 作用域适用于事件、技能、附件、设置和通过 URL 调用的 Hook 与 Asset。插件使用 Harness API 显式指定预设时，宿主也检查目标预设。`harness.listPresets()` 按作用域分页。预设删除后，插件的作用域不会自动扩大。
+
+### 群像准备进度
+
+在签名清单中写入以下配置。键是预设里的角色 ID，值是该角色从 0 开始的整数进度上限。
+
+```json
+{
+  "roomLoading": {
+    "progress": { "ada": 7, "bryn": 10 }
+  }
+}
+```
+
+宿主在打开群像房间时读取已启用且对当前预设生效的插件清单。只计入房间已有的角色。同一角色在多个插件中声明的上限相加。角色只能用 `room_progress({progress})` 上报本轮自己的进度，上报值可以持平或增加。确认 `room_ready` 时记满该角色的进度。上例中，Ada 报 3、Bryn 报 5，房间进度为 `(3 + 5) / 17`。
+
+有有效声明时，未声明的角色仍会确认就绪。房间会等所有角色就绪且开场结束后开放。如果没有匹配的声明，沿用每个角色、每个开场等权的进度计算。
 
 ## 本地化
 
@@ -132,3 +166,5 @@ globalThis.handlers = {
 | `settings.changed` | 本包设置保存，`key`、`value`。 |
 
 附件处理、技能激活和动态资源通过各自的声明投递，名称分别为 `attachment.process`、`skill.activated`、`asset.requested`。
+
+可监听 Asset 的 `asset.changed` 通过 Actions 订阅路由投递。参见 [监听 Asset 变更](actions-assets.md#监听-asset-变更)。

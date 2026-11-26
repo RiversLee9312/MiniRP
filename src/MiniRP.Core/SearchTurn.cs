@@ -5,10 +5,11 @@ namespace MiniRP.Core;
 /// <summary>A staged search workspace. No network or model dependencies; failed turns never commit it.</summary>
 internal sealed class SearchTurn
 {
+    private readonly Workspace workspace;
     private readonly AgentSession session;
     private readonly PresetResearch? shared;
     private readonly JsonObject initial;
-    private static readonly string[] CacheSections = ["pages", "search_cache", ResearchAssets.Index];
+    private static readonly string[] CacheSections = [ResearchAssets.Index, "pages", "search_cache"];
     private readonly Dictionary<string, string> documents = new(StringComparer.Ordinal);
     private List<string> selected = [];
     private string? selectedPage;
@@ -42,6 +43,7 @@ internal sealed class SearchTurn
     {
         Mode = mode;
         Target = target;
+        this.workspace = workspace;
         initial = initialState ?? workspace.State;
         State = (JsonObject)initial.DeepClone();
         this.session = session;
@@ -59,27 +61,36 @@ internal sealed class SearchTurn
 
     internal void Commit(Workspace workspace)
     {
-        if (workspace.Mode != "ensemble")
-        {
-            workspace.Commit(State);
-            return;
-        }
         lock (workspace.RoomGate)
         {
-            // Each character stages its own research. Apply only the keys it wrote.
             var current = (JsonObject)workspace.State.DeepClone();
-            foreach (var section in CacheSections)
-            {
-                var before = initial.GetObject(section);
-                foreach (var (key, value) in State.GetObject(section))
-                {
-                    if (JsonNode.DeepEquals(before[key], value)) continue;
-                    if (current[section] is not JsonObject) current[section] = new JsonObject();
-                    current[section]![key] = JsonValues.Clone(value);
-                }
-            }
+            MergeInto(current);
             workspace.Commit(current);
         }
+    }
+
+    internal void MergeInto(JsonObject current, PresetResearch? destination = null)
+    {
+        foreach (var section in CacheSections)
+        {
+            var before = initial.GetObject(section);
+            foreach (var (key, value) in State.GetObject(section))
+            {
+                if (value is null || JsonNode.DeepEquals(before[key], value)) continue;
+                if (current[section] is not JsonObject) current[section] = new JsonObject();
+                current[section]![key] = value.DeepClone();
+                destination?.Set(section, key, value);
+            }
+        }
+    }
+
+    internal SearchTurn ForBrowser(AgentSession browser) => new("browser", "", workspace, browser, shared?.Read() ?? State);
+
+    internal void RetainBrowser(SearchTurn browser)
+    {
+        if (!browser.Changed) return;
+        browser.MergeInto(State, shared);
+        changed = true;
     }
 
     public JsonObject Register(JsonObject document, bool page)
@@ -168,6 +179,19 @@ internal sealed class SearchTurn
             output.AddNode(Register(document, contentLimit: 512));
         }
         return new() { ["results"] = output };
+    }
+
+    internal JsonNode? Cached(JsonObject arguments)
+    {
+        var state = shared?.Read() ?? State;
+        if (arguments.GetString("url") is { Length: > 0 } url)
+        {
+            var asset = state.GetObject("pages").GetString(url);
+            return Assets.Contains(asset) ? Register(asset) : null;
+        }
+        if (state.GetObject("search_cache")[arguments.GetString("query")] is not JsonArray matches) return null;
+        return new JsonObject { ["results"] = new JsonArray(matches.Select(node => JsonValues.GetText(node))
+            .Where(Assets.Contains).Select(asset => (JsonNode?)Register(asset)).ToArray()) };
     }
 
     private JsonObject AddResult(JsonObject arguments)
@@ -272,12 +296,12 @@ internal sealed class SearchTurn
 
     private async Task<JsonObject> SubmitResults(JsonObject arguments, CancellationToken ct)
     {
-        if (Mode is not ("search" or "direct"))
+        if (Mode != "search")
         {
             throw new ArgumentException("A page request needs submit_page.");
         }
         var urls = SelectedUrls(arguments);
-        var query = Mode == "direct" ? arguments.GetString("query") : Target;
+        var query = Target;
         if (string.IsNullOrWhiteSpace(query))
         {
             throw new ArgumentException("A search query is required.");
@@ -285,21 +309,17 @@ internal sealed class SearchTurn
         await session.Assets!.CacheResearch(new() { ["query"] = query, ["urls"] = urls }, ct);
         var results = new JsonArray(urls.Select(value => (JsonNode?)Assets.DocumentAt(JsonValues.GetText(value))).ToArray());
         Answer = new JsonObject { ["query"] = query, ["results"] = results };
-        if (Mode == "direct")
-        {
-            return (JsonObject)HistoryAnswer()!;
-        }
         return new() { ["submitted"] = true };
     }
 
     private async Task<JsonObject> SubmitPage(JsonObject arguments, CancellationToken ct)
     {
-        if (Mode is not ("page" or "direct"))
+        if (Mode != "page")
         {
             throw new ArgumentException("A search request needs submit_search_results.");
         }
         var document = Get(arguments.GetString("ref", selectedPage ?? ""));
-        var url = Mode == "direct" ? document.GetString("url") : Target;
+        var url = Target;
         SearchAgent.ValidateUrl(url);
         if (document.GetString("url").TrimEnd('/') != url.TrimEnd('/') || document.GetString("content").Length == 0)
         {
@@ -307,10 +327,6 @@ internal sealed class SearchTurn
         }
         await session.Assets!.CacheResearch(new() { ["url"] = document.GetString("asset_url"), ["key"] = url }, ct);
         Answer = document.DeepClone();
-        if (Mode == "direct")
-        {
-            return Preview(arguments.GetString("ref", selectedPage ?? ""));
-        }
         return new() { ["submitted"] = true };
     }
 }

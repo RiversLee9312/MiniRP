@@ -11,7 +11,7 @@ alwaysApply: true
 - 使用同一份模型请求快照声明和执行工具。同一回复激活的 Skill 从下一次请求起提供工具。
 - 插件对外调用使用 Action URL，资源使用 Asset URL。插件技能工具引用其清单声明的 Action URL，同一 Action 也可独立用于插件互操作。
 - 按入口授权调用。只有共享的 Agent 执行路径能创建 `skill.tool`、授予会话资源访问权并发出工具生命周期事件。普通 Action 使用其自己的事件和权限。宿主需要同一业务操作时复用业务函数。
-- PluginAgent 用 `base-plugin-project` 的 `project_debug` 在隔离草稿中直接测试已声明的 Action URL。
+- PluginAgent 用 `plugin-dev` 的 `plugin_debug` 在隔离草稿中直接测试已声明的 Action URL。
 - `tool.started` 和 `tool.finished` 只描述注册过的工具调用。运行时维护操作使用各自的事件。
 
 例如，预设外观配置工具属于 `preset-editing`，资源查看工具属于 base 插件的 `view_asset`。

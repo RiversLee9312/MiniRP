@@ -31,6 +31,10 @@ internal static class PluginActions
         return Bind(manifest, url);
     }
 
+    internal static bool DeclaresEvent(JsonObject manifest, Address address) =>
+        address.Kind == "events" && address.Package == PluginUrls.CanonicalPackage(manifest.GetString("packageName")) &&
+        manifest.GetObject("actions").GetArray("events").Any(item => JsonValues.GetText(item) == address.Id);
+
     internal static void Validate(JsonObject manifest)
     {
         var actions = manifest.GetObject("actions");

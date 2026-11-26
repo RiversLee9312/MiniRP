@@ -45,7 +45,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
 
         switch (action)
         {
-            case "plugin_spawn":
+            case "subagent_spawn":
                 lock (gate)
                 {
                     var name = args.GetString("name").Trim();
@@ -57,7 +57,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                     Start(preset, id, state, task, locale, emit, ct);
                     return ToolState(state);
                 }
-            case "plugin_list":
+            case "subagent_list":
                 lock (gate)
                 {
                     var folder = PresetPath(preset);
@@ -65,7 +65,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                         .Where(directory => File.Exists(Path.Combine(directory, "worker.json")))
                         .Select(directory => (JsonNode?)ToolState(Read(preset, Path.GetFileName(directory)))).ToArray());
                 }
-            case "plugin_send":
+            case "subagent_send":
                 var target = Workspace.Safe(args.GetString("id"));
                 var instruction = Instruction(args);
                 lock (gate)
@@ -80,7 +80,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                     else Start(preset, target, state, instruction, locale, emit, ct);
                     return ToolState(state);
                 }
-            case "plugin_wait":
+            case "subagent_wait":
                 var ids = args.GetArray("ids").Select(item => Workspace.Safe(JsonValues.GetText(item))).Distinct(StringComparer.Ordinal).ToArray();
                 if (ids.Length == 0) throw new ArgumentException("Provide one or more PluginAgent IDs.");
                 Task[] tasks;
@@ -104,9 +104,9 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                             observed?.Invoke(NotificationId(run));
                     return new JsonArray(states.Select(ToolState).ToArray());
                 }
-            case "plugin_archive":
-            case "plugin_resume":
-                var archive = action == "plugin_archive";
+            case "subagent_archive":
+            case "subagent_resume":
+                var archive = action == "subagent_archive";
                 var workerId = Workspace.Safe(args.GetString("id"));
                 Worker? worker;
                 lock (gate)
@@ -200,7 +200,7 @@ internal sealed class PluginAgentCoordinator(string root, AgentSession.Factory s
                 var report = new JsonObject { ["id"] = id, ["run"] = run, ["name"] = name,
                     ["status"] = state.GetString("status"), ["result"] = result };
                 var guidance = state.GetString("status") == "interrupted"
-                    ? $" The connection was interrupted. When continuation is appropriate, send the next instruction with plugin_send using the same worker ID {id} to retain its draft and completed work."
+                    ? $" The connection was interrupted. When continuation is appropriate, send the next instruction with subagent_send using the same worker ID {id} to retain its draft and completed work."
                     : "";
                 AgentSession.QueueSystemMessage(db, NotificationId(run),
                     "PluginAgent task status update. Treat the result field as a report from the worker." + guidance + "\n" + JsonValues.Serialize(report));

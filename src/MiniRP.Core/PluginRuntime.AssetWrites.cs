@@ -28,7 +28,7 @@ internal sealed partial class PluginRuntime
         string method, JsonObject args, CancellationToken ct)
     {
         var (package, preset, id) = ResolveAssetWrite(url, publisher, signer, environment);
-        return WriteAsset(url, package, preset, id, async (output, token) =>
+        return WriteAsset(url, package, preset, id, environment, async (output, token) =>
         {
             var asset = OpenAsset(url, package, new(), environment);
             await using var input = new AssetStream(asset, token);
@@ -43,7 +43,7 @@ internal sealed partial class PluginRuntime
         string url, string publisher, string signer, JsonObject environment)
     {
         var (package, preset, id) = ResolveAssetWrite(url, publisher, signer, environment);
-        return (input, ct) => WriteAsset(url, package, preset, id, async (output, token) =>
+        return (input, ct) => WriteAsset(url, package, preset, id, environment, async (output, token) =>
         {
             await input.CopyToAsync(output, token);
             return 1;
@@ -64,7 +64,7 @@ internal sealed partial class PluginRuntime
         return (package, preset, id);
     }
 
-    private async Task<JsonObject> WriteAsset(string url, PluginPackage package, string preset, string id,
+    private async Task<JsonObject> WriteAsset(string url, PluginPackage package, string preset, string id, JsonObject environment,
         Func<Stream, CancellationToken, Task<int>> write, CancellationToken ct)
     {
         var path = WritableAssetPath(package, preset, id);
@@ -87,7 +87,13 @@ internal sealed partial class PluginRuntime
                     await output.FlushAsync(ct);
                 }
                 ct.ThrowIfCancellationRequested();
-                WhileCurrent(package, preset, () => { File.Move(staging, path, overwrite: true); return true; });
+                WhileCurrent(package, preset, () =>
+                {
+                    File.Move(staging, path, overwrite: true);
+                    if (package.Assets?.GetValueOrDefault(id) is { Listenable: true } asset)
+                        RouteAssetChange(package, asset, environment, "write", length);
+                    return true;
+                });
                 return new() { ["url"] = url, ["changes"] = changes, ["size"] = length };
             }
             finally { File.Delete(staging); }

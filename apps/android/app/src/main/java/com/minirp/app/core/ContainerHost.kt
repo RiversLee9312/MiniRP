@@ -15,13 +15,15 @@ internal class ContainerHost(private val context: Context, private val workspace
     private var verified = false
     fun available(): Boolean = executable.isFile && images.supportsRoomVm
 
-    suspend fun handle(event: JSONObject): JSONObject = gate.withLock {
+    suspend fun handle(event: JSONObject): JSONObject {
         check(executable.isFile) { "Install the MiniRP build with the container runtime." }
         val id = images.id
         check(event.optString("image").ifBlank { id } == id) { "This workspace was created with a different container image." }
-        if (!verified) {
-            images.verify()
-            verified = true
+        gate.withLock {
+            if (!verified) {
+                images.verify()
+                verified = true
+            }
         }
         if (event.getString("kind") == "container_runtime") return JSONObject().put("image", id)
             .put("room_vm", images.supportsRoomVm)
@@ -29,6 +31,28 @@ internal class ContainerHost(private val context: Context, private val workspace
         val run = event.getString("run")
         require(run.matches(Regex("[0-9a-f]{12}")))
         val directory = workspace.resolve("container-runs").resolve(run)
+        val log = directory.resolve("qemu.log")
+        // Room and preset VMs can both stay resident. Only preparation shares host files.
+        val process = gate.withLock { startProcess(event, directory, log) }
+        try {
+            while (process.isAlive) delay(100)
+            check(process.exitValue() == 0) {
+                "QEMU failed: " + log.reader().use { reader ->
+                    val chars = CharArray(1024)
+                    val count = reader.read(chars)
+                    if (count > 0) String(chars, 0, count).trim() else ""
+                }
+            }
+        } finally {
+            if (process.isAlive) {
+                process.destroyForcibly()
+                process.waitFor()
+            }
+        }
+        return JSONObject()
+    }
+
+    private fun startProcess(event: JSONObject, directory: File, log: File): Process {
         val manager = context.getSystemService(ConnectivityManager::class.java)
         val dns = manager?.getLinkProperties(manager.activeNetwork)?.dnsServers.orEmpty()
         directory.resolve("resolv.conf").writeText(dns.joinToString("") { "nameserver ${it.hostAddress}\n" })
@@ -60,28 +84,10 @@ internal class ContainerHost(private val context: Context, private val workspace
                 else -> args += argument
             }
         }
-        val log = directory.resolve("qemu.log")
-        val process = ProcessBuilder(args).directory(directory).redirectErrorStream(true).redirectOutput(log)
+        return ProcessBuilder(args).directory(directory).redirectErrorStream(true).redirectOutput(log)
             .apply {
                 environment()["LD_LIBRARY_PATH"] = executable.parentFile!!.path
                 environment()["TMPDIR"] = directory.path
             }.start()
-        try {
-            while (process.isAlive) delay(100)
-            check(process.exitValue() == 0) {
-                "QEMU failed: " + log.reader().use { reader ->
-                    val chars = CharArray(1024)
-                    val count = reader.read(chars)
-                    if (count > 0) String(chars, 0, count).trim() else ""
-                }
-            }
-        } finally {
-            if (process.isAlive) {
-                process.destroyForcibly()
-                process.waitFor()
-            }
-        }
-        JSONObject()
     }
-
 }

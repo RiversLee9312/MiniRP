@@ -28,7 +28,8 @@ async function previewImage(document, result, request) {
   }
 }
 
-export function OpenUi({ block, scope, identity, locale, dark, theme, t, onAction, preview, onPreview, toolPresentation, onRenderStatus }) {
+export function OpenUi({ block, scope, identity, locale, dark, theme, t, onAction, preview, onPreview, toolPresentation, onRenderStatus,
+  readOnly = false }) {
   const iframe = useRef(null);
   const frameId = useId();
   const [height, setHeight] = useState(48);
@@ -105,7 +106,7 @@ export function OpenUi({ block, scope, identity, locale, dark, theme, t, onActio
     </div>}
     <div className="open-ui-viewport" data-collapse-preview={collapsed || undefined}>
       <iframe ref={iframe} id={frameId} className="open-ui" src={toolPresentation ? "/openui/tool.html" : preview ? "/openui/preview.html" : "/openui/index.html"}
-        title={title} onLoad={() => setReady(true)} inert={collapsed} aria-hidden={collapsed || undefined}
+        title={title} onLoad={() => setReady(true)} inert={collapsed || readOnly} aria-hidden={collapsed || undefined}
         style={{ "--open-ui-height": `${height}px` }} data-expanded={expanded || undefined}
         loading={preview ? "eager" : "lazy"} sandbox="allow-scripts allow-same-origin" />
     </div>

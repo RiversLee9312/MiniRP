@@ -10,7 +10,7 @@ internal sealed partial class PluginRuntime
     {
         var arguments = invocation.Event.GetObject("arguments");
         if (!invocation.Package.BuiltIn || invocation.Package.Id != "base" ||
-            invocation.Event.GetString("tool") != "plugin_base_project_card_preview" ||
+            invocation.Event.GetString("tool") != "plugin_card_preview" ||
             !arguments.GetBoolean("screenshot") && arguments["viewport"] is null)
             return await Invoke(invocation, ct);
         if (provider is null || attach is null || !MessageAttachments.Supports(provider, "image/png"))

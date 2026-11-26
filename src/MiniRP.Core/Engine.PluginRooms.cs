@@ -62,7 +62,16 @@ public sealed partial class Engine
 
     private async Task<JsonObject> ReadRoomDocument(string preset, string room, CancellationToken ct)
     {
-        var path = Path.Combine(Workspace.Root, "conversations", WorkspaceIds.Require(preset), WorkspaceIds.Require(room) + ".json");
+        WorkspaceIds.Require(preset);
+        WorkspaceIds.Require(room);
+        var workspace = Workspace;
+        lock (workspace.RoomGate)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (workspace.PresetId == preset && workspace.ChatId == room)
+                return (JsonObject)workspace.Chat.DeepClone();
+        }
+        var path = Path.Combine(workspace.Root, "conversations", preset, room + ".json");
         var document = JsonValues.ParseObject(await File.ReadAllTextAsync(path, ct));
         if (document["messages"] is not JsonArray) LegacyImporter.ImportChat(document);
         return document;
@@ -74,7 +83,7 @@ public sealed partial class Engine
             throw new UnauthorizedAccessException("Use the direct chat's own messaging tool.");
         if (!context.GetBoolean("_ensemble") || context.GetString("participant") is not { Length: > 0 } member) return;
         var recipient = args.GetString("participant");
-        if (room != context.GetString("room") || room != Workspace.ChatId || ensemble is not { } hub ||
+        if (room != context.GetString("room") || room != Workspace.ChatId || ensemble is not { } hub || !hub.CanPost(member) ||
             (recipient.Length > 0 ? recipient != member : !hub.IsMember(conversation, member)))
             throw new UnauthorizedAccessException("A character can only send to its own chats.");
 

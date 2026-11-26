@@ -71,6 +71,7 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
             foreach (var model in response.GetArray(p.Protocol is "gemini" or "ollama" ? "models" : "data"))
             {
                 if (gateway == ProviderPlans.Gateway.CommandCode && !CommandCodeSupports(model, p.Protocol)) continue;
+                if (gateway == ProviderPlans.Gateway.OpenCodeGo && !OpenCodeGoSupports(model, p.Protocol)) continue;
                 var id = model.GetString(p.Protocol == "gemini" ? "name" : p.Protocol == "ollama" ? "model" : "id").Replace("models/", "");
                 if (id.Length > 0)
                 {
@@ -82,8 +83,8 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
                         var limit = metadata.GetObject("limit");
                         if (limit["context"] is { } context) metadata["context_length"] = context.DeepClone();
                         if (limit["output"] is { } output) metadata["max_output_tokens"] = output.DeepClone();
-                        if (metadata.GetObject("modalities")["input"] is { } input) metadata["input_modalities"] = input.DeepClone();
                     }
+                    if (Provider.DeclaredInputModalities(model) is { } input) metadata["input_modalities"] = input.DeepClone();
                     result.AddNode(metadata);
                 }
             }
@@ -102,6 +103,13 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
         var path = protocol switch { "anthropic" => "/messages", "responses" => "/responses", _ => "/chat/completions" };
         return model.GetArray("supported_endpoints").Select(value => JsonValues.GetText(value))
             .Any(endpoint => endpoint == path || endpoint == "/v1" + path);
+    }
+
+    private static bool OpenCodeGoSupports(JsonNode? model, string protocol)
+    {
+        var api = model.GetObject("api");
+        var key = protocol switch { "anthropic" => "messages", "responses" => "responses", _ => "chat-completions" };
+        return api.Count == 0 || api.ContainsKey(key);
     }
 
     internal async Task<JsonArray> EffortLevels(Provider p, CancellationToken ct)
@@ -162,9 +170,9 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
 
                     if (message is not null && media.TryGetValue(message, out var attachments))
                     {
-                        parts = MessageAttachments.Parts(p.Protocol, MessageAttachments.Text(message), attachments);
+                        parts = MessageAttachments.Parts(p.Protocol, MessageAttachments.RequestText(message), attachments);
                     }
-                    else if (MessageAttachments.Text(message) is { Length: > 0 } text)
+                    else if (MessageAttachments.RequestText(message) is { Length: > 0 } text)
                     {
                         parts.AddNode(new JsonObject { ["type"] = "text", ["text"] = text });
                     }
@@ -216,7 +224,8 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
         {
             var contents = new JsonArray();
             var system = new StringBuilder();
-            var names = new Dictionary<string, string>();
+            var names = new Dictionary<string, (string Name, string WireId)>();
+            JsonArray? toolResponses = null;
             foreach (var m in messages)
             {
                 var role = m.GetString("role");
@@ -228,27 +237,39 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
                 var parts = new JsonArray();
                 if (role == "tool")
                 {
-                    parts.AddNode(new JsonObject { ["functionResponse"] = new JsonObject { ["name"] = names.GetValueOrDefault(m.GetString("tool_call_id"), "tool"), ["response"] = new JsonObject { ["result"] = m.GetString("content") } } });
+                    var (name, wireId) = names.GetValueOrDefault(m.GetString("tool_call_id"), ("tool", ""));
+                    var response = new JsonObject { ["name"] = name, ["response"] = new JsonObject { ["result"] = m.GetString("content") } };
+                    if (wireId.Length > 0) response["id"] = wireId;
+                    if (toolResponses is null)
+                    {
+                        toolResponses = new();
+                        contents.AddNode(new JsonObject { ["role"] = "user", ["parts"] = toolResponses });
+                    }
+                    toolResponses.AddNode(new JsonObject { ["functionResponse"] = response });
+                    continue;
                 }
-                else if (role == "assistant" && m?["gemini_parts"] is JsonArray originalParts)
+                toolResponses = null;
+                if (role == "assistant" && m?["gemini_parts"] is JsonArray originalParts)
                 {
                     foreach (var part in originalParts)
                     {
                         parts.AddNode(JsonValues.Clone(part));
                     }
 
+                    var wireCalls = originalParts.Select(part => part.GetObject("functionCall")).Where(call => call.Count > 0).ToArray();
+                    var index = 0;
                     foreach (var call in m.GetArray("tool_calls"))
                     {
-                        names[call.GetString("id")] = call.GetObject("function").GetString("name");
+                        names[call.GetString("id")] = (call.GetObject("function").GetString("name"), wireCalls.ElementAtOrDefault(index++).GetString("id"));
                     }
                 }
                 else
                 {
                     if (m is not null && media.TryGetValue(m, out var attachments))
                     {
-                        parts = MessageAttachments.Parts(p.Protocol, MessageAttachments.Text(m), attachments);
+                        parts = MessageAttachments.Parts(p.Protocol, MessageAttachments.RequestText(m), attachments);
                     }
-                    else if (MessageAttachments.Text(m) is { Length: > 0 } text)
+                    else if (MessageAttachments.RequestText(m) is { Length: > 0 } text)
                     {
                         parts.AddNode(new JsonObject { ["text"] = text });
                     }
@@ -256,7 +277,7 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
                     foreach (var c in m.GetArray("tool_calls"))
                     {
                         var f = c.GetObject("function");
-                        names[c.GetString("id")] = f.GetString("name");
+                        names[c.GetString("id")] = (f.GetString("name"), "");
                         var part = new JsonObject { ["functionCall"] = new JsonObject { ["name"] = f.GetString("name"), ["args"] = JsonValues.ParseObject(f.GetString("arguments", "{}")) } };
                         if (c?["thoughtSignature"] is not null)
                         {
@@ -295,31 +316,35 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
             return ($"/models/{Uri.EscapeDataString(p.Model)}:streamGenerateContent?alt=sse", body);
         }
         var gateway = ProviderPlans.Find(p)?.Wire ?? ProviderPlans.Gateway.Standard;
+        var ollama = p.Protocol == "ollama";
+        var ollamaTools = new Dictionary<string, string>();
         var normalized = new JsonArray();
         foreach (var message in messages)
         {
-            var clean = new JsonObject { ["role"] = message.GetString("role"), ["content"] = MessageAttachments.Text(message) };
+            var clean = new JsonObject { ["role"] = message.GetString("role"), ["content"] = MessageAttachments.RequestText(message) };
             if (message is not null && media.TryGetValue(message, out var attachments))
             {
-                clean["content"] = MessageAttachments.Text(message);
-                if (p.Protocol == "ollama")
+                clean["content"] = MessageAttachments.RequestText(message);
+                if (ollama)
                 {
                     clean["images"] = new JsonArray(attachments.Select(file => (JsonNode?)JsonValue.Create(file.Data)).ToArray());
                 }
                 else if (attachments.Count > 0)
                 {
-                    clean["content"] = MessageAttachments.Parts(p.Protocol, MessageAttachments.Text(message), attachments);
+                    clean["content"] = MessageAttachments.Parts(p.Protocol, MessageAttachments.RequestText(message), attachments);
                 }
             }
-            foreach (var key in new[] { "tool_call_id", "name" })
+            if (ollama && message.GetString("role") == "tool")
+                clean["tool_name"] = ollamaTools.GetValueOrDefault(message.GetString("tool_call_id"), message.GetString("name"));
+            else if (!ollama)
             {
-                if (message?[key] is not null)
-                {
-                    clean[key] = JsonValues.Clone(message[key]);
-                }
+                foreach (var key in new[] { "tool_call_id", "name" })
+                    if (message?[key] is not null) clean[key] = JsonValues.Clone(message[key]);
             }
 
-            if (message?["reasoning_content"] is not null &&
+            if (ollama && message.GetString("role") == "assistant" && message?["reasoning_content"] is { } thinking)
+                clean["thinking"] = thinking.DeepClone();
+            else if (!ollama && message?["reasoning_content"] is not null &&
                 ((gateway == ProviderPlans.Gateway.KimiCode && message.GetArray("tool_calls").Count > 0) ||
                 p.Url.Contains("deepseek", StringComparison.OrdinalIgnoreCase) || p.Model.Contains("deepseek", StringComparison.OrdinalIgnoreCase)))
             {
@@ -331,7 +356,21 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
                 var cleanCalls = new JsonArray();
                 foreach (var call in calls)
                 {
-                    cleanCalls.AddNode(new JsonObject { ["id"] = call.GetString("id"), ["type"] = "function", ["function"] = JsonValues.Clone(call?["function"]) });
+                    if (ollama)
+                    {
+                        var function = call.GetObject("function");
+                        var name = function.GetString("name");
+                        ollamaTools[call.GetString("id")] = name;
+                        JsonObject arguments;
+                        try { arguments = JsonValues.ParseObject(function.GetString("arguments", "{}")); }
+                        catch (Exception error) when (error is System.Text.Json.JsonException or InvalidOperationException) { arguments = new(); }
+                        cleanCalls.AddNode(new JsonObject { ["type"] = "function", ["function"] = new JsonObject
+                        {
+                            ["index"] = cleanCalls.Count, ["name"] = name, ["arguments"] = arguments
+                        } });
+                    }
+                    else
+                        cleanCalls.AddNode(new JsonObject { ["id"] = call.GetString("id"), ["type"] = "function", ["function"] = JsonValues.Clone(call?["function"]) });
                 }
 
                 clean["tool_calls"] = cleanCalls;
@@ -344,7 +383,7 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
             open["tools"] = tools.DeepClone();
         }
 
-        if (p.Protocol == "ollama")
+        if (ollama)
         {
             open["think"] = p.ReasoningEffort.Length > 0 ? JsonValue.Create(p.ReasoningEffort) : JsonValue.Create(p.Thinking);
             open["options"] = new JsonObject { ["num_ctx"] = p.ContextWindow, ["num_predict"] = p.MaxOutput };
@@ -367,9 +406,10 @@ public sealed class ModelClient(HostPort port, Func<Provider> selected, string? 
         var modelName = p.Model.AsSpan(p.Model.LastIndexOf('/') + 1);
         var modernOpenAi = modelName.StartsWith("gpt-5", StringComparison.Ordinal) || modelName.StartsWith("gpt-6", StringComparison.Ordinal) ||
             (modelName.Length > 1 && modelName[0] == 'o' && char.IsAsciiDigit(modelName[1]));
-        open[modernOpenAi || gateway == ProviderPlans.Gateway.MiniMax ? "max_completion_tokens" : "max_tokens"] = p.MaxOutput;
+        var officialOpenAi = Uri.TryCreate(p.Url, UriKind.Absolute, out var endpoint) && endpoint.Host == "api.openai.com";
+        open[officialOpenAi || modernOpenAi || gateway == ProviderPlans.Gateway.MiniMax ? "max_completion_tokens" : "max_tokens"] = p.MaxOutput;
         if (gateway == ProviderPlans.Gateway.MiniMax) open["reasoning_split"] = true;
-        if (gateway == ProviderPlans.Gateway.CommandCode || (Uri.TryCreate(p.Url, UriKind.Absolute, out var endpoint) && endpoint.Host == "api.openai.com"))
+        if (gateway == ProviderPlans.Gateway.CommandCode || officialOpenAi)
             open["stream_options"] = new JsonObject { ["include_usage"] = true };
 
         return ("/chat/completions", open);

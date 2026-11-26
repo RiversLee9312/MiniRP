@@ -79,26 +79,22 @@ public sealed partial class Engine
             Volatile.Read(ref roomActivity)?.Publish(conversation, message, locale: operationLocale.Value);
     }
 
-    private void EnsembleChatsChanged() =>
-        Emit(new() { ["kind"] = "ensemble_chats", ["chat"] = Workspace.ChatId, ["items"] = ensemble?.List() });
-
-    private IEnumerable<AgentSkill> ModeSkills(string role, Workspace workspace)
+    private void EnsembleChatsChanged(string? removed = null)
     {
-        if (role == "chat" && workspace.Mode == "tabletop") yield return PresetDesign.Tabletop(Port);
-        if (role != "env") yield break;
-        if (ensemble is { } hub)
-        {
-            yield return hub.WorldSkill((conversation, message) => PostEnsembleMessage(conversation, message), EnsembleChatsChanged);
-            yield break;
-        }
-        yield return new("world-notifications", "Send targeted system updates to the conversation agent.", new JsonArray(
-            Tools.Define("notify_chat", "Tell ChatAgent what it needs to know about a world update. Preserve hidden setting details.", new()
-                { ["text"] = Tools.String() }, "text")),
-            (_, args, _) =>
-            {
-                sessions["chat"].Receive("world-" + JsonValues.NewId(), EnsembleConversation.Text(args));
-                return Task.FromResult<JsonNode?>(new JsonObject { ["sent"] = true });
-            }, Required: true);
+        var hub = ensemble;
+        if (hub is null) return;
+        if (removed is not null) Volatile.Read(ref roomActivity)?.Cancel(removed);
+        Emit(new() { ["kind"] = "ensemble_chats", ["preset"] = Workspace.PresetId, ["chat"] = Workspace.ChatId,
+            ["items"] = hub.List(), ["removed"] = removed });
+        if (removed is not null && removed == activeEnsembleChat) EmitEnsembleChat(hub, "", "");
+    }
+
+    private IEnumerable<AgentSkill> EnsembleSkills(string role)
+    {
+        if (role == "env" && ensemble is { } hub)
+            yield return hub.WorldSkill((conversation, message) => PostEnsembleMessage(conversation, message), EnsembleChatsChanged,
+                (member, enable, message) => Volatile.Read(ref roomActivity)?.RequestLifecycle(member, enable, message)
+                    ?? throw new InvalidOperationException("The character's room worker is unavailable."));
     }
 
     private async Task SubmitEnsembleMessage(JsonObject command, CancellationToken token)
@@ -160,6 +156,7 @@ public sealed partial class Engine
     {
         lock (hub.SyncRoot)
         {
+            if (conversation.Length == 0 || !hub.IsActive(conversation)) return "";
             var result = string.Join('\n', hub.Chat(conversation).GetArray("messages").TakeLast(8)
                 .Select(message => message.GetString("speaker", "User") + ": " + message.GetString("content")));
             return result[^Math.Min(result.Length, 2400)..];

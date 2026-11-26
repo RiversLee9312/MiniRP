@@ -29,16 +29,16 @@ function LoadingCaption({ text, reducedMotion }) {
   </p>;
 }
 
-function LoadingProgress({ progress, ready, total, reducedMotion, t }) {
+function LoadingProgress({ progress, ready, total, declared, reducedMotion, t }) {
   const track = useRef(null);
   const target = useRef(null);
   useLayoutEffect(() => {
-    target.current = retargetRoomProgress(target.current, progress, ready, total, performance.now());
+    target.current = retargetRoomProgress(target.current, progress, ready, total, performance.now(), declared);
     if (reducedMotion) {
       target.current.value = target.current.confirmed;
       track.current.style.setProperty("--progress", (target.current.value * 100) + "%");
     }
-  }, [progress, ready, total, reducedMotion]);
+  }, [progress, ready, total, declared, reducedMotion]);
   useEffect(() => {
     if (reducedMotion) return;
     let previous = performance.now();
@@ -84,7 +84,7 @@ export function RoomLoading({ loading, title, stop, t }) {
         {title && <span>{t("running")}</span>}
       </div>
       {messages[index] && <LoadingCaption text={messages[index]} reducedMotion={reducedMotion} key={index} />}
-      <LoadingProgress {...{ progress, ready, total, reducedMotion, t }} />
+      <LoadingProgress {...{ progress, ready, total, reducedMotion, t }} declared={loading.declared_progress} />
       <button className="text-button" type="button" onClick={stop}>{t("stop")}</button>
     </section>
   </Modal>;

@@ -224,4 +224,14 @@
     <string name="ensemble_member_trace">Log aktivitas</string>
     <string name="ensemble_no_trace">Belum ada aktivitas</string>
     <string name="ensemble_trace_load_failed">Aktivitas tidak dapat dimuat.</string>
+    <string name="image_description_model">Model deskripsi gambar</string>
+    <string name="audio_description_model">Model deskripsi audio</string>
+    <string name="media_description_off">Nonaktif</string>
+    <string name="image_description_help">Gambar dikirim ke model ini saat model penjawab tidak dapat membacanya.</string>
+    <string name="audio_description_help">Audio dikirim ke model ini saat model penjawab tidak dapat memprosesnya.</string>
+    <string name="describe_images_for_model">Gunakan deskripsi gambar</string>
+    <string name="describe_audio_for_model">Gunakan deskripsi audio</string>
+    <string name="ensemble_archived_chats">Chat yang diarsipkan</string>
+    <string name="ensemble_no_archived_chats">Tidak ada chat yang diarsipkan</string>
+    <string name="ensemble_archive_empty_history">Tidak ada pesan</string>
 </resources>

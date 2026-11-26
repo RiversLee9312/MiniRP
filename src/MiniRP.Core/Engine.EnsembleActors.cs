@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using System.Threading.Channels;
 
 namespace MiniRP.Core;
 
@@ -28,19 +27,24 @@ public sealed partial class Engine
             characters.Add(id, new(this, room, workspace, id));
         }
         var greeting = workspace.ChatGreeting;
-        var openings = greeting.Length == 0 ? [] : characters.Values
-            .SelectMany(character => character.Scenes().Where(scene => !room.Opened(scene, character.Id))
-                .Select(scene => (Character: character, Scene: scene))).ToArray();
+        var participants = characters.Values.Where(character => room.IsEnabled(character.Id)).ToArray();
+        var openings = greeting.Length == 0 ? [] : participants.Where(character => !room.Opened(character.Id)).ToArray();
 
         var ready = 0;
         var opened = 0;
-        var progress = new int[characters.Count];
+        var limits = plugins.RoomLoadingLimits(workspace.PresetId, participants.Select(character => character.Id));
+        var declaredProgress = limits.Count > 0;
+        var totalProgress = declaredProgress ? limits.Values.Sum() : 100L * (participants.Length + openings.Length);
+        long Maximum(string id) => declaredProgress ? limits.GetValueOrDefault(id) : 100;
+        var progress = new Dictionary<string, long>(StringComparer.Ordinal);
         var progressGate = new object();
         void EmitLoading(bool loading) => Emit(new()
         {
             ["kind"] = "room_loading", ["preset"] = workspace.PresetId, ["room"] = workspace.ChatId,
-            ["value"] = loading, ["ready"] = ready, ["total"] = characters.Count,
-            ["progress"] = (ready + progress.Sum() / 100d + opened) / (characters.Count + openings.Length),
+            ["value"] = loading, ["ready"] = ready, ["total"] = participants.Length,
+            ["declared_progress"] = declaredProgress,
+            ["progress"] = totalProgress == 0 ? 1d :
+                (progress.Values.Sum() + (declaredProgress ? 0 : 100L * opened)) / (double)totalProgress,
             ["messages"] = workspace.Config.GetObject("ensemble").GetArray("loading_messages").DeepClone()
         });
         using var preparation = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -60,8 +64,10 @@ public sealed partial class Engine
         {
             EmitLoading(true);
             await Together(characters.Values, character => character.Initialize(preparation.Token));
-            var pending = characters.Values.Where(character => !character.IsReady).ToArray();
-            ready = characters.Count - pending.Length;
+            var pending = participants.Where(character => !character.IsReady).ToArray();
+            ready = participants.Length - pending.Length;
+            foreach (var character in participants.Where(character => character.IsReady))
+                progress[character.Id] = Maximum(character.Id);
             EmitLoading(true);
             if (pending.Length == 0 && openings.Length == 0) return;
             if (!CanGreet) throw new InvalidOperationException("Configure a provider and model first.");
@@ -70,35 +76,31 @@ public sealed partial class Engine
                 workspace.Save();
                 saved = true;
             }
-            await Together(pending.Select((character, index) => (character, index)), async item =>
+            await Together(pending, async character =>
             {
-                var (character, index) = item;
-                await character.Prepare(percent =>
+                var maximum = Maximum(character.Id);
+                await character.Prepare(maximum, declaredProgress, value =>
                 {
                     lock (progressGate)
                     {
-                        progress[index] = percent;
+                        progress[character.Id] = value;
                         EmitLoading(true);
                     }
                 }, preparation.Token);
                 lock (progressGate)
                 {
                     ready++;
-                    progress[index] = 0;
+                    progress[character.Id] = maximum;
                     EmitLoading(true);
                 }
             });
-            await Together(openings.GroupBy(item => item.Character), async group =>
+            await Together(openings, async character =>
             {
-                foreach (var opening in group)
+                await character.Open(greeting, preparation.Token);
+                lock (progressGate)
                 {
-                    preparation.Token.ThrowIfCancellationRequested();
-                    await opening.Character.Open(opening.Scene, greeting, preparation.Token);
-                    lock (progressGate)
-                    {
-                        opened++;
-                        EmitLoading(true);
-                    }
+                    opened++;
+                    EmitLoading(true);
                 }
             });
             if (openings.Length > 0)
@@ -144,6 +146,7 @@ public sealed partial class Engine
         {
             lock (room.SyncRoot)
             {
+                if (running && (!room.IsActive(scene) || !room.CanPost(participant))) return;
                 var item = new JsonObject
                 {
                     ["kind"] = "ensemble_activity", ["preset"] = workspace.PresetId, ["chat"] = workspace.ChatId,
@@ -158,7 +161,8 @@ public sealed partial class Engine
         public JsonArray Snapshot(string? scene = null)
         {
             lock (room.SyncRoot)
-                return new JsonArray(thinking.Values.Where(item => scene is null || item.GetString("conversation") == scene)
+                return new JsonArray(thinking.Values.Where(item => room.IsActive(item.GetString("conversation")) &&
+                    (scene is null || item.GetString("conversation") == scene))
                     .Select(JsonValues.Clone).ToArray());
         }
 
@@ -175,10 +179,20 @@ public sealed partial class Engine
                     turns.Add(scene, turn = CancellationTokenSource.CreateLinkedTokenSource(stopped.Token));
                 foreach (var member in room.Members(scene))
                 {
-                    if (member == sender || !characters.TryGetValue(member, out var character)) continue;
+                    if (member == sender || !characters.TryGetValue(member, out var character) || !room.IsEnabled(member)) continue;
                     var respond = !ancestry.Contains(member, StringComparer.Ordinal) && cause.First(scene, sender, member);
                     character.Deliver(new(scene, item, interaction, locale, cause, ancestry, respond, turn.Token));
                 }
+            }
+        }
+
+        public JsonObject RequestLifecycle(string member, bool enable, string message)
+        {
+            lock (room.SyncRoot)
+            {
+                if (closing || !characters.TryGetValue(member, out var character))
+                    throw new InvalidOperationException("The character's room worker is unavailable.");
+                return character.RequestLifecycle(enable, message);
             }
         }
 
@@ -208,15 +222,13 @@ public sealed partial class Engine
     }
 
     /// <summary>Owns a character's durable chat and optional search sessions and a single model worker.</summary>
-    private sealed class RoomCharacter : IDisposable
+    private sealed partial class RoomCharacter : IDisposable
     {
         private readonly Engine engine;
         private readonly EnsembleConversation room;
         private readonly Workspace workspace;
         private readonly string name;
         private readonly string prompt;
-        private readonly Channel<RoomDelivery> deliveries = Channel.CreateUnbounded<RoomDelivery>(new()
-            { SingleReader = true, AllowSynchronousContinuations = false });
         private readonly Dictionary<string, JsonObject> currentTrace = new(StringComparer.Ordinal);
         private AgentSession? search;
         private AgentSession? directSession;
@@ -253,7 +265,7 @@ public sealed partial class Engine
 
         private AgentSession ChatSession(bool isDirect) => engine.agentSessions.Open("chat", room.Database(Id, "chat", isDirect),
             () => Volatile.Read(ref engine.routing).For("chat"), () => Context("chat"), (item, info) => Record("chat", item, info),
-            () => [room.CharacterSkill(Id, conversation, posted!, PublishAssets, opening)], CanReadChat,
+            CharacterSkills, CanReadChat,
             conversationWorkspace: workspace);
 
         private AgentSession DirectSession() => directSession ??= ChatSession(isDirect: true);
@@ -265,43 +277,57 @@ public sealed partial class Engine
             return new(workspace, session, research, "Your character is " + name + ". " + prompt);
         }
 
-        public async Task Prepare(Action<int> progress, CancellationToken token)
+        public async Task Prepare(long maximum, bool declaredProgress, Action<long> progress, CancellationToken token)
         {
             var context = "Your chats: " + string.Join(", ", Scenes().Select(room.Name)) + "\n" + workspace.AgentPrompt("chat");
             using var preparation = engine.agentSessions.Open("room-preparation", ":memory:",
                 () => Volatile.Read(ref engine.routing).For("chat"), () => Context("chat"), _ => { });
-            await Agent.Prepare(preparation, context, progress, token);
+            await Agent.Prepare(preparation, context, maximum, declaredProgress, progress, token);
             Session.Db.Write("_room/ready", "true", internalWrite: true);
         }
 
         public string[] Scenes() => room.JoinedScenes(Id);
 
-        public async Task Open(string scene, string greeting, CancellationToken token)
+        public async Task Open(string greeting, CancellationToken token)
         {
-            if (room.Opened(scene, Id)) return;
-            await Run(scene, greeting + "\nGive your opening in this chat if appropriate. Use chat_send to post it. " +
-                "You may stay silent when the opening calls for it.", (_, _) => room.ConfirmOpening(scene, Id), token, isOpening: true);
-            room.ConfirmOpening(scene, Id);
+            await Run("", greeting, (_, _) => { }, token, isOpening: true);
+            room.ConfirmOpening(Id);
         }
-
-        public void Deliver(RoomDelivery delivery) => deliveries.Writer.TryWrite(delivery);
 
         public async Task Listen(RoomActivity activity, CancellationToken stopping)
         {
+            wake.Writer.TryWrite(true);
             try
             {
-                await foreach (var delivery in deliveries.Reader.ReadAllAsync(stopping))
+                await foreach (var _ in wake.Reader.ReadAllAsync(stopping))
+                while (!stopping.IsCancellationRequested)
                 {
-                    if (delivery.Token.IsCancellationRequested || !room.IsMember(delivery.Scene, Id)) continue;
+                    RoomDelivery? delivery = null;
+                    JsonObject? controls = null;
+                    lock (room.SyncRoot)
+                    {
+                        var state = room.CharacterState(Id);
+                        if (state is "starting" or "stopping")
+                            controls = room.Lifecycle(Id);
+                        else if (state != "enabled" || !pending.TryDequeue(out delivery)) break;
+                        inFlight = delivery;
+                    }
                     try
                     {
-                        if (!delivery.Respond)
+                        if (controls is not null)
                         {
-                            if (room.PrivateParticipant(delivery.Scene).Length == 0) Synchronize();
+                            await Run("", LifecyclePrompt(controls), (target, message) => engine.PostEnsembleMessage(target, message),
+                                stopping, control: controls);
                             continue;
                         }
-                        var input = "A new post in this chat may need your response. In the conversation history, the triggering post has ID " +
-                            delivery.Message.GetString("id") + ". Decide whether a useful visible reply is appropriate; otherwise stay silent." +
+                        if (delivery is null || delivery.Token.IsCancellationRequested || !room.IsMember(delivery.Scene, Id)) continue;
+                        if (!delivery.Respond)
+                        {
+                            if (room.IsEnabled(Id) && !room.IsPrivateChat(delivery.Scene)) Synchronize();
+                            continue;
+                        }
+                        var input = "A new post may need your attention. In the conversation history, its ID is " +
+                            delivery.Message.GetString("id") + ". Decide whether to send a visible message and in which joined chat, or stay silent." +
                             delivery.Interaction;
                         var lineage = delivery.Ancestors.Append(Id).ToArray();
                         engine.operationLocale.Value = delivery.Locale;
@@ -312,37 +338,70 @@ public sealed partial class Engine
                         }, delivery.Token, attachments: new JsonArray(delivery.Message.GetArray("attachments")
                             .Where(file => !MessageAttachments.IsQuote(file)).Select(JsonValues.Clone).ToArray()), activity: activity);
                     }
-                    catch (OperationCanceledException) when (delivery.Token.IsCancellationRequested || stopping.IsCancellationRequested) { }
+                    catch (OperationCanceledException) when (delivery?.Token.IsCancellationRequested == true || stopping.IsCancellationRequested) { }
                     catch (Exception error)
                     {
+                        if (controls is not null) FailLifecycle(controls);
                         engine.Emit(new() { ["kind"] = "error", ["agent"] = "chat", ["model_turn"] = true,
-                            ["preset"] = workspace.PresetId, ["chat"] = workspace.ChatId, ["conversation"] = delivery.Scene, ["participant"] = Id,
-                            ["private_participant"] = room.PrivateParticipant(delivery.Scene), ["message"] = error.Message });
+                            ["preset"] = workspace.PresetId, ["chat"] = workspace.ChatId, ["conversation"] = delivery?.Scene ?? "", ["participant"] = Id,
+                            ["private_participant"] = delivery is not null && room.IsPrivateChat(delivery.Scene) ? Id : "", ["message"] = error.Message });
                     }
-                    finally { engine.operationLocale.Value = null; }
+                    finally
+                    {
+                        lock (room.SyncRoot) inFlight = null;
+                        engine.operationLocale.Value = null;
+                    }
                 }
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }
         }
 
         private async Task Run(string scene, string input, Action<string, JsonObject> publish, CancellationToken token,
-            bool isOpening = false, JsonArray? attachments = null, RoomActivity? activity = null)
+            bool isOpening = false, JsonArray? attachments = null, RoomActivity? activity = null, JsonObject? control = null)
         {
-            conversation = scene;
-            opening = isOpening;
-            direct = room.PrivateParticipant(scene).Length > 0;
-            posted = publish;
+            AgentSession session;
+            lock (room.SyncRoot)
+            {
+                if (!isOpening && control is null && !room.IsEnabled(Id)) return;
+                conversation = scene;
+                opening = isOpening;
+                direct = room.IsPrivateChat(scene);
+                posted = publish;
+                confirmedLifecycle = "";
+                session = direct ? DirectSession() : Session;
+                activeInbox = session.Inbox = new TurnInbox(workspace.ChatId, "chat", _ =>
+                {
+                    if (!direct) Volatile.Write(ref publicStopNoticeDelivered, true);
+                    return null;
+                }, conversation: scene);
+            }
             var finishMessage = "Cancelled.";
             try
             {
                 activity?.Report(workspace, scene, Id, name, running: true);
-                Synchronize(direct ? scene : "");
+                if (control is null) Synchronize(direct ? scene : "");
+                else session.ConfigureWorldMode(workspace.AgenticSearch);
+                token.ThrowIfCancellationRequested();
                 var context = direct
                     ? "This is a private exchange with the user. The only permitted recipient is this private chat (" + scene +
                         "). Use chat_send for your visible reply. Respect the in-story or out-of-character framing of the message."
-                    : "The active chat is " + room.Name(scene) + " (" + scene + "). Only chat_send posts a visible reply.";
+                    : control is not null
+                        ? "Follow the room lifecycle notice and use the lifecycle confirmation tool when ready."
+                    : isOpening
+                        ? "This is your room opening. Use my_chats to see your joined chats. Decide whether and where to post, " +
+                          "and use chat_send for each message. You may post in several chats or stay silent. Avoid repeating anything you already sent."
+                        : "The triggering chat is " + room.ActivityName(scene) + " (" + scene +
+                          "). It is the source of the notification. Use my_chats and decide where your character would post. Only chat_send posts visibly.";
                 var agent = direct ? directAgent ??= CreateAgent(DirectSession(), isDirect: true) : Agent;
-                await agent.Run(input, token, attachments, inputRole: "system", privateInput: true, turnInstructions: context);
+                await agent.Run(input, token, attachments, inputRole: "system", privateInput: true, turnInstructions: context,
+                    finishAfterTool: () => confirmedLifecycle.Length > 0, terminalTools: LifecycleTools);
+                lock (room.SyncRoot)
+                {
+                    activeInbox = null;
+                    if (confirmedLifecycle.Length > 0) CompleteLifecycle();
+                }
+                if (control is not null && confirmedLifecycle.Length == 0)
+                    throw new InvalidOperationException("The character did not confirm its lifecycle change.");
                 finishMessage = "Finished.";
             }
             catch (Exception error)
@@ -364,14 +423,16 @@ public sealed partial class Engine
                                 ["session"] = JsonValues.Clone(block["session"]),
                                 ["name"] = block.GetString("tool"), ["text"] = finishMessage };
                             if (direct) end["private_participant"] = Id;
-                            RecordTrace(end, currentTrace, room.Blocks(scene));
-                            if (!isOpening) engine.Emit(end);
+                            RecordTrace(end, currentTrace, room.TraceBlocks(scene, Id));
+                            if (!isOpening && room.IsActive(scene)) engine.Emit(end);
                         }
                         workspace.Save();
                     }
                 }
                 finally
                 {
+                    lock (room.SyncRoot) activeInbox = null;
+                    session.CompleteInbox();
                     currentTrace.Clear();
                     posted = null;
                     conversation = "";
@@ -390,13 +451,14 @@ public sealed partial class Engine
             if (workspace.AgenticSearch) _ = SearchSession(isDirect);
             lock (room.SyncRoot)
             {
+                if (!room.IsEnabled(Id)) return;
                 if (!isDirect) EnsembleConversation.DeliverPrivate(session);
                 room.Deliver(Id, session, directScene);
             }
         }
 
         private bool CanReadChat(string target) => room.IsMember(target, Id) &&
-            (direct ? target == conversation : room.PrivateParticipant(target).Length == 0);
+            (direct ? target == conversation : !room.IsPrivateChat(target));
 
         public AgentSession? LoadedSession(string role) => role switch
         {
@@ -426,21 +488,21 @@ public sealed partial class Engine
         private PageSource CreatePageSource()
         {
             Routing Selected() => Volatile.Read(ref engine.routing);
-            var fetch = new FetchAgent(engine.Port, job =>
+            var browser = new BrowserAgent(engine.Port, job =>
             {
                 var context = Context("fetch");
                 context["session"] = "fetch-" + job;
                 return engine.agentSessions.Open("fetch", SessionFiles.Fetch(workspace.ChatRoot, job), () => Selected().For("fetch"),
                     () => context, (item, info) => Record("fetch", item, info, context), canReadChat: CanReadChat);
             }, () => workspace.AgentPrompt("fetch"));
-            return new(engine.Port, fetch, () => Selected().Settings);
+            return new(engine.Port, browser, () => Selected().Settings);
         }
 
         private void Record(string role, JsonObject item, SessionModelInfo? info, JsonObject? fetchContext = null)
         {
             // Dialogue goes through chat_send. Plain model prose remains in the character's history.
             var scene = fetchContext?.GetString("chat") ?? conversation;
-            if (scene.Length == 0 || item.GetString("kind") == "delta" && item.GetString("type") == "content") return;
+            if (scene.Length == 0 && !opening || item.GetString("kind") == "delta" && item.GetString("type") == "content") return;
             if (item.GetString("kind") == "turn_end") item.Remove("asset_links");
             var session = (fetchContext ?? Context(role)).GetString("session");
             if (item.GetString("block") is { Length: > 0 } block)
@@ -454,8 +516,8 @@ public sealed partial class Engine
             if (direct) item["private_participant"] = Id;
             lock (room.SyncRoot)
             {
-                RecordTrace(item, currentTrace, room.Blocks(scene));
-                if (!opening)
+                RecordTrace(item, currentTrace, room.TraceBlocks(scene, Id));
+                if (!opening && room.IsActive(scene))
                 {
                     engine.RecordWebDisplay(item, currentTrace, scene, workspace);
                     engine.IndexDisplayAssets(item, item.GetString("block"), scene, scope: workspace);

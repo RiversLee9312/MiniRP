@@ -226,4 +226,14 @@
     <string name="ensemble_member_trace">Tevékenységnapló</string>
     <string name="ensemble_no_trace">Még nincs tevékenység</string>
     <string name="ensemble_trace_load_failed">Nem sikerült betölteni a tevékenységet.</string>
+    <string name="image_description_model">Képleíró modell</string>
+    <string name="audio_description_model">Hangleíró modell</string>
+    <string name="media_description_off">Ki</string>
+    <string name="image_description_help">A képek ehhez a modellhez kerülnek, ha a válaszadó modell nem tudja értelmezni őket.</string>
+    <string name="audio_description_help">A hang ehhez a modellhez kerül, ha a válaszadó modell nem tudja feldolgozni.</string>
+    <string name="describe_images_for_model">Képleírások használata</string>
+    <string name="describe_audio_for_model">Hangleírások használata</string>
+    <string name="ensemble_archived_chats">Archivált csevegések</string>
+    <string name="ensemble_no_archived_chats">Nincsenek archivált csevegések</string>
+    <string name="ensemble_archive_empty_history">Nincsenek üzenetek</string>
 </resources>

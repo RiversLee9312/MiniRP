@@ -3,12 +3,12 @@ package com.minirp.app.core
 import android.content.Context
 import android.widget.FrameLayout
 import com.minirp.app.BuildConfig
+import com.minirp.app.data.Preferences
 import com.minirp.app.ui.OpenUiPreview
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.io.OutputStream
-import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
@@ -30,6 +30,7 @@ class CoreClient(
     private val context: Context,
     private val scope: CoroutineScope,
     seedDefaultPreset: Boolean = false,
+    private val preferences: Preferences = Preferences(context),
 ) : AutoCloseable {
     private val owner = SupervisorJob(scope.coroutineContext[Job])
     private val clientScope = CoroutineScope(scope.coroutineContext + owner)
@@ -41,7 +42,6 @@ class CoreClient(
             workspace.path.toByteArray(),
             seedDefaultPreset,
         )
-    private val diceRandom by lazy { SecureRandom() }
     private val http =
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
@@ -50,9 +50,9 @@ class CoreClient(
     private val streamingHttp = http.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
     private val calls = ConcurrentHashMap<String, Call>()
     private val platformJobs = ConcurrentHashMap<String, Job>()
-    private val scripts = PluginScripts()
+    private val scripts = PluginScripts(cryptoContext = context.applicationContext)
     private val container = ContainerHost(context, workspace)
-    private val curl = CurlHost(context, workspace)
+    private val assetCommands = AssetCommandHost(context, workspace)
     private val openUiPreview = OpenUiPreview(context) { previewWindow?.invoke() }
     private val pluginHttp =
         http.newBuilder().followRedirects(false).followSslRedirects(false).build()
@@ -66,7 +66,10 @@ class CoreClient(
     init {
         check(handle != 0L) { "Could not initialize native core" }
         if (container.available()) send(JSONObject().put("op", "_container_available"))
-        if (curl.available) send(JSONObject().put("op", "_curl_available"))
+        if (assetCommands.available("curl")) send(JSONObject().put("op", "_curl_available"))
+        if (assetCommands.available("ffmpeg") && assetCommands.available("ffprobe")) {
+            send(JSONObject().put("op", "_ffmpeg_available"))
+        }
         clientScope.launch(Dispatchers.IO) {
             val temporary = Regex("transfer-[0-9a-f-]{36}|preset-background-[0-9]+\\.media")
             val stale = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(1)
@@ -117,11 +120,12 @@ class CoreClient(
                         "plugin_script",
                         "plugin_verify",
                         "plugin_sign",
-                        "roll_dice",
+                        "plugin_secret",
                         "agent_asset_sample",
                         "container_runtime",
                         "container_run",
                         "curl_download",
+                        "ffmpeg_run",
                         "open_ui_catalog",
                         "open_ui_preview",
                         "plugin_http",
@@ -185,7 +189,7 @@ class CoreClient(
                     "plugin_script" -> checkNotNull(script).invoke()
                     "plugin_verify" -> PluginVerifier.verify(event)
                     "plugin_sign" -> PluginSigner.sign(workspace, event)
-                    "roll_dice" -> rollDice(event)
+                    "plugin_secret" -> preferences.pluginSecret(event)
                     "open_ui_catalog" -> openUiPreview.catalog(event)
                     "open_ui_preview" -> openUiPreview.render(event)
                     "agent_asset_sample" ->
@@ -196,7 +200,7 @@ class CoreClient(
                         )
                     "plugin_http" -> pluginHttpRequest(event)
                     "container_runtime", "container_run" -> container.handle(event)
-                    "curl_download" -> curl.handle(event)
+                    "curl_download", "ffmpeg_run" -> assetCommands.handle(event)
                     else -> picker?.invoke(event) ?: error("No picker is available")
                 }
             reply.put("result", result)
@@ -206,15 +210,6 @@ class CoreClient(
             reply.put("error", failure.message ?: "Plugin request failed")
         }
         send(reply)
-    }
-
-    private fun rollDice(event: JSONObject): JSONObject {
-        val count = event.getInt("count")
-        val sides = event.getInt("sides")
-        require(count in 1..30 && sides in 2..1000) { "Invalid dice limits." }
-        val rolls = JSONArray()
-        repeat(count) { rolls.put(diceRandom.nextInt(sides) + 1) }
-        return JSONObject().put("rolls", rolls)
     }
 
     private suspend fun pluginHttpRequest(event: JSONObject): JSONObject {
@@ -295,9 +290,10 @@ class CoreClient(
             output.toByteArray()
         }
 
-    internal suspend fun savePresetBackground(preset: String, url: String, destination: File): String =
+    internal suspend fun savePresetBackground(preset: String, url: String, frame: String, destination: File): String =
         withContext(Dispatchers.IO) {
             val request = JSONObject().put("op", "preset_background_open").put("preset", preset).put("url", url)
+                .put("frame", frame)
             destination.outputStream().buffered().use { copyAsset(request, 128L * 1024 * 1024, it) }
         }
 

@@ -224,4 +224,14 @@
     <string name="ensemble_member_trace">Etkinlik günlüğü</string>
     <string name="ensemble_no_trace">Henüz etkinlik yok</string>
     <string name="ensemble_trace_load_failed">Etkinlik yüklenemedi.</string>
+    <string name="image_description_model">Görüntü açıklama modeli</string>
+    <string name="audio_description_model">Ses açıklama modeli</string>
+    <string name="media_description_off">Kapalı</string>
+    <string name="image_description_help">Yanıt modeli görüntüleri okuyamadığında görüntüler bu modele gönderilir.</string>
+    <string name="audio_description_help">Yanıt modeli sesi işleyemediğinde ses bu modele gönderilir.</string>
+    <string name="describe_images_for_model">Görüntü açıklamalarını kullan</string>
+    <string name="describe_audio_for_model">Ses açıklamalarını kullan</string>
+    <string name="ensemble_archived_chats">Arşivlenen sohbetler</string>
+    <string name="ensemble_no_archived_chats">Arşivlenen sohbet yok</string>
+    <string name="ensemble_archive_empty_history">Mesaj yok</string>
 </resources>

@@ -244,8 +244,8 @@ internal fun MemoryScreen(
                                     AgentRole.entries
                                         .filter {
                                             it != AgentRole.Plugin &&
-                                                it != AgentRole.Fetch &&
-                                                it != AgentRole.Title &&
+                                                it != AgentRole.Browser &&
+                                                it != AgentRole.Title && it.descriptionKind == null &&
                                                 (agenticSearch || it != AgentRole.Search)
                                         }
                                         .forEach { candidate ->

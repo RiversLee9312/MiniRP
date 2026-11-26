@@ -1,15 +1,27 @@
 import { countBytes, makeSample } from "./lib/bytes.js";
 
+let sampleByte = 42;
+
 globalThis.handlers = {
     async announce(_event, api) {
+        const url = api.assets.url("sample");
+        sampleByte = sampleByte === 42 ? 43 : 42;
+        await api.assets.notifyChanged(url);
         await api.actions.publish({
             url: "minirp://actions/example.minichat.stream/events/ready",
-            assets: { sample: api.assets.url("sample") },
+            assets: { sample: url },
         });
     },
 
     produce() {
-        return makeSample();
+        return makeSample(sampleByte);
+    },
+
+    async sampleChanged(event, api) {
+        const { body } = await api.assets.open(event.assets.asset);
+        const bytes = await countBytes(body);
+        if (api.environment.preset)
+            await api.db.put({ scope: "preset", key: "stream-example/sample-size", content: String(bytes) });
     },
 
     async consume(event, api) {

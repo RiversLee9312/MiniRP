@@ -4,6 +4,10 @@
 
 Android 端用 Compose UI 测试验证导航、返回动画、Room 内切换 Chat和编辑行为。网络流程用 MockWebServer 提供确定的模型事件；测试可以挂起模型请求，确认界面仍能响应。插件和状态的端到端行为也由 HarnessCore 测试覆盖。
 
+构建 APK 时会校验容器镜像里的 initrd 是否包含当前的来宾启动脚本。`ContainerPortabilityTest` 会在真机上启动聊天和预设容器，用 Agent 的 `shell` 验证两个工作盘能同时使用并各自保留文件。
+
+`NativeMediaToolsTest` 使用随 APK 打包的 FFmpeg 运行时。它通过 Agent 的 Asset 输入编码 H.264，再用 `ffprobe` 核对编码和分辨率，也会从插件创建的 TemporaryAgent 分别运行两个工具。
+
 正常设备验证采用覆盖安装，保存已有会话和设置。需要验证首次运行时，可以用 Gradle 参数 `-Pminirp.isolatedTest=true` 构建独立 applicationId 版本。这样验证空数据、预设创建和插件入口时无需清空日常使用的应用。
 
 后台回复的首次授权流程由 `BackgroundTurnsTest` 在干净的测试版上验证。测试用 MockWebServer 暂停一轮回复，切到桌面后释放响应，检查回复完成、通知撤下以及重新打开时的聊天内容。另用主动停止和模拟失败检查中断提示。Android 16 及以上验证应用发出的 Live Updates 请求，系统是否提升通知由设备与用户设置决定。

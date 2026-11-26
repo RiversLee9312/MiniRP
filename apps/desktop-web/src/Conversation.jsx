@@ -6,13 +6,12 @@ import { OpenUi } from "./OpenUi.jsx";
 import { ReplySelectionMenu } from "./ReplySelectionMenu.jsx";
 import { ToolTrace } from "./ToolTrace.jsx";
 import { TranscriptRuler } from "./TranscriptRuler.jsx";
-import { transcriptTurns } from "./transcript-turns.js";
+import { researchAgentLabel, transcriptTurns } from "./transcript-turns.js";
 import { FileChoice, Icon, IconButton } from "./ui.jsx";
 
 const markdownPlugins = [remarkGfm];
 const isAsset = (url) => typeof url === "string" && url.startsWith("minirp://assets/");
 const external = (url) => /^https?:\/\//i.test(url || "");
-const agentTrace = (agent) => ["search", "SearchAgent", "fetch", "FetchAgent"].includes(agent);
 
 function Trace({ block, expanded, t, view }) {
   const [open, setOpen] = useState(expanded);
@@ -63,7 +62,7 @@ function Attachment({ file, scope, t }) {
 
 function BlockView({ block, scope, locale, dark, theme, expanded, busy, t, branch, openAction, runExport, rowPrefix, nested = false }) {
   const user = ["user", "system"].includes(block.kind || block.role);
-  const search = agentTrace(block.agent);
+  const search = researchAgentLabel(block.agent);
   const plugin = block.plugin_agent_name && block.plugin_status;
   const row = nested ? undefined : block.id;
   const display = (url, inline = false) => assetUrl(url, scope, { mode: "display", block: block.id, inline: inline ? "1" : "0" });
@@ -85,7 +84,7 @@ function BlockView({ block, scope, locale, dark, theme, expanded, busy, t, branc
     className={["message", user ? "user-message" : "", search ? "nested-trace" : ""].filter(Boolean).join(" ")}>
     {(block.speaker || search || plugin || (block.kind || block.role) === "system") &&
       <header className="message-label">
-        {block.speaker || block.plugin_agent_name || t(search ? block.agent.toLowerCase().startsWith("fetch") ? "fetch_agent" : "search_agent" : "system_message")}
+        {block.speaker || block.plugin_agent_name || t(search || "system_message")}
         {plugin && <span className="muted">{t(block.plugin_status === "running" ? "running" : "plugin_run_" + block.plugin_status)}</span>}
         {plugin && block.plugin_status !== "running" && block.plugin_run &&
           <IconButton icon="share" label={t("export_transcript")} disabled={busy} onClick={() => runExport(block.plugin_run)} />}
@@ -99,7 +98,7 @@ function BlockView({ block, scope, locale, dark, theme, expanded, busy, t, branc
           components={{
             a: ({ href, children }) => isAsset(href)
               ? block.asset_links?.[href] ? <a href={display(href)} download>{children}</a>
-                : <button className="inline-link" type="button" onClick={() => openAction(block, { type: "link", url: href })}>{children}</button>
+                : openAction ? <button className="inline-link" type="button" onClick={() => openAction(block, { type: "link", url: href })}>{children}</button> : <span>{children}</span>
               : external(href) ? <a href={href} target="_blank" rel="noreferrer">{children}</a> : <span>{children}</span>,
             img: ({ src, alt }) => isAsset(src) && block.asset_links?.[src]
               ? <img loading="lazy" src={display(src, true)} alt={alt || ""} />
@@ -110,7 +109,8 @@ function BlockView({ block, scope, locale, dark, theme, expanded, busy, t, branc
         </Markdown>
       </div>)}
     {block.open_ui && <OpenUi block={block} scope={scope} identity={JSON.stringify([scope.preset, scope.room, scope.conversation, block.id])}
-      locale={locale} dark={dark} theme={theme} t={t} onAction={(action) => openAction(block, action)} />}
+      locale={locale} dark={dark} theme={theme} t={t} readOnly={!openAction}
+      onAction={openAction && ((action) => openAction(block, action))} />}
     {block.attachments?.length > 0 && <div className="attachments">
       {block.attachments.map((file) => <Attachment key={file.id} file={file} scope={scope} t={t} />)}
     </div>}
@@ -126,7 +126,7 @@ function groupTraces(blocks) {
   const groups = [];
   for (const block of blocks) {
     const previous = groups.at(-1);
-    if (!agentTrace(block.agent)) groups.push(block);
+    if (!researchAgentLabel(block.agent)) groups.push(block);
     else if (previous?.items && previous.agent === block.agent) previous.items.push(block);
     else groups.push({ id: block.id, agent: block.agent, items: [block] });
   }
@@ -147,7 +147,7 @@ const TranscriptRows = memo(function TranscriptRows({ blocks, t, ...view }) {
     style={{ "--transcript-estimate": chunk.length * 84 + "px" }}>
     {chunk.map((block) => block.items ? <details className="trace nested-trace" key={block.id} data-transcript-row={block.id}>
       <summary><Icon name="expand_more" /><span className="trace-title">
-        {t(block.agent.toLowerCase().startsWith("fetch") ? "fetch_agent" : "search_agent")}
+        {t(researchAgentLabel(block.agent))}
       </span></summary>
       {block.items.map((item) => <MessageBlock key={item.id} block={item} t={t} nested {...view} />)}
     </details> : <MessageBlock key={block.id} block={block} t={t} {...view} />)}
@@ -172,7 +172,8 @@ function readingAnchor(element) {
   return row && { row, offset: row.getBoundingClientRect().top - top };
 }
 
-export function Transcript({ blocks, contextKey, history, pane, addHistory, onHistoryError, t, quoteReply, ...view }) {
+export function Transcript({ blocks, contextKey, history, pane, addHistory, onHistoryError, t, quoteReply,
+  loadPage = transcriptPage, ...view }) {
   const controls = useId();
   const rowPrefix = controls + "-row-";
   const turns = useMemo(() => transcriptTurns(history?.pages, blocks), [history?.pages, blocks]);
@@ -202,7 +203,7 @@ export function Transcript({ blocks, contextKey, history, pane, addHistory, onHi
     setLoadingOlder(true);
     setHistoryError(false);
     try {
-      const page = await transcriptPage(view.scope, before, view.locale, controller.signal);
+      const page = await loadPage(view.scope, before, view.locale, controller.signal);
       if (controller.signal.aborted) return;
       if (!Array.isArray(page.blocks) || (page.before !== null && typeof page.before !== "string") || page.before === before)
         throw new Error(t("connection_failed"));
@@ -222,7 +223,7 @@ export function Transcript({ blocks, contextKey, history, pane, addHistory, onHi
       if (load.current === operation) load.current = null;
       if (!controller.signal.aborted) setLoadingOlder(false);
     }
-  }, [addHistory, before, history?.version, onHistoryError, pane, t, view.locale, view.scope]);
+  }, [addHistory, before, history?.version, loadPage, onHistoryError, pane, t, view.locale, view.scope]);
 
   useLayoutEffect(() => () => load.current?.controller.abort(), []);
   useLayoutEffect(() => {

@@ -226,4 +226,14 @@
     <string name="ensemble_member_trace">गतिविधि का विवरण</string>
     <string name="ensemble_no_trace">अभी कोई गतिविधि नहीं है</string>
     <string name="ensemble_trace_load_failed">गतिविधि लोड नहीं हो सकी।</string>
+    <string name="image_description_model">चित्र वर्णन मॉडल</string>
+    <string name="audio_description_model">ऑडियो वर्णन मॉडल</string>
+    <string name="media_description_off">बंद</string>
+    <string name="image_description_help">जब उत्तर देने वाला मॉडल चित्र नहीं पढ़ सकता, तो चित्र इस मॉडल को भेजे जाते हैं।</string>
+    <string name="audio_description_help">जब उत्तर देने वाला मॉडल ऑडियो संसाधित नहीं कर सकता, तो ऑडियो इस मॉडल को भेजा जाता है।</string>
+    <string name="describe_images_for_model">चित्र वर्णन का उपयोग करें</string>
+    <string name="describe_audio_for_model">ऑडियो वर्णन का उपयोग करें</string>
+    <string name="ensemble_archived_chats">संग्रहित चैट</string>
+    <string name="ensemble_no_archived_chats">कोई संग्रहित चैट नहीं</string>
+    <string name="ensemble_archive_empty_history">कोई संदेश नहीं</string>
 </resources>

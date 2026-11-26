@@ -522,10 +522,13 @@ export function Memory({ workspace, role, t, close }) {
   </Modal>;
 }
 
+export function pluginAvailableIn(plugin, preset) {
+  const allowed = plugin.scope?.presets?.includes(preset);
+  return plugin.enabled && !(plugin.scope?.mode === "include" && !allowed) &&
+    !(plugin.scope?.mode === "exclude" && allowed);
+}
+
 export function pluginAttachmentTypes(plugins, preset) {
-  return plugins.flatMap((plugin) => {
-    const allowed = plugin.scope?.presets?.includes(preset);
-    if (!plugin.enabled || (plugin.scope?.mode === "include" && !allowed) || (plugin.scope?.mode === "exclude" && allowed)) return [];
-    return (plugin.attachments || []).map((item) => ({ ...item, plugin: plugin.id }));
-  });
+  return plugins.filter((plugin) => pluginAvailableIn(plugin, preset)).flatMap((plugin) =>
+    (plugin.attachments || []).map((item) => ({ ...item, plugin: plugin.id })));
 }

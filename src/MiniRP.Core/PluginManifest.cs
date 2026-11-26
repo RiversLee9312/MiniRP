@@ -18,11 +18,30 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
     internal string Generation { get; init; } = JsonValues.NewId();
     internal bool Enabled { get; init; } = true;
     internal PluginManifestLocalization? Localization { get; } = PluginManifestLocalization.Read(Manifest);
+    internal IReadOnlyDictionary<string, int> RoomLoadingProgress { get; } = ReadRoomLoadingProgress(Manifest);
     internal JsonObject LocalizedManifest(string? locale) => Localization?.Project(Manifest, locale) ?? Manifest;
     internal string LocalizedName(string? locale) => Localization?.Text(Manifest, "name", locale) ?? Name;
     internal string StorageKey => Signed ? PackageName + "." + Signer : Id;
     public bool UsesActions => PackageName != Id;
     internal string Bind(string value) => UsesActions ? PluginActions.Bind(Manifest, value) : value;
+
+    private static Dictionary<string, int> ReadRoomLoadingProgress(JsonObject manifest)
+    {
+        var limits = new Dictionary<string, int>(StringComparer.Ordinal);
+        if (!manifest.TryGetPropertyValue("roomLoading", out var declaration)) return limits;
+        if (manifest.GetInt32("apiVersion") != 2 || declaration is not JsonObject { Count: 1 } loading ||
+            loading["progress"] is not JsonObject { Count: > 0 } progress)
+            throw new InvalidDataException("Declare roomLoading.progress as a nonempty map of character IDs to maximum progress.");
+        foreach (var (character, maximum) in progress)
+        {
+            try { PresetDesign.Id(character); }
+            catch (ArgumentException error) { throw new InvalidDataException("Invalid character ID in roomLoading.progress.", error); }
+            if (maximum is not JsonValue number || !number.TryGetValue<int>(out var value) || value < 1)
+                throw new InvalidDataException("Each roomLoading.progress maximum must be a positive integer.");
+            limits.Add(character, value);
+        }
+        return limits;
+    }
 
     public static PluginPackage Read(Stream stream, string archivePath = "", bool allowLegacy = false,
         Func<byte[], byte[], string>? platformVerifier = null)
@@ -113,7 +132,7 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
         }
         foreach (var permission in manifest.GetArray("permissions").Select(item => JsonValues.GetText(item)))
         {
-            if (permission is not ("harness.read" or "harness.write" or "db" or "http" or "picker" or "settings" or "model"))
+            if (permission is not ("harness.read" or "harness.write" or "db" or "http" or "picker" or "settings" or "model" or "secrets"))
                 throw new InvalidDataException("Unknown plugin permission: " + permission);
         }
         foreach (var origin in manifest.GetArray("network").Select(item => JsonValues.GetText(item)))
@@ -181,6 +200,7 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
     internal static Dictionary<string, PluginAsset> ReadAssets(JsonObject manifest, Func<string, bool> exists)
     {
         var assets = new Dictionary<string, PluginAsset>(StringComparer.Ordinal);
+        var changeSources = new HashSet<string>(StringComparer.Ordinal);
         foreach (var asset in manifest.GetArray("assets"))
         {
             var id = Identifier(asset.GetString("id"));
@@ -189,17 +209,53 @@ internal sealed record PluginPackage(string Id, string Name, string Source, Json
             var access = asset.GetString("accessibility", "private");
             var path = asset.GetString("path");
             var handler = asset.GetString("handler");
+            var variants = ReadBackgroundVariants(asset, mime);
+            var listenable = asset.GetBoolean("listenable");
+            var changeEvent = asset.GetString("changeEvent");
             if (asset is JsonObject obj && obj.TryGetPropertyValue("writable", out var writable) &&
                 (writable is not JsonValue flag || !flag.TryGetValue<bool>(out _)))
                 throw new InvalidDataException("Asset writable must be a boolean.");
+            if (asset is JsonObject declaration &&
+                (declaration.TryGetPropertyValue("listenable", out var value) &&
+                    (value is not JsonValue listen || !listen.TryGetValue<bool>(out _)) ||
+                 declaration.ContainsKey("changeEvent") &&
+                    (declaration["changeEvent"] is not JsonValue source || !source.TryGetValue<string>(out _) || !listenable)))
+                throw new InvalidDataException("An Asset change event requires listenable: true and an Event URL.");
+            if (listenable)
+            {
+                var address = PluginActions.Parse(changeEvent);
+                if (!PluginActions.DeclaresEvent(manifest, address) || !changeSources.Add(address.Id))
+                    throw new InvalidDataException("A listenable Asset needs a unique event source declared by its own plugin.");
+            }
             if (access is not ("private" or "protected" or "public") || !MimeType(mime) ||
-                !assets.TryAdd(id, new(id, kind, mime, access, path, handler, asset.GetBoolean("writable"))))
+                !assets.TryAdd(id, new(id, kind, mime, access, path, handler, asset.GetBoolean("writable"), variants, changeEvent)))
                 throw new InvalidDataException("Assets need unique IDs, a MIME type and valid accessibility.");
             if (kind == "dynamic" && path.Length == 0) PluginActions.BindRequired(manifest, handler);
             else if (kind != "file" || handler.Length > 0 || !SafePath(path) || !exists(path))
                 throw new InvalidDataException("An asset must reference a signed archive file or a dynamic handler.");
         }
+        foreach (var asset in assets.Values)
+            if (asset.BackgroundVariants is { } variants &&
+                variants.Values.Any(id => !assets.TryGetValue(id, out var variant) || !PluginAsset.SupportsBackground(variant.MimeType)))
+                throw new InvalidDataException("Background variants must reference image, GIF or video Assets declared in the same plugin.");
         return assets;
+    }
+
+    private static Dictionary<string, string>? ReadBackgroundVariants(JsonNode? asset, string mime)
+    {
+        if (asset is not JsonObject declaration || !declaration.TryGetPropertyValue("backgroundVariants", out var value))
+            return null;
+        if (!PluginAsset.SupportsBackground(mime) || value is not JsonObject { Count: > 0 } variants)
+            throw new InvalidDataException("Declare background variants on a supported media Asset.");
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (frame, target) in variants)
+        {
+            if (frame is not ("square" or "landscape" or "portrait") ||
+                target is not JsonValue id || !id.TryGetValue<string>(out var text))
+                throw new InvalidDataException("Use square, landscape or portrait with an Asset ID.");
+            result.Add(frame, Identifier(text));
+        }
+        return result;
     }
 
     public static bool IsInteractionUrl(string value) => value.Length <= 4096 &&

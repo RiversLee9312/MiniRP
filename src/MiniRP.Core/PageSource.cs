@@ -4,32 +4,43 @@ using System.Text.Json.Nodes;
 namespace MiniRP.Core;
 
 /// <summary>Platform I/O for the base research skill. Provider credentials stay in the host.</summary>
-public sealed class PageSource(HostPort port, FetchAgent browser, Func<JsonObject> settings)
+public sealed class PageSource(HostPort port, BrowserAgent? browser, Func<JsonObject> settings)
 {
-    internal string Backend => settings().GetString("fetch_backend", "api_then_local");
-    internal Task<JsonObject> FetchLocal(string url, CancellationToken ct)
+    internal bool HasLocalBrowser => browser is not null;
+    internal string Backend => HasLocalBrowser ? settings().GetString("fetch_backend", "api_then_local") : "api";
+
+    private AgentAssets.ResearchScope? BrowserResearch(SearchTurn? turn) =>
+        turn is null ? null : new(turn, new PageSource(port, null, settings));
+
+    internal Task<JsonObject> FetchLocal(string url, CancellationToken ct, SearchTurn? turn = null)
     {
         SearchAgent.ValidateUrl(url);
         ct.ThrowIfCancellationRequested();
-        return browser.Fetch(url, ct);
+        if (browser is null)
+            throw new InvalidOperationException("Use the browser skill to navigate pages in this browser task.");
+        return browser.Fetch(url, ct, BrowserResearch(turn));
     }
 
-    internal Task<JsonObject> Request(string method, JsonObject body, CancellationToken cancellationToken)
+    internal async Task<JsonObject> Request(string method, JsonObject body, CancellationToken cancellationToken, SearchTurn? turn = null)
     {
         var config = settings();
-        if (method == "search") return Search(body, config, cancellationToken);
+        if (method == "search") return await Search(body, config, cancellationToken, turn);
         if (method != "fetch") throw new ArgumentException("Unknown web request.");
         var url = body.GetString("url");
         SearchAgent.ValidateUrl(url);
         var service = config.GetString("fetch_provider", "deepseek");
-        var key = ProviderKey(config, service);
+        var key = await ProviderKey(config, service, cancellationToken);
         if (string.IsNullOrWhiteSpace(key))
             throw new InvalidOperationException("Configure a page fetch API key or use the local browser.");
-        return FetchApi(service, url, config, key, cancellationToken);
+        return await FetchApi(service, url, config, key, cancellationToken);
     }
 
-    private static string ProviderKey(JsonObject config, string service)
+    private async Task<string> ProviderKey(JsonObject config, string service, CancellationToken ct)
     {
+        if (service is not ("deepseek" or "tavily" or "exa" or "brave")) return "";
+        if (config.GetBoolean("_research_secret_storage") &&
+            (await PluginSecrets.ReadResearchKey(port, service, ct))["value"] is JsonValue value)
+            return JsonValues.GetText(value).Trim();
         var key = config.GetObject("research_keys").GetString(service).Trim();
         return key.Length == 0 && service == "deepseek" ? config.GetString("search_key").Trim() : key;
     }
@@ -103,14 +114,14 @@ public sealed class PageSource(HostPort port, FetchAgent browser, Func<JsonObjec
         return new() { ["url"] = document.GetString("url", url), ["title"] = document.GetString("title"), ["content"] = content };
     }
 
-    private async Task<JsonObject> Search(JsonObject body, JsonObject config, CancellationToken ct)
+    private async Task<JsonObject> Search(JsonObject body, JsonObject config, CancellationToken ct, SearchTurn? turn)
     {
         var query = body.GetString("query").Trim();
         if (query.Length == 0) throw new ArgumentException("Provide a search query.");
         var count = Math.Clamp(body.GetInt32("count", 8), 1, 50);
         var escaped = Uri.EscapeDataString(query);
         var service = config.GetString("search_provider", "deepseek");
-        var key = ProviderKey(config, service);
+        var key = await ProviderKey(config, service, ct);
         var received = false;
         Exception? lastFailure = null;
         async Task<JsonObject?> TrySearch(Func<Task<JsonObject>> request, string snippetField = "snippet")
@@ -157,15 +168,17 @@ public sealed class PageSource(HostPort port, FetchAgent browser, Func<JsonObjec
         }, ct), "content") is { } free)
             return free;
 
-        string[] engines = config.GetString("search_region").Equals("CN", StringComparison.OrdinalIgnoreCase)
-            ? ["https://www.baidu.com/s?wd=", "https://cn.bing.com/search?q="]
-            : ["https://www.google.com/search?q=", "https://duckduckgo.com/?q=", "https://www.bing.com/search?q="];
-        foreach (var engine in engines)
+        if (browser is not null)
         {
-            if (await TrySearch(() => browser.Search(engine + escaped, count, ct)) is { } local)
-                return local;
+            string[] engines = config.GetString("search_region").Equals("CN", StringComparison.OrdinalIgnoreCase)
+                ? ["https://www.baidu.com/s?wd=", "https://cn.bing.com/search?q="]
+                : ["https://www.google.com/search?q=", "https://duckduckgo.com/?q=", "https://www.bing.com/search?q="];
+            var research = BrowserResearch(turn);
+            foreach (var engine in engines)
+                if (await TrySearch(() => browser.Search(engine + escaped, count, ct, research)) is { } local)
+                    return local;
         }
         if (received) return new() { ["results"] = new JsonArray() };
-        throw new IOException("Search APIs and browser search engines were unavailable.", lastFailure);
+        throw new IOException(HasLocalBrowser ? "Search APIs and browser search engines were unavailable." : "Search APIs were unavailable.", lastFailure);
     }
 }

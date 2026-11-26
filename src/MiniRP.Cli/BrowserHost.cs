@@ -137,7 +137,7 @@ internal sealed partial class BrowserHost(string root, DesktopBrowserRuntime run
                 ["function"] = "() => '" + DesktopBrowserRuntime.ProbeTitle + "'"
             }, token);
             if (!text.Contains(DesktopBrowserRuntime.ProbeTitle, StringComparison.Ordinal))
-                throw new IOException("The browser could not run the FetchAgent tools.");
+                throw new IOException("The browser could not run the BrowserAgent tools.");
         }
         finally { await Close(browser); }
     }

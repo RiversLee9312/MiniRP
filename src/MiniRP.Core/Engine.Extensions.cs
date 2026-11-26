@@ -21,7 +21,7 @@ public sealed partial class Engine
                     var background = workspace.Config.GetObject("appearance").GetString("background_url");
                     if (background.Length == 0 || workspace.PresetId != command.GetString("preset") || background != command.GetString("url"))
                         throw new UnauthorizedAccessException("The requested background is not active for this preset.");
-                    response["result"] = plugins.OpenPresetBackground(background, workspace.PresetId);
+                    response["result"] = plugins.OpenPresetBackground(background, workspace.PresetId, command.GetString("frame"));
                     break;
                 case "asset_open":
                     var url = command.GetString("url");
@@ -101,7 +101,7 @@ public sealed partial class Engine
         var role = item.GetString("agent") switch
         {
             "ChatAgent" => "chat", "EnvAgent" => "env", "PresetAgent" => "preset",
-            "SearchAgent" => "search", "FetchAgent" => "fetch", var agent => agent
+            "SearchAgent" => "search", "BrowserAgent" or "FetchAgent" => "fetch", var agent => agent
         };
         var payload = item.GetString("kind") switch
         {
@@ -468,7 +468,7 @@ public sealed partial class Engine
                     return new JsonObject { ["closed"] = true };
                 }
                 var result = await item.Session.Run(args.GetString("system", "You are a concise assistant."), RequireText(args),
-                    new AgentSkill("temporary-task", "Complete the requested task.", new(), (_, _, _) => Task.FromResult<JsonNode?>(null)),
+                    AgentSkill.SubagentTask,
                     ct);
                 return new JsonObject { ["text"] = result.GetString("content") };
             }
@@ -533,7 +533,8 @@ public sealed partial class Engine
         command["_plugin_generation"] = package.Generation;
         command["agent"] = agent;
         command["action"] = op;
-        command["op"] = "_plugin_workspace";
+        // A queued notice must keep its position ahead of later user turns.
+        command["op"] = op == "insertSystemMessage" ? "system_message" : "_plugin_workspace";
         command["request"] = JsonValues.NewId();
         if (op == "insertSystemMessage") command["_hidden_notice"] = true;
         if (op == "send")
@@ -583,7 +584,7 @@ public sealed partial class Engine
         request["op"] = op switch
         {
             "createChat" or "createRoom" => "select_chat", "createPreset" => "create_preset",
-            "send" => "message", "insertSystemMessage" => "system_message",
+            "send" => "message",
             "renameChat" when ensemble is not null => "rename_ensemble_chat",
             "renameChat" or "renameRoom" => "rename",
             "generateTitle" => "generate_title", "setSearchMode" => "save_search_mode", "setWorldDate" => "set_world_date", "setPrompt" => "save_prompt",

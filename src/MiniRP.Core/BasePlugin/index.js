@@ -28,6 +28,13 @@ async function fetchResearch({ url, backend = "auto" }, api) {
     return api.research.register({ document: page, page: true });
 }
 
+async function searchResearch(args, api) {
+    const count = Number.isInteger(args.limit) ? Math.max(1, Math.min(50, args.limit)) : 8;
+    const response = await api.research.request({ operation: "search", input: { query: args.query, count } });
+    const documents = (response.results || []).filter(document => typeof document?.url === "string" && document.url.length > 0);
+    return { results: await api.research.registerAll({ documents }) };
+}
+
 globalThis.handlers = {
     presetCreated(event) {
         return {
@@ -44,24 +51,36 @@ globalThis.handlers = {
         };
     },
     develop(event, api) {
-        return api.development.run({ ...event.arguments, action: event.tool.slice("plugin_base_".length) });
+        return api.development.run({ ...event.arguments, action: event.tool });
     },
     searchAsset(event, api) {
-        return event.tool === "plugin_base_raw_grep" ? api.assetView.rawGrep(event.arguments) : api.assetView.grep(event.arguments);
+        return event.tool === "raw_grep" ? api.assetView.rawGrep(event.arguments) : api.assetView.grep(event.arguments);
     },
     editAsset(event, api) {
-        return event.tool === "plugin_base_bin_patch" ? api.assetEdit.binPatch(event.arguments) : api.assetEdit.textEdit(event.arguments);
+        return event.tool === "bin_patch" ? api.assetEdit.binPatch(event.arguments) : api.assetEdit.textEdit(event.arguments);
     },
     async research(event, api) {
         const args = event.arguments;
         switch (event.tool) {
-            case "real_search": {
-                const count = Number.isInteger(args.limit) ? Math.max(1, Math.min(50, args.limit)) : 8;
-                const response = await api.research.request({ operation: "search", input: { query: args.query, count } });
-                const documents = (response.results || []).filter(document => typeof document?.url === "string" && document.url.length > 0);
-                const results = await api.research.registerAll({ documents });
-                return { results };
+            case "search": {
+                const query = String(args.query ?? "").trim();
+                const cached = await api.research.cached({ query });
+                if (cached?.results?.length) return cached;
+                const response = await searchResearch({ query }, api);
+                if (response.results.length) {
+                    await retainResearch({ query, urls: response.results.map(result => result.asset_url) }, api);
+                }
+                return response;
             }
+            case "open_url": {
+                const { url, backend } = args;
+                const cached = !backend || backend === "auto" ? await api.research.cached({ url }) : undefined;
+                if (cached) return cached;
+                const page = await fetchResearch(args, api);
+                await retainResearch({ key: url, url: page.asset_url }, api);
+                return page;
+            }
+            case "real_search": return searchResearch(args, api);
             case "real_fetch": return fetchResearch(args, api);
             case "virtual_search": return api.research.recall(args);
             case "cache_search_results":
@@ -75,7 +94,7 @@ globalThis.handlers = {
     },
     async viewAsset(event, api) {
         const { url, ...options } = event.arguments;
-        const mode = event.tool.slice("plugin_base_view_".length);
+        const mode = event.tool.slice("view_".length);
         const asset = await api.assets.describe(url);
         switch (mode) {
             case "url_metadata": return asset;

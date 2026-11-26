@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -42,6 +43,9 @@ internal fun EnsembleRoom(
     participants: List<Choice>,
     activity: List<EnsembleActivity>,
     privateInStory: Boolean,
+    privatePickerActive: Boolean,
+    background: PresetBackground?,
+    blurBackground: Boolean,
     openChat: (String) -> Unit,
     openPrivate: (String) -> Unit,
 ) {
@@ -52,6 +56,10 @@ internal fun EnsembleRoom(
         }
     }
     Box(Modifier.fillMaxSize()) {
+        PresetBackdrop(background, conversation = true, blur = blurBackground, modifier = Modifier.matchParentSize())
+        val sceneColors = ListItemDefaults.colors(
+            containerColor = if (background == null) MaterialTheme.colorScheme.surface else Color.Transparent,
+        )
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = 8.dp, bottom = if (participants.isEmpty()) 8.dp else 92.dp),
@@ -73,6 +81,7 @@ internal fun EnsembleRoom(
                         }
                     },
                     trailingContent = { Symbol("chevron_right") },
+                    colors = sceneColors,
                     modifier = Modifier.clickable(role = Role.Button) { openChat(chat.id) },
                 )
             }
@@ -86,7 +95,7 @@ internal fun EnsembleRoom(
             )
         }
     }
-    if (choosePrivate) {
+    if (choosePrivate && privatePickerActive && participants.isNotEmpty()) {
         FullSheet(stringResource(R.string.ensemble_private_messages), { choosePrivate = false }) {
             if (!privateInStory) PrivateMessageNotice(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
@@ -96,10 +105,7 @@ internal fun EnsembleRoom(
                         leadingContent = { Symbol("smart_toy") },
                         trailingContent = { Symbol("chevron_right") },
                         modifier = Modifier.testTag("ensemble-private-member:${member.id}")
-                            .clickable(role = Role.Button) {
-                                choosePrivate = false
-                                openPrivate(member.id)
-                            },
+                            .clickable(role = Role.Button) { openPrivate(member.id) },
                     )
                 }
             }
@@ -191,8 +197,10 @@ internal fun EnsembleMemberToolbar(
     back: () -> Unit,
     subtitle: String? = null,
     onTrace: (() -> Unit)? = null,
+    onBackground: Boolean = false,
 ) {
     TopAppBar(
+        colors = chatToolbarColors(onBackground),
         title = {
             Column {
                 Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)

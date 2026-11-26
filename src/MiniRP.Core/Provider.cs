@@ -5,7 +5,7 @@ namespace MiniRP.Core;
 public sealed record Provider(string Id, string Name, string Protocol, string Url, string Key, string Model, bool Thinking = false,
     int ContextWindow = 128000, int MaxOutput = 8192, int CompactAt = 0, string ReasoningEffort = "",
     int? CompactAtPercent = null, bool BackgroundCompaction = true, int BackgroundCompactAtPercent = 70,
-    string[]? InputModalities = null)
+    string[]? InputModalities = null, bool DescribeImages = false, bool DescribeAudio = false)
 {
     public static Provider From(JsonObject p) => new(
         p.GetString("id", "default"), p.GetString("name", "Custom"), p.GetString("protocol", "openai"), p.GetString("url").TrimEnd('/'),
@@ -15,8 +15,15 @@ public sealed record Provider(string Id, string Name, string Protocol, string Ur
         Math.Max(0, p.GetInt32("compact_at")), p.GetString("reasoning_effort"),
         p.GetInt32("compact_at_percent") is >= 1 and <= 100 and var percent ? percent : null,
         p.GetBoolean("background_compaction", true), Math.Clamp(p.GetInt32("background_compact_at_percent", 70), 1, 99),
-        (p["input_modalities"] ?? p.GetObject("architecture")["input_modalities"]) is JsonArray modalities
-            ? modalities.Select(item => JsonValues.GetText(item).ToLowerInvariant()).ToArray() : null);
+        DeclaredInputModalities(p) is { } modalities
+            ? modalities.Select(item => JsonValues.GetText(item).ToLowerInvariant()).ToArray() : null,
+        p.GetBoolean("describe_images"), p.GetBoolean("describe_audio"));
+
+    internal static JsonArray? DeclaredInputModalities(JsonNode? model) =>
+        (model as JsonObject)?["input_modalities"] as JsonArray ??
+        model.GetObject("architecture")["input_modalities"] as JsonArray ??
+        model.GetObject("modalities")["input"] as JsonArray;
+
     public static JsonArray Catalog()
     {
         var items = new JsonArray(

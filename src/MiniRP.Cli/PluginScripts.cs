@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Microsoft.ClearScript;
 using Microsoft.ClearScript.JavaScript;
@@ -11,17 +12,17 @@ internal sealed class PluginScripts : IDisposable
 {
     private readonly ConcurrentDictionary<string, Runner> isolates = new();
 
-    public Func<CancellationToken, JsonObject> Prepare(JsonObject request, Func<string, byte[]?>? read = null,
+    public Func<CancellationToken, Task<JsonObject>> Prepare(JsonObject request, Func<string, byte[]?>? read = null,
         Action<string, byte[]>? write = null)
     {
         var id = request.GetString("isolate");
         var isolate = request.GetString("action") == "load"
             ? isolates.GetOrAdd(id, _ => new Runner())
             : isolates.GetValueOrDefault(id);
-        return token =>
+        return async token =>
         {
             if (isolate is null) throw new InvalidOperationException("Plugin isolate is closed.");
-            try { return isolate.Step(request, token, read, write); }
+            try { return await isolate.Step(request, token, read, write); }
             catch
             {
                 if (isolate.IsClosed && isolates.TryRemove(new KeyValuePair<string, Runner>(id, isolate))) isolate.Dispose();
@@ -31,7 +32,7 @@ internal sealed class PluginScripts : IDisposable
     }
 
     public JsonObject Step(JsonObject request, CancellationToken token, Func<string, byte[]?>? read = null,
-        Action<string, byte[]>? write = null) => Prepare(request, read, write)(token);
+        Action<string, byte[]>? write = null) => Prepare(request, read, write)(token).GetAwaiter().GetResult();
 
     public IDisposable? Detach(string id)
     {
@@ -49,17 +50,21 @@ internal sealed class PluginScripts : IDisposable
 
     private sealed class Runner : IDisposable
     {
-        private readonly object gate = new();
+        private readonly SemaphoreSlim gate = new(1);
         private readonly CancellationTokenSource retiring = new();
         private V8ScriptEngine? engine;
+        private IScriptObject? crypto;
+        private string provider = "";
+        private PluginWebCryptoProcess? cryptoProcess;
         private volatile bool retired;
         public bool IsClosed { get; private set; }
 
         public void Retire() => retired = true;
 
-        public JsonObject Step(JsonObject args, CancellationToken token, Func<string, byte[]?>? read, Action<string, byte[]>? write)
+        public async Task<JsonObject> Step(JsonObject args, CancellationToken token, Func<string, byte[]?>? read, Action<string, byte[]>? write)
         {
-            lock (gate)
+            await gate.WaitAsync(token);
+            try
             {
                 if (IsClosed || retired) throw new InvalidOperationException("Plugin isolate is closed.");
                 token.ThrowIfCancellationRequested();
@@ -76,21 +81,53 @@ internal sealed class PluginScripts : IDisposable
                         MaxRuntimeStackUsage = new UIntPtr(512 * 1024),
                     };
                     using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token, retiring.Token);
-                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-                    using var interrupt = cancellation.Token.Register(runtime.Interrupt);
-                    using var watchdog = timeout.Token.Register(runtime.Interrupt);
-                    cancellation.Token.ThrowIfCancellationRequested();
-                    var result = Execute(runtime, loaded, args, read, write, cancellation.Token);
-                    cancellation.Token.ThrowIfCancellationRequested();
-                    timeout.Token.ThrowIfCancellationRequested();
-                    return result;
+                    var active = cancellation.Token;
+                    T WithRuntime<T>(Func<T> work)
+                    {
+                        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                        using var interrupt = active.Register(runtime.Interrupt);
+                        using var watchdog = timeout.Token.Register(runtime.Interrupt);
+                        active.ThrowIfCancellationRequested();
+                        var result = work();
+                        active.ThrowIfCancellationRequested();
+                        timeout.Token.ThrowIfCancellationRequested();
+                        return result;
+                    }
+                    WithRuntime(() =>
+                    {
+                        if (!loaded && args.GetString("web_crypto") is { Length: > 0 } bootstrap)
+                        {
+                            var install = (IScriptObject)runtime.Evaluate(bootstrap);
+                            crypto = (IScriptObject)install.InvokeAsFunction(new Func<int, string>(Entropy));
+                            provider = args.GetString("web_crypto_provider");
+                        }
+                        Execute(runtime, loaded, args, read, active);
+                        return true;
+                    });
+                    if (crypto is { } bridge)
+                    {
+                        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(active);
+                        deadline.CancelAfter(TimeSpan.FromSeconds(60));
+                        while (WithRuntime(() => (string)bridge.InvokeMethod("take")) is { Length: > 0 } request)
+                        {
+                            cryptoProcess ??= new(provider);
+                            var reply = await cryptoProcess.Run(request, deadline.Token);
+                            WithRuntime(() => bridge.InvokeMethod("reply", reply));
+                        }
+                    }
+                    return args.GetString("action") is "load" or "finish" ? new()
+                        : WithRuntime(() => Poll(runtime, args, write));
                 }
                 catch { IsClosed = true; throw; }
             }
+            finally { gate.Release(); }
         }
 
-        private static JsonObject Execute(V8ScriptEngine engine, bool loaded, JsonObject args, Func<string, byte[]?>? read,
-            Action<string, byte[]>? write, CancellationToken token)
+        private static string Entropy(int length) => length is >= 0 and <= 65536
+            ? Convert.ToHexString(RandomNumberGenerator.GetBytes(length)) : throw new ArgumentOutOfRangeException(nameof(length));
+
+        private static void Execute(V8ScriptEngine engine, bool loaded, JsonObject args, Func<string, byte[]?>? read,
+            CancellationToken token)
         {
             var action = args.GetString("action");
             if (action == "load")
@@ -101,14 +138,14 @@ internal sealed class PluginScripts : IDisposable
                     if (args["modules"] is JsonObject modules) PluginModules.Load(engine, args.GetString("entry"), modules);
                     else engine.Execute("plugin.js", args.GetString("source"));
                 }
-                return new();
+                return;
             }
             if (!loaded) throw new InvalidOperationException("Plugin isolate has not loaded.");
             var run = Quoted(args.GetString("run"));
             if (action == "finish")
             {
                 engine.Execute("__minirp.finish(" + run + "," + (args.GetBoolean("abort") ? "true" : "false") + ")");
-                return new();
+                return;
             }
             if (action == "start")
             {
@@ -134,6 +171,11 @@ internal sealed class PluginScripts : IDisposable
                     }
                 }
             }
+        }
+
+        private static JsonObject Poll(V8ScriptEngine engine, JsonObject args, Action<string, byte[]>? write)
+        {
+            var run = Quoted(args.GetString("run"));
             var result = JsonValues.ParseObject((string)engine.Evaluate("__minirp.poll(" + run + ")"));
             if (result.GetBoolean("binary"))
             {
@@ -149,12 +191,18 @@ internal sealed class PluginScripts : IDisposable
         public void Dispose()
         {
             retiring.Cancel();
-            lock (gate)
+            gate.Wait();
+            try
             {
                 IsClosed = true;
-                engine?.Dispose();
-                retiring.Dispose();
+                try { cryptoProcess?.Dispose(); }
+                finally
+                {
+                    engine?.Dispose();
+                    retiring.Dispose();
+                }
             }
+            finally { gate.Release(); }
         }
     }
 }

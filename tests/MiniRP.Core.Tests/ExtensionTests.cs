@@ -12,6 +12,28 @@ namespace MiniRP.Core.Tests;
 public sealed class ExtensionTests
 {
     [TestMethod]
+    public async Task AnInstalledPluginUsesWebCryptoThroughTheDesktopIsolate()
+    {
+        var root = NewRoot();
+        Directory.CreateDirectory(root);
+        using var signer = Certificate();
+        var archive = Path.Combine(root, "web-crypto.plugin");
+        PluginArchive.Pack(Path.Combine(TestWorkspace.Root, "tests", "fixtures", "web-crypto"), archive, signer);
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        engine.Dispatch(new() { ["op"] = "plugin_install", ["path"] = archive });
+        await Until(engine, "plugin", scripts);
+        engine.Dispatch(new() { ["op"] = "asset_open", ["url"] = "minirp://assets/test.web_crypto/probe" });
+        var asset = (await Until(engine, "asset_result", scripts)).GetObject("result").GetString("handle");
+        Assert.IsFalse(string.IsNullOrEmpty(asset));
+        engine.Dispatch(new() { ["op"] = "asset_pull", ["handle"] = asset });
+        var chunk = (await Until(engine, "asset_result", scripts)).GetObject("result");
+        Assert.AreEqual("web-crypto-ok", System.Text.Encoding.UTF8.GetString(engine.Port.TakeBinary(chunk.GetString("transfer"))!));
+        engine.Dispatch(new() { ["op"] = "asset_close", ["handle"] = asset });
+        await Until(engine, "asset_result", scripts);
+    }
+
+    [TestMethod]
     public async Task NativePresetToolTitlesAndCardsFollowTheUiLocaleOnLiveAndLegacyTraces()
     {
         var root = NewRoot();
@@ -160,10 +182,12 @@ public sealed class ExtensionTests
         Assert.IsNull(runtime.ReadToolPresentation(presentation.Reference, preset, tool, ToolPresentation.Arguments, raw, "en"));
         Assert.IsNull(runtime.ReadToolTraceLabels(origin, preset, tool, "chat", "fr"));
 
-        foreach (var (role, skill, docs) in new[] { ("preset", "base-preset-docs", "preset_docs"), ("plugin", "base-plugin-docs", "plugin_docs") })
+        foreach (var (role, skill, docs) in new[] { ("preset", "preset-docs", "preset_docs"), ("plugin", "plugin-docs", "plugin_docs") })
         {
-            var builtIn = new AgentSkill.Turn(runtime.Skills(role, environment, builtInOnly: true), [skill]);
-            Assert.IsNotNull(builtIn.Presentation("plugin_base_" + docs, ToolPresentation.Arguments, "{}"));
+            var builtIn = new AgentSkill.Turn(runtime.Skills(role, environment, builtInOnly: true), ["base-" + skill]);
+            Assert.IsTrue(builtIn.IsActive(skill));
+            Assert.IsNotNull(builtIn.Presentation(docs, ToolPresentation.Arguments, "{}"));
+            Assert.IsFalse(builtIn.Offers("plugin_base_" + docs));
             var legacy = runtime.LegacyBuiltInToolTrace(preset, "plugin_base_" + docs, role, plain: false);
             Assert.IsNotNull(legacy?.Arguments);
             Assert.IsFalse(string.IsNullOrWhiteSpace(runtime.ReadToolTraceLabels(legacy!.Value.Origin, preset,
@@ -380,7 +404,7 @@ public sealed class ExtensionTests
     }
 
     [TestMethod]
-    public async Task EnsembleOpeningFinishesEverySceneBeforeRoomLoadsAndPersistsSilentRoles()
+    public async Task EnsembleOpeningLetsEachCharacterChooseWhereToPostAndPersistsCompletion()
     {
         var root = NewRoot();
         var preset = WriteEnsemblePreset(root);
@@ -409,14 +433,16 @@ public sealed class ExtensionTests
             var messages = JsonValues.ParseObject(request.GetString("body")).GetArray("messages");
             Assert.IsTrue(messages.Any(message => message.GetString("role") == "system" &&
                 message.GetString("content").Contains("private station welcome", StringComparison.Ordinal)));
-            StringAssert.Contains(request.GetString("body"), "The active chat is Bridge (" + bridge + ")");
+            StringAssert.Contains(request.GetString("body"), "This is your room opening.");
+            Assert.IsTrue(Offers(request, "my_chats"));
         }
         ReplyTool(engine, ada, "chat_send", new() { ["chat"] = bridge, ["text"] = "Welcome from Ada." });
         var adaFinal = await NextModel(engine, scripts, events.Add);
-        Reply(engine, bryn, "Bryn stays silent on the bridge.");
+        ReplyTool(engine, bryn, "my_chats", new());
         var labOpening = await NextModel(engine, scripts, events.Add);
         StringAssert.Contains(labOpening.GetString("body"), "Your character is Bryn");
-        StringAssert.Contains(labOpening.GetString("body"), "The active chat is Lab (" + lab + ")");
+        StringAssert.Contains(labOpening.GetString("body"), lab);
+        StringAssert.Contains(labOpening.GetString("body"), bridge);
         Assert.IsFalse(events.Any(item => item.GetString("kind") == "loaded"));
         Assert.IsTrue(events.Last(item => item.GetString("kind") == "room_loading").GetBoolean("value"));
         ReplyTool(engine, labOpening, "chat_send", new() { ["chat"] = lab, ["text"] = "Welcome from Bryn." });
@@ -428,11 +454,9 @@ public sealed class ExtensionTests
         var finalLoading = events.Last(item => item.GetString("kind") == "room_loading");
         Assert.IsFalse(finalLoading.GetBoolean("value"));
         Assert.AreEqual(1d, finalLoading["progress"]!.GetValue<double>());
-        children = JsonValues.ParseObject(File.ReadAllText(path)).GetObject("ensemble").GetArray("chats");
-        CollectionAssert.AreEquivalent(new[] { "ada", "bryn" }, children.Single(entry => entry.GetString("id") == bridge)
-            .GetArray("opened_participants").Select(item => JsonValues.GetText(item)).ToArray());
-        CollectionAssert.AreEqual(new[] { "bryn" }, children.Single(entry => entry.GetString("id") == lab)
-            .GetArray("opened_participants").Select(item => JsonValues.GetText(item)).ToArray());
+        var savedEnsemble = JsonValues.ParseObject(File.ReadAllText(path)).GetObject("ensemble");
+        CollectionAssert.AreEquivalent(new[] { "ada", "bryn" }, savedEnsemble.GetArray("opened_characters")
+            .Select(item => JsonValues.GetText(item)).ToArray());
         await using var reopened = new Engine(root);
         using var reopenedScripts = new PluginScripts();
         Configure(reopened);
@@ -656,8 +680,11 @@ public sealed class ExtensionTests
         var model = await NextModel(engine, scripts);
         var request = JsonValues.ParseObject(model.GetString("body"));
         var tools = request.GetArray("tools");
-        Assert.IsTrue(tools.Any(tool => tool.GetObject("function").GetString("name") == "real_search"));
-        Assert.IsTrue(tools.Any(tool => tool.GetObject("function").GetString("name") == "real_fetch"));
+        var names = tools.Select(tool => tool.GetObject("function").GetString("name")).ToArray();
+        CollectionAssert.Contains(names, "search");
+        CollectionAssert.Contains(names, "open_url");
+        CollectionAssert.DoesNotContain(names, "real_search");
+        CollectionAssert.DoesNotContain(names, "real_fetch");
         StringAssert.Contains(model.GetString("body"), MessageAttachments.AssetPrefix + id);
 
         ReplyTool(engine, model, "activate_skill", new() { ["name"] = "container" });
@@ -669,20 +696,20 @@ public sealed class ExtensionTests
         Assert.IsTrue(JsonValues.ParseObject(withCurl.GetString("body")).GetArray("tools")
             .Any(tool => tool.GetObject("function").GetString("name") == "curl"));
         ReplyTool(engine, withCurl, "activate_skill", new() { ["name"] = "view_asset" });
-        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_grep",
+        ReplyTool(engine, await NextModel(engine, scripts), "grep",
             new() { ["url"] = MessageAttachments.AssetPrefix + id, ["pattern"] = "blue lantern" });
         var card = await NextModel(engine, scripts);
         StringAssert.Contains(card.GetString("body"), "Keeps a blue lantern");
 
         const string url = "https://lore.fixture.invalid/lantern";
-        ReplyTool(engine, card, "real_search", new() { ["query"] = "Lantern lore" });
+        ReplyTool(engine, card, "search", new() { ["query"] = "Lantern lore" });
         var apiSearch = await NextModel(engine, scripts);
         Assert.AreEqual("https://research.fixture.invalid/v1/tools/search", apiSearch.GetString("url"));
         engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = apiSearch.GetString("id"), ["done"] = true,
             ["data"] = """{"results":[{"url":"https://lore.fixture.invalid/lantern","title":"Lantern lore","snippet":"Harbor signal"}]}""" });
         var hits = await NextModel(engine, scripts);
         StringAssert.Contains(hits.GetString("body"), "Harbor signal");
-        ReplyTool(engine, hits, "real_fetch", new() { ["url"] = url });
+        ReplyTool(engine, hits, "open_url", new() { ["url"] = url });
         var apiFetch = await NextModel(engine, scripts);
         Assert.AreEqual("https://research.fixture.invalid/v1/tools/fetch", apiFetch.GetString("url"));
         engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = apiFetch.GetString("id"), ["done"] = true,
@@ -691,8 +718,11 @@ public sealed class ExtensionTests
         var lastTool = JsonValues.ParseObject(page.GetString("body")).GetArray("messages").Last(item => item.GetString("role") == "tool");
         var document = JsonValues.ParseObject(lastTool.GetString("content"));
         StringAssert.Contains(document.GetString("content"), "Blue lanterns signal safe harbor");
-        ReplyTool(engine, page, "cache_page", new() { ["ref"] = document.GetString("ref") });
-        ReplyTool(engine, await NextModel(engine, scripts), "set_value",
+        ReplyTool(engine, page, "open_url", new() { ["url"] = url });
+        var cached = await NextModel(engine, scripts);
+        StringAssert.EndsWith(cached.GetString("url"), "/chat/completions");
+        StringAssert.Contains(cached.GetString("body"), document.GetString("asset_url"));
+        ReplyTool(engine, cached, "set_value",
             new() { ["path"] = "chat_agent.system_prompt", ["value"] = "You are Mira and carry a blue lantern." });
         Reply(engine, await NextModel(engine, scripts), "I imported Mira.");
         await Until(engine, "completed", scripts);
@@ -702,6 +732,41 @@ public sealed class ExtensionTests
         Assert.IsFalse(Directory.Exists(Path.Combine(root, "conversations")));
         using var database = MemoryDb.ReadOnly(SessionFiles.PresetDatabase(SessionFiles.PresetDirectory(root, preset)));
         StringAssert.Contains(database.Get(PresetResearch.StateKey) ?? "", url);
+    }
+
+    [TestMethod]
+    public async Task EnvAgentCachesSearchResultsAlongsideStagedFacts()
+    {
+        await using var engine = new Engine(NewRoot());
+        using var scripts = new PluginScripts();
+        engine.Dispatch(new() { ["op"] = "configure", ["provider"] = new JsonObject
+            { ["url"] = "http://fixture.invalid/v1", ["model"] = "fixture" },
+            ["settings"] = new JsonObject { ["search_key"] = "test", ["search_url"] = "https://research.fixture.invalid" } });
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = engine.Workspace.PresetId });
+        await Until(engine, "loaded", scripts);
+        engine.Dispatch(new() { ["op"] = "message", ["agent"] = "env", ["text"] = "Research harbor signals and record a fact." });
+        var model = await NextModel(engine, scripts);
+        var tools = JsonValues.ParseObject(model.GetString("body")).GetArray("tools")
+            .Select(tool => tool.GetObject("function").GetString("name")).ToArray();
+        CollectionAssert.Contains(tools, "search");
+        CollectionAssert.Contains(tools, "open_url");
+        CollectionAssert.DoesNotContain(tools, "real_search");
+        CollectionAssert.DoesNotContain(tools, "cache_search_results");
+        ReplyTool(engine, model, "search", new() { ["query"] = "harbor signals" });
+        var search = await NextModel(engine, scripts);
+        Assert.AreEqual("https://research.fixture.invalid/v1/tools/search", search.GetString("url"));
+        engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = search.GetString("id"), ["done"] = true,
+            ["data"] = """{"results":[{"url":"https://example.com/signal","title":"Harbor signals","snippet":"Blue lanterns mark safe passage."}]}""" });
+        var result = await NextModel(engine, scripts);
+        StringAssert.Contains(result.GetString("body"), "Blue lanterns mark safe passage.");
+        ReplyTool(engine, result, "add_fact", new() { ["fact"] = "Blue lanterns mark safe passage." });
+        Reply(engine, await NextModel(engine, scripts), "Recorded the harbor signal.");
+        await Until(engine, "completed", scripts);
+        var state = engine.Workspace.State;
+        CollectionAssert.Contains(state.GetArray("canon").Select(value => JsonValues.GetText(value)).ToArray(), "Blue lanterns mark safe passage.");
+        var asset = JsonValues.GetText(state.GetObject("search_cache").GetArray("harbor signals").Single());
+        Assert.IsTrue(ResearchAssets.IsUrl(asset));
+        Assert.IsTrue(state.GetObject(ResearchAssets.Index).ContainsKey(asset));
     }
 
     [TestMethod]
@@ -800,7 +865,7 @@ public sealed class ExtensionTests
         StringAssert.Contains(peer.GetString("body"), "Your character is Bryn");
         StringAssert.Contains(peer.GetString("body"), "Ada reported in.");
         var peerTrigger = JsonValues.ParseObject(peer.GetString("body")).GetArray("messages").Reverse()
-            .First(message => message.GetString("content").StartsWith("A new post in this chat", StringComparison.Ordinal));
+            .First(message => message.GetString("content").StartsWith("A new post may need your attention", StringComparison.Ordinal));
         var savedRoom = JsonValues.ParseObject(File.ReadAllText(Path.Combine(root, "conversations", preset, room + ".json")));
         var adaPost = savedRoom.GetObject("ensemble").GetArray("chats").Single(chat => chat.GetString("id") == bridgeId)
             .GetArray("messages").Single(message => message.GetString("content") == "Ada reported in.");
@@ -826,7 +891,7 @@ public sealed class ExtensionTests
         var followUp = await NextModel(engine, scripts);
         var labPrompt = followUp.GetString("body");
         StringAssert.Contains(labPrompt, "Your character is Bryn");
-        StringAssert.Contains(labPrompt, "The active chat is Lab (" + labId + ")");
+        StringAssert.Contains(labPrompt, "The triggering chat is Lab (" + labId + ")");
         StringAssert.Contains(labPrompt, "Ada reported in.");
         Assert.AreEqual(1, labPrompt.Split("Ada reported in.", StringSplitOptions.None).Length - 1);
         Assert.AreSame(adaSession, engine.LoadedCharacterSession("ada", "chat"));
@@ -1020,7 +1085,7 @@ public sealed class ExtensionTests
             ReplyTool(engine, await Model("Your character is " + name), "activate_skill", new() { ["name"] = "web-research" });
             ReplyTool(engine, await Model("Your character is " + name), "open_url", new() { ["url"] = url });
             ReplyTool(engine, await Model("Research for " + name, url), "real_fetch", new() { ["url"] = url, ["backend"] = "local" });
-            ReplyTool(engine, await Model("You are FetchAgent", url), "browser_navigate", new() { ["url"] = url });
+            ReplyTool(engine, await Model("You are BrowserAgent", url), "browser_navigate", new() { ["url"] = url });
             var navigate = await NextEvent("browser_request", request => request.GetString("tool") == "browser_navigate" &&
                 request.GetObject("arguments").GetString("url") == url);
             pending.Add(navigate);
@@ -1045,9 +1110,9 @@ public sealed class ExtensionTests
         {
             await Select(scene == bridge ? lab : bridge);
             BrowserReply(await Browser(job, "browser_navigate"), new() { ["snapshot"] = "Fixture page" });
-            ReplyTool(engine, await Model("You are FetchAgent", url), "activate_skill", new() { ["name"] = "fetch-scope-scope" });
-            ReplyTool(engine, await Model("You are FetchAgent", url), "plugin_fetch-scope_inspect", new());
-            var scoped = await Model("You are FetchAgent", url);
+            ReplyTool(engine, await Model("You are BrowserAgent", url), "activate_skill", new() { ["name"] = "fetch-scope-scope" });
+            ReplyTool(engine, await Model("You are BrowserAgent", url), "plugin_fetch-scope_inspect", new());
+            var scoped = await Model("You are BrowserAgent", url);
             var context = LastResult(scoped);
             Assert.AreEqual(room, context.GetString("room"));
             Assert.AreEqual(scene, context.GetString("chat"));
@@ -1057,14 +1122,14 @@ public sealed class ExtensionTests
             ReplyTool(engine, scoped, "capture_page", new());
             BrowserReply(await Browser(job, "capture_page"), new()
                 { ["title"] = name + " page", ["url"] = url, ["content"] = "# " + name + " fixture content" });
-            ReplyTool(engine, await Model("You are FetchAgent", url), "finish_fetch", new() { ["complete"] = true });
+            ReplyTool(engine, await Model("You are BrowserAgent", url), "finish_fetch", new() { ["complete"] = true });
             BrowserReply(await Browser(job, "browser_close"), new());
             var research = await Model("Research for " + name, url);
             var page = LastResult(research);
             StringAssert.Contains(page.GetString("content"), name + " fixture content");
             ReplyTool(engine, research, "submit_page", new() { ["ref"] = page.GetString("ref") });
             Reply(engine, await Model("Your character is " + name, url), "Read the page.");
-            var fetched = trace.Where(item => item.GetString("agent") == "FetchAgent" &&
+            var fetched = trace.Where(item => item.GetString("agent") == "BrowserAgent" &&
                 item.GetString("session") == "fetch-" + job).ToArray();
             Assert.IsTrue(fetched.Any(item => item.GetString("name") == "capture_page"));
             Assert.IsTrue(fetched.All(item => item.GetString("conversation") == scene &&
@@ -1144,6 +1209,332 @@ public sealed class ExtensionTests
     }
 
     [TestMethod]
+    public async Task EnsembleLoadingUsesScopedPluginProgressLimitsAndRejectsOutOfRangeReports()
+    {
+        var root = NewRoot();
+        var preset = WriteEnsemblePreset(root);
+        using var signer = Certificate();
+        string LoadingPlugin(string id, string limits) => Pack(root, id, signer, $$"""
+            {"id":"{{id}}","packageName":"test.{{id}}","name":"Progress fixture","apiVersion":2,"entry":"index.js",
+             "roomLoading": { "progress": {{limits}} } }
+            """, "globalThis.handlers = {};");
+
+        await using var engine = new Engine(root, seedDefaultPreset: false);
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        foreach (var path in new[] { LoadingPlugin("crew", """{"ada":4}"""),
+            LoadingPlugin("watch", """{"ada":3,"bryn":10,"unassigned":99}"""),
+            LoadingPlugin("outside", """{"ada":100}""") })
+        {
+            engine.Dispatch(new() { ["op"] = "plugin_install", ["path"] = path });
+            await Until(engine, "plugin", scripts);
+        }
+        engine.Dispatch(new() { ["op"] = "plugin_scope", ["id"] = "outside",
+            ["scope"] = new JsonObject { ["mode"] = "exclude", ["presets"] = new JsonArray(preset) } });
+        await Until(engine, "plugins", scripts);
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
+        var loading = new List<JsonObject>();
+        void Observe(JsonObject item)
+        {
+            if (item.GetString("kind") == "room_loading") loading.Add(item);
+        }
+        var requests = await NextModels(engine, scripts, 2, Observe);
+        var ada = requests.Single(request => request.GetString("body").Contains("Your character is Ada", StringComparison.Ordinal));
+        var bryn = requests.Single(request => request != ada);
+
+        static JsonObject Range(JsonObject request) => JsonValues.ParseObject(request.GetString("body")).GetArray("tools")
+            .Select(tool => tool.GetObject("function")).Single(tool => tool.GetString("name") == "room_progress")
+            .GetObject("parameters").GetObject("properties").GetObject("progress");
+        Assert.AreEqual(7, Range(ada).GetInt32("maximum"));
+        Assert.AreEqual(10, Range(bryn).GetInt32("maximum"));
+        Assert.IsTrue(loading.Last().GetBoolean("declared_progress"));
+
+        ReplyTool(engine, ada, "room_progress", new() { ["progress"] = 8 });
+        var denied = await NextModel(engine, scripts, Observe);
+        StringAssert.Contains(denied.GetString("body"), "whole number from 0 to 7");
+        Assert.AreEqual(0d, loading.Last()["progress"]!.GetValue<double>());
+        ReplyTool(engine, denied, "room_progress", new() { ["progress"] = 3 });
+        var adaReady = await NextModel(engine, scripts, Observe);
+        Assert.AreEqual(3d / 17, loading.Last()["progress"]!.GetValue<double>(), 1e-10);
+        ReplyTool(engine, bryn, "room_progress", new() { ["progress"] = 5 });
+        var brynReady = await NextModel(engine, scripts, Observe);
+        Assert.AreEqual(8d / 17, loading.Last()["progress"]!.GetValue<double>(), 1e-10);
+        ReplyTool(engine, adaReady, "room_ready", new());
+        ReplyTool(engine, brynReady, "room_ready", new());
+        await Until(engine, "loaded", scripts, Observe);
+        Assert.AreEqual(1d, loading.Last()["progress"]!.GetValue<double>());
+    }
+
+    [TestMethod]
+    public async Task EnsembleSupportsMoreThanThirtyTwoPublicScenes()
+    {
+        var root = NewRoot();
+        var preset = WriteEnsemblePreset(root);
+        var workspace = new Workspace(root, seedDefaultPreset: false);
+        workspace.UsePreset(preset);
+        var config = (JsonObject)workspace.Config.DeepClone();
+        var scenes = config.GetObject("ensemble").GetArray("chats");
+        for (var i = scenes.Count; i < 33; i++)
+            scenes.AddNode(new JsonObject { ["name"] = $"Scene {i}", ["members"] = new JsonArray("ada") });
+        workspace.CommitConfig(config);
+        workspace.Select(preset, null);
+        var room = new EnsembleConversation(workspace);
+        Assert.HasCount(33, room.List());
+
+        var skill = room.WorldSkill((_, _) => { }, _ => { });
+        var result = await new AgentSkill.Turn([skill]).Invoke("create_ensemble_chat",
+            new() { ["name"] = "Another scene", ["members"] = new JsonArray("bryn") }, CancellationToken.None);
+        Assert.IsTrue(result.GetBoolean("updated"));
+        Assert.HasCount(34, room.List());
+    }
+
+    [TestMethod]
+    public async Task EnsemblePluginGuidesEnvAgentToArchiveSelectedSceneAndChangeLiveMembership()
+    {
+        var root = NewRoot();
+        var preset = WriteEnsemblePreset(root);
+        using var signer = Certificate();
+        var manager = Pack(root, "scene-manager", signer, """
+            {"id":"scene-manager","packageName":"test.scene_manager","name":"Scene manager","apiVersion":2,"entry":"index.js",
+             "permissions":["harness.write"],"actions":{"handlers":{"advance":"advance"}},
+             "hooks":{"plugin.command":"minirp://actions/test.scene_manager/hooks/advance"}}
+            """, """
+            globalThis.handlers = {
+              advance(_, api) {
+                return api.harness.send({ room: api.environment.room, agent: "env", text: "Close the lab and open a workshop." });
+              }
+            };
+            """);
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "plugin_install", ["path"] = manager });
+        await Until(engine, "plugin", scripts);
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
+        var loaded = await Until(engine, "loaded", scripts);
+        var room = loaded.GetObject("chat").GetString("id");
+        var scene = loaded.GetArray("ensemble_chats").Single(item => item.GetString("name") == "Lab").GetString("id");
+        engine.Workspace.Chat["name"] = "Station fixture";
+        engine.Dispatch(new() { ["op"] = "select_ensemble_chat", ["chat"] = room, ["conversation"] = scene });
+        await Until(engine, "ensemble_chat_loaded", scripts);
+        engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = scene, ["text"] = "Save this report." });
+        var pending = await NextModel(engine, scripts);
+        StringAssert.Contains(pending.GetString("body"), "Your character is Bryn");
+
+        engine.Dispatch(new() { ["op"] = "plugin_command", ["id"] = "scene-manager" });
+        var world = await NextModel(engine, scripts);
+        StringAssert.Contains(world.GetString("body"), "Close the lab and open a workshop.");
+        Assert.IsTrue(Offers(world, "delete_ensemble_chat"));
+        ReplyTool(engine, world, "delete_ensemble_chat", new() { ["chat"] = scene });
+        var events = new List<JsonObject>();
+        world = await NextModel(engine, scripts, events.Add);
+        Assert.AreEqual(scene, events.Single(item => item.GetString("kind") == "ensemble_chats").GetString("removed"));
+        Assert.AreEqual("", events.Single(item => item.GetString("kind") == "ensemble_chat_loaded").GetString("conversation"));
+        ReplyTool(engine, world, "create_ensemble_chat", new() { ["name"] = "Workshop", ["members"] = new JsonArray("ada") });
+        events.Clear();
+        world = await NextModel(engine, scripts, events.Add);
+        var workshop = events.Single(item => item.GetString("kind") == "ensemble_chats").GetArray("items")
+            .Single(item => item.GetString("name") == "Workshop").GetString("id");
+        ReplyTool(engine, world, "set_chat_members", new() { ["chat"] = workshop, ["members"] = new JsonArray("bryn") });
+        Reply(engine, await NextModel(engine, scripts), "The workshop is ready.");
+        await Until(engine, "completed", scripts);
+
+        var document = JsonValues.ParseObject(File.ReadAllText(Path.Combine(root, "conversations", preset, room + ".json")))
+            .GetObject("ensemble");
+        var archived = document.GetArray("archived_chats").Single();
+        Assert.AreEqual(scene, archived.GetString("id"));
+        Assert.AreEqual("Save this report.", archived.GetArray("messages").Single().GetString("content"));
+        Assert.IsFalse(document.GetArray("chats").Any(chat => chat.GetString("id") == scene));
+        var members = document.GetArray("chats").Single(chat => chat.GetString("id") == workshop).GetObject("members");
+        CollectionAssert.AreEqual(new[] { "bryn" }, members.Select(item => item.Key).ToArray());
+
+        var path = Path.Combine(root, "room.zip");
+        engine.Dispatch(new() { ["op"] = "archive_export", ["type"] = "room", ["preset"] = preset, ["room"] = room, ["path"] = path });
+        await Until(engine, "archive_exported", scripts);
+        using var archive = ZipFile.OpenRead(path);
+        using var contents = archive.GetEntry($"conversations/{preset}/{room}.json")!.Open();
+        var saved = JsonNode.Parse(contents).GetObject("ensemble").GetArray("archived_chats").Single();
+        Assert.AreEqual(scene, saved.GetString("id"));
+        Assert.AreEqual("Save this report.", saved.GetArray("messages").Single().GetString("content"));
+    }
+
+    [TestMethod]
+    public async Task EnsembleArchiveReadsOnlyArchivedPublicMessagesWithoutSelectingTheChat()
+    {
+        var root = NewRoot();
+        var preset = WriteEnsemblePreset(root);
+        var workspace = new Workspace(root, seedDefaultPreset: false);
+        workspace.Select(preset, null);
+        workspace.Chat["name"] = "Archive fixture";
+        var group = new EnsembleConversation(workspace);
+        var active = group.List().First().GetString("id");
+        var scene = group.List().Last().GetString("id");
+        var blocks = group.Blocks(scene);
+        for (var index = 0; index < 84; index++)
+            blocks.AddNode(new JsonObject { ["id"] = "message-" + index, ["role"] = "assistant", ["content"] = "Saved " + index });
+        blocks.AddNode(new JsonObject { ["id"] = "trace", ["tool"] = "my_chats", ["content"] = "Internal tool result" });
+        var skill = group.WorldSkill((_, _) => { }, _ => { });
+        await new AgentSkill.Turn([skill]).Invoke("delete_ensemble_chat", new() { ["chat"] = scene }, CancellationToken.None);
+
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset, ["id"] = workspace.ChatId });
+        await Until(engine, "loaded", scripts);
+        engine.Dispatch(new() { ["op"] = "select_ensemble_chat", ["chat"] = workspace.ChatId, ["conversation"] = active });
+        await Until(engine, "ensemble_chat_loaded", scripts);
+        async Task<JsonObject> Read(string conversation = "", string before = "", string? room = null)
+        {
+            engine.Dispatch(new() { ["op"] = "ensemble_archive", ["preset"] = preset, ["room"] = room ?? workspace.ChatId,
+                ["conversation"] = conversation, ["before"] = before });
+            return await Until(engine, "ensemble_archive", scripts);
+        }
+        Assert.AreEqual(scene, (await Read()).GetArray("items").Single().GetString("id"));
+        var latest = await Read(scene);
+        Assert.AreEqual(80, latest.GetArray("blocks").Count);
+        Assert.AreEqual("Saved 83", latest.GetArray("blocks").Last().GetString("content"));
+        var older = await Read(scene, latest.GetString("before"));
+        Assert.AreEqual(4, older.GetArray("blocks").Count);
+        Assert.AreEqual("Saved 0", older.GetArray("blocks").First().GetString("content"));
+        Assert.IsNull(older["before"]);
+        Assert.IsFalse(string.IsNullOrWhiteSpace((await Read(active)).GetString("error")));
+        Assert.IsFalse(string.IsNullOrWhiteSpace((await Read(scene, room: WorkspaceIds.New())).GetString("error")));
+
+        engine.Dispatch(new() { ["op"] = "message", ["chat"] = workspace.ChatId, ["text"] = "Still in the current scene" });
+        var request = await NextModel(engine, scripts);
+        StringAssert.Contains(request.GetString("body"), "The triggering chat is Bridge (" + active + ")");
+    }
+
+    [TestMethod]
+    public void EnsembleLifecycleRestoresPreviousStateWhenSavingFails()
+    {
+        var root = NewRoot();
+        var preset = WriteEnsemblePreset(root);
+        var workspace = new Workspace(root);
+        workspace.Select(preset, null);
+        var room = new EnsembleConversation(workspace);
+        var path = Path.Combine(root, "conversations", preset, workspace.ChatId + ".json");
+        Directory.CreateDirectory(path);
+        lock (room.SyncRoot)
+        {
+            try
+            {
+                room.SaveLifecycle("bryn", new() { ["state"] = "stopping" });
+                Assert.Fail("The room file could not replace a directory.");
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            Assert.AreEqual("enabled", room.CharacterState("bryn"));
+            Directory.Delete(path);
+            room.SaveLifecycle("bryn", new() { ["state"] = "stopping" });
+            Assert.AreEqual("stopping", room.CharacterState("bryn"));
+        }
+    }
+
+    [TestMethod]
+    public async Task EnsembleEnvAgentSteersStopAndWaitsForBothLifecycleConfirmations()
+    {
+        var root = NewRoot();
+        var preset = WriteEnsemblePreset(root);
+        await using var engine = new Engine(root);
+        using var scripts = new PluginScripts();
+        Configure(engine);
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset });
+        var loaded = await Until(engine, "loaded", scripts);
+        var room = loaded.GetObject("chat").GetString("id");
+        var scene = loaded.GetArray("ensemble_chats").Single(item => item.GetString("name") == "Lab").GetString("id");
+        engine.Workspace.Chat["name"] = "Station fixture";
+        engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = scene, ["text"] = "Wait for the lab crew." });
+        var pending = await NextModel(engine, scripts);
+        StringAssert.Contains(pending.GetString("body"), "Your character is Bryn");
+
+        const string queuedMessage = "Also file the lab report.";
+        const string pausedMessage = "A note while the lab is paused.";
+        const string enabledMessage = "The night shift can resume.";
+        async Task Post(string text, string request)
+        {
+            engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = scene,
+                ["request"] = request, ["text"] = text });
+            await Until(engine, "message_accepted", scripts);
+        }
+        string State()
+        {
+            lock (engine.Workspace.RoomGate) return engine.Workspace.Chat.GetObject("ensemble")
+                .GetObject("character_lifecycle").GetObject("bryn").GetString("state", "enabled");
+        }
+        async Task WaitState(string expected)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while (State() != expected) await Task.Delay(10, timeout.Token);
+        }
+        async Task<JsonObject> Request(string tool, string confirmationTool, string expectedState, string custom = "")
+        {
+            engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["agent"] = "env", ["text"] = "Adjust Bryn's participation." });
+            var env = await NextModel(engine, scripts);
+            Assert.IsTrue(Offers(env, tool));
+            ReplyTool(engine, env, tool, new() { ["participant"] = "bryn", ["message"] = custom });
+            var requests = await NextModels(engine, scripts, 2);
+            var character = requests.Single(request => Offers(request, confirmationTool));
+            var followUp = requests.Single(request => request != character);
+            var toolMessage = JsonValues.ParseObject(followUp.GetString("body")).GetArray("messages").Last();
+            var receipt = JsonValues.ParseObject(toolMessage.GetString("content"));
+            Assert.IsTrue(receipt.GetBoolean("accepted"));
+            Assert.AreEqual(expectedState, receipt.GetString("lifecycle"));
+            Reply(engine, followUp, "Lifecycle change requested.");
+            await Until(engine, "completed", scripts);
+            Assert.AreEqual(expectedState, State());
+            return character;
+        }
+        async Task Reject(string tool, string current)
+        {
+            engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["agent"] = "env", ["text"] = "Try the lifecycle change again." });
+            var env = await NextModel(engine, scripts);
+            ReplyTool(engine, env, tool, new() { ["participant"] = "bryn" });
+            var followUp = await NextModel(engine, scripts);
+            var result = JsonValues.ParseObject(followUp.GetString("body")).GetArray("messages").Last().GetString("content");
+            StringAssert.Contains(result, "The character is " + current);
+            Reply(engine, followUp, "The request was rejected.");
+            await Until(engine, "completed", scripts);
+            Assert.AreEqual(current, State());
+        }
+        await Post(queuedMessage, "queue-before-stop");
+        var stop = await Request("disable_chat_agent", "confirm_chat_agent_stopped", "stopping");
+        var messages = JsonValues.ParseObject(stop.GetString("body")).GetArray("messages");
+        var notice = messages.Single(message => message.GetString("role") == "system" &&
+            message.GetString("content").Contains("Pending replies:", StringComparison.Ordinal));
+        StringAssert.Contains(notice.GetString("content"), "Wait for the lab crew.");
+        StringAssert.Contains(notice.GetString("content"), queuedMessage);
+        await Reject("enable_chat_agent", "stopping");
+        await Reject("disable_chat_agent", "stopping");
+        ReplyTool(engine, stop, "chat_send", new() { ["chat"] = scene, ["text"] = "I finished the lab report before stopping." });
+        ReplyTool(engine, await NextModel(engine, scripts), "confirm_chat_agent_stopped", new());
+        await WaitState("disabled");
+        await Post(pausedMessage, "post-while-disabled");
+
+        engine.Dispatch(new() { ["op"] = "home", ["preset"] = preset });
+        await Until(engine, "home", scripts);
+        engine.Dispatch(new() { ["op"] = "select_chat", ["preset"] = preset, ["id"] = room });
+        await Until(engine, "loaded", scripts);
+        Assert.AreEqual("disabled", State());
+        await Reject("disable_chat_agent", "disabled");
+        var enable = await Request("enable_chat_agent", "confirm_chat_agent_enabled", "starting", enabledMessage);
+        StringAssert.Contains(enable.GetString("body"), "You have no queued replies.");
+        Assert.IsFalse(enable.GetString("body").Contains(enabledMessage, StringComparison.Ordinal));
+        Assert.IsFalse(Offers(enable, "chat_send"));
+        await Reject("enable_chat_agent", "starting");
+        ReplyTool(engine, enable, "confirm_chat_agent_enabled", new());
+        await WaitState("enabled");
+        await Reject("enable_chat_agent", "enabled");
+        engine.Dispatch(new() { ["op"] = "message", ["chat"] = room, ["conversation"] = scene, ["text"] = "The lab has reopened." });
+        var resumed = await NextModel(engine, scripts);
+        StringAssert.Contains(resumed.GetString("body"), "Your character is Bryn");
+        StringAssert.Contains(resumed.GetString("body"), "The lab has reopened.");
+        StringAssert.Contains(resumed.GetString("body"), enabledMessage);
+        Assert.IsFalse(resumed.GetString("body").Contains(pausedMessage, StringComparison.Ordinal));
+        Assert.IsFalse(Offers(resumed, "confirm_chat_agent_stopped") || Offers(resumed, "confirm_chat_agent_enabled"));
+        Reply(engine, resumed, "Ready.");
+    }
+
+    [TestMethod]
     public async Task PluginWorkflowOwnsStateNotifiesWatchersAndRefreshesItsCard()
     {
         var root = NewRoot();
@@ -1212,12 +1603,22 @@ public sealed class ExtensionTests
         Assert.IsTrue(cardUpdated);
         StringAssert.Contains(env.GetString("body"), "You are EnvAgent");
         StringAssert.Contains(env.GetString("body"), "A station report changed");
-        ReplyTool(engine, env, "notify_chat", new() { ["text"] = "Gate closure has been confirmed." });
-        Reply(engine, await NextModel(engine, scripts), "I notified the character.");
-        var envCompleted = await Until(engine, "completed", scripts);
-        Assert.AreEqual("env", envCompleted.GetString("agent"));
+        Assert.IsFalse(Offers(env, "notify_chat"));
+        ReplyTool(engine, env, "activate_skill", new() { ["name"] = "room-status-notifications" });
+        ReplyTool(engine, await NextModel(engine, scripts), "plugin_room-status_notify_status",
+            new() { ["text"] = "Gate closure has been confirmed." });
+        var confirmation = await NextModel(engine, scripts);
+        var receipt = JsonValues.ParseObject(JsonValues.ParseObject(confirmation.GetString("body")).GetArray("messages").Last(message => message.GetString("role") == "tool")
+            .GetString("content"));
+        Assert.IsTrue(receipt.GetBoolean("queued"));
+        // Queue the next chat turn while EnvAgent is still waiting for its final model reply.
+        // The notice has already been queued and must reach ChatAgent before this user input.
         engine.Dispatch(new() { ["op"] = "message", ["text"] = "Any update?" });
-        var next = await NextModel(engine, scripts);
+        Reply(engine, confirmation, "I notified the character.");
+        var envCompleted = false;
+        var next = await NextModel(engine, scripts, item =>
+            envCompleted |= item.GetString("kind") == "completed" && item.GetString("agent") == "env");
+        Assert.IsTrue(envCompleted);
         Assert.IsTrue(JsonValues.ParseObject(next.GetString("body")).GetArray("messages").Any(message =>
             message.GetString("role") == "system" && message.GetString("content") == "Gate closure has been confirmed."));
         Reply(engine, next, "The gate is closed.");
@@ -1475,19 +1876,19 @@ public sealed class ExtensionTests
                 var result = messages.LastOrDefault(message => message.GetString("role") == "tool").GetString("content");
                 if (role == "preset")
                 {
-                    Assert.IsFalse(body.GetArray("tools").Any(tool => tool.GetObject("function").GetString("name").StartsWith("project_asset_", StringComparison.Ordinal)));
-                    Assert.IsFalse(system.Contains("base-plugin-docs", StringComparison.Ordinal));
+                    Assert.IsFalse(body.GetArray("tools").Any(tool => tool.GetObject("function").GetString("name").StartsWith("plugin_file_", StringComparison.Ordinal)));
+                    Assert.IsFalse(system.Contains("plugin-docs", StringComparison.Ordinal));
                     switch (round)
                     {
-                        case 0: Tool(item, "activate_skill", new() { ["name"] = "base-plugin-development" }); break;
-                        case 1: Tool(item, "plugin_base_plugin_spawn", new() { ["name"] = "Writer", ["message"] = "Write and publish the project." }); break;
+                        case 0: Tool(item, "activate_skill", new() { ["name"] = "subagent" }); break;
+                        case 1: Tool(item, "subagent_spawn", new() { ["name"] = "Writer", ["message"] = "Write and publish the project." }); break;
                         case 2:
                             children = [JsonValues.ParseObject(result).GetString("id")];
-                            Tool(item, "plugin_base_plugin_spawn", new() { ["name"] = "Reader", ["message"] = "Read the manifest schema." });
+                            Tool(item, "subagent_spawn", new() { ["name"] = "Reader", ["message"] = "Read the manifest schema." });
                             break;
                         case 3:
                             children = [..children, JsonValues.ParseObject(result).GetString("id")];
-                            Tool(item, "plugin_base_plugin_wait", new() { ["ids"] = new JsonArray(children[0], children[1]), ["seconds"] = 10 });
+                            Tool(item, "subagent_wait", new() { ["ids"] = new JsonArray(children[0], children[1]), ["seconds"] = 10 });
                             break;
                         case 4:
                             Assert.IsInstanceOfType<JsonArray>(JsonNode.Parse(result), result);
@@ -1497,11 +1898,11 @@ public sealed class ExtensionTests
                             Tool(item, "activate_skill", new() { ["name"] = "view_asset" });
                             break;
                         case 5:
-                            Tool(item, "plugin_base_grep", new() { ["url"] = draftAsset, ["pattern"] = "Updated documentation", ["literal"] = true });
+                            Tool(item, "grep", new() { ["url"] = draftAsset, ["pattern"] = "Updated documentation", ["literal"] = true });
                             break;
                         case 6:
                             Assert.AreEqual(1, JsonValues.ParseObject(result).GetInt32("match_count"), result);
-                            Tool(item, "plugin_base_plugin_archive", new() { ["id"] = children[0] });
+                            Tool(item, "subagent_archive", new() { ["id"] = children[0] });
                             break;
                         case 7:
                             Assert.IsTrue(JsonValues.ParseObject(result).GetBoolean("archived"));
@@ -1514,11 +1915,11 @@ public sealed class ExtensionTests
                 {
                     switch (round)
                     {
-                        case 0: Tool(item, "activate_skill", new() { ["name"] = "base-plugin-docs" }); break;
-                        case 1: Tool(item, "plugin_base_plugin_docs", new() { ["topic"] = "schema", ["query"] = "returnType" }); break;
+                        case 0: Tool(item, "activate_skill", new() { ["name"] = "plugin-docs" }); break;
+                        case 1: Tool(item, "plugin_docs", new() { ["topic"] = "schema", ["query"] = "returnType" }); break;
                         case 2:
                             StringAssert.Contains(result, "asset-url");
-                            Tool(item, "plugin_base_plugin_docs", new() { ["topic"] = "assets", ["query"] = "## Assets", ["length"] = 2400 });
+                            Tool(item, "plugin_docs", new() { ["topic"] = "assets", ["query"] = "## Assets", ["length"] = 2400 });
                             break;
                         case 3:
                             StringAssert.Contains(JsonValues.ParseObject(result).GetString("text"), "api.text.encode");
@@ -1531,7 +1932,7 @@ public sealed class ExtensionTests
                 {
                     switch (round)
                     {
-                        case 0: Tool(item, "activate_skill", new() { ["name"] = "project_assets" }); break;
+                        case 0: Tool(item, "activate_skill", new() { ["name"] = "plugin-dev" }); break;
                         case 1:
                             var workers = SessionFiles.PluginDirectory(engine.Workspace.Root, engine.Workspace.PresetId);
                             var folder = Directory.EnumerateDirectories(workers).Single(path =>
@@ -1554,7 +1955,7 @@ public sealed class ExtensionTests
                                 "import { format } from '../format.mjs'; export function echo(event) { return format(event.arguments); }");
                             AtomicFile.Write(Path.Combine(source, "format.mjs"), "export const format = value => value;");
                             AtomicFile.Write(Path.Combine(source, "legacy.txt"), "Retain this draft file.");
-                            Tool(item, "project_asset_list", new());
+                            Tool(item, "plugin_file_list", new());
                             break;
                         case 2:
                             var files = JsonValues.ParseObject(result).GetArray("files");
@@ -1569,33 +1970,34 @@ public sealed class ExtensionTests
                         case 4:
                             draftAsset = JsonValues.ParseObject(result).GetString("url");
                             Assert.StartsWith("minirp://assets/minirp.agent/", draftAsset);
-                            Tool(item, "project_asset_add", new() { ["path"] = "README.md", ["url"] = draftAsset });
+                            Tool(item, "plugin_file_add", new() { ["path"] = "README.md", ["url"] = draftAsset });
                             break;
                         case 5:
                             Assert.AreEqual(draftAsset, JsonValues.ParseObject(result).GetString("url"));
-                            Tool(item, "project_asset_add", new() { ["path"] = "linked.md", ["url"] = draftAsset });
+                            Tool(item, "plugin_file_add", new() { ["path"] = "linked.md", ["url"] = draftAsset });
                             break;
                         case 6:
-                            Tool(item, "project_asset_remove", new() { ["path"] = "linked.md", ["url"] = draftAsset });
+                            Tool(item, "plugin_file_remove", new() { ["path"] = "linked.md", ["url"] = draftAsset });
                             break;
                         case 7:
                             Assert.AreEqual(1, JsonValues.ParseObject(result).GetInt32("removed"), result);
                             Tool(item, "activate_skill", new() { ["name"] = "edit_asset" });
                             break;
                         case 8:
-                            Tool(item, "plugin_base_text_edit", new() { ["url"] = draftAsset,
+                            Tool(item, "text_edit", new() { ["url"] = draftAsset,
                                 ["old_string"] = "Plugin", ["new_string"] = "Updated" });
                             break;
                         case 9:
                             Assert.AreEqual(1, JsonValues.ParseObject(result).GetInt32("changes"), result);
-                            Tool(item, "activate_skill", new() { ["name"] = "base-plugin-project" });
+                            Tool(item, "plugin_file_list", new());
                             break;
                         case 10:
-                            Tool(item, "plugin_base_project_debug", new());
+                            Assert.IsTrue(JsonValues.ParseObject(result).GetArray("files").Any(file => file.GetString("path") == "README.md"));
+                            Tool(item, "plugin_debug", new());
                             break;
                         case 11:
                             Assert.IsTrue(JsonValues.ParseObject(result).GetBoolean("ok"), result);
-                            Tool(item, "plugin_base_project_publish", Fixture(expected: "different"));
+                            Tool(item, "plugin_publish", Fixture(expected: "different"));
                             break;
                         case 12:
                             StringAssert.Contains(result, "Draft check before installation");
@@ -1609,12 +2011,12 @@ public sealed class ExtensionTests
                                 Directory.EnumerateFiles(installedDirectory, "draft-*.plugin").Any());
                             var badJson = Fixture(expected: "observed", serialized: true);
                             badJson["expected_result_json"] = "{";
-                            Tool(item, "plugin_base_project_publish", badJson);
+                            Tool(item, "plugin_publish", badJson);
                             break;
                         case 13:
                             StringAssert.Contains(result, "expected_result_json must contain valid JSON");
                             StringAssert.Contains(result, "line 1, byte");
-                            Tool(item, "plugin_base_project_publish", Fixture(expected: "observed", serialized: true));
+                            Tool(item, "plugin_publish", Fixture(expected: "observed", serialized: true));
                             break;
                         case 14:
                             var deployment = JsonValues.ParseObject(result);
@@ -1625,24 +2027,24 @@ public sealed class ExtensionTests
                             Assert.IsTrue(verification.GetBoolean("ok"), result);
                             Assert.AreEqual(deployment.GetString("generation"), verification.GetString("generation"));
                             Assert.AreEqual("observed", verification.GetObject("result").GetString("status"));
-                            Tool(item, "plugin_base_project_verify", Fixture(expected: "observed"));
+                            Tool(item, "plugin_verify", Fixture(expected: "observed"));
                             break;
                         case 15:
                             Assert.IsTrue(JsonValues.ParseObject(result).GetBoolean("ok"), result);
                             Tool(item, "activate_skill", new() { ["name"] = "view_asset" });
                             break;
                         case 16:
-                            Tool(item, "plugin_base_grep", new() { ["url"] = "minirp://assets/local.minichat.p" + children[0] + "/live-notes",
+                            Tool(item, "grep", new() { ["url"] = "minirp://assets/local.minichat.p" + children[0] + "/live-notes",
                                 ["pattern"] = "Retain this draft file", ["literal"] = true });
                             break;
                         case 17:
                             Assert.AreEqual(1, JsonValues.ParseObject(result).GetInt32("match_count"), result);
-                            Tool(item, "plugin_base_grep", new() { ["url"] = "minirp://assets/local.minichat.p" + children[0] + "/private-notes",
+                            Tool(item, "grep", new() { ["url"] = "minirp://assets/local.minichat.p" + children[0] + "/private-notes",
                                 ["pattern"] = "Retain this draft file", ["literal"] = true });
                             break;
                         case 18:
                             StringAssert.Contains(result, "public Asset declared by this project");
-                            Tool(item, "plugin_base_grep", new() { ["url"] = "minirp://assets/minirp.base/project-license",
+                            Tool(item, "grep", new() { ["url"] = "minirp://assets/minirp.base/project-license",
                                 ["pattern"] = "MIT License", ["literal"] = true });
                             break;
                         case 19:
@@ -1683,8 +2085,8 @@ public sealed class ExtensionTests
         Assert.HasCount(2, panels);
         foreach (var (name, reply, tool) in new[]
         {
-            ("Writer", "Published: " + draftAsset, "plugin_base_project_publish"),
-            ("Reader", "Schema read.", "plugin_base_plugin_docs")
+            ("Writer", "Published: " + draftAsset, "plugin_publish"),
+            ("Reader", "Schema read.", "plugin_docs")
         })
         {
             var panel = panels.Single(group => group.First().GetString("plugin_agent_name") == name);
@@ -1728,9 +2130,9 @@ public sealed class ExtensionTests
         engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["preset"] = preset, ["locale"] = "ja-JP", ["text"] = "Delegate." });
         var presetRequest = await NextModel(engine, scripts);
         StringAssert.Contains(Messages(presetRequest)[0].GetString("content"), "application language (ja-JP)");
-        StringAssert.Contains(Messages(presetRequest)[0].GetString("content"), "base-plugin-development: プラグイン開発");
-        ReplyTool(engine, presetRequest, "activate_skill", new() { ["name"] = "base-plugin-development" });
-        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_plugin_spawn",
+        StringAssert.Contains(Messages(presetRequest)[0].GetString("content"), "subagent: サブエージェント");
+        ReplyTool(engine, presetRequest, "activate_skill", new() { ["name"] = "subagent" });
+        ReplyTool(engine, await NextModel(engine, scripts), "subagent_spawn",
             new() { ["name"] = "Late worker", ["message"] = "Run the delegated task." });
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -1748,11 +2150,11 @@ public sealed class ExtensionTests
         }
         var workerInstructions = Messages(worker)[0].GetString("content");
         StringAssert.Contains(workerInstructions, "application language (ja-JP)");
-        StringAssert.Contains(workerInstructions, "base-plugin-docs: プラグインのドキュメント");
+        StringAssert.Contains(workerInstructions, "plugin-docs: プラグインのドキュメント");
         StringAssert.Contains(workerInstructions, "i18n.locales");
         var id = JsonValues.ParseObject(Messages(parent).Last(message => message.GetString("role") == "tool").GetString("content"))
             .GetString("id");
-        ReplyTool(engine, parent, "plugin_base_plugin_wait", new() { ["ids"] = new JsonArray(id), ["seconds"] = 1 });
+        ReplyTool(engine, parent, "subagent_wait", new() { ["ids"] = new JsonArray(id), ["seconds"] = 1 });
         parent = await NextModel(engine, scripts);
         var wait = (JsonArray)JsonNode.Parse(Messages(parent).Last(message => message.GetString("role") == "tool").GetString("content"))!;
         Assert.AreEqual("running", wait.Single().GetString("status"));
@@ -2014,7 +2416,7 @@ public sealed class ExtensionTests
         ReplyTool(engine, search, "activate_skill", new() { ["name"] = "edit_asset" });
         var updated = longPage ? raw.Replace("</main>", string.Concat(Enumerable.Repeat("<p>" + new string('A', 90) + "</p>", 95)) +
             "<p>Final paragraph marker</p></main>", StringComparison.Ordinal) : raw;
-        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_text_edit", new()
+        ReplyTool(engine, await NextModel(engine, scripts), "text_edit", new()
         {
             ["url"] = asset, ["old_string"] = content, ["new_string"] = updated
         });
@@ -2039,7 +2441,7 @@ public sealed class ExtensionTests
             Assert.AreEqual(asset, result.GetString("asset_url"));
         }
         ReplyTool(engine, chat, "activate_skill", new() { ["name"] = "view_asset" });
-        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_grep", new()
+        ReplyTool(engine, await NextModel(engine, scripts), "grep", new()
         {
             ["url"] = result.GetString("asset_url"), ["pattern"] = longPage ? "Final paragraph marker" : "Important"
         });
@@ -2085,7 +2487,7 @@ public sealed class ExtensionTests
         var url = published.GetString("asset_url");
         Assert.IsTrue(AgentAssetStorage.IsUrl(url));
         ReplyTool(engine, next, "activate_skill", new() { ["name"] = "view_asset" });
-        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_grep", new() { ["url"] = url, ["pattern"] = "final report line" });
+        ReplyTool(engine, await NextModel(engine, scripts), "grep", new() { ["url"] = url, ["pattern"] = "final report line" });
         next = await NextModel(engine, scripts);
         Assert.AreEqual(1, Result(next).GetInt32("match_count"), Result(next).ToJsonString());
         Reply(engine, next, "Report read.");
@@ -2132,7 +2534,7 @@ public sealed class ExtensionTests
 
         engine.Dispatch(new() { ["op"] = "message", ["text"] = "Update that file and remove it from the working set." });
         ReplyTool(engine, await NextModel(engine, scripts), "activate_skill", new() { ["name"] = "edit_asset" });
-        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_text_edit", new()
+        ReplyTool(engine, await NextModel(engine, scripts), "text_edit", new()
             { ["url"] = url, ["old_string"] = "original", ["new_string"] = "revised" });
         var edited = await NextModel(engine, scripts);
         StringAssert.Contains(edited.GetString("body"), "changes");
@@ -2216,6 +2618,29 @@ public sealed class ExtensionTests
         {
             var fetch = await NextModel(engine, scripts, ObserveBrowser);
             StringAssert.Contains(fetch.GetString("body"), engines[i] + "fixture%20terms");
+            var browserTools = JsonValues.ParseObject(fetch.GetString("body")).GetArray("tools")
+                .Select(tool => tool.GetObject("function").GetString("name")).ToArray();
+            foreach (var tool in new[] { "search", "open_url", "real_search", "real_fetch", "virtual_search",
+                "cache_search_results", "cache_page", "capture_page", "finish_search", "fail_request" })
+                CollectionAssert.Contains(browserTools, tool);
+            CollectionAssert.DoesNotContain(browserTools, "finish_fetch");
+            CollectionAssert.DoesNotContain(browserTools, "submit_search_results");
+            if (i == 0)
+            {
+                ReplyTool(engine, fetch, "real_search", new() { ["query"] = "nested search fixture" });
+                var nested = await NextModel(engine, scripts, ObserveBrowser);
+                if (configuredSearch)
+                {
+                    StringAssert.EndsWith(nested.GetString("url"), "/v1/tools/search");
+                    engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = nested.GetString("id"), ["status"] = 429, ["done"] = true });
+                    nested = await NextModel(engine, scripts, ObserveBrowser);
+                }
+                StringAssert.EndsWith(nested.GetString("url"), "?q=nested%20search%20fixture");
+                engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = nested.GetString("id"), ["done"] = true,
+                    ["data"] = """{"results":[]}""" });
+                fetch = await NextModel(engine, scripts, ObserveBrowser);
+                Assert.AreEqual(0, LastResult(fetch).GetArray("results").Count);
+            }
             ReplyTool(engine, fetch, "browser_navigate", new() { ["url"] = engines[i] + "fixture%20terms" });
             var snapshot = await NextModel(engine, scripts, ObserveBrowser);
             ReplyTool(engine, snapshot, i == engines.Length - 1 ? "finish_search" : "fail_request",
@@ -2231,7 +2656,7 @@ public sealed class ExtensionTests
         var asset = item.GetString("asset_url");
         Assert.IsTrue(ResearchAssets.IsUrl(asset));
         ReplyTool(engine, search, "activate_skill", new() { ["name"] = "edit_asset" });
-        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_text_edit", new()
+        ReplyTool(engine, await NextModel(engine, scripts), "text_edit", new()
         {
             ["url"] = asset, ["old_string"] = "Original snippet", ["new_string"] = "Edited snippet"
         });
@@ -2290,7 +2715,7 @@ public sealed class ExtensionTests
                 switch (round++)
                 {
                     case 0: ReplyTool(engine, item, "activate_skill", new() { ["name"] = "view_asset" }); break;
-                    case 1: ReplyTool(engine, item, "plugin_base_grep", query); break;
+                    case 1: ReplyTool(engine, item, "grep", query); break;
                     case 2:
                         StringAssert.Contains(result, "supplied in this session");
                         ReplyTool(engine, item, "activate_skill", new() { ["name"] = "report-notes" });
@@ -2298,7 +2723,7 @@ public sealed class ExtensionTests
                     case 3: ReplyTool(engine, item, "plugin_report_notes_url", new()); break;
                     case 4:
                         Assert.AreEqual(url, JsonValues.GetText(((JsonArray)JsonNode.Parse(result)!)[0]));
-                        ReplyTool(engine, item, "plugin_base_grep", query);
+                        ReplyTool(engine, item, "grep", query);
                         break;
                     case 5:
                         var row = JsonValues.ParseObject(result).GetArray("lines").Single();
@@ -2474,9 +2899,19 @@ public sealed class ExtensionTests
 
         string PackBackground(string id, string owner) => Pack(root, id, signer, $$"""
             {"id":"{{id}}","packageName":"test.{{id}}","name":"Backdrop","apiVersion":2,"presetId":"{{owner}}","entry":"index.js",
-             "assets":[{"id":"scene","type":"file","path":"scene.bin","mimeType":"image/png"},
+             "assets":[{"id":"scene","type":"file","path":"scene.bin","mimeType":"image/png",
+                        "backgroundVariants":{"square":"square","landscape":"wide","portrait":"tall"} },
+                       {"id":"square","type":"file","path":"square.bin","mimeType":"image/png"},
+                       {"id":"wide","type":"file","path":"wide.bin","mimeType":"image/jpeg"},
+                       {"id":"tall","type":"file","path":"tall.bin","mimeType":"image/webp"},
                        {"id":"text","type":"file","path":"scene.bin","mimeType":"text/plain"}]}
-            """, "globalThis.handlers = {};", folder => File.WriteAllText(Path.Combine(folder, "scene.bin"), "backdrop"));
+            """, "globalThis.handlers = {};", folder =>
+        {
+            File.WriteAllText(Path.Combine(folder, "scene.bin"), "backdrop");
+            File.WriteAllText(Path.Combine(folder, "square.bin"), "square");
+            File.WriteAllText(Path.Combine(folder, "wide.bin"), "landscape");
+            File.WriteAllText(Path.Combine(folder, "tall.bin"), "portrait");
+        });
         const string background = "minirp://assets/test.owned/scene";
         foreach (var archive in new[] { PackBackground("owned", preset), PackBackground("foreign", Guid.NewGuid().ToString()) })
         {
@@ -2497,6 +2932,8 @@ public sealed class ExtensionTests
         StringAssert.Contains(listed, background);
         Assert.IsFalse(listed.Contains("test.foreign", StringComparison.Ordinal));
         Assert.IsFalse(listed.Contains("/text", StringComparison.Ordinal));
+        var choice = JsonNode.Parse(listed)!.AsArray().Single()!.AsObject();
+        Assert.AreEqual("minirp://assets/test.owned/tall", choice.GetObject("variants").GetString("portrait"));
         StringAssert.Contains(Result(await Call("configure_chat_appearance", new() { ["background_url"] = "minirp://assets/test.foreign/scene" })),
             "owned by this preset");
         StringAssert.Contains(Result(await Call("configure_chat_appearance", new() { ["background_url"] = "minirp://assets/test.owned/text" })),
@@ -2513,12 +2950,22 @@ public sealed class ExtensionTests
         engine.Dispatch(new() { ["op"] = "home", ["preset"] = preset });
         var restored = (await Until(engine, "home")).GetObject("config").GetObject("appearance");
         Assert.AreEqual(background, restored.GetString("background_url"));
-        engine.Dispatch(new() { ["op"] = "preset_background_open", ["preset"] = preset, ["url"] = background });
-        var source = (await Until(engine, "asset_result")).GetObject("result");
-        Assert.AreEqual("image/png", source.GetString("mimeType"));
-        engine.Dispatch(new() { ["op"] = "asset_pull", ["handle"] = source.GetString("handle") });
-        var part = (await Until(engine, "asset_result")).GetObject("result");
-        CollectionAssert.AreEqual("backdrop"u8.ToArray(), engine.Port.TakeBinary(part.GetString("transfer")));
+        foreach (var (frame, mime, content) in new[]
+        {
+            ("", "image/png", "backdrop"), ("square", "image/png", "square"),
+            ("landscape", "image/jpeg", "landscape"), ("portrait", "image/webp", "portrait"),
+        })
+        {
+            engine.Dispatch(new() { ["op"] = "preset_background_open", ["preset"] = preset, ["url"] = background, ["frame"] = frame });
+            var source = (await Until(engine, "asset_result")).GetObject("result");
+            Assert.AreEqual(mime, source.GetString("mimeType"));
+            var handle = source.GetString("handle");
+            engine.Dispatch(new() { ["op"] = "asset_pull", ["handle"] = handle });
+            var part = (await Until(engine, "asset_result")).GetObject("result");
+            CollectionAssert.AreEqual(System.Text.Encoding.UTF8.GetBytes(content), engine.Port.TakeBinary(part.GetString("transfer")));
+            engine.Dispatch(new() { ["op"] = "asset_close", ["handle"] = handle });
+            await Until(engine, "asset_result");
+        }
     }
 
     [TestMethod]
@@ -2593,7 +3040,8 @@ public sealed class ExtensionTests
         var body = first.GetString("body");
         Assert.IsFalse(body.Contains("HIDDEN_WORLD") || body.Contains("HIDDEN_RULE") || body.Contains("current_state") || body.Contains("2001-01-01"));
         Assert.IsFalse(body.Contains("open_url"), "Web tools only become available after activation.");
-        StringAssert.Contains(body, "web-research");
+        StringAssert.Contains(body, "search");
+        Assert.IsFalse(body.Contains("search-full", StringComparison.Ordinal));
         engine.Dispatch(new() { ["op"] = "steer", ["chat"] = engine.Workspace.ChatId, ["agent"] = "chat", ["role"] = "system", ["text"] = "New instruction" });
         var second = await Until(engine, "http_request");
         var messages = JsonValues.ParseObject(second.GetString("body")).GetArray("messages");
@@ -2729,7 +3177,7 @@ public sealed class ExtensionTests
         Assert.IsFalse(request.GetString("body").Contains("data:application/pdf;base64", StringComparison.Ordinal));
         Assert.IsFalse(request.GetString("body").Contains("thumbnail_url", StringComparison.Ordinal));
         ReplyTool(engine, request, "activate_skill", new() { ["name"] = "view_asset" });
-        ReplyTool(engine, await NextModel(engine, scripts), "plugin_base_grep",
+        ReplyTool(engine, await NextModel(engine, scripts), "grep",
             new() { ["url"] = "minirp://assets/minirp.attachments/abc", ["pattern"] = "^Parsed" });
         var converted = await NextModel(engine, scripts);
         StringAssert.Contains(converted.GetString("body"), "Parsed ABC");
@@ -2947,6 +3395,167 @@ public sealed class ExtensionTests
         Assert.AreEqual("w xyz", await Read(preset));
         Assert.AreEqual("abc abc", await Read(other));
         CollectionAssert.AreEqual(File.ReadAllBytes(archive), File.ReadAllBytes(runtime.ExportablePlugin(installed.Id)));
+    }
+
+    [TestMethod]
+    public async Task AssetChangesReachOnlyAuthorizedHooksAfterCommit()
+    {
+        var root = NewRoot();
+        using var signer = Certificate();
+        using var stranger = Certificate();
+        using var scripts = new PluginScripts();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var deliveries = System.Threading.Channels.Channel.CreateUnbounded<(string Package, string Preset, JsonObject Event)>();
+        HostPort? port = null;
+        port = new(item =>
+        {
+            var kind = item.GetString("kind");
+            if (kind == "plugin_script")
+                port!.Reply(new() { ["id"] = item.GetString("id"),
+                    ["result"] = scripts.Step(item, deadline.Token, port.TakeBinary, port.WriteBinary) });
+            if (kind == "plugin_isolate_close") scripts.Close(item.GetString("isolate"));
+        });
+        await using var runtime = new PluginRuntime(root, port, item =>
+        {
+            if (item.GetString("kind") == "plugin_error")
+                deliveries.Writer.TryComplete(new InvalidOperationException(item.GetString("message")));
+        }, (package, scope, operation, args, _) =>
+        {
+            Assert.AreEqual("generate", operation);
+            deliveries.Writer.TryWrite((package.PackageName, scope.GetString("preset"), JsonValues.ParseObject(args.GetString("text"))));
+            return Task.FromResult<JsonNode?>(new JsonObject { ["text"] = "accepted" });
+        });
+        runtime.Load();
+        var owner = Pack(root, "watch-owner", signer, """
+            {"id":"watch-owner","packageName":"test.watch_owner","name":"Asset owner","apiVersion":2,"entry":"index.js",
+             "actions":{"events":["changed"]},
+             "assets":[{"id":"notes","type":"file","path":"notes.txt","mimeType":"text/plain","accessibility":"protected",
+                        "writable":true,"listenable":true,"changeEvent":"minirp://actions/test.watch_owner/events/changed"}]}
+            """, "globalThis.handlers = {};", directory => File.WriteAllText(Path.Combine(directory, "notes.txt"), "before"));
+        var installed = runtime.Install(owner, inspect: false);
+        var preset = WorkspaceIds.New();
+        var excluded = WorkspaceIds.New();
+        foreach (var (id, certificate, scope) in new[]
+                 { ("peer", signer, PluginScope.Include(preset)), ("excluded", signer, PluginScope.Include(excluded)), ("stranger", stranger, PluginScope.Global) })
+        {
+            var listener = Pack(root, id, certificate, $$$$"""
+                {"id":"{{{{id}}}}","packageName":"test.{{{{id}}}}","name":"Asset watcher","apiVersion":2,"entry":"index.js","permissions":["model"],
+                 "actions":{"handlers":{"update":"update"},
+                   "subscriptions":{"minirp://actions/test.watch_owner/events/changed":"minirp://actions/test.{{{{id}}}}/hooks/update"}}}
+                """, """
+                globalThis.handlers = {
+                  async update(event, api) {
+                    const {text} = await api.text.read(event.assets.asset);
+                    await api.harness.generate({text: JSON.stringify({...event, text})});
+                  }
+                };
+                """);
+            runtime.Install(listener, inspect: false, initialScope: scope);
+        }
+        const string url = "minirp://assets/test.watch_owner/notes";
+        var environment = new JsonObject { ["preset"] = preset };
+        Task<JsonObject> Edit(string text) => runtime.EditAgentAsset(url, installed.PackageName, installed.Signer, environment,
+            "textEdit", new() { ["old_string"] = text, ["new_string"] = "after" }, deadline.Token);
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => Edit("missing"));
+        await Edit("before");
+        var first = await deliveries.Reader.ReadAsync(deadline.Token);
+        Assert.AreEqual("test.peer", first.Package);
+        Assert.AreEqual(preset, first.Preset);
+        Assert.AreEqual("asset.changed", first.Event.GetString("name"));
+        Assert.AreEqual(url, first.Event.GetString("url"));
+        Assert.AreEqual("write", first.Event.GetString("reason"));
+        Assert.AreEqual("after", first.Event.GetString("text"));
+        Assert.AreEqual(5, first.Event.GetInt32("size"));
+
+        var replace = runtime.PrepareAssetWrite(url, installed.PackageName, installed.Signer, new() { ["preset"] = excluded });
+        using var input = new MemoryStream("replacement"u8.ToArray());
+        await replace(input, deadline.Token);
+        var next = await deliveries.Reader.ReadAsync(deadline.Token);
+        Assert.AreEqual("test.excluded", next.Package);
+        Assert.AreEqual(excluded, next.Preset);
+        Assert.AreEqual("replacement", next.Event.GetString("text"));
+        Assert.IsFalse(deliveries.Reader.TryRead(out _));
+    }
+
+    [TestMethod]
+    public async Task AgentAssetSubscriptionsUseSessionGrantsAndTrackTheLatestCommittedChange()
+    {
+        var root = NewRoot();
+        using var signer = Certificate();
+        var archive = Pack(root, "agent-watch", signer, """
+            {"id":"agent-watch","packageName":"test.agent_watch","name":"Watch fixture","apiVersion":2,"entry":"index.js",
+             "actions":{"events":["changed"]},
+             "assets":[{"id":"journal","type":"file","path":"journal.txt","mimeType":"text/plain","accessibility":"protected",
+                        "writable":true,"listenable":true,"changeEvent":"minirp://actions/test.agent_watch/events/changed"},
+                       {"id":"other","type":"file","path":"journal.txt","mimeType":"text/plain"}]}
+            """, "globalThis.handlers = {};", directory => File.WriteAllText(Path.Combine(directory, "journal.txt"), "old"));
+        var port = new HostPort(_ => { });
+        PluginRuntime OpenRuntime() => new(root, port, _ => { }, (_, _, _, _, _) => throw new InvalidOperationException());
+        var preset = WorkspaceIds.New();
+        var otherPreset = WorkspaceIds.New();
+        var scope = new JsonObject { ["preset"] = preset };
+        const string url = "minirp://assets/test.agent_watch/journal";
+        const string alias = "minichat://assets/test.agent_watch/journal";
+        const string otherUrl = "minirp://assets/test.agent_watch/other";
+        var args = new JsonObject { ["url"] = url };
+        var grants = Path.Combine(root, "grants.sqlite");
+        var session = Path.Combine(root, "session.sqlite");
+        using var permissions = new MemoryDb(grants);
+        using var db = new MemoryDb(session);
+        using var secondSession = new MemoryDb(":memory:");
+        AgentAssetWatches Watches(PluginRuntime runtime, MemoryDb database) =>
+            new(database, new AgentAssets(runtime, permissions, Path.Combine(root, "attachments"), () => scope));
+
+        await using (var runtime = OpenRuntime())
+        {
+            runtime.Load();
+            var installed = runtime.Install(archive, inspect: false);
+            var watches = Watches(runtime, db);
+            Assert.ThrowsExactly<UnauthorizedAccessException>(() => watches.Set("watch_asset", args));
+            var assets = new AgentAssets(runtime, permissions, Path.Combine(root, "attachments"), () => scope);
+            assets.Grant(installed, new JsonArray(url, otherUrl));
+            Assert.ThrowsExactly<InvalidOperationException>(() => watches.Set("watch_asset", new() { ["url"] = otherUrl }));
+            var subscribed = watches.Set("watch_asset", args);
+            Assert.IsTrue(subscribed.GetBoolean("watching"));
+            Assert.AreEqual("minirp://actions/test.agent_watch/events/changed", subscribed.GetString("source"));
+            Task<JsonObject> Edit(string before, string after, string target) => runtime.EditAgentAsset(url, installed.PackageName,
+                installed.Signer, new() { ["preset"] = target }, "textEdit", new() { ["old_string"] = before, ["new_string"] = after }, default);
+            await Edit("old", "different preset", otherPreset);
+            var updates = new JsonArray();
+            watches.AppendUpdates(updates, null);
+            Assert.IsEmpty(updates);
+            await Edit("old", "middle", preset);
+            await Edit("middle", "final value", preset);
+            // Resubscribing is idempotent and leaves pending changes available.
+            watches.Set("watch_asset", args);
+        }
+
+        await using var reopened = OpenRuntime();
+        reopened.Load();
+        var restored = Watches(reopened, db);
+        var history = new JsonArray();
+        Watches(reopened, secondSession).AppendUpdates(history, null);
+        Assert.IsEmpty(history);
+        reopened.SetEnabled("agent-watch", false, scope);
+        restored.AppendUpdates(history, null);
+        Assert.IsEmpty(history);
+        reopened.SetEnabled("agent-watch", true, scope);
+        restored.AppendUpdates(history, null);
+        restored.AppendUpdates(history, null);
+        Assert.HasCount(1, history);
+        StringAssert.Contains(history[0].GetString("content"), $"Watched Asset {url} changed (write, 11 bytes)");
+        db.WriteInternal(restored.Acknowledgements());
+        Watches(reopened, db).AppendUpdates(history, null);
+        Assert.HasCount(1, history);
+        var owner = PluginArchive.Verify(archive);
+        await reopened.EditAgentAsset(url, owner.PackageName, owner.Signer, scope, "textEdit",
+            new() { ["old_string"] = "final value", ["new_string"] = "after cancellation" }, default);
+        reopened.SetEnabled("agent-watch", false, scope);
+        Assert.IsFalse(Watches(reopened, db).Set("unwatch_asset", new() { ["url"] = alias }).GetBoolean("watching"));
+        reopened.SetEnabled("agent-watch", true, scope);
+        Watches(reopened, db).AppendUpdates(history, null);
+        Assert.HasCount(1, history);
     }
 
     [TestMethod]

@@ -82,6 +82,42 @@ public sealed class PageSourceTests
         Assert.AreEqual("Free excerpt", (await search).GetArray("results").Single().GetString("snippet"));
     }
 
+    [TestMethod]
+    public async Task BaseSearchLoadsTheNamedSecretForEachRequest()
+    {
+        var credential = "fixture-first";
+        var sent = new List<string>();
+        HostPort? port = null;
+        port = new HostPort(Handle);
+        var source = new PageSource(port, null, () => new()
+        {
+            ["_research_secret_storage"] = true, ["search_provider"] = "tavily"
+        });
+        for (var index = 0; index < 2; index++)
+        {
+            await source.Request("search", new() { ["query"] = "fixture query" }, TestContext.CancellationToken);
+            credential = "fixture-rotated";
+        }
+        CollectionAssert.AreEqual(new[] { "Bearer fixture-first", "Bearer fixture-rotated" }, sent);
+
+        void Handle(JsonObject request)
+        {
+            switch (request.GetString("kind"))
+            {
+                case "plugin_secret":
+                    Assert.AreEqual("builtin-base", request.GetString("owner"));
+                    Assert.AreEqual("tavily", request.GetString("key"));
+                    Assert.AreEqual("get", request.GetString("operation"));
+                    port!.Reply(new() { ["id"] = request.GetString("id"), ["result"] = new JsonObject { ["value"] = credential } });
+                    break;
+                case "http_request":
+                    sent.Add(request.GetObject("headers").GetString("Authorization"));
+                    Respond(port!, request, """{"results":[{"url":"https://example.test/article"}]}""");
+                    break;
+            }
+        }
+    }
+
     public TestContext TestContext { get; set; } = null!;
 
     private static (PageSource Source, HostPort Port, ConcurrentQueue<JsonObject> Requests) Fixture(string search, string fetch = "deepseek")
@@ -91,7 +127,7 @@ public sealed class PageSourceTests
         {
             if (item.GetString("kind") == "http_request") requests.Enqueue(item);
         });
-        var browser = new FetchAgent(port, _ => throw new AssertFailedException("Unexpected browser fallback."));
+        var browser = new BrowserAgent(port, _ => throw new AssertFailedException("Unexpected browser fallback."));
         var keys = new JsonObject { [search] = "search-key", [fetch] = "fetch-key" };
         return (new(port, browser, () => new() { ["search_provider"] = search, ["fetch_provider"] = fetch, ["research_keys"] = keys }), port, requests);
     }

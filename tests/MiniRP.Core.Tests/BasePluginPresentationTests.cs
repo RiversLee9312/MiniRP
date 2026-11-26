@@ -15,8 +15,8 @@ public sealed class BasePluginPresentationTests
         var locales = manifest.GetObject("i18n").GetObject("locales");
         var supported = Directory.GetDirectories(Path.Combine(TestWorkspace.Root, "apps", "android", "app", "src", "main", "res"), "values-b+*")
             .Select(path => Path.GetFileName(path)[9..].Replace('+', '-')).ToArray();
-        Assert.AreEqual(7, skills.Length);
-        Assert.AreEqual(33, skills.Sum(skill => skill.GetArray("tools").Count));
+        Assert.AreEqual(6, skills.Length);
+        Assert.AreEqual(35, skills.Sum(skill => skill.GetArray("tools").Count));
         CollectionAssert.AreEquivalent(supported, locales.Select(pair => pair.Key).ToArray());
 
         var root = Path.Combine(Path.GetTempPath(), "minirp-base-card-test-" + WorkspaceIds.New());
@@ -35,7 +35,7 @@ public sealed class BasePluginPresentationTests
                 foreach (var (tool, toolIndex) in tools.Select((tool, index) => (tool, index)))
                 {
                     var id = tool.GetString("name");
-                    var qualified = name == "research" ? id : $"plugin_base_{id}";
+                    var qualified = id;
                     var trace = runtime.LegacyBuiltInToolTrace(preset, qualified, agent, plain: false);
                     Assert.IsTrue(trace.HasValue, qualified);
                     var (origin, arguments, result) = trace.Value;
@@ -69,7 +69,8 @@ public sealed class BasePluginPresentationTests
                         """{"error":"Fixture failure."}""", "en", agent));
                     foreach (var (locale, value) in locales)
                     {
-                        var skillTitle = value.GetString($"/skills/{skillIndex}/title");
+                        var skillTitle = name is AgentAssetStorage.SkillId or "search-full" ? AgentLanguage.SkillName(name, locale) :
+                            value.GetString($"/skills/{skillIndex}/title");
                         Assert.IsFalse(string.IsNullOrWhiteSpace(skillTitle), locale);
                         var resolved = runtime.ReadToolTraceLabels(origin, preset, qualified, agent, locale);
                         Assert.AreEqual(skillTitle, resolved?.SkillTitle, locale);

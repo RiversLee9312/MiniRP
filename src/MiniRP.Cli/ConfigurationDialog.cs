@@ -28,7 +28,17 @@ internal sealed class ConfigurationDialog : Dialog
         ("DEEPSEEK_COMPACT_AT_PERCENT", "压缩阈值（%，默认 80）"),
         ("DEEPSEEK_BACKGROUND_COMPACTION", "异步压缩：enabled / disabled（默认启用）"),
         ("DEEPSEEK_BACKGROUND_COMPACT_AT_PERCENT", "异步压缩触发点（%，默认 70）"),
-        ("DEEPSEEK_COMPACT_AT", "压缩阈值（token，可选）")
+        ("DEEPSEEK_COMPACT_AT", "压缩阈值（token，可选）"),
+        ("MINIRP_DESCRIBE_IMAGES", "为当前模型使用图像描述（yes / no）"),
+        ("MINIRP_DESCRIBE_AUDIO", "为当前模型使用音频描述（yes / no）"),
+        ("MINIRP_IMAGE_DESCRIPTION_MODEL", "图像描述模型 ID（留空关闭）"),
+        ("MINIRP_IMAGE_DESCRIPTION_PROTOCOL", "图像描述服务协议（留空沿用当前协议）"),
+        ("MINIRP_IMAGE_DESCRIPTION_URL", "图像描述服务 API 地址（留空沿用当前地址）"),
+        ("MINIRP_IMAGE_DESCRIPTION_KEY", "图像描述服务 API Key"),
+        ("MINIRP_AUDIO_DESCRIPTION_MODEL", "音频描述模型 ID（留空关闭）"),
+        ("MINIRP_AUDIO_DESCRIPTION_PROTOCOL", "音频描述服务协议（留空沿用当前协议）"),
+        ("MINIRP_AUDIO_DESCRIPTION_URL", "音频描述服务 API 地址（留空沿用当前地址）"),
+        ("MINIRP_AUDIO_DESCRIPTION_KEY", "音频描述服务 API Key")
     ];
     private static readonly (string Key, string Label)[] Research =
     [

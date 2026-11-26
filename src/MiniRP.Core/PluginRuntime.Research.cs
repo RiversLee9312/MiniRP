@@ -19,14 +19,15 @@ internal sealed partial class PluginRuntime
         var turn = research.Turn;
         return method switch
         {
-            "request" => await research.Source.Request(args.GetString("operation"), args.GetObject("input"), ct),
-            "local" => await research.Source.FetchLocal(args.GetString("url"), ct),
+            "request" => await research.Source.Request(args.GetString("operation"), args.GetObject("input"), ct, turn),
+            "local" => await research.Source.FetchLocal(args.GetString("url"), ct, turn),
             "backend" => JsonValue.Create(research.Source.Backend),
             "normalize" => Normalize(args),
             "register" => turn.Register(args.GetObject("document"), args.GetBoolean("page")),
             "registerAll" => new JsonArray(args.GetArray("documents").OfType<JsonObject>()
                 .Select(item => (JsonNode?)turn.Register(item, page: false)).ToArray()),
             "recall" => turn.Recall(args),
+            "cached" => turn.Cached(args),
             "selection" => turn.CacheInput(args.GetObject("arguments"), args.GetBoolean("page")),
             "metadata" => new JsonObject { ["url"] = turn.Assets.DocumentAt(args.GetString("url")).GetString("url") },
             "retain" => turn.RetainCache(args),

@@ -9,7 +9,7 @@
 1. ChatAgent 或 EnvAgent 激活 `room-status-status` 技能。技能给智能体提供读状态、显示卡片和报告变化三个工具。
 2. 智能体调用 `plugin_room-status_report`，传入一段简短的新状态。JavaScript 处理器读取当前修订，校验输入，再调用 `api.state.set`。
 3. 保存成功后，宿主安排 `state.changed`。处理器用事件里的上一版和当前值判断变化，通过 `harness.send` 请 EnvAgent 检查是否要推进世界。这个 API 返回排队回执。
-4. EnvAgent 按世界规则决定实际更新，用 `notify_chat` 通知普通对话，或用群像技能的 `notify_chat`、`notify_character` 选择通知对象。示例采用 Room scope，同一 Room 的多条 Chat 可以读到同一份航站状态。
+4. EnvAgent 按世界规则决定实际更新。在普通对话中启用示例插件的 `room-status-notifications`，调用 `plugin_room-status_notify_status`，由插件通过 `harness.insertSystemMessage` 给 ChatAgent 送达系统消息。群像中可用 `ensemble-management` 的 `notify_chat`、`notify_character` 选择通知对象。示例采用 Room scope，同一 Room 的多条 Chat 可以读到同一份航站状态。
 5. 智能体调用 `plugin_room-status_status-card`，Android 显示一张 OpenUI 卡。以后底层状态改动，打开的卡片会更新。重新打开旧聊天时，卡片也会从插件读取当前状态。
 
 展开 `report` 的工具轨迹可以看见本次上报内容和实际保存值。它们由两个只读卡片显示，原始参数和结果仍可复制。卡片接收该次工具调用的数据，见[工具轨迹展示](skills-settings.md#工具轨迹展示)。
@@ -41,14 +41,14 @@
 
 ## 在草稿中调试卡片
 
-PluginAgent 激活 `base-plugin-project` 后，可以在 Android 上独立完成下列循环。
+PluginAgent 激活 `plugin-dev` 后，可以在 Android 上独立完成下列循环。
 
-1. 用 `plugin_base_project_card_catalog` 查询组件签名。目录由 Android 渲染器所用的组件库生成，支持按 `next_offset` 翻页。
-2. 把卡片写进草稿的 `manifest.json`，再用 `plugin_base_project_card_preview({id})` 预览声明的卡片。预览会签名并加载草稿，返回 OpenUI 诊断、渲染文本、尺寸、横向溢出和控件列表。可以指定 `width` 和 `dark` 检查不同布局和深浅色。
+1. 用 `plugin_card_catalog` 查询组件签名。目录由 Android 渲染器所用的组件库生成，支持按 `next_offset` 翻页。
+2. 把卡片写进草稿的 `manifest.json`，再用 `plugin_card_preview({id})` 预览声明的卡片。预览会签名并加载草稿，返回 OpenUI 诊断、渲染文本、尺寸、横向溢出和控件列表。可以指定 `width` 和 `dark` 检查不同布局和深浅色。
 3. 添加 `handler` 和 `event`，可以先执行草稿自己的 Action 并用测试数据填充绑定状态。普通会话使用相同的虚拟 Chat 和 Room ID，`ensemble: true` 使用不同的 ID。每次预览从独立的临时存储开始。
 4. 从预览结果取控件标签，用 `steps` 重放最多六个步骤。省略 `value` 时点击控件，支持直接赋值的原生输入也可传入 `value`。逐项核对交互结果、渲染内容和状态。提交表单或打开链接时，预览记录操作和参数，以便检查实际载荷。
 5. 支持图像输入的模型可以传 `screenshot: true`。宿主截取交互结束后的卡片，把 PNG 作为下一次模型请求的图片附件。长卡片截取首屏，结果包含 `cropped`。
-6. 用 `project_assets` 取得源码的 Asset URL，通过 `edit_asset` 修正源码并重跑同一组预览。委派要求部署时，把能独立运行的 Action 测试随 `plugin_base_project_publish` 一起提交。在目标预设的聊天中用对应 Skill 显示卡片，再观察一次真实交互。测试角色和入口见[验证已部署的插件](packaging.md#验证已部署的插件)。
+6. 用 `plugin-dev` 取得源码的 Asset URL，通过 `assets` 修正源码并重跑同一组预览。委派要求部署时，把能独立运行的 Action 测试随 `plugin_publish` 一起提交。在目标预设的聊天中用对应 Skill 显示卡片，再观察一次真实交互。测试角色和入口见[验证已部署的插件](packaging.md#验证已部署的插件)。
 
 预览复用聊天中的 Android WebView 和 OpenUI 组件。它在离线环境中返回结构化结果，远程图片和地图底图依赖正式使用时的网络加载。Windows 终端会返回 `available: false`。
 

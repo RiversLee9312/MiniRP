@@ -4,7 +4,8 @@ param(
     [string]$Wix = 'wix',
     [string]$ContainerImage,
     [string]$QemuRuntime,
-    [string]$CurlRuntime
+    [string]$CurlRuntime,
+    [string]$FfmpegRuntime
 )
 $ErrorActionPreference = 'Stop'
 if (!$IsWindows) { throw 'Build the MSI on Windows.' }
@@ -24,7 +25,7 @@ $stage = [IO.Directory]::CreateTempSubdirectory('minirp-msi-').FullName
 try {
     $payload = Join-Path $stage 'payload'
     & (Join-Path $PSScriptRoot 'build-desktop.ps1') -Runtime win-x64 -OutputDirectory $payload -NoSymbols `
-        -ContainerImage $ContainerImage -QemuRuntime $QemuRuntime -CurlRuntime $CurlRuntime
+        -ContainerImage $ContainerImage -QemuRuntime $QemuRuntime -CurlRuntime $CurlRuntime -FfmpegRuntime $FfmpegRuntime
     $browser = Join-Path $payload 'browser'
     Copy-Item -LiteralPath $node -Destination $browser
     Copy-Item -LiteralPath $nodeLicense -Destination (Join-Path $browser 'node-LICENSE.txt')

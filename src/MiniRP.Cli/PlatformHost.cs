@@ -7,7 +7,8 @@ using MiniRP.Protocol;
 namespace MiniRP.Cli;
 
 internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?> takeBinary, Action<string, byte[]> writeBinary,
-    BrowserHost browser, string workspace) : IAsyncDisposable
+    BrowserHost browser, string workspace, DesktopSecretStorage? secretStorage = null,
+    Func<string, string?>? researchDefault = null) : IAsyncDisposable
 {
     private static readonly string ApiUserAgent = "Mini Agent Harness/" +
         typeof(PlatformHost).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+', 2)[0];
@@ -26,7 +27,8 @@ internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?
     private readonly List<Task> work = [];
     private readonly PluginScripts scripts = new();
     private readonly ContainerHost container = new(workspace);
-    private readonly CurlHost curl = new(workspace);
+    private readonly AssetCommandHost assetCommands = new(workspace);
+    private readonly DesktopSecretStorage secrets = secretStorage ?? new(workspace);
     private readonly HttpClient pluginHttp = new(new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false,
         AutomaticDecompression = System.Net.DecompressionMethods.All, ConnectTimeout = TimeSpan.FromSeconds(10) })
         { Timeout = Timeout.InfiniteTimeSpan };
@@ -35,6 +37,13 @@ internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?
     {
         switch (message.GetString("kind"))
         {
+            case "plugin_secret":
+                Start(message, _ =>
+                {
+                    Reply(message.GetString("id"), new() { ["result"] = secrets.Handle(message, researchDefault) });
+                    return Task.CompletedTask;
+                });
+                return true;
             case "http_request":
                 Start(message, token => Http(message, token), message.GetBoolean("stream") ? null :
                     TimeSpan.FromMilliseconds(message.GetInt32("timeout_ms", 240000)));
@@ -49,10 +58,9 @@ internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?
                 return true;
             case "plugin_script":
                 var step = scripts.Prepare(message, takeBinary, writeBinary);
-                Start(message, token =>
+                Start(message, async token =>
                 {
-                    Reply(message.GetString("id"), new() { ["result"] = step(token) });
-                    return Task.CompletedTask;
+                    Reply(message.GetString("id"), new() { ["result"] = await step(token) });
                 });
                 return true;
             case "plugin_http":
@@ -65,7 +73,8 @@ internal sealed class PlatformHost(Action<JsonObject> send, Func<string, byte[]?
                 Start(message, async token => Reply(message.GetString("id"), new() { ["result"] = await container.Handle(message, token) }));
                 return true;
             case "curl_download":
-                Start(message, async token => Reply(message.GetString("id"), new() { ["result"] = await curl.Handle(message, token) }));
+            case "ffmpeg_run":
+                Start(message, async token => Reply(message.GetString("id"), new() { ["result"] = await assetCommands.Handle(message, token) }));
                 return true;
             case "open_ui_catalog":
             case "open_ui_preview":

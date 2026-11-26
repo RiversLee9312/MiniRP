@@ -23,7 +23,7 @@ public sealed partial class Engine
         var origin = source[ToolTrace.Source] as JsonObject;
         var legacy = !source.ContainsKey(ToolTrace.Source);
         var agent = ToolTrace.Role(source.GetString("agent"));
-        if (agent is "preset" or "plugin" && source.GetString("speaker") == "FetchAgent") agent = "fetch";
+        if (agent is "env" or "preset" or "plugin" && ToolTrace.Role(source.GetString("speaker")) == "fetch") agent = "fetch";
         var argumentsReference = source[ToolPresentation.ReferenceKey(ToolPresentation.Arguments)] as JsonObject;
         var resultReference = source[ToolPresentation.ReferenceKey(ToolPresentation.Result)] as JsonObject;
         var plugin = origin?.GetString("kind") == "plugin" ? origin : legacy ? argumentsReference ?? resultReference : null;
@@ -41,8 +41,8 @@ public sealed partial class Engine
         }
         else if (legacy || origin?.GetString("kind") == "native")
         {
-            native = tool;
-            var skill = legacy ? BuiltInToolCards.Skill(tool) : origin!.GetString("skill");
+            native = BuiltInSkillIds.Tool(tool);
+            var skill = legacy ? BuiltInToolCards.Skill(native) : origin!.GetString("skill");
             if (!string.IsNullOrEmpty(skill) && AgentLanguage.SkillName(skill, locale) is { } label && label != skill)
                 skillTitle = label;
         }

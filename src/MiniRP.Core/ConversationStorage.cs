@@ -61,12 +61,8 @@ internal static class ConversationStorage
             if (!AgentContainer.ActiveRun(run) && Directory.GetLastWriteTimeUtc(run) < now.AddDays(-1))
                 Try(() => DeleteDirectory(run));
         }
-        foreach (var run in Directories(root, "curl-runs").Where(VersionName))
-        {
-            ct.ThrowIfCancellationRequested();
-            if (Directory.GetLastWriteTimeUtc(run) < now.AddDays(-1)) Try(() => DeleteDirectory(run));
-        }
-        foreach (var run in Directories(root, "checkpoint-runs").Where(VersionName))
+        foreach (var directory in new[] { "curl-runs", "ffmpeg-runs", "checkpoint-runs" })
+        foreach (var run in Directories(root, directory).Where(VersionName))
         {
             ct.ThrowIfCancellationRequested();
             if (Directory.GetLastWriteTimeUtc(run) < now.AddDays(-1)) Try(() => DeleteDirectory(run));

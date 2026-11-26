@@ -10,7 +10,15 @@ internal static class AgentLanguage
     public static string? Normalize(string? locale) => locale is not null && PluginManifestLocalization.ValidLocale(locale)
         ? locale : null;
 
-    public static string SkillName(string id, string locale) => Localized(SkillNames.Value.GetObject(id), locale, id);
+    public static string SkillName(string id, string locale) =>
+        Localized(SkillNames.Value.GetObject(id switch
+        {
+            "web-research" => "search",
+            "research" or "direct-research" => "search-full",
+            "read-page" => "browser-fetch-workflow",
+            "read-search" => "browser-search-workflow",
+            _ => BuiltInSkillIds.Current(id)
+        }), locale, id);
 
     internal static string Localized(JsonObject names, string? locale, string fallback = "")
     {

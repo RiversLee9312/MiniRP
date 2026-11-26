@@ -20,7 +20,9 @@ import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -41,7 +43,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -57,6 +61,8 @@ internal sealed interface AppRoute {
     @Serializable data class EnsembleChat(val room: String, val id: String, val privateParticipant: String = "") : AppRoute
 
     @Serializable data class EnsembleTrace(val room: String, val participant: String) : AppRoute
+
+    @Serializable data class ArchivedChat(val preset: String, val room: String, val id: String, val name: String) : AppRoute
 
     @Serializable data object Settings : AppRoute
 
@@ -77,7 +83,7 @@ internal sealed interface AppRoute {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MiniRP(model: ChatViewModel) {
+fun MiniRP(model: ChatViewModel, darkTheme: Boolean = isSystemInDarkTheme()) {
     val state by model.state.collectAsStateWithLifecycle()
     val appLocale = LocalConfiguration.current.locales[0].toLanguageTag()
     LaunchedEffect(model, appLocale) { model.refreshPluginLocale(appLocale) }
@@ -105,7 +111,7 @@ fun MiniRP(model: ChatViewModel) {
         onDispose { model.setPreviewWindow(null) }
     }
     val background = rememberPresetBackground(model, state)
-    MiniRPTheme(seedColor = state.appearance.themeColor?.let(::Color) ?: background?.seedColor) {
+    MiniRPTheme(darkTheme = darkTheme, seedColor = state.appearance.themeColor?.let(::Color) ?: background?.seedColor) {
         if (state.showOnboarding) {
             FirstRunGuide(state, model)
             return@MiniRPTheme
@@ -161,14 +167,17 @@ fun MiniRP(model: ChatViewModel) {
         LaunchedEffect(isChat, state.chatId) {
             if (isChat) model.leaveEnsembleChat()
         }
-        LaunchedEffect(destination, state.ready, state.chatId) {
+        LaunchedEffect(destination, state.ready, state.chatId, state.ensembleChats) {
             val entry = destination ?: return@LaunchedEffect
-            val room = when {
-                entry.destination.hasRoute<AppRoute.EnsembleChat>() -> entry.toRoute<AppRoute.EnsembleChat>().room
-                entry.destination.hasRoute<AppRoute.EnsembleTrace>() -> entry.toRoute<AppRoute.EnsembleTrace>().room
-                else -> null
-            }
-            if (state.ready && room != null && room != state.chatId) {
+            val ensembleChat = entry.takeIf { it.destination.hasRoute<AppRoute.EnsembleChat>() }
+                ?.toRoute<AppRoute.EnsembleChat>()
+            val room = ensembleChat?.room ?: entry.destination.takeIf { it.hasRoute<AppRoute.EnsembleTrace>() }
+                ?.let { entry.toRoute<AppRoute.EnsembleTrace>().room }
+                ?: entry.takeIf { it.destination.hasRoute<AppRoute.ArchivedChat>() }?.toRoute<AppRoute.ArchivedChat>()?.room
+            val missingScene = ensembleChat?.id?.takeIf { it.isNotBlank() }?.let { id ->
+                state.ensembleChats?.none { it.id == id }
+            } == true
+            if (state.ready && room != null && (room != state.chatId || missingScene)) {
                 navigation.popBackStack<AppRoute.Chat>(inclusive = false)
             }
         }
@@ -356,8 +365,11 @@ fun MiniRP(model: ChatViewModel) {
                             )
                         }
                     }
-                    page<AppRoute.Chat> {
+                    page<AppRoute.Chat> { entry ->
                         val focus = LocalFocusManager.current
+                        val roomLifecycle by entry.lifecycle.currentStateAsState()
+                        var archiveOpen by rememberSaveable(state.chatId) { mutableStateOf(false) }
+                        val archiveScroll = key(state.chatId) { rememberLazyListState() }
                         PageScaffold(
                             topBar = {
                                 ChatToolbar(
@@ -375,6 +387,8 @@ fun MiniRP(model: ChatViewModel) {
                                         archives.exportTranscript(state.chatName, TranscriptTarget(state.preset, AgentRole.Chat, state.chatId))
                                     }.takeIf { state.chatId.isNotBlank() && state.ensembleChats == null },
                                     onPresetHintSeen = chatHint.takeIf { isChat },
+                                    onBackground = background != null,
+                                    onArchive = ({ archiveOpen = true }).takeIf { state.ensembleChats != null },
                                 )
                             },
                             snackbarHost = { if (activePanel.isBlank()) SnackbarHost(snackbars) },
@@ -386,6 +400,9 @@ fun MiniRP(model: ChatViewModel) {
                                     state.participants,
                                     state.ensembleActivity,
                                     state.ensemblePrivateInStory,
+                                    privatePickerActive = roomLifecycle == Lifecycle.State.RESUMED,
+                                    background = background,
+                                    blurBackground = state.appearance.blurBackground,
                                     openChat = { open(AppRoute.EnsembleChat(state.chatId, it)) },
                                     openPrivate = { open(AppRoute.EnsembleChat(state.chatId, "", privateParticipant = it)) },
                                 )
@@ -401,13 +418,12 @@ fun MiniRP(model: ChatViewModel) {
                                     (state.chatMode == "ensemble" || state.chatGreeting)
                             ) {
                                 val ensemble = state.chatMode == "ensemble"
-                                Box(Modifier.fillMaxSize()) {
-                                    PresetBackdrop(
-                                        background, conversation = false, blur = false,
-                                        modifier = Modifier.matchParentSize(),
-                                    )
+                                PresetHomeBackdrop(background, Modifier.fillMaxSize()) { banner ->
                                     Column(
-                                        Modifier.fillMaxSize().padding(24.dp),
+                                        Modifier.fillMaxSize().padding(
+                                            horizontal = if (banner == null) 24.dp else 0.dp,
+                                            vertical = 24.dp,
+                                        ),
                                         verticalArrangement =
                                             Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
                                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -417,7 +433,7 @@ fun MiniRP(model: ChatViewModel) {
                                             Modifier.fillMaxWidth(),
                                             { model.openPresetEditor() },
                                             enabled = state.ready && !state.busy && !state.preparing,
-                                            onBackground = background != null,
+                                            glassBanner = banner,
                                             onHintSeen = homeHint,
                                         )
                                         Button(
@@ -478,6 +494,29 @@ fun MiniRP(model: ChatViewModel) {
                                     )
                                 }
                         }
+                        if (archiveOpen && roomLifecycle == Lifecycle.State.RESUMED && state.ensembleChats != null) {
+                            ArchivedChatPicker(load = { model.archivedChats(state.preset, state.chatId) }, scroll = archiveScroll,
+                                close = { archiveOpen = false }, open = { chat ->
+                                    open(AppRoute.ArchivedChat(state.preset, state.chatId, chat.id, chat.name))
+                                })
+                        }
+                    }
+                    page<AppRoute.ArchivedChat> { entry ->
+                        val route = entry.toRoute<AppRoute.ArchivedChat>()
+                        PageScaffold(
+                            topBar = { EnsembleMemberToolbar(route.name.ifBlank { stringResource(R.string.chat) }, back) },
+                            snackbarHost = { SnackbarHost(snackbars) },
+                        ) {
+                            if (state.preset == route.preset && state.chatId == route.room) {
+                                ArchivedChatHistory(
+                                    load = { before -> model.archivedHistory(route.preset, route.room, route.id, before) },
+                                    loadThumbnail = { model.thumbnail(AgentRole.Chat, it) },
+                                    displayAssets = remember(route, model, assetDownloader) {
+                                        DisplayAssets(model, assetDownloader, route.preset, route.room, route.id)
+                                    },
+                                )
+                            }
+                        }
                     }
                     page<AppRoute.EnsembleChat> { entry ->
                         val (room, conversation, privateParticipant) = entry.toRoute<AppRoute.EnsembleChat>()
@@ -501,6 +540,7 @@ fun MiniRP(model: ChatViewModel) {
                                     member?.name ?: stringResource(R.string.ensemble_private_messages),
                                     back,
                                     onTrace = { open(AppRoute.EnsembleTrace(room, privateParticipant)) },
+                                    onBackground = background != null,
                                 ) else ChatToolbar(
                                     state,
                                     onMenu = {},
@@ -519,6 +559,7 @@ fun MiniRP(model: ChatViewModel) {
                                             TranscriptTarget(state.preset, AgentRole.Chat, room, conversation))
                                     }.takeIf { state.chatId == room && state.ensembleChatId == conversation },
                                     onPresetHintSeen = chatHint.takeUnless { isChat },
+                                    onBackground = background != null,
                                 )
                             },
                             snackbarHost = { if (activePanel.isBlank()) SnackbarHost(snackbars) },
@@ -723,10 +764,13 @@ internal fun ChatToolbar(
     conversationTitle: String? = null,
     onPresetHintSeen: (() -> Unit)? = null,
     onExportTranscript: (() -> Unit)? = null,
+    onBackground: Boolean = false,
+    onArchive: (() -> Unit)? = null,
 ) {
     val hasChat = state.chatId.isNotEmpty()
     val motion = MaterialTheme.motionScheme
     TopAppBar(
+        colors = chatToolbarColors(onBackground),
         title = {
             if (hasChat) {
                 Text(
@@ -768,9 +812,24 @@ internal fun ChatToolbar(
                         fadeOut(motion.fastEffectsSpec()),
             ) {
                 ConversationActions(hasChat, open = onPanel, onPresetHintSeen = onPresetHintSeen,
-                    onExportTranscript = onExportTranscript, canExportTranscript = state.canExportTranscript)
+                    onExportTranscript = onExportTranscript, canExportTranscript = state.canExportTranscript,
+                    onArchive = onArchive)
             }
         },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun chatToolbarColors(onBackground: Boolean): TopAppBarColors {
+    if (!onBackground) return TopAppBarDefaults.topAppBarColors()
+    val scheme = MaterialTheme.colorScheme
+    return TopAppBarDefaults.topAppBarColors(
+        containerColor = scheme.primaryContainer,
+        scrolledContainerColor = scheme.primaryContainer,
+        navigationIconContentColor = scheme.onPrimaryContainer,
+        titleContentColor = scheme.onPrimaryContainer,
+        actionIconContentColor = scheme.onPrimaryContainer,
     )
 }
 
@@ -828,6 +887,7 @@ private fun ConversationActions(
     onPresetHintSeen: (() -> Unit)? = null,
     onExportTranscript: (() -> Unit)? = null,
     canExportTranscript: Boolean = false,
+    onArchive: (() -> Unit)? = null,
 ) {
     var menu by remember { mutableStateOf(false) }
     LaunchedEffect(enabled) { if (!enabled) menu = false }
@@ -861,6 +921,16 @@ private fun ConversationActions(
                 onClick = {
                     menu = false
                     onExportTranscript()
+                },
+            )
+        }
+        if (onArchive != null) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.ensemble_archived_chats)) },
+                leadingIcon = { Symbol("archive") },
+                onClick = {
+                    menu = false
+                    onArchive()
                 },
             )
         }

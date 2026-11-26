@@ -91,9 +91,9 @@ internal static class WebDesktop
         app.UseDefaultFiles();
         app.UseStaticFiles();
         app.MapGet("/api/events", (HttpContext context) => Events(session, context, app.Lifetime.ApplicationStopping));
-        app.MapGet("/api/transcript", async (HttpContext context) =>
+        async Task Transcript(HttpContext context, string operation)
         {
-            var command = new JsonObject { ["op"] = "transcript_page" };
+            var command = new JsonObject { ["op"] = operation };
             foreach (var key in new[] { "agent", "preset", "room", "conversation", "before" })
                 command[key] = context.Request.Query[key].ToString();
             var locale = context.Request.Query["locale"].ToString();
@@ -105,21 +105,17 @@ internal static class WebDesktop
             page.Remove("kind");
             page.Remove("request");
             await WriteJson(context, page);
-        });
-        app.MapGet("/api/settings", (HttpContext context) =>
-        {
-            var current = session.Settings.Desktop();
-            current["environment"] = session.Settings.LegacyConfiguration()["provider"]!.DeepClone();
-            current["default_research"] = session.Settings.LegacyConfiguration()["settings"]!.DeepClone();
-            return WriteJson(context, current);
-        });
+        }
+        app.MapGet("/api/transcript", (HttpContext context) => Transcript(context, "transcript_page"));
+        app.MapGet("/api/ensemble/archive", (HttpContext context) => Transcript(context, "ensemble_archive"));
+        app.MapGet("/api/settings", (HttpContext context) => WriteJson(context, session.Settings.DesktopForSettings()));
         app.MapPost("/api/settings", async (HttpContext context) =>
         {
             var settings = await ReadJson(context);
             ValidateSettings(settings);
             session.Settings.SaveDesktop(settings);
             session.Send(session.Settings.Configure(web: true));
-            await WriteJson(context, new() { ["ok"] = true });
+            await WriteJson(context, new() { ["ok"] = true, ["settings"] = session.Settings.DesktopForSettings() });
         });
         app.MapPost("/api/preferences", async (HttpContext context) =>
         {
@@ -302,6 +298,7 @@ internal static class WebDesktop
         } };
         foreach (var key in new[] { "url", "agent", "preset", "room", "conversation", "block" })
             command[key] = query[key].ToString();
+        if (mode == "background") command["frame"] = query["frame"].ToString();
         if (query["attachment"] is { Count: > 0 } attachment) command["attachment"] = JsonValues.ParseObject(attachment.ToString());
         using var limit = Timeout(context, 300);
         var info = (await session.Query(command, limit.Token)).GetObject("result");

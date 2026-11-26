@@ -16,8 +16,10 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -239,6 +241,43 @@ class NavigationTest {
         compose.waitUntil(10_000) { noticesLink.isDisplayed() }
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         settingRow(R.string.about).assertIsDisplayed()
+    }
+
+    @Test
+    fun descriptionModelsAreAssignedIndependentlyInModelSettings() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse.Builder().setHeader("Content-Type", "application/json").body("""{"data":[]}""").build())
+            server.start()
+            val provider = ProviderConfig(id = "media-fixture", name = "Media fixture", url = server.url("/v1").toString())
+            compose.runOnIdle {
+                model.saveProvider(provider)
+                model.enableModel(SavedModel(provider.id, Choice("text", "Text fixture", inputModalities = listOf("text"))), true)
+                model.enableModel(SavedModel(provider.id, Choice("vision", "Vision fixture", inputModalities = listOf("image"))), true)
+                model.enableModel(SavedModel(provider.id, Choice("audio", "Audio fixture", inputModalities = listOf("audio"))), true)
+            }
+            fun label(resource: Int) = compose.activity.getString(resource)
+            openSettingsCategory(R.string.model_provider_settings)
+            settingRow(R.string.models).performClick()
+            fun select(role: AgentRole) {
+                compose.onNodeWithTag("models-list").performScrollToKey("assignment:${role.id}")
+                settingRow(role.label).performClick()
+            }
+            fun choice(name: String) = compose.onNode(hasText(name) and hasClickAction() and hasAnyAncestor(isDialog()))
+            select(AgentRole.ImageDescription)
+            compose.onNodeWithText(label(R.string.image_description_help)).assertIsDisplayed()
+            choice("Text fixture").assertDoesNotExist()
+            choice("Audio fixture").assertDoesNotExist()
+            choice("Vision fixture").performClick()
+            select(AgentRole.AudioDescription)
+            compose.onNodeWithText(label(R.string.audio_description_help)).assertIsDisplayed()
+            choice("Audio fixture").performClick()
+            assertEquals("vision", model.state.value.assigned(AgentRole.ImageDescription)?.choice?.id)
+            assertEquals("audio", model.state.value.assigned(AgentRole.AudioDescription)?.choice?.id)
+            select(AgentRole.ImageDescription)
+            choice(label(R.string.media_description_off)).performClick()
+            assertEquals(null, model.state.value.assigned(AgentRole.ImageDescription))
+            assertEquals("audio", model.state.value.assigned(AgentRole.AudioDescription)?.choice?.id)
+        }
     }
 
     @Test

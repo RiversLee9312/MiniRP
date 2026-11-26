@@ -156,9 +156,13 @@ public sealed class ConversationFlowTests
         var events = await Run(engine, new() { ["op"] = "message", ["text"] = "Find it" }, "virtual_search", "I checked the cache.", "Cache search");
         var requests = events.Where(item => item.GetString("kind") == "http_request").Select(item => JsonValues.ParseObject(item.GetString("body"))).ToArray();
         var tools = requests[0].GetArray("tools").Select(tool => tool.GetObject("function").GetString("name")).ToArray();
-        CollectionAssert.Contains(tools, "real_fetch");
-        CollectionAssert.Contains(tools, "virtual_search");
-        CollectionAssert.DoesNotContain(tools, "search");
+        foreach (var tool in new[] { "search", "open_url", "real_search", "real_fetch", "virtual_search", "cache_search_results", "cache_page" })
+            CollectionAssert.Contains(tools, tool);
+        foreach (var tool in new[] { "submit_search_results", "submit_page", "fail_request", "finish_search", "finish_fetch" })
+            CollectionAssert.DoesNotContain(tools, tool);
+        var prompt = requests[0].GetArray("messages")[0].GetString("content");
+        StringAssert.Contains(prompt, "search-full");
+        Assert.IsFalse(prompt.Contains("direct-research", StringComparison.Ordinal));
         Assert.IsTrue(requests.All(request => request.GetString("model") != "search-fixture"));
         Assert.IsTrue(events.Any(item => item.GetString("agent") == "ChatAgent" && item.GetString("name") == "virtual_search"));
     }

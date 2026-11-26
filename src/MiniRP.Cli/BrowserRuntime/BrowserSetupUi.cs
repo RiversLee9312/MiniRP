@@ -159,7 +159,7 @@ internal static class BrowserSetupUi
 
     internal static BrowserSetupDeferredException Deferred() => new();
     private static string Describe(CefRuntimeRelease release) =>
-        $"MiniRP needs CEF to open its WebUI window and let FetchAgent read pages. Download size: {release.DownloadBytes / 1048576d:F0} MiB.";
+        $"MiniRP needs CEF to open its WebUI window and let BrowserAgent read pages. Download size: {release.DownloadBytes / 1048576d:F0} MiB.";
     private static int Percent(CefInstallProgress p) => p.Phase == "downloading" && p.TotalBytes > 0
         ? (int)Math.Clamp(100d * p.BytesReceived / p.TotalBytes, 0, 99) : 99;
     private static string Describe(CefInstallProgress p) => p.Phase switch

@@ -12,9 +12,11 @@ public sealed partial class AgentSession
         var content = new StringBuilder();
         var reasoning = new StringBuilder();
         var calls = new SortedDictionary<int, JsonObject>();
+        var pendingCalls = new Dictionary<int, JsonObject>();
         var output = new SortedDictionary<int, JsonObject>();
         var parts = new Dictionary<(string Kind, int Output, int Part), StringBuilder>();
         var promptTokens = 0;
+        var awaitingCompletion = false;
 
         void Feed(string kind, string text)
         {
@@ -38,13 +40,18 @@ public sealed partial class AgentSession
                 text = text[seen.Length..];
             }
             seen.Append(text);
-            Feed(kind == "content" ? kind : "reasoning", text);
+            Feed(kind is "content" or "refusal" ? "content" : "reasoning", text);
         }
 
         void CompleteItem(JsonObject item, int index)
         {
             output[index] = (JsonObject)item.DeepClone();
-            if (item.GetString("type") == "function_call") calls[index] = FunctionCall(item);
+            if (item.GetString("type") == "function_call")
+            {
+                if (item.GetString("status") == "incomplete") throw new IOException("The model did not finish the function call.");
+                pendingCalls.Remove(index);
+                calls[index] = FunctionCall(item);
+            }
             var summary = item.GetArray("summary");
             if (summary.Count > 0 && !parts.Keys.Any(part => part.Output == index && part.Kind == "reasoning-text"))
             {
@@ -57,11 +64,34 @@ public sealed partial class AgentSession
                 var block = contentParts[part];
                 if (block.GetString("type") == "output_text")
                     FeedPart("content", index, part, block.GetString("text"), complete: true);
+                else if (block.GetString("type") == "refusal")
+                {
+                    if (requireComplete) throw IncompleteCheckpoint();
+                    FeedPart("refusal", index, part, block.GetString("refusal"), complete: true);
+                }
                 else if (summary.Count == 0 && item.GetString("type") == "reasoning" &&
                          !parts.Keys.Any(part => part.Output == index && part.Kind == "summary"))
                     FeedPart("reasoning-text", index, part, block.GetString("text"), complete: true);
             }
         }
+
+        void CompleteResponse(JsonObject response)
+        {
+            var status = response.GetString("status");
+            if (response["error"] is not null || status == "failed")
+                throw new IOException(response.GetObject("error").GetString("message", "The model response failed."));
+            if (status == "incomplete") throw IncompleteResponse(response);
+            if (status is "queued" or "in_progress" or "cancelled")
+                throw new IOException("The model response did not finish.");
+            awaitingCompletion = false;
+            promptTokens = response.GetObject("usage").GetInt32("input_tokens", promptTokens);
+            var position = 0;
+            foreach (var completed in response.GetArray("output").OfType<JsonObject>())
+                CompleteItem(completed, position++);
+        }
+
+        IOException IncompleteResponse(JsonObject response) => requireComplete ? IncompleteCheckpoint() :
+            new IOException("The model response was incomplete: " + response.GetObject("incomplete_details").GetString("reason", "unknown"));
 
         await foreach (var item in ModelEvents.Read(port, request, false, cancellationToken))
         {
@@ -71,10 +101,23 @@ public sealed partial class AgentSession
             switch (type)
             {
                 case "error":
+                    throw new IOException(item.GetString("message", item.GetObject("error").GetString("message", "The model response failed.")));
                 case "response.failed":
-                    throw new IOException(JsonValues.Serialize(item));
+                    throw new IOException(item.GetObject("response").GetObject("error").GetString("message", "The model response failed."));
+                case "response.created":
+                case "response.in_progress":
+                    awaitingCompletion = true;
+                    break;
                 case "response.output_text.delta":
-                    FeedPart("content", index, item.GetInt32("content_index"), item.GetString("delta"));
+                case "response.output_text.done":
+                    FeedPart("content", index, item.GetInt32("content_index"), item.GetString("delta", item.GetString("text")),
+                        complete: type == "response.output_text.done");
+                    break;
+                case "response.refusal.delta":
+                case "response.refusal.done":
+                    if (requireComplete) throw IncompleteCheckpoint();
+                    FeedPart("refusal", index, item.GetInt32("content_index"), item.GetString("delta", item.GetString("refusal")),
+                        complete: type == "response.refusal.done");
                     break;
                 case "response.reasoning_summary_text.delta":
                 case "response.reasoning_summary_text.done":
@@ -91,37 +134,31 @@ public sealed partial class AgentSession
                             item.GetString("delta", item.GetString("text")), complete: type == "response.reasoning_text.done");
                     break;
                 case "response.output_item.added" when block.GetString("type") == "function_call":
-                    calls[index] = FunctionCall(block);
+                    pendingCalls[index] = block;
                     break;
-                case "response.function_call_arguments.delta":
-                    if (calls.TryGetValue(index, out var call))
+                case "response.function_call_arguments.done":
+                    if (pendingCalls.TryGetValue(index, out var call) && item["arguments"] is JsonValue arguments)
                     {
-                        call.GetObject("function")["arguments"] = call.GetObject("function").GetString("arguments") + item.GetString("delta");
+                        call["arguments"] = arguments.DeepClone();
+                        call["status"] = "completed";
+                        CompleteItem(call, index);
                     }
                     break;
                 case "response.output_item.done":
                     CompleteItem(block, index);
                     break;
                 case "response.completed":
-                case "response.incomplete":
-                    if (requireComplete && type == "response.incomplete") throw IncompleteCheckpoint();
-                    var response = item.GetObject("response");
-                    promptTokens = response.GetObject("usage").GetInt32("input_tokens", promptTokens);
-                    var position = 0;
-                    foreach (var completed in response.GetArray("output").OfType<JsonObject>())
-                        CompleteItem(completed, position++);
+                    CompleteResponse(item.GetObject("response"));
                     break;
+                case "response.incomplete":
+                    throw IncompleteResponse(item.GetObject("response"));
             }
             // Some compatible providers ignore stream=true and return a complete response.
-            if ((type == "response" || item.GetString("object") == "response") && item["output"] is JsonArray complete)
-            {
-                if (requireComplete && item.GetString("status") == "incomplete") throw IncompleteCheckpoint();
-                promptTokens = item.GetObject("usage").GetInt32("input_tokens", promptTokens);
-                var position = 0;
-                foreach (var completed in complete.OfType<JsonObject>())
-                    CompleteItem(completed, position++);
-            }
+            if (type == "response" || item.GetString("object") == "response") CompleteResponse(item);
+            else if (item["error"] is not null) throw new IOException(item.GetObject("error").GetString("message", "The model response failed."));
         }
+        if (awaitingCompletion || pendingCalls.Count > 0)
+            throw new ModelEvents.Interrupted(new HostPort.HttpTransportError("The Responses stream ended before completion."), responseStarted: true);
         if (promptTokens > 0) inputUsage?.Invoke(promptTokens);
         var result = new JsonObject { ["role"] = "assistant", ["content"] = content.ToString() };
         if (reasoning.Length > 0)
@@ -195,8 +232,8 @@ public sealed partial class AgentSession
                     break;
                 default:
                     input.AddNode(new JsonObject { ["role"] = "user", ["content"] = message is not null && media.TryGetValue(message, out var attachments)
-                        ? MessageAttachments.Parts(provider.Protocol, MessageAttachments.Text(message), attachments)
-                        : JsonValue.Create(MessageAttachments.Text(message)) });
+                        ? MessageAttachments.Parts(provider.Protocol, MessageAttachments.RequestText(message), attachments)
+                        : JsonValue.Create(MessageAttachments.RequestText(message)) });
                     break;
             }
         }

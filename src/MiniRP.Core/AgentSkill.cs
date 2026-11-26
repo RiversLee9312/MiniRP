@@ -14,8 +14,10 @@ public sealed class AgentSkill(
     string DisplayName = "")
 {
     public string Name { get; } = Name;
+    internal static readonly AgentSkill SubagentTask = new("subagent-task", "Complete the delegated task.", new(),
+        (_, _, _) => throw new InvalidOperationException(), Required: true);
     internal Func<string, string, string, bool, ToolPresentation?>? PresentTool { get; init; }
-    internal JsonObject? PluginToolSource { get; init; }
+    internal Func<string, JsonObject?>? PluginToolSource { get; init; }
     private readonly string displayName = DisplayName;
     private readonly string description = Description;
     private readonly string instructions = Instructions;
@@ -45,8 +47,7 @@ public sealed class AgentSkill(
             if (catalog.ContainsKey(Management) || catalog.Keys.Any(string.IsNullOrWhiteSpace))
                 throw new ArgumentException("Skills must have a name distinct from the runtime management skill.");
 
-            var retained = previouslyActive?.ToHashSet(StringComparer.Ordinal);
-            if (retained?.Contains("assets") == true) retained.Add("view_asset");
+            var retained = previouslyActive?.Select(AvailableSkillId).ToHashSet(StringComparer.Ordinal);
             foreach (var skill in catalog.Values)
                 if (skill.required || retained?.Contains(skill.Name) == true) active.Add(skill.Name);
 
@@ -96,7 +97,7 @@ public sealed class AgentSkill(
             offered.TryGetValue(name, out var tool) ? tool.Owner.PresentTool?.Invoke(name, phase, text, plain) : null;
 
         public JsonObject? TraceSource(string name) => offered.TryGetValue(name, out var tool)
-            ? tool.Owner.PluginToolSource is { } plugin ? (JsonObject)plugin.DeepClone()
+            ? tool.Owner.PluginToolSource?.Invoke(name) is { } plugin ? (JsonObject)plugin.DeepClone()
                 : new() { ["kind"] = "native", ["skill"] = tool.Owner.Name }
             : null;
 
@@ -126,10 +127,21 @@ public sealed class AgentSkill(
             return result;
         }
 
+        private string AvailableSkillId(string id)
+        {
+            if (catalog.ContainsKey(id)) return id;
+            return id switch
+            {
+                "web-research" or "research" or "direct-research" => catalog.ContainsKey("search-full") ? "search-full" : "search",
+                _ => BuiltInSkillIds.Current(id)
+            };
+        }
+
         private Task<JsonNode?> ActivateSkill(string _, JsonObject args, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            if (!catalog.TryGetValue(args.GetString("name"), out var skill))
+            var id = args.GetString("name");
+            if (!catalog.TryGetValue(AvailableSkillId(id), out var skill))
                 throw new ToolFailure("This skill is unavailable in this session.", "skill_unavailable", "availability",
                     "Use the exact name of an available skill.", new() { ["available_skills"] =
                         new JsonArray(catalog.Keys.Select(name => (JsonNode?)JsonValue.Create(name)).ToArray()) });

@@ -224,4 +224,14 @@
     <string name="ensemble_member_trace">บันทึกกิจกรรม</string>
     <string name="ensemble_no_trace">ยังไม่มีกิจกรรม</string>
     <string name="ensemble_trace_load_failed">โหลดกิจกรรมไม่ได้</string>
+    <string name="image_description_model">โมเดลบรรยายภาพ</string>
+    <string name="audio_description_model">โมเดลบรรยายเสียง</string>
+    <string name="media_description_off">ปิด</string>
+    <string name="image_description_help">ส่งภาพให้โมเดลนี้เมื่อโมเดลตอบกลับอ่านภาพไม่ได้</string>
+    <string name="audio_description_help">ส่งเสียงให้โมเดลนี้เมื่อโมเดลตอบกลับประมวลผลเสียงไม่ได้</string>
+    <string name="describe_images_for_model">ใช้คำบรรยายภาพ</string>
+    <string name="describe_audio_for_model">ใช้คำบรรยายเสียง</string>
+    <string name="ensemble_archived_chats">แชตที่เก็บถาวร</string>
+    <string name="ensemble_no_archived_chats">ไม่มีแชตที่เก็บถาวร</string>
+    <string name="ensemble_archive_empty_history">ไม่มีข้อความ</string>
 </resources>

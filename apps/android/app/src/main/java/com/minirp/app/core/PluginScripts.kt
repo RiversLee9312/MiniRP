@@ -1,5 +1,6 @@
 package com.minirp.app.core
 
+import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.caoccao.javet.enums.V8ValueType
@@ -8,14 +9,18 @@ import com.caoccao.javet.interop.V8Runtime
 import com.caoccao.javet.values.reference.V8ValueObject
 import com.caoccao.javet.values.reference.V8ValueTypedArray
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 
 internal class PluginScripts(
+    private val cryptoContext: Context? = null,
     private val createRuntime: () -> V8Runtime = { V8Host.getV8Instance().createV8Runtime() }
 ) {
     private val isolates = ConcurrentHashMap<String, Runner>()
@@ -28,7 +33,7 @@ internal class PluginScripts(
         val id = request.getString("isolate")
         val runner =
             if (request.getString("action") == "load")
-                isolates.computeIfAbsent(id) { Runner(createRuntime) }
+                isolates.computeIfAbsent(id) { Runner(cryptoContext, createRuntime) }
             else isolates[id]
         return {
             check(Build.VERSION.SDK_INT >= 29) { "V8 plugins require Android 10 or later." }
@@ -57,11 +62,13 @@ internal class PluginScripts(
         for (id in isolates.keys.toList()) detach(id)?.invoke()
     }
 
-    private class Runner(private val createRuntime: () -> V8Runtime) {
+    private class Runner(private val cryptoContext: Context?, private val createRuntime: () -> V8Runtime) {
         private val mutex = Mutex()
         private val interruption = Any()
-        private var execution: CancellableContinuation<JSONObject>? = null
+        private var execution: CancellableContinuation<*>? = null
         private var runtime: V8Runtime? = null
+        private var crypto: V8ValueObject? = null
+        private var cryptoProvider: PluginWebCrypto? = null
         @Volatile
         var retired = false
             private set
@@ -75,50 +82,71 @@ internal class PluginScripts(
             try {
                 val loaded = runtime != null
                 val current = runtime ?: createRuntime().also { runtime = it }
-                current
-                    .getGuard(2_000)
-                    .apply { setDebugModeEnabled(true) }
-                    .use { guard ->
-                        suspendCancellableCoroutine { continuation ->
-                            continuation.invokeOnCancellation {
-                                synchronized(interruption) {
-                                    if (execution === continuation) {
-                                        // Termination can arrive just before V8 starts executing.
-                                        guard.setTimeoutMillis(1)
-                                        current.terminateExecution()
-                                    }
-                                }
+                withRuntime(current) { ensureActive ->
+                    if (!loaded && request.optString("web_crypto").isNotEmpty()) {
+                        crypto = PluginWebCrypto.install(current, request.getString("web_crypto"))
+                        cryptoProvider = cryptoContext?.let { PluginWebCrypto(it, request.getString("web_crypto_provider")) }
+                    }
+                    execute(current, loaded, request, read, ensureActive)
+                }
+                crypto?.let { bridge ->
+                    withTimeout(60_000) {
+                        while (true) {
+                            val pending = withRuntime(current) { bridge.invokeString("take") }
+                            if (pending.isEmpty()) break
+                            val context = coroutineContext
+                            val reply = checkNotNull(cryptoProvider).run(pending) {
+                                context.ensureActive()
+                                if (retired) throw CancellationException("Plugin isolate is closed")
                             }
-                            synchronized(interruption) {
-                                execution = continuation
-                                if (retired) continuation.cancel()
-                            }
-                            val ensureActive = {
-                                if (!continuation.isActive)
-                                    throw CancellationException("Plugin execution was cancelled")
-                            }
-                            val result = runCatching {
-                                ensureActive()
-                                execute(current, loaded, request, read, write, ensureActive)
-                            }
-                            synchronized(interruption) { execution = null }
-                            continuation.resumeWith(result)
+                            withRuntime(current) { bridge.invokeVoid("reply", reply) }
                         }
                     }
+                }
+                if (request.getString("action") in setOf("load", "finish")) JSONObject()
+                else withRuntime(current) { poll(current, request, write) }
             } catch (failure: Throwable) {
                 runCatching { closeLocked() }.exceptionOrNull()?.let(failure::addSuppressed)
                 throw failure
             }
         }
 
+        private suspend fun <T> withRuntime(current: V8Runtime, work: (() -> Unit) -> T): T =
+            current.getGuard(2_000).apply { setDebugModeEnabled(true) }.use { guard ->
+                suspendCancellableCoroutine { continuation ->
+                    continuation.invokeOnCancellation {
+                        synchronized(interruption) {
+                            if (execution === continuation) {
+                                // Termination can arrive just before V8 starts executing.
+                                guard.setTimeoutMillis(1)
+                                current.terminateExecution()
+                            }
+                        }
+                    }
+                    synchronized(interruption) {
+                        execution = continuation
+                        if (retired) continuation.cancel()
+                    }
+                    val ensureActive = {
+                        if (!continuation.isActive)
+                            throw CancellationException("Plugin execution was cancelled")
+                    }
+                    val result = runCatching {
+                        ensureActive()
+                        work(ensureActive)
+                    }
+                    synchronized(interruption) { execution = null }
+                    continuation.resumeWith(result)
+                }
+            }
+
         private fun execute(
             runtime: V8Runtime,
             loaded: Boolean,
             request: JSONObject,
             read: (String) -> ByteArray,
-            write: (String, ByteArray) -> Unit,
             ensureActive: () -> Unit,
-        ): JSONObject {
+        ) {
             val action = request.getString("action")
             if (action == "load") {
                 if (!loaded) {
@@ -128,7 +156,7 @@ internal class PluginScripts(
                     if (modules != null) PluginModules(modules).load(runtime, request.getString("entry"))
                     else runtime.getExecutor(request.getString("source")).executeVoid()
                 }
-                return JSONObject()
+                return
             }
             check(loaded) { "Plugin isolate has not loaded" }
             val run = quote(request.getString("run"))
@@ -136,7 +164,7 @@ internal class PluginScripts(
                 runtime
                     .getExecutor("__minirp.finish($run,${request.optBoolean("abort")})")
                     .executeVoid()
-                return JSONObject()
+                return
             }
             if (action == "start") {
                 runtime
@@ -176,6 +204,10 @@ internal class PluginScripts(
                     }
                 }
             }
+        }
+
+        private fun poll(runtime: V8Runtime, request: JSONObject, write: (String, ByteArray) -> Unit): JSONObject {
+            val run = quote(request.getString("run"))
             val result = JSONObject(runtime.getExecutor("__minirp.poll($run)").executeString())
             if (result.optBoolean("binary")) {
                 runtime
@@ -198,11 +230,15 @@ internal class PluginScripts(
 
         suspend fun close() = mutex.withLock { closeLocked() }
 
-        private fun closeLocked() {
+        private suspend fun closeLocked() {
             retired = true
             val former = runtime
             runtime = null
-            former?.close()
+            try { cryptoProvider?.close() }
+            finally {
+                try { crypto?.close() }
+                finally { former?.close() }
+            }
         }
 
         private fun quote(text: String) =

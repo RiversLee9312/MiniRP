@@ -24,6 +24,11 @@ public sealed partial class Engine : IAsyncDisposable
         public Provider For(string role) => Agents[role] is JsonObject value
             ? Provider.From(value)
             : role == "plugin" ? For("preset") : Default;
+        public (Provider? Image, Provider? Audio) DescriptionModels => (Description("image_description"), Description("audio_description"));
+
+        private Provider? Description(string role) =>
+            Agents[role] is JsonObject value && Provider.From(value) is { Url.Length: > 0, Model.Length: > 0 } provider
+                ? provider with { DescribeImages = false, DescribeAudio = false } : null;
     }
 
     private readonly Task<WorkspaceCatalog> catalog;
@@ -41,6 +46,7 @@ public sealed partial class Engine : IAsyncDisposable
     private readonly AgentContainer.Rooms containers;
     private readonly AgentContainer.Rooms presetContainers;
     private bool curlAvailable;
+    private bool mediaAvailable;
     private readonly PluginAgentCoordinator pluginAgents;
 
     public Workspace Workspace
@@ -75,9 +81,10 @@ public sealed partial class Engine : IAsyncDisposable
         containers = new(Port, Workspace.Root);
         presetContainers = new(Port, Workspace.Root);
         agentSessions = new(Port, plugins, attachmentRoot, () => turnRouting.Settings.GetString("android_open_ui"), () => Workspace, containers,
-            () => curlAvailable, presetContainers, () => operationLocale.Value);
+            () => curlAvailable, presetContainers, () => operationLocale.Value, () => mediaAvailable,
+            () => Volatile.Read(ref routing).DescriptionModels);
         pluginAgents = new(Workspace.Root, agentSessions, plugins, () => Volatile.Read(ref routing).For("plugin"),
-            (world, trace) => CreatePageSource(world, SessionFiles.PresetDirectory(world.Root, world.PresetId), forPreset: true, workerTrace: trace),
+            (world, trace) => CreatePageSource(world, SessionFiles.PresetDirectory(world.Root, world.PresetId), owner: "PluginAgent", workerTrace: trace),
             () =>
             {
                 EmitPluginList();
@@ -164,6 +171,9 @@ public sealed partial class Engine : IAsyncDisposable
                 break;
             case "transcript_page":
                 _ = Task.Run(() => TranscriptPage(command));
+                break;
+            case "ensemble_archive":
+                _ = Task.Run(() => ReadEnsembleArchive(command));
                 break;
             case "asset_open":
             case "display_asset_open":
@@ -572,7 +582,7 @@ public sealed partial class Engine : IAsyncDisposable
 
         search = new(Workspace, sessions["search"], nextWeb);
         chat = new(Workspace, sessions["chat"], search);
-        environment = new(Workspace, sessions["env"]);
+        environment = new(Workspace, sessions["env"], CreatePageSource(Workspace, Workspace.ChatRoot, owner: "EnvAgent"));
         presets = CreatePresetAgent(sessions["preset"]);
         if (string.IsNullOrEmpty(id)) Workspace.Save();
         if (nextEnsemble is not null)
@@ -614,35 +624,37 @@ public sealed partial class Engine : IAsyncDisposable
         }
     }
 
-    private PageSource CreatePageSource(Workspace workspace, string sessionRoot, bool forPreset = false, Action<JsonObject>? workerTrace = null)
+    private PageSource CreatePageSource(Workspace workspace, string sessionRoot, string? owner = null, Action<JsonObject>? workerTrace = null)
     {
         var workerRouting = workerTrace is null ? null : Volatile.Read(ref routing);
         Routing Selected() => workerRouting ?? turnRouting;
-        var fetch = new FetchAgent(Port, job =>
+        var browser = new BrowserAgent(Port, job =>
         {
-            var context = forPreset ? new JsonObject { ["agent"] = "fetch", ["preset"] = workspace.PresetId } : PluginEnvironment("fetch");
+            var context = owner is "PresetAgent" or "PluginAgent"
+                ? new JsonObject { ["agent"] = "fetch", ["preset"] = workspace.PresetId }
+                : PluginEnvironment("fetch");
             var session = "fetch-" + job;
             context["session"] = session;
             return agentSessions.Open("fetch", SessionFiles.Fetch(sessionRoot, job), () => Selected().For("fetch"),
                 () => context, (item, info) =>
                 {
                     item["session"] = session;
-                    if (forPreset)
+                    if (owner is not null)
                     {
-                        item["agent"] = workerTrace is null ? "PresetAgent" : "PluginAgent";
-                        item["speaker"] = "FetchAgent";
+                        item["agent"] = owner;
+                        item["speaker"] = "BrowserAgent";
                     }
                     if (workerTrace is null) Record(item, sessionInfo: info);
                     else workerTrace(item);
                 });
         }, () => workspace.AgentPrompt("fetch"));
-        return new(Port, fetch, () => Selected().Settings);
+        return new(Port, browser, () => Selected().Settings);
     }
 
     private PresetAgent CreatePresetAgent(AgentSession session)
     {
         var preset = Workspace.PresetId;
-        var web = CreatePageSource(Workspace, SessionFiles.PresetDirectory(Workspace.Root, preset), forPreset: true);
+        var web = CreatePageSource(Workspace, SessionFiles.PresetDirectory(Workspace.Root, preset), owner: "PresetAgent");
         return new(Workspace, session, plugins, web);
     }
 
@@ -650,7 +662,7 @@ public sealed partial class Engine : IAsyncDisposable
     {
         var session = agentSessions.Open(role, database, () => turnRouting.For(role), () => PluginEnvironment(role),
             (item, info) => Record(item, sessionInfo: info),
-            () => ModeSkills(role, workspace),
+            () => EnsembleSkills(role),
             role == "env" ? target => ensemble?.List().Any(chat => chat.GetString("id") == target) == true : null,
             presetWorkspace: role == "preset" ? workspace : null);
         try
@@ -715,6 +727,7 @@ public sealed partial class Engine : IAsyncDisposable
         {
             plugins.RequireGeneration(pluginId, command.GetString("_plugin_generation"), command.GetString("preset"));
             if (command.GetString("action") is not ("createChat" or "createRoom" or "createPreset")) RequirePreset(command);
+            if (command.GetString("op") == "system_message") RequireChat(command);
             if (command["_character_origin"] is JsonObject actor)
                 RequirePluginMembership(actor, command.GetString("chat"), command.GetString("conversation"), command);
         }
@@ -726,6 +739,9 @@ public sealed partial class Engine : IAsyncDisposable
                 return;
             case "_curl_available":
                 curlAvailable = true;
+                return;
+            case "_ffmpeg_available":
+                mediaAvailable = true;
                 return;
             case "_preset_plugin_notifications":
                 await RunPresetNotifications(command.GetString("preset"), token);

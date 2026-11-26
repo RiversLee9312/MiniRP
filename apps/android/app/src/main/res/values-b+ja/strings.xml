@@ -224,4 +224,14 @@
     <string name="ensemble_member_trace">アクティビティ ログ</string>
     <string name="ensemble_no_trace">まだアクティビティはありません</string>
     <string name="ensemble_trace_load_failed">アクティビティを読み込めませんでした。</string>
+    <string name="image_description_model">画像説明モデル</string>
+    <string name="audio_description_model">音声説明モデル</string>
+    <string name="media_description_off">オフ</string>
+    <string name="image_description_help">応答モデルが画像を読み取れない場合、画像をこのモデルに送信します。</string>
+    <string name="audio_description_help">応答モデルが音声を処理できない場合、音声をこのモデルに送信します。</string>
+    <string name="describe_images_for_model">画像の説明を使う</string>
+    <string name="describe_audio_for_model">音声の説明を使う</string>
+    <string name="ensemble_archived_chats">アーカイブ済みのチャット</string>
+    <string name="ensemble_no_archived_chats">アーカイブ済みのチャットはありません</string>
+    <string name="ensemble_archive_empty_history">メッセージはありません</string>
 </resources>

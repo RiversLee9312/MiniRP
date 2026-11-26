@@ -35,7 +35,11 @@
         "/skills/0/description": "报告和显示当前值班状态。",
         "/skills/0/instructions": "使用状态前先读取。变化尚未核实时，请求确认。用户询问状态时显示值班卡。",
         "/skills/0/tools/0/title": "上报值班状态",
-        "/skills/0/tools/0/description": "报告一条已核实的值班状态变动。"
+        "/skills/0/tools/0/description": "报告一条已核实的值班状态变动。",
+        "/skills/1/title": "值班通知",
+        "/skills/1/description": "向当前普通对话发送经核实的值班更新。",
+        "/skills/1/tools/0/title": "发送值班通知",
+        "/skills/1/tools/0/description": "将经核实的状态更新作为系统消息送给当前普通对话的 ChatAgent。"
       },
       "zh-Hant": {
         "/cards/0/title": "值班狀態",
@@ -45,12 +49,16 @@
         "/cards/2/title": "已儲存的狀態",
         "/cards/2/labels/current": "已記錄",
         "/skills/0/title": "值班狀態",
-        "/skills/0/tools/0/title": "回報值班狀態"
+        "/skills/0/tools/0/title": "回報值班狀態",
+        "/skills/1/title": "值班通知",
+        "/skills/1/description": "向目前的普通對話傳送經核實的值班更新。",
+        "/skills/1/tools/0/title": "傳送值班通知",
+        "/skills/1/tools/0/description": "將經核實的狀態更新作為系統訊息傳送給目前普通對話的 ChatAgent。"
       }
     }
   },
   "actions": {
-    "handlers": { "report": "report", "status-changed": "statusChanged" }
+    "handlers": { "report": "report", "status-changed": "statusChanged", "notify-status": "notifyStatus" }
   },
   "stateEntries": [
     {
@@ -103,6 +111,25 @@
           },
           "handler": "minirp://actions/example.minichat.roomstatus/hooks/report",
           "presentation": { "arguments": "report-input", "result": "report-output" }
+        }
+      ]
+    },
+    {
+      "name": "notifications",
+      "title": "Station notifications",
+      "description": "Send a verified station update to the current regular conversation.",
+      "agents": ["env"],
+      "tools": [
+        {
+          "name": "notify_status",
+          "title": "Send station notification",
+          "description": "Give the current regular conversation's ChatAgent a verified update as a system message.",
+          "parameters": {
+            "type": "object",
+            "properties": { "text": { "type": "string", "minLength": 1, "maxLength": 16000 } },
+            "required": ["text"]
+          },
+          "handler": "minirp://actions/example.minichat.roomstatus/hooks/notify-status"
         }
       ]
     }

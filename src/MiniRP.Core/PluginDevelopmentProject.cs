@@ -24,20 +24,20 @@ internal sealed class PluginDevelopmentProject(string root, string id, string pr
         ct.ThrowIfCancellationRequested();
         switch (action)
         {
-            case "project_debug":
-            case "project_publish":
-                return await Build(draft, action == "project_publish", args, ct);
-            case "project_verify":
+            case "plugin_debug":
+            case "plugin_publish":
+                return await Build(draft, action == "plugin_publish", args, ct);
+            case "plugin_verify":
                 var package = runtime.DevelopmentDeployment(PackageId, DeploymentSigner());
                 var workspace = Path.Combine(root, ".verify-" + WorkspaceIds.New());
                 try { return await Verify(package, workspace, args, ct); }
                 finally { if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true); }
-            case "project_card_catalog":
+            case "plugin_card_catalog":
                 return await runtime.OpenUiCatalog(args, ct);
-            case "project_card_preview":
+            case "plugin_card_preview":
                 var card = PluginPackage.Identifier(args.GetString("id"));
                 return await Build(draft, false, args, ct, card, imageOutput);
-            case "project_remove":
+            case "plugin_uninstall":
                 runtime.RemoveDevelopment(PackageId, DeploymentSigner());
                 changed();
                 return new JsonObject { ["removed"] = true, ["id"] = PackageId };
@@ -104,7 +104,7 @@ internal sealed class PluginDevelopmentProject(string root, string id, string pr
     {
         var deployment = Path.Combine(root, "deployment.json");
         if (!File.Exists(deployment))
-            throw new InvalidOperationException("This project has no deployment. Use project_publish before testing the installed plugin.");
+            throw new InvalidOperationException("This project has no deployment. Use plugin_publish before testing the installed plugin.");
         return JsonValues.ParseObject(File.ReadAllText(deployment)).GetString("signer");
     }
 

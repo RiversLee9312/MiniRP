@@ -226,4 +226,14 @@
     <string name="ensemble_member_trace">Aktivitetslogg</string>
     <string name="ensemble_no_trace">Ingen aktivitet än</string>
     <string name="ensemble_trace_load_failed">Aktiviteten kunde inte läsas in.</string>
+    <string name="image_description_model">Modell för bildbeskrivningar</string>
+    <string name="audio_description_model">Modell för ljudbeskrivningar</string>
+    <string name="media_description_off">Av</string>
+    <string name="image_description_help">Bilder skickas till den här modellen när svarsmodellen inte kan läsa dem.</string>
+    <string name="audio_description_help">Ljud skickas till den här modellen när svarsmodellen inte kan behandla det.</string>
+    <string name="describe_images_for_model">Använd bildbeskrivningar</string>
+    <string name="describe_audio_for_model">Använd ljudbeskrivningar</string>
+    <string name="ensemble_archived_chats">Arkiverade chattar</string>
+    <string name="ensemble_no_archived_chats">Inga arkiverade chattar</string>
+    <string name="ensemble_archive_empty_history">Inga meddelanden</string>
 </resources>

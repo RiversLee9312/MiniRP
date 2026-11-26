@@ -61,6 +61,7 @@ data class TraceBlock(
             if (agent == "PluginAgent") AgentRole.Preset
             else
                 AgentRole.entries.firstOrNull { it.id == agent || it.agentName == agent }
+                    ?: AgentRole.Browser.takeIf { agent == "FetchAgent" }
                     ?: AgentRole.Chat
 }
 
@@ -92,8 +93,17 @@ enum class AgentRole(val id: String, val agentName: String, val label: Int) {
     World("env", "EnvAgent", com.minirp.app.R.string.world),
     Preset("preset", "PresetAgent", com.minirp.app.R.string.preset),
     Plugin("plugin", "PluginAgent", com.minirp.app.R.string.plugin_agent),
-    Fetch("fetch", "FetchAgent", com.minirp.app.R.string.fetch_agent),
+    Browser("fetch", "BrowserAgent", com.minirp.app.R.string.fetch_agent),
     Title("title", "TitleAgent", com.minirp.app.R.string.title_model),
+    ImageDescription("image_description", "ImageDescription", com.minirp.app.R.string.image_description_model),
+    AudioDescription("audio_description", "AudioDescription", com.minirp.app.R.string.audio_description_model);
+
+    val descriptionKind: String?
+        get() = when (this) {
+            ImageDescription -> "image"
+            AudioDescription -> "audio"
+            else -> null
+        }
 }
 
 internal const val DEFAULT_COMPACTION_PERCENT = 80
@@ -110,7 +120,10 @@ data class SavedModel(
     val choice: Choice,
     val compaction: CompactionSettings = CompactionSettings(),
     val reasoningEffort: String = "",
+    val mediaInput: MediaInputSettings = MediaInputSettings(),
 )
+
+data class MediaInputSettings(val describeImages: Boolean = false, val describeAudio: Boolean = false)
 
 data class ModelCatalog(
     val choices: List<Choice> = emptyList(),
@@ -127,7 +140,14 @@ data class EnsembleActivity(val conversation: String, val participant: String, v
 
 internal data class EnsembleTraceScene(val id: String, val name: String, val blocks: List<TraceBlock>)
 
-data class RoomLoading(val id: String, val ready: Int, val total: Int, val progress: Float, val messages: List<String>)
+data class RoomLoading(
+    val id: String,
+    val ready: Int,
+    val total: Int,
+    val progress: Float,
+    val messages: List<String>,
+    val declaredProgress: Boolean = false,
+)
 
 enum class PresetEditorPhase {
     Closed,
@@ -198,5 +218,5 @@ data class ChatState(
     fun assigned(role: AgentRole): SavedModel? =
         assignments[role]
             ?: assignments[AgentRole.Preset].takeIf { role == AgentRole.Plugin }
-            ?: assignments[AgentRole.Chat]
+            ?: assignments[AgentRole.Chat].takeIf { role.descriptionKind == null }
 }

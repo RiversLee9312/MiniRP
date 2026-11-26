@@ -102,10 +102,21 @@ class PluginAgentResourcesDeviceTest {
                     val history = (0 until messages.length()).map(messages::getJSONObject)
                     val result = history.lastOrNull { it.optString("role") == "tool" }?.getString("content").orEmpty()
                     val prompt = history.first().getString("content")
+                    val tools = body.getJSONArray("tools")
+                    val names = (0 until tools.length()).map { tools.getJSONObject(it).getJSONObject("function").getString("name") }.toSet()
+                    val publicSearch = setOf("search", "open_url")
+                    val fullSearch = setOf("real_search", "real_fetch", "virtual_search", "cache_search_results", "cache_page")
+                    assertTrue(names.containsAll(publicSearch))
+                    if (prompt.startsWith("You are BrowserAgent")) {
+                        assertTrue(names.containsAll(fullSearch + setOf("capture_page", "finish_fetch", "fail_request")))
+                        assertTrue("finish_search" !in names)
+                    } else {
+                        assertTrue(names.intersect(fullSearch).isEmpty())
+                    }
                     val delta = when {
                         prompt.startsWith("You are PluginAgent") -> worker(result, history)
                         prompt.startsWith("You are PresetAgent") -> parent(result)
-                        prompt.startsWith("You are FetchAgent") -> browser(result)
+                        prompt.startsWith("You are BrowserAgent") -> browser(result)
                         else -> error("Unexpected model prompt")
                     }
                     val event = obj("choices" to JSONArray().put(obj("delta" to delta)))
@@ -128,20 +139,20 @@ class PluginAgentResourcesDeviceTest {
             3 -> tools("shell", "command" to "printf 'Parent guest file' > parent-guest.txt")
             4 -> {
                 assertEquals(result, 0, JSONObject(result).getInt("exit_code"))
-                tools("activate_skill", "name" to "base-plugin-development")
+                tools("activate_skill", "name" to "subagent")
             }
-            5 -> tools("plugin_base_plugin_spawn", "name" to "Resource worker", "message" to "Read $parentAsset and the guest file.")
-            6 -> tools("plugin_base_plugin_wait", "ids" to JSONArray().put(JSONObject(result).getString("id")), "seconds" to 100)
+            5 -> tools("subagent_spawn", "name" to "Resource worker", "message" to "Read $parentAsset and the guest file.")
+            6 -> tools("subagent_wait", "ids" to JSONArray().put(JSONObject(result).getString("id")), "seconds" to 100)
             7 -> {
                 val worker = JSONArray(result).getJSONObject(0)
                 assertEquals(result, "finished", worker.getString("status"))
                 assertTrue(result, worker.getString("result").contains("$curlAsset $pageAsset"))
                 tools("activate_skill", "name" to "view_asset")
             }
-            8 -> tools("plugin_base_raw_grep", "url" to curlAsset, "pattern" to "43 75 72 6C 20 64 6F 77 6E 6C 6F 61 64", "literal" to true)
+            8 -> tools("raw_grep", "url" to curlAsset, "pattern" to "43 75 72 6C 20 64 6F 77 6E 6C 6F 61 64", "literal" to true)
             9 -> {
                 assertEquals(result, 1, JSONObject(result).getInt("match_count"))
-                tools("plugin_base_grep", "url" to pageAsset, "pattern" to "Shared browser page")
+                tools("grep", "url" to pageAsset, "pattern" to "Shared browser page")
             }
             10 -> {
                 assertTrue(result, JSONObject(result).getInt("match_count") > 0)
@@ -170,12 +181,12 @@ class PluginAgentResourcesDeviceTest {
                 val curl = JSONObject(result)
                 assertEquals(result, 0, curl.getInt("exit_code"))
                 curlAsset = curl.getString("asset_url")
-                tools("real_search", "query" to "shared search fixture")
+                tools("search", "query" to "shared search fixture")
             }
             6 -> {
                 val hit = JSONObject(result).getJSONArray("results").getJSONObject(0)
                 assertEquals("Shared search result", hit.getString("snippet"))
-                tools("real_fetch", "url" to hit.getString("url"), "backend" to "local")
+                tools("open_url", "url" to hit.getString("url"), "backend" to "local")
             }
             7 -> {
                 val page = JSONObject(result)
@@ -187,12 +198,16 @@ class PluginAgentResourcesDeviceTest {
         }
 
         private fun browser(result: String) = when (browserRound.getAndIncrement()) {
-            0 -> tools("browser_navigate", "url" to server.url("/page").toString())
+            0 -> tools("real_fetch", "url" to server.url("/page").toString(), "backend" to "local")
             1 -> {
+                assertTrue(result, result.contains("Use the browser skill"))
+                tools("browser_navigate", "url" to server.url("/page").toString())
+            }
+            2 -> {
                 assertTrue(result, JSONObject(result).optString("snapshot").contains("Shared browser page"))
                 tools("capture_page")
             }
-            2 -> {
+            3 -> {
                 assertTrue(result, JSONObject(result).getString("preview").contains("Browser fixture paragraph"))
                 tools("finish_fetch", "complete" to true)
             }

@@ -5,11 +5,13 @@ namespace MiniRP.Core;
 
 internal sealed class AgentAssetStorage(PluginRuntime runtime, MemoryDb db, string directory, bool protectDraftAssets = false)
 {
+    internal const string SkillId = "assets";
     internal const string EntryPrefix = "_context/owned-asset/";
     internal const string FilePrefix = "asset-owned-";
     private const string Prefix = "minirp://assets/minirp.agent/";
     internal const string OutputPrefix = "_context/tool-output/";
     private static readonly TimeSpan OutputLifetime = TimeSpan.FromDays(7);
+
 
     internal static bool IsUrl(string url) => url.StartsWith(Prefix, StringComparison.Ordinal) &&
         WorkspaceIds.IsValid(url[Prefix.Length..]);
@@ -55,54 +57,57 @@ internal sealed class AgentAssetStorage(PluginRuntime runtime, MemoryDb db, stri
             file["id"] = id;
             db.Write(OutputPrefix + url[Prefix.Length..], JsonValues.Serialize(file), internalWrite: true);
             return new() { ["asset_url"] = url, ["size"] = JsonValues.Clone(file["size"]),
-                ["instruction"] = "Activate view_asset and use this Asset URL to inspect the output." };
+                ["instruction"] = "Activate assets and use this Asset URL to inspect the output." };
         }
         catch { File.Delete(path); throw; }
     }
 
-    internal AgentSkill Skill(Func<string, JsonObject, PluginRuntime.AssetContent> openSource) => new(
-        "asset_storage", "Create and manage files in this session. Share a file with a Markdown link or use its Asset URL in an OpenUI card.",
-        new(
-            Tools.Define("create_asset", "Create a writable Asset from UTF-8 text, an existing Asset URL, or empty content.",
-                new() { ["name"] = Tools.String(), ["mime"] = Tools.String(), ["text"] = Tools.String(), ["source_url"] = Tools.String() }, "name"),
-            Tools.Define("list_assets", "List files owned by this session.",
-                new() { ["offset"] = Tools.Integer(), ["limit"] = Tools.Integer() }),
-            Tools.Define("rename_asset", "Change the download filename of an owned Asset.",
-                new() { ["url"] = Tools.String(), ["name"] = Tools.String() }, "url", "name"),
-            Tools.Define("delete_asset", "Delete an owned Asset from this session. Previously shared downloads retain their saved revision.",
-                new() { ["url"] = Tools.String() }, "url")),
-        async (name, args, ct) =>
+    internal const string OwnedAssetInstructions =
+        "Use the exact URL returned by create_asset. In a reply use [Download filename](minirp://assets/…). " +
+        "Use text_edit or bin_patch to change a writable file, or container.import_asset to fill an empty file.";
+
+    internal static JsonArray Definitions() => new(
+        Tools.Define("create_asset", "Create a writable Asset from UTF-8 text, an existing Asset URL, or empty content.",
+            new() { ["name"] = Tools.String(), ["mime"] = Tools.String(), ["text"] = Tools.String(), ["source_url"] = Tools.String() }, "name"),
+        Tools.Define("list_assets", "List files owned by this session.",
+            new() { ["offset"] = Tools.Integer(), ["limit"] = Tools.Integer() }),
+        Tools.Define("rename_asset", "Change the download filename of an owned Asset.",
+            new() { ["url"] = Tools.String(), ["name"] = Tools.String() }, "url", "name"),
+        Tools.Define("delete_asset", "Delete an owned Asset from this session. Previously shared downloads retain their saved revision.",
+            new() { ["url"] = Tools.String() }, "url"));
+
+    internal async Task<JsonNode?> Manage(string name, JsonObject args,
+        Func<string, JsonObject, PluginRuntime.AssetContent> openSource, CancellationToken ct)
+    {
+        var url = args.GetString("url");
+        switch (name)
         {
-            var url = args.GetString("url");
-            switch (name)
-            {
-                case "create_asset":
-                    if (args.GetString("source_url") is { Length: > 0 } source)
-                    {
-                        if (args.ContainsKey("text")) throw new ArgumentException("Supply either text or a source Asset URL.");
-                        return await Create(args, openSource(source, new()), ct);
-                    }
-                    var value = Encoding.UTF8.GetBytes(args.GetString("text"));
-                    return await Create(args, new(args.ContainsKey("text") ? "text/plain" : "application/octet-stream",
-                        value.Length, token => PluginRuntime.ReadBytes(value, token)), ct);
-                case "list_assets":
-                    var list = new JsonArray();
-                    foreach (var row in db.Query("SELECT key, content FROM entries WHERE key GLOB '_context/owned-asset/*' AND content <> '' ORDER BY key LIMIT ? OFFSET ?",
-                        Math.Clamp(args.GetInt32("limit", 30), 1, 100), Math.Max(0, args.GetInt32("offset"))))
-                        list.AddNode(Describe(Prefix + row["key"][EntryPrefix.Length..], JsonValues.ParseObject(row["content"])));
-                    return list;
-                case "rename_asset":
-                    var filename = Name(args);
-                    var renamed = Update(url, file => { file["name"] = filename; return true; });
-                    return Describe(url, renamed);
-                case "delete_asset":
-                    Update(url, _ => false);
-                    return new JsonObject { ["url"] = url, ["deleted"] = true };
-                default:
-                    throw new InvalidOperationException("Unknown asset storage tool.");
-            }
-        },
-        Instructions: "Use the exact URL returned by create_asset. In a reply use [Download filename](minirp://assets/…). Use edit_asset to change the file or container.import_asset to fill an empty file.");
+            case "create_asset":
+                if (args.GetString("source_url") is { Length: > 0 } source)
+                {
+                    if (args.ContainsKey("text")) throw new ArgumentException("Supply either text or a source Asset URL.");
+                    return await Create(args, openSource(source, new()), ct);
+                }
+                var value = Encoding.UTF8.GetBytes(args.GetString("text"));
+                return await Create(args, new(args.ContainsKey("text") ? "text/plain" : "application/octet-stream",
+                    value.Length, token => PluginRuntime.ReadBytes(value, token)), ct);
+            case "list_assets":
+                var list = new JsonArray();
+                foreach (var row in db.Query("SELECT key, content FROM entries WHERE key GLOB '_context/owned-asset/*' AND content <> '' ORDER BY key LIMIT ? OFFSET ?",
+                    Math.Clamp(args.GetInt32("limit", 30), 1, 100), Math.Max(0, args.GetInt32("offset"))))
+                    list.AddNode(Describe(Prefix + row["key"][EntryPrefix.Length..], JsonValues.ParseObject(row["content"])));
+                return list;
+            case "rename_asset":
+                var filename = Name(args);
+                var renamed = Update(url, file => { file["name"] = filename; return true; });
+                return Describe(url, renamed);
+            case "delete_asset":
+                Update(url, _ => false);
+                return new JsonObject { ["url"] = url, ["deleted"] = true };
+            default:
+                throw new InvalidOperationException("Unknown asset storage tool.");
+        }
+    }
 
     internal async Task<JsonObject> Create(JsonObject args, PluginRuntime.AssetContent source, CancellationToken ct)
     {

@@ -86,7 +86,7 @@
                     ...(info.development ? {
                         development: bind("development", ["run"]),
                         assetEdit: bind("assetEdit", ["binPatch", "textEdit"]),
-                        research: bind("research", ["request", "local", "normalize", "backend", "register", "registerAll",
+                        research: bind("research", ["request", "local", "normalize", "backend", "register", "registerAll", "cached",
                             "recall", "selection", "metadata", "retain"]),
                         assetView: freeze({
                             grep: (args) => call("assetView.grep", args),
@@ -106,6 +106,12 @@
                         ...(info.legacy ? bind("attachments", ["read"]) : {}),
                     }),
                     settings: bind("settings", ["get"]),
+                    secretStorage: freeze({
+                        getSecret: (id) => call("secretStorage.get", { id }),
+                        async setSecret(id, secret) { await call("secretStorage.set", { id, secret }); },
+                        listSecrets: () => call("secretStorage.list", {}),
+                        async deleteSecret(id) { await call("secretStorage.delete", { id }); },
+                    }),
                     actions: bind("actions", ["invoke", "publish", "publishOutput"]),
                     assets: freeze({
                         url(id) {
@@ -113,6 +119,7 @@
                             return "minirp://assets/" + info.packageName + "/" + id;
                         },
                         open: openAsset, read: readAsset, describe: (url) => call("assets.describe", { url }),
+                        notifyChanged: (url) => call("assets.notifyChanged", { url }),
                     }),
                     text: freeze({
                         async encode(text, options = {}) {

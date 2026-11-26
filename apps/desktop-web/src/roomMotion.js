@@ -1,7 +1,11 @@
 const predictionWindow = 3800;
 const trackingTime = 180;
 
-export function retargetRoomProgress(previous, reported, ready, total, now) {
+export function retargetRoomProgress(previous, reported, ready, total, now, declared = false) {
+  if (declared) {
+    const confirmed = Math.min(1, Math.max(0, reported));
+    return { value: previous?.value ?? confirmed, confirmed, runway: 0, since: now };
+  }
   const stage = 1 / Math.max(1, total);
   // Leave the end of the current character's segment for its readiness call.
   const limit = ready === total ? 1 : (ready + .96) * stage;

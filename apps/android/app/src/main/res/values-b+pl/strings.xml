@@ -230,4 +230,14 @@
     <string name="ensemble_member_trace">Dziennik aktywności</string>
     <string name="ensemble_no_trace">Brak aktywności</string>
     <string name="ensemble_trace_load_failed">Nie udało się wczytać aktywności.</string>
+    <string name="image_description_model">Model do opisu obrazów</string>
+    <string name="audio_description_model">Model do opisu dźwięku</string>
+    <string name="media_description_off">Wyłączone</string>
+    <string name="image_description_help">Obrazy trafiają do tego modelu, gdy model odpowiadający nie potrafi ich odczytać.</string>
+    <string name="audio_description_help">Dźwięk trafia do tego modelu, gdy model odpowiadający nie potrafi go przetworzyć.</string>
+    <string name="describe_images_for_model">Używaj opisów obrazów</string>
+    <string name="describe_audio_for_model">Używaj opisów dźwięku</string>
+    <string name="ensemble_archived_chats">Zarchiwizowane czaty</string>
+    <string name="ensemble_no_archived_chats">Brak zarchiwizowanych czatów</string>
+    <string name="ensemble_archive_empty_history">Brak wiadomości</string>
 </resources>

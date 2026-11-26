@@ -262,4 +262,46 @@ public sealed partial class Engine
         }
         events.Enqueue(reply);
     }
+
+    private void ReadEnsembleArchive(JsonObject command)
+    {
+        var reply = new JsonObject { ["kind"] = "ensemble_archive", ["request"] = command.GetString("request") };
+        try
+        {
+            var preset = WorkspaceIds.Require(command.GetString("preset"));
+            var room = WorkspaceIds.Require(command.GetString("room"));
+            var workspace = Workspace;
+            var hub = ensemble;
+            lock (workspace.RoomGate)
+            {
+                if (!ReferenceEquals(workspace, Workspace) || !ReferenceEquals(hub, ensemble) ||
+                    workspace.PresetId != preset || workspace.ChatId != room || hub is null)
+                    throw new InvalidOperationException("The room has changed.");
+                var conversation = command.GetString("conversation");
+                if (conversation.Length == 0)
+                    reply["items"] = hub.ListArchived();
+                else
+                {
+                    conversation = WorkspaceIds.Require(conversation);
+                    var blocks = hub.ArchivedBlocks(conversation);
+                    var generation = "archive-" + room + "-" + conversation;
+                    var before = command.GetString("before");
+                    var end = blocks.Count;
+                    if (before.Length > 0 && (!before.StartsWith(generation + ":", StringComparison.Ordinal) ||
+                        !int.TryParse(before.AsSpan(generation.Length + 1), NumberStyles.None, CultureInfo.InvariantCulture, out end) ||
+                        end < 1 || end > blocks.Count))
+                        throw new ArgumentException("The archived transcript has changed.");
+                    var source = new TranscriptSource(workspace, "ensemble", conversation, blocks, generation, MessagesOnly: true);
+                    var (page, older) = ReadTranscript(source, end, locale: command.GetString("locale"));
+                    reply["blocks"] = new JsonArray(page);
+                    reply["before"] = older;
+                }
+            }
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            reply["error"] = error.Message;
+        }
+        events.Enqueue(reply);
+    }
 }

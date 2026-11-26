@@ -1,4 +1,6 @@
 import javax.inject.Inject
+import java.io.DataInputStream
+import java.util.zip.GZIPInputStream
 
 plugins {
     id("com.android.application")
@@ -14,15 +16,52 @@ val containerImage = providers.gradleProperty("minirp.containerImage").orNull?.l
     ?: file("../../../artifacts/container-image").takeIf { it.resolve("SHA256SUMS").isFile }
 val curlRuntime = providers.gradleProperty("minirp.curlRuntime").orNull?.let(::file)
     ?: file("../../../artifacts/curl-runtime/android").takeIf { it.isDirectory }
+val ffmpegRuntime = providers.gradleProperty("minirp.ffmpegRuntime").orNull?.let(::file)
+    ?: file("../../../artifacts/ffmpeg-x264-runtime/android").takeIf { it.isDirectory }
 abstract class StageContainerImage : Sync() {
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+    @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val guestInit: RegularFileProperty
+    @get:Optional @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val guestInitrd: RegularFileProperty
 
-    init { into(outputDirectory) }
+    init {
+        into(outputDirectory)
+        doFirst {
+            guestInitrd.asFile.orNull?.let { verifyGuestInit(it, guestInit.get().asFile.readBytes()) }
+        }
+    }
+
+    // The image checksum alone accepts a previously built initrd with outdated guest startup code.
+    private fun verifyGuestInit(initrd: File, expected: ByteArray) {
+        DataInputStream(GZIPInputStream(initrd.inputStream().buffered())).use { archive ->
+            val header = ByteArray(110)
+            while (true) {
+                archive.readFully(header)
+                check(header.decodeToString(0, 6) == "070701") { "Invalid container initrd archive." }
+                val size = header.decodeToString(54, 62).toLong(16)
+                val nameSize = header.decodeToString(94, 102).toInt(16)
+                check(nameSize in 1..4096) { "Invalid container initrd entry name." }
+                val name = ByteArray(nameSize).also(archive::readFully).decodeToString(0, nameSize - 1)
+                archive.skipNBytes(((4 - (110 + nameSize) % 4) % 4).toLong())
+                if (name == "TRAILER!!!") break
+                if (name.removePrefix("./") == "init") {
+                    check(size == expected.size.toLong() && archive.readNBytes(expected.size).contentEquals(expected)) {
+                        "The container initrd is outdated. Rebuild the image with eng/container/build-image.sh."
+                    }
+                    return
+                }
+                archive.skipNBytes((size + 3) / 4 * 4)
+            }
+        }
+        error("The container initrd is missing its guest startup script.")
+    }
 }
 
 val stageContainerImage by tasks.registering(StageContainerImage::class) {
     outputDirectory.set(layout.buildDirectory.dir("generated/container/assets"))
+    guestInit.set(rootProject.layout.projectDirectory.file("../../eng/container/init"))
     if (containerImage != null) {
+        check(containerImage.resolve("HOST_FFMPEG").isFile) { "Rebuild the Alpine image without FFmpeg." }
+        guestInitrd.set(containerImage.resolve("initrd.gz"))
         from(containerImage) {
             into("container-image")
             include("kernel", "initrd.gz", "root.squashfs", "SHA256SUMS", "MICROVM", "ROOM_VM")
@@ -32,6 +71,10 @@ val stageContainerImage by tasks.registering(StageContainerImage::class) {
     if (curlRuntime != null) from(curlRuntime) {
         into("licenses")
         include("*-license.txt")
+    }
+    if (ffmpegRuntime != null) from(ffmpegRuntime) {
+        into("licenses")
+        include("ffmpeg-license.txt", "ffmpeg-source.tar.xz")
     }
 }
 val npm = if (System.getProperty("os.name").startsWith("Windows"))
@@ -72,7 +115,7 @@ val buildOpenUiAssets by tasks.registering(BuildOpenUiAssets::class) {
 
 androidComponents.onVariants { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(buildOpenUiAssets, BuildOpenUiAssets::outputDirectory)
-    if (containerImage != null) {
+    if (containerImage != null || curlRuntime != null || ffmpegRuntime != null) {
         variant.sources.assets?.addGeneratedSourceDirectory(stageContainerImage, StageContainerImage::outputDirectory)
     }
 }
@@ -86,8 +129,8 @@ android {
         applicationId = "com.minichat.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 22
-        versionName = "1.3.3"
+        versionCode = 23
+        versionName = "1.3.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" } }
@@ -113,7 +156,7 @@ android {
     packaging {
         jniLibs {
             // The headless executable must run from the package manager's executable directory.
-            useLegacyPackaging = containerRuntime != null || curlRuntime != null
+            useLegacyPackaging = containerRuntime != null || curlRuntime != null || ffmpegRuntime != null
             // Older local builds may still have this generated binary in jniLibs.
             excludes += "**/libminichatcore.so"
         }
@@ -124,6 +167,8 @@ android {
         assets.srcDir(containerRuntime.resolve("assets"))
     }
     if (curlRuntime != null) sourceSets.named("main") { jniLibs.srcDir(curlRuntime.resolve("jniLibs")) }
+    if (ffmpegRuntime != null) sourceSets.named("main") { jniLibs.srcDir(ffmpegRuntime.resolve("jniLibs")) }
+    sourceSets.named("androidTest") { assets.srcDir("../../../tests/fixtures") }
     buildTypes {
         debug {
             if (optimizeDebug) {
@@ -156,6 +201,12 @@ tasks.matching { it.name == "preReleaseBuild" }.configureEach {
         }
         check(curlRuntime?.resolve("jniLibs/arm64-v8a/libminirp_curl.so")?.isFile == true) {
             "Release builds require the native curl runtime."
+        }
+        check(ffmpegRuntime != null && listOf("ffmpeg", "ffprobe").all {
+            ffmpegRuntime.resolve("jniLibs/arm64-v8a/libminirp_$it.so").isFile
+        } && ffmpegRuntime.resolve("ffmpeg-source.tar.xz").isFile && ffmpegRuntime.resolve("ffmpeg-license.txt").isFile &&
+            ffmpegRuntime.resolve("LIBX264").isFile) {
+            "Release builds require the shared FFmpeg runtime with libx264 and corresponding source."
         }
     }
 }

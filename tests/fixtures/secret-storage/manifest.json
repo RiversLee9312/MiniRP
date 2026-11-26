@@ -1,0 +1,15 @@
+{
+  "id": "secret-probe",
+  "packageName": "test.secret_probe",
+  "name": "Secret storage probe",
+  "apiVersion": 2,
+  "entry": "index.js",
+  "permissions": ["secrets"],
+  "actions": { "handlers": { "write": "write", "read": "read", "remove": "remove", "missing": "missing" } },
+  "assets": [
+    { "id": "write", "type": "dynamic", "mimeType": "text/plain", "accessibility": "public", "handler": "minirp://actions/test.secret_probe/hooks/write" },
+    { "id": "read", "type": "dynamic", "mimeType": "text/plain", "accessibility": "public", "handler": "minirp://actions/test.secret_probe/hooks/read" },
+    { "id": "remove", "type": "dynamic", "mimeType": "text/plain", "accessibility": "public", "handler": "minirp://actions/test.secret_probe/hooks/remove" },
+    { "id": "missing", "type": "dynamic", "mimeType": "text/plain", "accessibility": "public", "handler": "minirp://actions/test.secret_probe/hooks/missing" }
+  ]
+}

@@ -7,7 +7,7 @@ namespace MiniRP.Core;
 internal sealed partial class PluginRuntime
 {
     internal sealed record AssetContent(string MimeType, long? Length, Func<CancellationToken, IAsyncEnumerable<byte[]>> Chunks,
-        string Generation = "", string Name = "", string Text = "", bool Writable = false);
+        string Generation = "", string Name = "", string Text = "", bool Writable = false, string ChangeEvent = "");
 
     private readonly AssetReaders hostAssets;
     private static string AssetUrl(PluginPackage package, string id) => $"{PluginUrls.Scheme}://assets/{package.PackageName}/{id}";
@@ -25,27 +25,21 @@ internal sealed partial class PluginRuntime
 
     private AssetContent OpenAsset(string url, PluginPackage? caller, JsonObject options, JsonObject environment, JsonObject? attachment = null)
     {
-        var (name, id) = ParseAssetUrl(url);
-        var package = Volatile.Read(ref packages).FirstOrDefault(item => item.PackageName == name)
-            ?? throw new FileNotFoundException("Asset package is unavailable.");
         var preset = environment.GetString("preset");
-        RequireScope(package, preset);
-        var asset = package.Assets?.GetValueOrDefault(id) ?? throw new FileNotFoundException("Asset is unavailable.");
-        if (caller is not null && (caller.PackageName != name || caller.Signer != package.Signer) &&
-            asset.Accessibility != "public" && !(asset.Accessibility == "protected" && caller.Signed && caller.Signer == package.Signer))
-            throw new UnauthorizedAccessException("The asset is private to its package or signer.");
+        var (package, asset) = ResolveAssetDeclaration(url, caller, preset);
         if (JsonValues.Serialize(options).Length > 8192) throw new InvalidDataException("Asset options exceed 8 KiB.");
         var writable = asset.Writable && WorkspaceIds.IsValid(preset);
-        if (writable && WritableAssetPath(package, preset, id) is var path && File.Exists(path))
+        if (writable && WritableAssetPath(package, preset, asset.Id) is var path && File.Exists(path))
         {
             return new(asset.MimeType, new FileInfo(path).Length,
-                token => ReadWritableAsset(package, preset, path, token), package.Generation, Writable: true);
+                token => ReadWritableAsset(package, preset, path, token), package.Generation, Writable: true, ChangeEvent: asset.ChangeEvent);
         }
         if (asset.Type == "file")
         {
             if (package.BuiltIn)
-                return new(asset.MimeType, null, token => ReadResource(package.Resources![asset.Path], token), Writable: writable);
-            return new(asset.MimeType, null, token => ReadScopedArchive(package, preset, asset.Path, token), package.Generation, Writable: writable);
+                return new(asset.MimeType, null, token => ReadResource(package.Resources![asset.Path], token), Writable: writable, ChangeEvent: asset.ChangeEvent);
+            return new(asset.MimeType, null, token => ReadScopedArchive(package, preset, asset.Path, token), package.Generation,
+                Writable: writable, ChangeEvent: asset.ChangeEvent);
         }
         var next = (JsonObject)environment.DeepClone();
         var depth = next.GetInt32("_asset_depth");
@@ -54,8 +48,25 @@ internal sealed partial class PluginRuntime
         var request = new JsonObject { ["name"] = "asset.requested", ["url"] = url,
             ["request"] = options.DeepClone(), ["sender"] = caller?.PackageName };
         if (attachment is not null) request["attachment"] = attachment.DeepClone();
-        return new(asset.MimeType, null, token => GenerateAsset(new(package, package.Bind(asset.Handler), request, next), token), package.Generation, Writable: writable);
+        return new(asset.MimeType, null, token => GenerateAsset(new(package, package.Bind(asset.Handler), request, next), token), package.Generation,
+            Writable: writable, ChangeEvent: asset.ChangeEvent);
     }
+
+    private (PluginPackage Owner, PluginAsset Asset) ResolveAssetDeclaration(string url, PluginPackage? caller, string preset)
+    {
+        var (name, id) = ParseAssetUrl(url);
+        var owner = Volatile.Read(ref packages).FirstOrDefault(item => item.PackageName == name)
+            ?? throw new FileNotFoundException("Asset package is unavailable.");
+        RequireScope(owner, preset);
+        var asset = owner.Assets?.GetValueOrDefault(id) ?? throw new FileNotFoundException("Asset is unavailable.");
+        if (caller is not null && !CanReadAsset(owner, asset, caller))
+            throw new UnauthorizedAccessException("The asset is private to its package or signer.");
+        return (owner, asset);
+    }
+
+    private static bool CanReadAsset(PluginPackage owner, PluginAsset asset, PluginPackage caller) =>
+        asset.Accessibility == "public" ||
+        caller.Signer == owner.Signer && (caller.PackageName == owner.PackageName || asset.Accessibility == "protected" && caller.Signed);
 
     public JsonObject OpenHostAsset(string url, JsonObject environment, JsonObject? attachment)
     {
@@ -71,9 +82,6 @@ internal sealed partial class PluginRuntime
         lock (packageGate) return hostAssets.Open(OpenAsset(address[0], null, new(), environment, attachment));
     }
 
-    private static bool IsBackgroundMime(string mime) => mime.ToLowerInvariant() is "image/png" or "image/jpeg" or "image/webp" or
-        "image/gif" or "image/avif" or "image/heic" or "image/heif" or "video/mp4" or "video/webm" or "video/3gpp";
-
     private static bool OwnsPresetBackgrounds(PluginPackage package, string preset) =>
         preset.Length > 0 && package.Signed && !package.BuiltIn && package.PresetId == preset;
 
@@ -83,28 +91,41 @@ internal sealed partial class PluginRuntime
         foreach (var package in Volatile.Read(ref packages))
         {
             if (!OwnsPresetBackgrounds(package, preset) || !Available(package, preset) || package.Assets is null) continue;
-            foreach (var asset in package.Assets.Values.Where(asset => IsBackgroundMime(asset.MimeType)))
-                result.AddNode(new JsonObject { ["url"] = AssetUrl(package, asset.Id), ["mime"] = asset.MimeType, ["plugin"] = package.LocalizedName(locale) });
+            var targets = package.Assets.Values.SelectMany(asset => asset.BackgroundVariants?.Values ?? []).ToHashSet(StringComparer.Ordinal);
+            foreach (var asset in package.Assets.Values.Where(asset => PluginAsset.SupportsBackground(asset.MimeType) &&
+                         (asset.BackgroundVariants is not null || !targets.Contains(asset.Id))))
+            {
+                var description = new JsonObject { ["url"] = AssetUrl(package, asset.Id), ["mime"] = asset.MimeType,
+                    ["plugin"] = package.LocalizedName(locale) };
+                if (asset.BackgroundVariants is { } variants)
+                    description["variants"] = new JsonObject(variants.Select(entry =>
+                        new KeyValuePair<string, JsonNode?>(entry.Key, JsonValue.Create(AssetUrl(package, entry.Value)))));
+                result.AddNode(description);
+            }
         }
         return result;
     }
 
-    internal void RequirePresetBackground(string url, string preset)
+    internal void RequirePresetBackground(string url, string preset) => _ = PresetBackground(url, preset);
+
+    private (PluginPackage Package, PluginAsset Asset) PresetBackground(string url, string preset)
     {
         var (name, id) = ParseAssetUrl(url);
         var package = Volatile.Read(ref packages).FirstOrDefault(item => item.PackageName == name && OwnsPresetBackgrounds(item, preset))
             ?? throw new UnauthorizedAccessException("The background must be declared by an installed plugin owned by this preset.");
         RequireScope(package, preset);
-        if (package.Assets?.GetValueOrDefault(id) is not { } asset || !IsBackgroundMime(asset.MimeType))
+        if (package.Assets?.GetValueOrDefault(id) is not { } asset || !PluginAsset.SupportsBackground(asset.MimeType))
             throw new ArgumentException("Choose a declared image, GIF or video Asset.");
+        return (package, asset);
     }
 
-    internal JsonObject OpenPresetBackground(string url, string preset)
+    internal JsonObject OpenPresetBackground(string url, string preset, string frame)
     {
         lock (packageGate)
         {
-            RequirePresetBackground(url, preset);
-            return hostAssets.Open(OpenAsset(url, null, new(), new() { ["preset"] = preset, ["agent"] = "chat" }));
+            var (package, asset) = PresetBackground(url, preset);
+            var selected = asset.BackgroundVariants?.GetValueOrDefault(frame) ?? asset.Id;
+            return hostAssets.Open(OpenAsset(AssetUrl(package, selected), null, new(), new() { ["preset"] = preset, ["agent"] = "chat" }));
         }
     }
 
@@ -118,11 +139,17 @@ internal sealed partial class PluginRuntime
 
     internal AssetContent OpenAgentAsset(string url, string publisher, string signer, JsonObject environment, JsonObject? options = null)
     {
+        var package = AssetPublisher(publisher, signer, environment.GetString("preset"));
+        return OpenAsset(url, package, options ?? new(), environment);
+    }
+
+    private PluginPackage AssetPublisher(string publisher, string signer, string preset)
+    {
         var packageName = PluginUrls.CanonicalPackage(publisher);
         var package = Volatile.Read(ref packages).FirstOrDefault(item => item.PackageName == packageName && item.Signer == signer)
             ?? throw new UnauthorizedAccessException("The skill that supplied this asset is unavailable.");
-        RequireScope(package, environment.GetString("preset"));
-        return OpenAsset(url, package, options ?? new(), environment);
+        RequireScope(package, preset);
+        return package;
     }
 
     internal AssetContent OpenAttachmentAsset(JsonObject attachment)
@@ -140,13 +167,16 @@ internal sealed partial class PluginRuntime
     internal static JsonObject Describe(string url, AssetContent asset)
     {
         var route = PluginUrls.Route(url, "assets").Split('/');
-        return new()
+        var metadata = new JsonObject
         {
             ["url"] = url, ["package"] = route[0], ["id"] = route[1],
             ["source"] = AgentAssetStorage.IsUrl(url) ? "agent_file" : MessageAttachments.IsAttachmentUrl(url) ? "workspace_file" : "plugin",
             ["length"] = asset.Length, ["mime"] = asset.MimeType.Split(';', 2)[0].Trim().ToLowerInvariant(),
-            ["name"] = asset.Name.Length == 0 ? null : JsonValue.Create(asset.Name), ["writable"] = asset.Writable
+            ["name"] = asset.Name.Length == 0 ? null : JsonValue.Create(asset.Name), ["writable"] = asset.Writable,
+            ["listenable"] = asset.ChangeEvent.Length > 0
         };
+        if (asset.ChangeEvent.Length > 0) metadata["changeEvent"] = asset.ChangeEvent;
+        return metadata;
     }
 
     private async IAsyncEnumerable<byte[]> GenerateAsset(Invocation request, [EnumeratorCancellation] CancellationToken ct)

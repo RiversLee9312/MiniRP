@@ -5,8 +5,13 @@ namespace MiniRP.Core;
 
 public sealed partial class AgentSession
 {
-    private async Task<JsonObject> Complete(ModelClient model, JsonArray messages, AgentSkill.Turn? skills, Action<string, string> delta, CancellationToken ct,
-        bool requireComplete = false, Action<int>? inputUsage = null)
+    private Task<JsonObject> Complete(ModelClient model, JsonArray messages, AgentSkill.Turn? skills, Action<string, string> delta,
+        CancellationToken ct, bool requireComplete = false, Action<int>? inputUsage = null) =>
+        CompleteModel(model, messages, skills, delta, ct, requireComplete, inputUsage, openCodeSession.Value);
+
+    internal static async Task<JsonObject> CompleteModel(ModelClient model, JsonArray messages, AgentSkill.Turn? skills,
+        Action<string, string> delta, CancellationToken ct, bool requireComplete = false, Action<int>? inputUsage = null,
+        string? openCodeSession = null)
     {
         var p = model.SelectedProvider;
         if (p.Url.Length == 0 || p.Model.Length == 0)
@@ -14,7 +19,6 @@ public sealed partial class AgentSession
             throw new InvalidOperationException("Configure a provider and model first.");
         }
 
-        var openCodeSession = ProviderPlans.Find(p)?.Wire == ProviderPlans.Gateway.OpenCodeGo ? this.openCodeSession.Value : null;
         var request = model.Request(p, messages, skills, openCodeSession);
         if (p.Protocol == "responses")
             return await CompleteResponses(model.Port, request, delta, ct, requireComplete, inputUsage);
@@ -73,8 +77,10 @@ public sealed partial class AgentSession
                 }
                 if (block.GetString("type") == "tool_use")
                 {
-                    calls[index] = Call(block.GetString("id"), block.GetString("name"));
+                    var initial = block.GetObject("input");
+                    calls[index] = Call(block.GetString("id"), block.GetString("name"), initial.Count > 0 ? JsonValues.Serialize(initial) : "");
                 }
+                if (block.GetString("type") == "text") Feed("content", block.GetString("text"));
 
                 if (change.GetString("type") == "input_json_delta" && calls.TryGetValue(index, out var call))
                 {
@@ -84,15 +90,22 @@ public sealed partial class AgentSession
                 Feed(change.GetString("type") == "thinking_delta" ? "reasoning" : "content", change.GetString(change.GetString("type") == "thinking_delta" ? "thinking" : "text"));
                 if (data.GetArray("content").Count > 0)
                 {
-                    foreach (var b in data.GetArray("content"))
+                    var blocks = data.GetArray("content");
+                    for (var position = 0; position < blocks.Count; position++)
                     {
+                        var b = blocks[position];
                         if (b.GetString("type") == "text")
                         {
                             Feed("content", b.GetString("text"));
                         }
                         else if (b.GetString("type") == "tool_use")
                         {
-                            calls[calls.Count] = Call(b.GetString("id"), b.GetString("name"), JsonValues.Serialize(b?["input"]));
+                            calls[position] = Call(b.GetString("id"), b.GetString("name"), JsonValues.Serialize(b?["input"]));
+                        }
+                        else if (b is JsonObject thought && b.GetString("type") is "thinking" or "redacted_thinking")
+                        {
+                            thinkingBlocks[position] = (JsonObject)thought.DeepClone();
+                            Feed("reasoning", thought.GetString("thinking"));
                         }
                     }
                 }
@@ -129,18 +142,25 @@ public sealed partial class AgentSession
                 if (requireComplete && choice.GetString("finish_reason", choice.GetString("done_reason")) is "length" or "content_filter")
                     throw IncompleteCheckpoint();
                 var d = choice["delta"] as JsonObject ?? choice["message"] as JsonObject ?? new();
-                Feed("content", d.GetString("content"));
+                var refusal = d.GetString("refusal");
+                if (requireComplete && refusal.Length > 0) throw IncompleteCheckpoint();
+                Feed("content", d.GetString("content", refusal));
                 Feed("reasoning", d.GetString("reasoning_content", d.GetString("reasoning", d.GetString("thinking"))));
                 int position = 0;
                 foreach (var raw in d.GetArray("tool_calls"))
                 {
+                    var f = raw.GetObject("function");
+                    if (p.Protocol == "ollama" && f["arguments"] is JsonObject arguments)
+                    {
+                        calls[calls.Count] = Call(raw.GetString("id", JsonValues.NewId()), f.GetString("name"), JsonValues.Serialize(arguments));
+                        continue;
+                    }
                     var i = raw.GetInt32("index", position++);
                     if (!calls.TryGetValue(i, out var c))
                     {
                         calls[i] = c = Call(raw.GetString("id", JsonValues.NewId()), "");
                     }
 
-                    var f = raw.GetObject("function");
                     if (f.GetString("name").Length > 0)
                     {
                         c.GetObject("function")["name"] = c.GetObject("function").GetString("name") + f.GetString("name");

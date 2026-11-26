@@ -549,7 +549,7 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
             Rooms.Add(id);
             Research(document["world"]);
             var group = document.GetObject("ensemble");
-            Children[id] = group.GetArray("chats").Concat(group.GetArray("private_chats"))
+            Children[id] = group.GetArray("chats").Concat(group.GetArray("private_chats")).Concat(group.GetArray("archived_chats"))
                 .Select(chat => WorkspaceIds.Require(chat.GetString("id"))).ToHashSet(StringComparer.Ordinal);
             Collect(document);
         }

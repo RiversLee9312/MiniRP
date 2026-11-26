@@ -32,3 +32,9 @@ test("reported progress catches up smoothly and waits for readiness to finish", 
   assert.equal(ready.confirmed, 1);
   assert.ok(tick(ready, 10000, 12000) > .999);
 });
+
+test("plugin weights determine reported progress even when most characters are ready", () => {
+  const target = retargetRoomProgress(null, 7 / 17, 1, 2, 0, true);
+  assert.equal(target.confirmed, 7 / 17);
+  assert.equal(tick(target, 0, 10000), 7 / 17);
+});

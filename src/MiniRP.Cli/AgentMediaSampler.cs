@@ -134,7 +134,8 @@ internal static class AgentMediaSampler
         var width = metadata.GetInt32("width");
         var height = metadata.GetInt32("height");
         if (width < 1 || height < 1) throw new IOException("Unable to decode image.");
-        var scale = Math.Min(1d, 2048d / Math.Max(width, height));
+        var maxSide = Math.Clamp(request.GetInt32("max_side", 2048), 1, ImageViewport.MaxSide);
+        var scale = Math.Min(1d, (double)maxSide / Math.Max(width, height));
         width = Math.Max(1, (int)Math.Round(width * scale));
         height = Math.Max(1, (int)Math.Round(height * scale));
         string[] options = ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe",

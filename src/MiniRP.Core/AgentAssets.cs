@@ -13,7 +13,7 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
     private readonly MessageAttachments files = new(directory);
     private readonly AgentAssetStorage storage = new(runtime, db, directory, protectDraftAssets);
     private static readonly Regex AssetLinks = new(@"minirp://assets/[a-z0-9._]+/[A-Za-z0-9_.-]+", RegexOptions.NonBacktracking);
-    internal AgentSkill StorageSkill() => storage.Skill(Open);
+    internal Task<JsonNode?> Manage(string tool, JsonObject args, CancellationToken ct) => storage.Manage(tool, args, Open, ct);
     internal AgentToolOutput Output => new(storage);
     internal string DatabasePath => db.Path;
     internal PresetResearch? PresetResearch => presetResearch;
@@ -150,6 +150,14 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
         return runtime.OpenAgentAsset(url, grant.GetString("package"), grant.GetString("signer"), environment(), options);
     }
 
+    internal PluginRuntime.AssetWatchState Watch(string url)
+    {
+        if (Load()[url] is JsonObject grant)
+            return runtime.WatchAgentAsset(url, grant.GetString("package"), grant.GetString("signer"), environment().GetString("preset"));
+        _ = Open(url, new());
+        throw new InvalidOperationException("This Asset does not declare a change event.");
+    }
+
     internal Task<JsonObject> Edit(string method, string url, JsonObject args, CancellationToken ct)
     {
         if (protectDraftAssets) PluginProjectAssets.RequireWritable(db, url);
@@ -206,11 +214,21 @@ internal sealed class AgentAssets(PluginRuntime runtime, MemoryDb db, string dir
         }
     }
 
-    internal async Task<Reading> Present(PluginRuntime.AssetContent asset, Provider provider, string url, CancellationToken ct)
+    internal async Task<Reading> Present(PluginRuntime.AssetContent asset, Provider provider, string url, HostPort port, CancellationToken ct)
     {
         var mime = asset.MimeType.Split(';', 2)[0].Trim().ToLowerInvariant();
+        using var codecs = new AssetCodecs(directory, port);
         if (!MessageAttachments.Supports(provider, mime))
-            throw new InvalidOperationException("The selected model or protocol does not accept this media.");
+        {
+            var format = mime.StartsWith("image/", StringComparison.Ordinal) ?
+                new[] { "jpeg", "png", "webp" }.FirstOrDefault(format => MessageAttachments.Supports(provider, "image/" + format)) : null;
+            if (format is null)
+                throw new InvalidOperationException("The selected model or protocol does not accept this media.");
+            var (_, converted) = await codecs.Media("image_encode", asset, new() { ["format"] = format }, ct, ImageViewport.MaxSide);
+            mime = "image/" + format;
+            if (converted is null || converted.MimeType != mime) throw new IOException("The image codec returned a different format.");
+            asset = converted with { Name = Path.ChangeExtension(converted.Name, format) };
+        }
         var path = await AssetCodecs.Stage(directory, asset, "asset-sample-", MessageAttachments.Budget(provider.Protocol), ct);
         var retained = false;
         try

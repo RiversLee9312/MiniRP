@@ -98,7 +98,7 @@ public sealed class AgentTests
         {
             ["agent"] = "search", ["preset"] = workspace.PresetId, ["chat"] = workspace.ChatId, ["room"] = workspace.ChatId
         }, _ => { });
-        var fetch = new FetchAgent(port, job => TestAgentSession.Open("fetch",
+        var fetch = new BrowserAgent(port, job => TestAgentSession.Open("fetch",
             Path.Combine(root, "fetch", job + ".sqlite"), model, _ => { }));
         var search = new SearchAgent(workspace, session, new PageSource(port, fetch, () => new()));
         var result = await search.Run("search", "世界", CancellationToken.None);

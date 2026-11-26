@@ -310,6 +310,39 @@ class TraceInteractionTest {
     }
 
     @Test
+    fun pinnedTraceMovesWithTheBottomOfItsRegionBeforeItLeavesTheViewport() {
+        val steps = 40
+        val blocks = List(steps) { TraceBlock("step-$it", reasoning = "Trace detail $it") } +
+            List(80) { TraceBlock("following-$it", content = "Following reply $it") }
+        val list = LazyListState()
+        compose.setContent {
+            MaterialExpressiveTheme { TraceLog(blocks, expandThoughts = true, list = list) }
+        }
+        val heading = compose.onNodeWithTag("pinned:activity:step-0")
+        val viewport = compose.onNodeWithTag("transcript")
+        val halfHeight = with(compose.density) { 20.dp.roundToPx() }
+        compose.runOnIdle { list.requestScrollToItem(steps - 1) }
+        heading.assertIsDisplayed()
+        val fixed = heading.fetchSemanticsNode().boundsInRoot
+        assertTrue(fixed.height >= 2 * halfHeight - 1)
+        fun placeEndAt(distance: Int) {
+            compose.runOnIdle {
+                val layout = list.layoutInfo
+                val last = layout.visibleItemsInfo.single { it.index == steps }
+                list.requestScrollToItem(steps, last.size - layout.viewportStartOffset - distance)
+            }
+        }
+        placeEndAt(halfHeight)
+        heading.assertIsDisplayed()
+        val edge = viewport.fetchSemanticsNode().boundsInRoot.top
+        assertTrue(kotlin.math.abs(heading.fetchSemanticsNode().boundsInRoot.bottom - edge - halfHeight) <= 2)
+        placeEndAt(halfHeight / 2)
+        assertTrue(kotlin.math.abs(heading.fetchSemanticsNode().boundsInRoot.bottom - edge - halfHeight / 2) <= 2)
+        placeEndAt(-1)
+        heading.assertDoesNotExist()
+    }
+
+    @Test
     fun sendingTakesPrecedenceUntilTheMessageIsAccepted() {
         val state = mutableStateOf(ChatState(
             ready = true, preset = "fixture", chatId = "fixture-chat",

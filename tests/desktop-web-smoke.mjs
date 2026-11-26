@@ -19,6 +19,7 @@ const presetEdit = Promise.withResolvers();
 const extendScrollReply = Promise.withResolvers();
 const finishScrollReply = Promise.withResolvers();
 const configuredChatRequest = Promise.withResolvers();
+const quotedModelRequest = Promise.withResolvers();
 const readiness = { Ada: Promise.withResolvers(), Bryn: Promise.withResolvers() };
 const readinessCalls = [];
 const openings = [];
@@ -29,17 +30,20 @@ const labAnswered = Promise.withResolvers();
 const roomWorkerStarted = Promise.withResolvers();
 const roomWorkerStopped = Promise.withResolvers();
 let labSceneId;
+let bridgeSceneId;
 const modelFailures = [];
 async function expectSignal(signal, message) {
-  await Promise.race([signal.promise, new Promise((_, reject) => {
+  return Promise.race([signal.promise, new Promise((_, reject) => {
     setTimeout(() => reject(new Error(message)), 10000).unref();
   })]);
 }
 const service = createServer(async (request, response) => {
   if (request.url.endsWith("/models")) {
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ data: [{ id: "fixture-model" },
-      { id: longModel, display_name: longModelName, effort_levels: ["low", "high"] }] }));
+    response.end(JSON.stringify({ data: [{ id: "fixture-model", input_modalities: ["text"] },
+      { id: longModel, display_name: longModelName, effort_levels: ["low", "high"], input_modalities: ["text"] },
+      { id: "fixture-vision", input_modalities: ["text", "image"] },
+      { id: "fixture-audio", input_modalities: ["text", "audio"] }] }));
     return;
   }
   if (!request.url.endsWith("/chat/completions")) {
@@ -57,8 +61,18 @@ const service = createServer(async (request, response) => {
   response.writeHead(200, { "content-type": "text/event-stream" });
   const chunk = (delta, finish_reason = null) => response.write("data: " + JSON.stringify({ choices: [{ index: 0, delta, finish_reason }] }) + "\n\n");
   const user = completion.messages.findLast((item) => item.role === "user");
+  if (["fixture-vision", "fixture-audio"].includes(completion.model)) {
+    const image = completion.model === "fixture-vision";
+    const source = user.content[1];
+    assert.equal(source.type, image ? "image_url" : "input_audio");
+    assert.equal(completion.tools?.length ?? 0, 0);
+    assert.ok(!body.includes("Hello from the desktop test."));
+    chunk({ content: image ? "A small fixture image." : "A short fixture recording." }, "stop");
+    response.end("data: [DONE]\n\n");
+    return;
+  }
   if (JSON.stringify(user?.content || "").includes("Hello from the desktop test."))
-    configuredChatRequest.resolve({ model: completion.model, effort: completion.reasoning_effort });
+    configuredChatRequest.resolve({ model: completion.model, effort: completion.reasoning_effort, content: user.content });
   const prompts = JSON.stringify(completion.messages);
   const tools = completion.tools?.map((tool) => tool.function.name) ?? [];
   const call = (name, args) => {
@@ -127,7 +141,34 @@ const service = createServer(async (request, response) => {
     }
     return;
   }
-  const ensemble = [...prompts.matchAll(/The active chat is ([^()]+) \(([0-9a-f-]+)\)/g)].at(-1);
+  if (tools.includes("delete_ensemble_chat") && prompts.includes("Archive the bridge and open a workshop.")) {
+    const previous = completion.messages.at(-2)?.tool_calls?.[0]?.function.name;
+    if (completion.messages.at(-1)?.role !== "tool") return call("delete_ensemble_chat", { chat: bridgeSceneId });
+    if (previous === "delete_ensemble_chat") return call("create_ensemble_chat", { name: "Workshop", members: ["ada"] });
+    chunk({ content: "The bridge was archived and the workshop opened." }, "stop");
+    response.end("data: [DONE]\n\n");
+    return;
+  }
+  const ensemble = [...prompts.matchAll(/The triggering chat is ([^()]+) \(([0-9a-f-]+)\)/g)].at(-1);
+  if (!ensemble && prompts.includes("This is your room opening.") && tools.includes("my_chats")) {
+    const name = prompts.includes("Your character is Ada") ? "Ada" : "Bryn";
+    const last = completion.messages.at(-1);
+    if (last?.role !== "tool") {
+      openings.push(name);
+      return call("my_chats", {});
+    }
+    if (completion.messages.at(-2)?.tool_calls?.some(tool => tool.function.name === "my_chats")) {
+      const chosen = JSON.parse(last.content).find(chat => chat.name === (name === "Ada" ? "Bridge" : "Lab"));
+      if (chosen.name === "Lab") {
+        labSceneId = chosen.id;
+        await labOpening.promise;
+      } else bridgeSceneId = chosen.id;
+      return call("chat_send", { chat: chosen.id, text: name + " opened the " + chosen.name.toLowerCase() + "." });
+    }
+    chunk({ content: "Opening finished." }, "stop");
+    response.end("data: [DONE]\n\n");
+    return;
+  }
   if (ensemble) {
     if (tools.includes("room_progress") || prompts.includes("fixture_room_progress"))
       modelFailures.push("Room loading state leaked into a chat.");
@@ -136,16 +177,6 @@ const service = createServer(async (request, response) => {
     if (name === "Ada" && (scene === "Lab" || prompts.includes("Bryn carried the report to the lab.")))
       modelFailures.push("A character received a message from an unjoined scene.");
     if (completion.messages.at(-1)?.role !== "tool") {
-      const input = completion.messages.findLast(({ role, content }) => role === "system" &&
-        (content?.includes?.("Give your opening in this chat") || content?.includes?.("A new post in this chat")))?.content || "";
-      if (input.includes("Give your opening in this chat")) {
-        openings.push(name + " " + scene);
-        if (scene === "Lab") {
-          labSceneId = id;
-          await labOpening.promise;
-        }
-        return call("chat_send", { chat: id, text: name + " opened the " + scene.toLowerCase() + "." });
-      }
       if (scene === "Bridge" && name === "Ada" && prompts.includes("Hold this room worker.")) {
         response.once("close", roomWorkerStopped.resolve);
         chunk({ content: "Waiting for room departure." });
@@ -175,6 +206,7 @@ const service = createServer(async (request, response) => {
     return;
   }
   if (JSON.stringify(user?.content || "").includes("Show a fixture card.")) {
+    quotedModelRequest.resolve(user.content);
     if (completion.messages.at(-1)?.role !== "tool") {
       chunk({ tool_calls: [{ index: 0, id: "fixture_activate", type: "function",
         function: { name: "activate_skill", arguments: '{"name":"interactive-ui"}' } }] }, "tool_calls");
@@ -349,7 +381,7 @@ try {
   await provider.locator("input[type=password]").fill("fixture");
   await provider.getByText("Manage models", { exact: true }).click();
   await provider.getByRole("button", { name: "Fetch models" }).click();
-  await provider.getByText("fixture-model", { exact: true }).waitFor();
+  await provider.getByText("fixture-audio", { exact: true }).waitFor();
   await provider.getByRole("button", { name: "Save", exact: true }).click();
   await providers.getByRole("button", { name: /^Fixture provider/ }).waitFor();
   await providers.getByRole("button", { name: "Back", exact: true }).click();
@@ -391,11 +423,24 @@ try {
   await assignment.waitFor({ state: "hidden" });
   assert.equal(await models.getByRole("button", { name: "Browser", exact: true })
     .locator(".model-assignment-value").textContent(), longModelName);
+  for (const [label, modelId, otherId] of [
+    ["Image description model", "fixture-vision", "fixture-audio"],
+    ["Audio description model", "fixture-audio", "fixture-vision"],
+  ]) {
+    await models.getByRole("button", { name: label, exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: label, exact: true });
+    await dialog.getByRole("button", { name: "Off", exact: true, pressed: true }).waitFor();
+    assert.equal(await dialog.getByRole("button", { name: new RegExp("^" + otherId) }).count(), 0);
+    await dialog.getByRole("button", { name: new RegExp("^" + modelId) }).click();
+    await dialog.waitFor({ state: "hidden" });
+  }
   await models.getByRole("button", { name: "Save", exact: true }).click();
   await modelGroup.waitFor();
   const savedAssignments = await (await page.request.get("/api/settings")).json();
   const savedProvider = savedAssignments.providers.find((item) => item.name === longProvider);
   assert.deepEqual(savedAssignments.agents.fetch, { provider: savedProvider.id, model: longModel });
+  assert.deepEqual(savedAssignments.agents.image_description, { provider: savedProvider.id, model: "fixture-vision" });
+  assert.deepEqual(savedAssignments.agents.audio_description, { provider: savedProvider.id, model: "fixture-audio" });
   assert.equal(savedProvider.model_options[longModel].context_window, 32768);
   await modelGroup.getByRole("button", { name: "Models", exact: true }).click();
   await agentModels.locator("summary").click();
@@ -542,17 +587,26 @@ try {
   await presetBack.click();
   await homeTitle.waitFor();
   const staged = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/attachments");
-  await page.locator(".composer input[type=file]").setInputFiles({
-    name: "fixture.txt", mimeType: "text/plain", buffer: Buffer.from("Fixture attachment"),
-  });
+  await page.locator(".composer input[type=file]").setInputFiles([
+    { name: "fixture.txt", mimeType: "text/plain", buffer: Buffer.from("Fixture attachment") },
+    { name: "fixture.png", mimeType: "image/png",
+      buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZ3sAAAAASUVORK5CYII=", "base64") },
+    { name: "fixture.wav", mimeType: "audio/wav",
+      buffer: Buffer.from("524946462600000057415645666d74201000000001000100803e0000007d00000200100064617461020000000000", "hex") },
+  ]);
   const stagedResponse = await staged;
   assert.ok(stagedResponse.ok(), await stagedResponse.text());
   await page.locator(".composer .attachment").filter({ hasText: "fixture.txt" }).waitFor();
+  await page.locator(".composer .attachment").filter({ hasText: "fixture.wav" }).waitFor();
   await message.fill("Hello from the desktop test.");
   await message.press("Enter");
-  const transcriptReply = page.locator(".transcript").getByText(reply, { exact: true });
+  const transcriptReply = page.locator(".transcript .assistant-reply").getByText(reply, { exact: true });
   await transcriptReply.waitFor();
-  assert.deepEqual(await configuredChatRequest.promise, { model: longModel, effort: "high" });
+  const chatRequest = await configuredChatRequest.promise;
+  assert.equal(chatRequest.model, longModel);
+  assert.equal(chatRequest.effort, "high");
+  assert.match(chatRequest.content, /A small fixture image\./);
+  assert.match(chatRequest.content, /A short fixture recording\./);
   const trace = page.locator(".trace").filter({ hasText: "Test trace" }).last();
   const traceSummary = trace.locator("summary");
   await traceSummary.hover();
@@ -572,10 +626,30 @@ try {
   });
   await transcriptReply.dispatchEvent("contextmenu", { bubbles: true, cancelable: true });
   await page.getByRole("menu", { name: "Quote", exact: true }).getByRole("menuitem", { name: "Quote", exact: true }).click();
-  assert.equal(await message.inputValue(), "Existing draft.\n\n> " + reply + "\n\n");
+  const draftQuote = page.locator(".composer .quote-attachment");
+  await draftQuote.getByRole("button", { name: "Remove Quote" }).waitFor();
+  assert.equal(await draftQuote.locator(".quote-preview").textContent(), reply);
+  assert.equal(await message.inputValue(), "Existing draft.");
+  await draftQuote.locator("summary").click();
+  const quoteBody = draftQuote.locator("blockquote");
+  await quoteBody.waitFor();
+  assert.equal(await quoteBody.textContent(), reply);
   await page.locator(".composer").getByRole("button", { name: "Send", exact: true }).waitFor();
-  await message.fill("Show a fixture card.");
+  const quotedMessage = "Show a fixture card.";
+  await message.fill(quotedMessage);
+  const quoteSent = page.waitForRequest((request) => request.url().endsWith("/api/command") &&
+    request.postDataJSON()?.op === "message" && request.postDataJSON().text === quotedMessage);
   await page.locator(".composer").getByRole("button", { name: "Send", exact: true }).click();
+  const [quote] = (await quoteSent).postDataJSON().attachments;
+  assert.equal(quote.kind, "quote");
+  assert.equal(quote.text, reply);
+  const modelQuote = await expectSignal(quotedModelRequest, "The reply model did not receive the message with its quote.");
+  assert.equal(modelQuote, quotedMessage + "\n\nQuoted passage (reference):\n> " + reply);
+  await draftQuote.waitFor({ state: "hidden" });
+  const sentQuote = page.locator(".transcript .user-message").filter({ has: page.getByText(quotedMessage, { exact: true }) })
+    .locator(".quote-attachment");
+  await sentQuote.waitFor();
+  assert.equal(await sentQuote.locator(".quote-preview").textContent(), reply);
   await page.frameLocator('iframe.open-ui[src="/openui/index.html"]').getByText("Fixture card", { exact: true }).waitFor();
   const more = page.locator(".toolbar-actions").getByRole("button", { name: "More options", exact: true });
   await more.press("ArrowDown");
@@ -632,8 +706,12 @@ try {
   const lines = (await readFile(await file.path(), "utf8")).trim().split(/\r?\n/).map(JSON.parse);
   assert.ok(lines.some((record) => record.content?.includes(reply)));
   assert.ok(lines.some((record) => record.attachments?.some((file) => file.name === "fixture.txt")));
+  const exportedQuote = lines.find((record) => record.content === quotedMessage)?.attachments;
+  assert.deepEqual(exportedQuote, [quote]);
   await page.reload();
   await transcriptReply.waitFor();
+  await sentQuote.waitFor();
+  assert.equal(await sentQuote.locator(".quote-preview").textContent(), reply);
   await message.fill("Cancel this fixture turn.");
   await message.press("Enter");
   await page.locator(".transcript").getByText("Waiting for cancellation.", { exact: true }).waitFor();
@@ -643,9 +721,11 @@ try {
   await behavior.getByRole("button", { name: "Close", exact: true }).click();
   await stop.click();
   await stop.waitFor({ state: "hidden" });
-  await page.locator(".user-message").filter({ hasText: "Hello from the desktop test." })
+  await page.locator(".user-message").filter({ has: page.getByText(quotedMessage, { exact: true }) })
     .getByRole("button", { name: "Edit in a branch" }).click();
-  await page.waitForFunction(() => document.querySelector(".composer textarea").value === "Hello from the desktop test.");
+  await page.waitForFunction((text) => document.querySelector(".composer textarea").value === text, quotedMessage);
+  await draftQuote.waitFor();
+  assert.equal(await draftQuote.locator(".quote-preview").textContent(), reply);
   async function openPresetManagement() {
     await more.click();
     await actions.getByRole("menuitem", { name: "Manage preset" }).click();
@@ -741,29 +821,30 @@ try {
   await home.getByRole("heading", { name: "Fixture ensemble", exact: true }).waitFor();
   await home.getByRole("button", { name: "New room" }).click();
   const loading = page.getByRole("dialog", { name: "Working" });
-  const bridge = page.getByRole("button", { name: "Bridge", exact: true });
+  const scenes = page.locator(".ensemble-overview");
+  const bridge = scenes.getByRole("button", { name: /^Bridge\b/ });
   await page.waitForFunction(() => document.querySelector(".loading-text[data-typing=true]")?.textContent.length > 0);
   await loading.locator(".loading-text[data-typing=false]").filter({ hasText: "Navigation lights flicker beyond the glass." }).waitFor();
-  await loading.locator("progress[value=\"0.2\"]").waitFor();
+  await loading.locator("progress[value=\"0.25\"]").waitFor();
   assert.equal(await bridge.isVisible(), false);
   await loading.locator(".loading-text[data-typing=false]").filter({ hasText: "A watch schedule hangs beside the cargo door." }).waitFor();
   assert.equal((await loading.innerText()).includes("0/2"), false);
   await page.waitForFunction(() => parseFloat(document.querySelector(".loading-progress")?.style.getPropertyValue("--progress")) > 5);
   readiness.Ada.resolve();
-  await loading.locator("progress[value=\"0.32\"]").waitFor();
+  await loading.locator("progress[value=\"0.4\"]").waitFor();
   assert.equal((await loading.innerText()).includes("1/2"), false);
   assert.equal(await bridge.isVisible(), false);
   readiness.Bryn.resolve();
-  await loading.locator("progress[value=\"0.8\"]").waitFor();
+  await loading.locator("progress[value=\"0.75\"]").waitFor();
   assert.equal(await bridge.isVisible(), false);
   labOpening.resolve();
   await loading.waitFor({ state: "hidden" });
   assert.deepEqual(readinessCalls.slice(0, 2).sort(), ["Ada progress", "Bryn progress"]);
   assert.deepEqual(readinessCalls.slice(2).sort(), ["Ada ready", "Bryn ready"]);
-  assert.deepEqual(openings.slice().sort(), ["Ada Bridge", "Bryn Bridge", "Bryn Lab"]);
+  assert.deepEqual(openings.slice().sort(), ["Ada", "Bryn"]);
   await bridge.click();
   await page.locator(".transcript").getByText("Ada opened the bridge.", { exact: true }).waitFor();
-  await page.locator(".transcript").getByText("Bryn opened the bridge.", { exact: true }).waitFor();
+  assert.equal(await page.locator(".transcript").getByText("Bryn opened the bridge.", { exact: true }).count(), 0);
   await message.fill("Report to the bridge.");
   await message.press("Enter");
   await expectSignal(bridgeAnswerStarted, "Ada did not start the bridge reply.");
@@ -771,7 +852,7 @@ try {
   await message.press("Enter");
   await page.locator(".transcript").getByText("The bridge stays open during the report.", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  const lab = page.getByRole("button", { name: "Lab", exact: true });
+  const lab = scenes.getByRole("button", { name: /^Lab\b/ });
   await lab.waitFor();
   await message.waitFor({ state: "hidden" });
   bridgeAnswer.resolve();
@@ -798,13 +879,37 @@ try {
   await page.locator(".transcript").getByText("Bryn carried the report to the lab.", { exact: true }).waitFor();
   assert.equal(await page.locator(".transcript").getByText("Ada reported from the bridge.", { exact: true }).count(), 0);
   assert.equal(await page.locator(".transcript").getByText("Private fixture response.", { exact: true }).count(), 0);
-  await bridge.click();
+  await page.locator(".ensemble-bar").getByRole("button", { name: "Bridge", exact: true }).click();
   await page.locator(".transcript").getByText("Ada reported from the bridge.", { exact: true }).waitFor();
   assert.equal(await page.locator(".transcript").getByText("Bryn carried the report to the lab.", { exact: true }).count(), 0);
-  assert.equal(openings.length, 3);
+  assert.equal(openings.length, 2);
   await message.fill("Hold this room worker.");
   await message.press("Enter");
   await expectSignal(roomWorkerStarted, "Ada did not start waiting for room departure.");
+  assert.ok((await send("message", { agent: "env", text: "Archive the bridge and open a workshop." })).ok());
+  await expectSignal(roomWorkerStopped, "Archiving the selected chat did not cancel the active model stream.");
+  await scenes.getByRole("button", { name: /^Workshop\b/ }).waitFor();
+  assert.equal(await bridge.count(), 0);
+  await message.waitFor({ state: "hidden" });
+  const archiveMenu = page.locator("main").getByRole("button", { name: "More options", exact: true });
+  await archiveMenu.click();
+  await page.getByRole("menuitem", { name: "Archived chats" }).click();
+  const archives = page.getByRole("dialog", { name: "Archived chats", exact: true });
+  const archivedBridge = archives.getByRole("button", { name: "Bridge", exact: true });
+  await archivedBridge.click();
+  const archivedHistory = page.getByRole("dialog", { name: "Bridge", exact: true });
+  await archivedHistory.getByText("Ada reported from the bridge.", { exact: true }).waitFor();
+  assert.equal(await archivedHistory.locator(".composer").count(), 0);
+  assert.equal(await archivedHistory.getByRole("button", { name: /restore/i }).count(), 0);
+  await archivedHistory.getByRole("button", { name: "Back", exact: true }).click();
+  await archivedBridge.waitFor();
+  await archivedBridge.click();
+  await archivedHistory.getByText("Report to the bridge.", { exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+  await archivedBridge.waitFor();
+  await archives.getByRole("button", { name: "Close", exact: true }).click();
+  await scenes.getByRole("button", { name: /^Workshop\b/ }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "More options");
   const greetingPreset = "5039dc7a-ba0c-4fd7-b890-e2016365dd4d";
   await writeFile(join(workspace, "presets", greetingPreset + ".json"), JSON.stringify({
     name: "Greeting fixture", chat_mode: "character",
@@ -814,7 +919,6 @@ try {
   await presetPicker.click();
   await sidebar.getByRole("button", { name: "Greeting fixture", exact: true }).click();
   await home.getByRole("heading", { name: "Greeting fixture", exact: true }).waitFor();
-  await expectSignal(roomWorkerStopped, "Leaving the Room did not cancel the active model stream.");
   assert.equal(await message.count(), 0);
   await home.getByRole("button", { name: "New chat", exact: true }).click();
   await page.locator(".transcript").getByText("The observatory bell rings.", { exact: true }).waitFor();
@@ -843,8 +947,10 @@ try {
   assert.equal(await ruler.locator("[data-turn]").count(), 2);
   const rail = await ruler.boundingBox();
   const railX = rail.x + rail.width / 2;
-  const firstTickY = rail.y + 12;
-  const lastTickY = rail.y + rail.height - 12;
+  const firstTick = await ruler.locator("[data-turn]").first().boundingBox();
+  const lastTick = await ruler.locator("[data-turn]").last().boundingBox();
+  const firstTickY = firstTick.y + firstTick.height / 2;
+  const lastTickY = lastTick.y + lastTick.height / 2;
   await page.mouse.move(railX, lastTickY);
   const preview = ruler.locator(".transcript-ruler-preview");
   await preview.getByText("Exercise transcript scrolling.", { exact: true }).waitFor();

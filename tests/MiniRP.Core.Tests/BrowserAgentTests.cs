@@ -4,7 +4,7 @@ using MiniRP.Core;
 namespace MiniRP.Core.Tests;
 
 [TestClass]
-public sealed class FetchAgentTests
+public sealed class BrowserAgentTests
 {
     [TestMethod]
     public async Task BrowserAgentCanPreciselyEditMarkdownAndReturnFullBody()
@@ -44,7 +44,7 @@ public sealed class FetchAgentTests
         });
         var model = new ModelClient(port, () => new("fixture", "Fixture", "openai", "http://fixture.invalid", "test", "model"));
         var root = Path.Combine(Path.GetTempPath(), "minirp-fetch-" + Guid.NewGuid().ToString("N"));
-        var fetch = new FetchAgent(port, job => TestAgentSession.Open("fetch",
+        var fetch = new BrowserAgent(port, job => TestAgentSession.Open("fetch",
             Path.Combine(root, "fetch", job + ".sqlite"), model, _ => { }));
         var page = await fetch.Fetch("https://example.com", CancellationToken.None);
         Assert.AreEqual(170003, page.GetString("content").Length);

@@ -224,4 +224,14 @@
     <string name="ensemble_member_trace">活动轨迹</string>
     <string name="ensemble_no_trace">暂无活动</string>
     <string name="ensemble_trace_load_failed">无法加载活动。</string>
+    <string name="image_description_model">图像描述模型</string>
+    <string name="audio_description_model">音频描述模型</string>
+    <string name="media_description_off">关闭</string>
+    <string name="image_description_help">回复模型无法读取图像时，将图像发送至此模型。</string>
+    <string name="audio_description_help">回复模型无法处理音频时，将音频发送至此模型。</string>
+    <string name="describe_images_for_model">使用图像描述</string>
+    <string name="describe_audio_for_model">使用音频描述</string>
+    <string name="ensemble_archived_chats">已归档群聊</string>
+    <string name="ensemble_no_archived_chats">没有已归档的群聊</string>
+    <string name="ensemble_archive_empty_history">暂无消息</string>
 </resources>

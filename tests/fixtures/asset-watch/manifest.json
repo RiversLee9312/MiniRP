@@ -1,0 +1,29 @@
+{
+  "id": "asset-watch-probe",
+  "packageName": "test.asset_watch",
+  "name": "Asset watch fixture",
+  "apiVersion": 2,
+  "entry": "index.js",
+  "actions": {
+    "handlers": { "update": "update", "current": "current", "receipt": "receipt", "listen": "listen", "grant": "grant" },
+    "events": ["current-changed"],
+    "subscriptions": {
+      "minichat://actions/test.asset_watch/events/current-changed": "minirp://actions/test.asset_watch/hooks/listen"
+    }
+  },
+  "skills": [{
+    "name": "updates", "description": "Return the Asset to watch.", "agents": ["chat"],
+    "tools": [{
+      "name": "grant", "description": "Grant access to the watch fixture.", "parameters": { "type": "object" },
+      "handler": "minirp://actions/test.asset_watch/hooks/grant", "returnType": "asset-url"
+    }]
+  }],
+  "assets": [
+    { "id": "update", "type": "dynamic", "handler": "minirp://actions/test.asset_watch/hooks/update", "mimeType": "application/json" },
+    { "id": "receipt", "type": "dynamic", "handler": "minirp://actions/test.asset_watch/hooks/receipt", "mimeType": "application/json" },
+    {
+      "id": "current", "type": "dynamic", "handler": "minirp://actions/test.asset_watch/hooks/current",
+      "mimeType": "text/plain", "listenable": true, "changeEvent": "minirp://actions/test.asset_watch/events/current-changed"
+    }
+  ]
+}

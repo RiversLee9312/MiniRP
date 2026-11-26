@@ -66,7 +66,8 @@ internal object AgentMediaSampler {
                 }
                 "image_decode" -> return decodeImage(source, output)
                 "image_preview" -> return previewImage(source, output, viewport)
-                "image_encode" -> encodeImage(source, output, event.optString("format"), event.optInt("quality", 90))
+                "image_encode" -> encodeImage(source, output, event.optString("format"), event.optInt("quality", 90),
+                    event.optInt("max_side", 2048).coerceIn(1, ImageViewport.MaxSide))
                 "pdf_create_page" -> {
                     createPdfPage(source, output)
                     "application/pdf"
@@ -141,13 +142,13 @@ internal object AgentMediaSampler {
         return try { preview(image, output, width, height, region) } finally { image.recycle() }
     }
 
-    private inline fun <T> withBitmap(source: File, block: (Bitmap) -> T): T {
+    private inline fun <T> withBitmap(source: File, maxSide: Int = 2048, block: (Bitmap) -> T): T {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(source.path, bounds)
         val longest = maxOf(bounds.outWidth, bounds.outHeight)
         check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Unable to decode image" }
         var divisor = 1
-        while (longest / divisor > 2048) divisor *= 2
+        while (longest / divisor > maxSide) divisor *= 2
         val options = BitmapFactory.Options().apply { inSampleSize = divisor; inPreferredConfig = Bitmap.Config.ARGB_8888 }
         val bitmap = checkNotNull(BitmapFactory.decodeFile(source.path, options)) { "Unable to decode image" }
         return try { block(bitmap) } finally { bitmap.recycle() }
@@ -175,7 +176,7 @@ internal object AgentMediaSampler {
     }
 
     @Suppress("DEPRECATION")
-    private fun encodeImage(source: File, output: File, format: String, quality: Int): String = withBitmap(source) { bitmap ->
+    private fun encodeImage(source: File, output: File, format: String, quality: Int, maxSide: Int): String = withBitmap(source, maxSide) { bitmap ->
         val codec = when (format) {
             "png" -> Bitmap.CompressFormat.PNG
             "jpeg" -> Bitmap.CompressFormat.JPEG

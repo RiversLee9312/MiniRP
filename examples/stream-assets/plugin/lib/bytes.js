@@ -1,4 +1,4 @@
-export function makeSample() {
+export function makeSample(value = 42) {
     let remaining = 1_000_003;
     return new ReadableStream({
         pull(controller) {
@@ -7,7 +7,7 @@ export function makeSample() {
                 return;
             }
             const chunk = new Uint8Array(Math.min(remaining, 65536));
-            chunk.fill(42);
+            chunk.fill(value);
             remaining -= chunk.length;
             controller.enqueue(chunk);
         },

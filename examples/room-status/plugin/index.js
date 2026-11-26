@@ -14,6 +14,11 @@ globalThis.handlers = {
         const current = await api.state.get({ key: "station" });
         return api.state.set({ key: "station", value: { line }, expected_revision: current.revision });
     },
+    notifyStatus({ arguments: { text } }, api) {
+        const { room, chat } = api.environment;
+        if (!chat || chat !== room) throw new Error("Choose a regular conversation for this notice.");
+        return api.harness.insertSystemMessage({ chat, agent: "chat", text });
+    },
     async statusChanged(event, api) {
         if (api.environment.agent === "env" || !api.environment.chat) return;
         await api.harness.send({

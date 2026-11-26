@@ -58,7 +58,11 @@ function ProviderEditor({ value, change, templates, t, submit, remove, saving })
       const { items = [] } = await send("models", { provider: value });
       change((current) => {
         if (current.url !== value.url || current.protocol !== value.protocol || current.key !== value.key) return current;
-        return { ...current, models: [...new Set([...current.models, ...items.map((item) => item.id).filter(Boolean)])] };
+        const options = current.model_options || empty;
+        const inputOptions = Object.fromEntries(items.filter((item) => item.id && Array.isArray(item.input_modalities))
+          .map((item) => [item.id, { ...options[item.id], input_modalities: item.input_modalities }]));
+        return { ...current, models: [...new Set([...current.models, ...items.map((item) => item.id).filter(Boolean)])],
+          model_options: { ...options, ...inputOptions } };
       });
     } catch (error) { setFailure(error.message || t("model_fetch_failed")); }
     finally { setFetching(false); }
@@ -123,8 +127,10 @@ function Research({ value, defaults, change, submit, t, saving, changed, backend
   const search = value.search_provider || defaults.search_provider || "deepseek";
   const fetch = value.fetch_provider || defaults.fetch_provider || "deepseek";
   const activeServices = [...new Set(backend === "local" ? [search] : [search, fetch])];
-  const keys = { ...defaults.research_keys, ...value.research_keys };
+  const keys = value.research_keys || empty;
+  const configured = defaults.configured_keys || [];
   const patch = (key, field) => change({ ...value, [key]: field });
+  const setKey = (service, key) => patch("research_keys", { ...keys, [service]: key });
   const options = (names) => names.map((name) => <option value={name} key={name}>{services[name]}</option>);
   return <form className="settings-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
     <div className="setting-group">
@@ -136,17 +142,15 @@ function Research({ value, defaults, change, submit, t, saving, changed, backend
       </SettingChoice>}
     </div>
     <div className="settings-fields stack">
-      {activeServices.map((service) => <label key={service}>{services[service]} · {t("api_key")}
-        <input dir="ltr" type="password" autoComplete="off"
-          value={keys[service] ?? (service === "deepseek" ? value.search_key ?? defaults.search_key ?? "" : "")}
-          onChange={(event) => {
-            const key = event.target.value;
-            change({
-              ...value, ...(service === "deepseek" ? { search_key: key } : {}),
-              research_keys: { ...keys, [service]: key },
-            });
-          }} />
-      </label>)}
+      {activeServices.map((service) => <div className="stack" key={service}>
+        <label>{services[service]} · {t("api_key")}
+          <input dir="ltr" type="password" autoComplete="off" value={keys[service] ?? ""}
+            placeholder={keys[service] === undefined && configured.includes(service) ? "••••••••" : ""}
+            onChange={(event) => setKey(service, event.target.value)} />
+        </label>
+        {keys[service] === undefined && configured.includes(service) &&
+          <button type="button" className="text-button" onClick={() => setKey(service, "")}>{t("delete")}</button>}
+      </div>)}
     </div>
     <SaveBar {...{ t, saving, changed }} />
   </form>;

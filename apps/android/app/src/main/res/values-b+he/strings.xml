@@ -228,4 +228,14 @@
     <string name="ensemble_member_trace">יומן פעילות</string>
     <string name="ensemble_no_trace">אין עדיין פעילות</string>
     <string name="ensemble_trace_load_failed">לא ניתן לטעון את הפעילות.</string>
+    <string name="image_description_model">מודל לתיאור תמונות</string>
+    <string name="audio_description_model">מודל לתיאור שמע</string>
+    <string name="media_description_off">כבוי</string>
+    <string name="image_description_help">התמונות נשלחות למודל הזה כשמודל התשובה לא יכול לקרוא אותן.</string>
+    <string name="audio_description_help">השמע נשלח למודל הזה כשמודל התשובה לא יכול לעבד אותו.</string>
+    <string name="describe_images_for_model">שימוש בתיאורי תמונות</string>
+    <string name="describe_audio_for_model">שימוש בתיאורי שמע</string>
+    <string name="ensemble_archived_chats">צ׳אטים בארכיון</string>
+    <string name="ensemble_no_archived_chats">אין צ׳אטים בארכיון</string>
+    <string name="ensemble_archive_empty_history">אין הודעות</string>
 </resources>

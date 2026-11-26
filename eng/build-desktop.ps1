@@ -1,4 +1,4 @@
-param([string]$Runtime = 'win-x64', [string]$OutputDirectory, [string]$ContainerImage, [string]$QemuRuntime, [string]$CurlRuntime, [switch]$NoSymbols)
+param([string]$Runtime = 'win-x64', [string]$OutputDirectory, [string]$ContainerImage, [string]$QemuRuntime, [string]$CurlRuntime, [string]$FfmpegRuntime, [switch]$NoSymbols)
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent $PSScriptRoot
 $output = if ($OutputDirectory) { [System.IO.Path]::GetFullPath($OutputDirectory, $workspace) }
@@ -60,10 +60,20 @@ if ($Runtime -eq 'win-x64') {
     $curlOutput = Join-Path $output 'curl'
     New-Item -ItemType Directory -Force $curlOutput | Out-Null
     Get-ChildItem -LiteralPath $CurlRuntime | Copy-Item -Destination $curlOutput -Force
+    if (!$FfmpegRuntime) { $FfmpegRuntime = Join-Path $workspace 'artifacts/ffmpeg-x264-runtime/windows' }
+    foreach ($name in @('ffmpeg.exe', 'ffprobe.exe', 'ffmpeg-source.tar.xz', 'ffmpeg-license.txt', 'mingw-runtime-license.txt', 'LIBX264')) {
+        if (!(Test-Path -LiteralPath (Join-Path $FfmpegRuntime $name) -PathType Leaf)) {
+            throw 'Build the shared FFmpeg runtime first. See docs/project/agent-container.md.'
+        }
+    }
+    $ffmpegOutput = Join-Path $output 'ffmpeg'
+    New-Item -ItemType Directory -Force $ffmpegOutput | Out-Null
+    Get-ChildItem -LiteralPath $FfmpegRuntime -File | Copy-Item -Destination $ffmpegOutput -Force
     if (!$ContainerImage) { $ContainerImage = Join-Path $workspace 'artifacts/container-image' }
     if (!$QemuRuntime) { $QemuRuntime = Join-Path $workspace 'artifacts/container-runtime/windows' }
     if (!(Test-Path -LiteralPath (Join-Path $ContainerImage 'SHA256SUMS')) -or
         !(Test-Path -LiteralPath (Join-Path $ContainerImage 'ROOM_VM')) -or
+        !(Test-Path -LiteralPath (Join-Path $ContainerImage 'HOST_FFMPEG')) -or
         !(Test-Path -LiteralPath (Join-Path $QemuRuntime 'qemu-system-x86_64.exe'))) {
         throw 'Build the bundled x86-64 Alpine image and headless QEMU runtime first. See docs/project/agent-container.md.'
     }

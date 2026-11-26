@@ -224,4 +224,14 @@
     <string name="ensemble_member_trace">Nhật ký hoạt động</string>
     <string name="ensemble_no_trace">Chưa có hoạt động</string>
     <string name="ensemble_trace_load_failed">Không thể tải hoạt động.</string>
+    <string name="image_description_model">Mô hình mô tả ảnh</string>
+    <string name="audio_description_model">Mô hình mô tả âm thanh</string>
+    <string name="media_description_off">Tắt</string>
+    <string name="image_description_help">Ảnh được gửi đến mô hình này khi mô hình trả lời không đọc được ảnh.</string>
+    <string name="audio_description_help">Âm thanh được gửi đến mô hình này khi mô hình trả lời không xử lý được âm thanh.</string>
+    <string name="describe_images_for_model">Dùng mô tả ảnh</string>
+    <string name="describe_audio_for_model">Dùng mô tả âm thanh</string>
+    <string name="ensemble_archived_chats">Cuộc trò chuyện đã lưu trữ</string>
+    <string name="ensemble_no_archived_chats">Không có cuộc trò chuyện đã lưu trữ</string>
+    <string name="ensemble_archive_empty_history">Không có tin nhắn</string>
 </resources>

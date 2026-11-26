@@ -5,11 +5,11 @@ import { assetUrl, download, request, send, upload } from "./api.js";
 import { resolveLocale, setDocumentLocale, translator } from "./i18n.js";
 import { applyEvents, initial, prependHistory } from "./workspace.js";
 import { Composer, Transcript } from "./Conversation.jsx";
-import { EnsembleOverview, EnsembleRoster, EnsembleTraceDialog, OutOfStoryNotice, PrivateMessagesFab, RoomThinking } from "./EnsembleRoom.jsx";
+import { EnsembleArchive, EnsembleOverview, EnsembleRoster, EnsembleTraceDialog, OutOfStoryNotice, PrivateMessagesFab, RoomThinking } from "./EnsembleRoom.jsx";
 import { OpenUi } from "./OpenUi.jsx";
 import { ModelPicker } from "./ModelSettings.jsx";
 import { Settings } from "./Settings.jsx";
-import { Memory, Plugins, pluginAttachmentTypes } from "./WorkspaceTools.jsx";
+import { Memory, Plugins, pluginAttachmentTypes, pluginAvailableIn } from "./WorkspaceTools.jsx";
 import { Confirm, FileChoice, Icon, IconButton, Modal, Notice, Select, SettingToggle, Surface, TextDialog } from "./ui.jsx";
 import { ActionMenu } from "./ActionMenu.jsx";
 import { RoomLoading } from "./RoomLoading.jsx";
@@ -202,9 +202,11 @@ function PresetHome({ name, startLabel, createPreset, openPreset, startConversat
   return <section className="preset-home" aria-labelledby="preset-home-title">
     <div className="preset-home-content">
       {name ? <>
-        <p className="preset-home-caption">{t("welcome_to_preset")}</p>
-        <h1 id="preset-home-title"><button type="button" className="text-button home-preset-name" title={t("edit_preset")}
-          dir="auto" disabled={busy} onClick={openPreset}>{name}</button></h1>
+        <div className="preset-home-heading">
+          <p className="preset-home-caption">{t("welcome_to_preset")}</p>
+          <h1 id="preset-home-title"><button type="button" className="text-button home-preset-name" title={t("edit_preset")}
+            dir="auto" disabled={busy} onClick={openPreset}>{name}</button></h1>
+        </div>
         {startLabel && <button type="button" className="filled" disabled={busy} onClick={startConversation}>{startLabel}</button>}
       </> : <>
         <h1 id="preset-home-title" className="preset-home-caption">{t("no_presets_yet")}</h1>
@@ -214,6 +216,16 @@ function PresetHome({ name, startLabel, createPreset, openPreset, startConversat
       </>}
     </div>
   </section>;
+}
+
+function WorkspaceBackdrop({ src, blurred, onReady }) {
+  const [video, setVideo] = useState(false);
+  const className = "workspace-background" + (blurred ? " blurred" : "");
+  return video
+    ? <video className={className} aria-hidden="true" src={src} autoPlay muted loop playsInline
+        onLoadedData={(event) => onReady(event.currentTarget)} />
+    : <img className={className} aria-hidden="true" alt="" src={src}
+        onLoad={(event) => onReady(event.currentTarget)} onError={() => setVideo(true)} />;
 }
 
 function WorkspaceInteraction({ item, t, run, theme, dark }) {
@@ -280,11 +292,27 @@ function App() {
   const [link, setLink] = useState("");
   const [attachmentType, setAttachmentType] = useState("");
   const [sampledAccent, setSampledAccent] = useState(null);
+  const [backgroundFrame, setBackgroundFrame] = useState("");
   const [theme, setTheme] = useState(undefined);
   const seenOpened = useRef(0);
   const currentAction = useRef(null);
   const menuButton = useRef(null);
   const privateFab = useRef(null);
+  const moreButton = useRef(null);
+  const workspacePane = useRef(null);
+  useLayoutEffect(() => {
+    const pane = workspacePane.current;
+    if (!pane) return;
+    function measure() {
+      const { width, height } = pane.getBoundingClientRect();
+      if (width <= 0 || height <= 0) return;
+      setBackgroundFrame(width * 10 >= height * 11 ? "landscape" : height * 10 >= width * 11 ? "portrait" : "square");
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(pane);
+    measure();
+    return () => observer.disconnect();
+  }, []);
   const locale = resolveLocale(preferences.locale ? [preferences.locale] : navigator.languages);
   const t = useMemo(() => translator(locale), [locale]);
   const onError = useCallback((message) => setNotice(message), []);
@@ -299,9 +327,14 @@ function App() {
   const presetWorking = presetRunning || role === "preset" && sending;
   const navigationBusy = !connected || !workspace.ready || busy || presetWorking || creatingPreset;
   const presetExitLocked = setupPending || navigationBusy;
-  const background = config.appearance?.background_url;
+  const backgroundUrl = config.appearance?.background_url;
+  const backgroundPackage = backgroundUrl?.split("/")[3];
+  const backgroundOwner = backgroundPackage && workspace.plugins.find((plugin) =>
+    plugin.presetId === preset && plugin.packageName === backgroundPackage && pluginAvailableIn(plugin, preset));
+  const background = backgroundOwner ? backgroundUrl : "";
   const explicitAccent = config.appearance?.theme_color;
-  const seed = explicitAccent || (sampledAccent && sampledAccent.background === background && sampledAccent.preset === preset
+  const seed = explicitAccent || (sampledAccent && sampledAccent.background === background && sampledAccent.preset === preset &&
+    sampledAccent.frame === backgroundFrame && sampledAccent.generation === backgroundOwner?.generation
     ? sampledAccent.color : "");
   const pane = role === "chat" && workspace.ensemble !== null ? "ensemble" : role;
   const ensembleRoom = pane === "ensemble" && Boolean(chat);
@@ -401,8 +434,8 @@ function App() {
 
   async function saveSettings(value) {
     const { environment, default_research, preferences: _, ...editable } = value;
-    await request("/api/settings", editable);
-    setSettings(value);
+    const saved = await request("/api/settings", editable);
+    setSettings(saved.settings || value);
     if (setupPending && (value.agents !== settings.agents || value.providers !== settings.providers) &&
       !workspace.panes.preset.some((block) => block.content?.trim())) {
       await send("resume_preset_interview", { preset, locale });
@@ -538,6 +571,8 @@ function App() {
       role === "chat" && chat && action("world", "auto_awesome", () => setRole("env"), { next: true }),
       role !== "preset" && !home && action("edit_preset", "edit", openPreset, { next: true, disabled: navigationBusy }),
       chat && action("memory", "visibility", () => show("memory"), { next: true, disabled: busy }),
+      ensembleRoom && !conversation && action("ensemble_archived_chats", "archive",
+        () => setDialog({ type: "ensembleArchive", preset, chat }), { next: true }),
     ].filter(Boolean),
     [
       canExportTranscript && action("export_transcript", "share", () => exportType("transcript"), { disabled: navigationBusy }),
@@ -585,7 +620,7 @@ function App() {
       busy={navigationBusy} setupPending={setupPending}
       startConversation={startConversation}
       roomActions={roomActions} run={run} t={t} />
-    <main className="main" inert={sidebar && compact}>
+    <main ref={workspacePane} className="main" data-background={role === "chat" && Boolean(background)} inert={sidebar && compact}>
       <header className="toolbar" data-home={home}>
         <IconButton icon="menu" className="mobile-only" ref={menuButton} label={t("open_menu")}
           aria-expanded={sidebar} aria-controls="library" disabled={role === "preset" && presetWorking} onClick={() => setSidebar(true)} />
@@ -605,7 +640,7 @@ function App() {
           {privateChat && <IconButton icon="visibility" label={t("ensemble_member_trace")}
             onClick={() => setDialog({ type: "ensembleTrace", chat, participant: privateParticipant })} />}
           <IconButton icon="settings" label={t("settings")} disabled={!settings} onClick={() => show("settings")} />
-          {preset && <ActionMenu label={t("more_options")} groups={conversationActions} />}
+          {preset && <ActionMenu label={t("more_options")} groups={conversationActions} buttonRef={moreButton} />}
         </div>
       </header>
       {ensembleRoom && conversation && !privateChat && <nav className="ensemble-bar" aria-label={t("conversations")}>
@@ -614,9 +649,13 @@ function App() {
           <bdi className="choice-label">{room.name || t("chat")}</bdi>
         </button>)}
       </nav>}
-      {background && <img className={"workspace-background" + (!home && config.appearance.background_blur !== false ? " blurred" : "")}
-        aria-hidden="true" alt="" src={assetUrl(background, { preset }, { mode: "background", inline: "1" })}
-        onLoad={(event) => { if (!explicitAccent) setSampledAccent({ background, preset, color: backgroundAccent(event.currentTarget) }); }} />}
+      {background && backgroundFrame && <WorkspaceBackdrop key={[preset, background, backgroundFrame, backgroundOwner.generation].join(":")}
+        src={assetUrl(background, { preset }, { mode: "background", inline: "1", frame: backgroundFrame })}
+        blurred={!home && config.appearance.background_blur !== false}
+        onReady={(media) => {
+          if (!explicitAccent) setSampledAccent({ background, preset, frame: backgroundFrame,
+            generation: backgroundOwner.generation, color: backgroundAccent(media) });
+        }} />}
       <div className="chat-body">
         {role === "preset" && presetRunning && <p className="preset-working" role="status">{t("running")}</p>}
         {systemOnly && <div className="ensemble-ooc-inset"><OutOfStoryNotice t={t} /></div>}
@@ -637,7 +676,7 @@ function App() {
           {composer}
           <PrivateMessagesFab extended={!canCompose} disabled={!connected || navigationBusy || !workspace.participants.length}
             open={() => setDialog({ type: "ensembleRoster", chat })} buttonRef={privateFab} t={t} />
-        </footer> : composer}
+        </footer> : composer && <div className="composer-region">{composer}</div>}
       </div>
     </main>
 
@@ -648,6 +687,12 @@ function App() {
       <a href={link} target="_blank" rel="noreferrer" onClick={() => setLink("")}>{link}</a>
     </Modal>}</Surface>
     <Surface>{dialog && <>
+      {dialog.type === "ensembleArchive" && dialog.preset === preset && dialog.chat === chat &&
+        <EnsembleArchive key={chat} room={chat} {...{ preset, locale, dark, theme, t, onError }}
+          close={() => {
+            closeDialog();
+            requestAnimationFrame(() => moreButton.current?.focus({ preventScroll: true }));
+          }} />}
       {dialog?.type === "ensembleRoster" && dialog.chat === chat && <EnsembleRoster people={workspace.participants} inStory={privateInStory}
         open={openPrivateChat} t={t} close={(restoreFocus) => {
           closeDialog();

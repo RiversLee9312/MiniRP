@@ -89,10 +89,14 @@ internal fun RoomLoadingScreen(loading: RoomLoading, stop: () -> Unit) {
 private fun RoomLoadingProgress(loading: RoomLoading, animate: Boolean) {
     val total = loading.total.coerceAtLeast(1)
     val allReady = loading.total > 0 && loading.ready == loading.total
-    val confirmed = if (allReady) 1f else loading.progress.coerceIn(0f, ProgressBeforeReady)
+    val confirmed = when {
+        loading.declaredProgress -> loading.progress.coerceIn(0f, 1f)
+        allReady -> 1f
+        else -> loading.progress.coerceIn(0f, ProgressBeforeReady)
+    }
     val nextMilestone = (loading.ready + 0.9f) / total
-    val predicted = (confirmed + (nextMilestone - confirmed).coerceAtLeast(0f) * 0.8f)
-        .coerceAtMost(ProgressBeforeReady)
+    val predicted = if (loading.declaredProgress) confirmed else
+        (confirmed + (nextMilestone - confirmed).coerceAtLeast(0f) * 0.8f).coerceAtMost(ProgressBeforeReady)
     val visual = remember { Animatable(confirmed) }
 
     LaunchedEffect(confirmed, predicted, animate) {

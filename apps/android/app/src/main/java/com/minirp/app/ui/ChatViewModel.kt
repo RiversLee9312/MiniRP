@@ -151,7 +151,7 @@ internal constructor(
                                         .use { it.readText() }
                                 }
                                 .getOrDefault("")
-                        CoreClient(workspace, viewModelScope)
+                        CoreClient(workspace, viewModelScope, preferences = preferences)
                     }
                 client.browser = browser::execute
                 client.picker = picker::request
@@ -351,6 +351,7 @@ internal constructor(
                     event.getInt("total"),
                     event.getDouble("progress").toFloat(),
                     messages,
+                    declaredProgress = event.optBoolean("declared_progress"),
                 ) else null
                 mutableState.update { it.copy(roomLoading = loading) }
             }
@@ -476,11 +477,15 @@ internal constructor(
                 }
             "ensemble_chats" ->
                 mutableState.update {
-                    if (it.chatId != event.optString("chat")) it
+                    val preset = event.optString("preset")
+                    if (it.chatId != event.optString("chat") || (preset.isNotEmpty() && preset != it.preset)) it
                     else
                         it.copy(
                             ensembleChats =
-                                event.getJSONArray("items").objects().map(::decodeEnsembleChat)
+                                event.getJSONArray("items").objects().map(::decodeEnsembleChat),
+                            ensembleActivity = it.ensembleActivity.filterNot { active ->
+                                active.conversation == event.optString("removed")
+                            },
                         )
                 }
             "steer_queued",
@@ -693,6 +698,7 @@ internal constructor(
                         contextWindow = choice.contextWindow.takeIf { it > 0 } ?: model.choice.contextWindow,
                         maxOutput = choice.maxOutput.takeIf { it > 0 } ?: model.choice.maxOutput,
                         effortLevels = if (ollama && choice.effortLevels.isEmpty()) model.choice.effortLevels else choice.effortLevels,
+                        inputModalities = choice.inputModalities ?: model.choice.inputModalities,
                     ),
                     reasoningEffort = model.reasoningEffort.takeIf {
                         ollama || it in choice.effortLevels
@@ -895,6 +901,7 @@ internal constructor(
     suspend fun openEnsembleChat(room: String, conversation: String, privateParticipant: String = "") {
         val current = state.value
         if (current.chatId != room) return
+        if (privateParticipant.isBlank() && current.ensembleChats?.none { it.id == conversation } == true) return
         try {
             // Consume each snapshot and subsequent posts from the same event stream.
             val selection = JSONObject().put("preset", current.preset).put("chat", room)
@@ -910,6 +917,21 @@ internal constructor(
             report(error)
         }
     }
+
+    internal suspend fun archivedChats(preset: String, room: String): List<EnsembleChat> =
+        queryArchive(preset, room).getJSONArray("items").objects().map(::decodeEnsembleChat)
+
+    internal suspend fun archivedHistory(preset: String, room: String, chat: String, before: String? = null): ArchivedHistoryPage {
+        val response = queryArchive(preset, room, chat, before)
+        return withContext(Dispatchers.Default) {
+            ArchivedHistoryPage(response.getJSONArray("blocks").objects().map { decodeBlock(it).finishMarkdown() },
+                response.optString("before").takeUnless { response.isNull("before") })
+        }
+    }
+
+    private suspend fun queryArchive(preset: String, room: String, chat: String = "", before: String? = null): JSONObject =
+        engine.await().query(JSONObject().put("op", "ensemble_archive").put("preset", preset)
+            .put("room", room).put("conversation", chat).put("before", before).put("locale", appLocale()))
 
     internal suspend fun loadEnsembleTrace(room: String, participant: String): List<EnsembleTraceScene> {
         val current = state.value
@@ -1272,8 +1294,8 @@ internal constructor(
     internal suspend fun thumbnail(role: AgentRole, preview: AttachmentThumbnail): ByteArray =
         engine.await().readAsset(preview.url, 1024 * 1024, role.id, preview.attachment)
 
-    internal suspend fun savePresetBackground(preset: String, url: String, destination: File): String =
-        engine.await().savePresetBackground(preset, url, destination)
+    internal suspend fun savePresetBackground(preset: String, url: String, frame: String, destination: File): String =
+        engine.await().savePresetBackground(preset, url, frame, destination)
 
     internal suspend fun displayAssetInfo(request: JSONObject) = engine.await().displayAssetInfo(request)
 
@@ -1409,11 +1431,14 @@ internal constructor(
         )
     }
 
-    fun saveModelSettings(model: SavedModel, settings: CompactionSettings, reasoningEffort: String, effortLevels: List<String>?) =
+    fun saveModelSettings(
+        model: SavedModel, settings: CompactionSettings, reasoningEffort: String,
+        effortLevels: List<String>?, mediaInput: MediaInputSettings = model.mediaInput,
+    ) =
         updateModelSettings(model) {
             it.copy(
                 choice = effortLevels?.let { levels -> it.choice.copy(effortLevels = levels) } ?: it.choice,
-                compaction = settings, reasoningEffort = reasoningEffort,
+                compaction = settings, reasoningEffort = reasoningEffort, mediaInput = mediaInput,
             )
         }
 
@@ -1456,8 +1481,17 @@ internal constructor(
     }
 
     fun researchSettings(settings: ResearchSettings) {
-        mutableState.update { it.copy(research = settings) }
-        persist()
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { preferences.saveResearchKeys(settings.encodeKeys()) }
+                mutableState.update { it.copy(research = settings) }
+                persist()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                report(error)
+            }
+        }
     }
 
     private fun configure() {
@@ -1472,6 +1506,7 @@ internal constructor(
                     maxOutput = choice.maxOutput.takeIf { it > 0 } ?: provider.maxOutput,
                 )
             ).put("input_modalities", choice.inputModalities?.let(::JSONArray))
+                .putMediaInput(model.mediaInput)
                 .put("reasoning_effort", model.reasoningEffort.ifEmpty { choice.effortLevels.highestEffort() })
                 .putCompaction(model.compaction)
         }
@@ -1493,7 +1528,7 @@ internal constructor(
                     .put("fetch_backend", current.fetchMode)
                     .put("search_provider", current.research.search.id)
                     .put("fetch_provider", current.research.fetch.id)
-                    .put("research_keys", current.research.encodeKeys())
+                    .put("_research_secret_storage", true)
                     .put("search_region", if (mainlandChina) "CN" else "")
                     .put("android_open_ui", openUiInstructions)
                     .put(
@@ -1530,7 +1565,6 @@ internal constructor(
                             .put("preset_chat_hint_seen", current.presetChatHintSeen)
                             .put("search_provider", current.research.search.id)
                             .put("fetch_provider", current.research.fetch.id)
-                            .put("research_keys", current.research.encodeKeys())
                             .put("fetch", current.fetchMode),
                     )
                 } catch (cancelled: CancellationException) {

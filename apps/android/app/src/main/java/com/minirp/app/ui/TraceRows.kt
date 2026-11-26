@@ -56,6 +56,7 @@ internal fun TraceHeading(
     header: TraceHeader,
     pinned: Boolean = false,
     obscured: Boolean = false,
+    modifier: Modifier = Modifier,
     toggle: () -> Unit,
 ) {
     val label =
@@ -67,7 +68,7 @@ internal fun TraceHeading(
                 pluralStringResource(R.plurals.trace_actions, header.tools, header.tools)
             else -> stringResource(R.string.reasoning)
         }
-    val modifier =
+    val stateModifier =
         when {
             pinned -> Modifier.testTag("pinned:${header.id}")
             obscured -> Modifier.alpha(0f).clearAndSetSemantics {}
@@ -76,7 +77,7 @@ internal fun TraceHeading(
     TraceDisclosure(
         label,
         header.expanded,
-        modifier.traceQuote(if (header.parent == null) 0 else 1),
+        modifier.then(stateModifier).traceQuote(if (header.parent == null) 0 else 1),
         toggle = toggle,
     )
 }
@@ -89,6 +90,7 @@ internal fun TraceStep(
     toggleDetails: () -> Unit,
     openUiPages: OpenUiPageCache? = null,
     obscureHeading: Boolean = false,
+    headingModifier: Modifier = Modifier,
 ) {
     Column(Modifier.fillMaxWidth().traceQuote(quoteDepth)) {
         if (step.tool.isBlank() && !step.compaction) {
@@ -109,7 +111,7 @@ internal fun TraceStep(
         } else {
             val headerModifier = if (obscureHeading) Modifier.alpha(0f).clearAndSetSemantics {}
                 else Modifier
-            TraceStepHeading(step, details, headerModifier, toggleDetails)
+            TraceStepHeading(step, details, headingModifier.then(headerModifier), toggleDetails)
             if (details) {
                 if (step.compaction) {
                     SelectionContainer {

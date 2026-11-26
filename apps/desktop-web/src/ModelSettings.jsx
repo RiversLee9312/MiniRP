@@ -4,19 +4,23 @@ import { send } from "./api.js";
 import { Icon, IconButton, Modal, SaveBar, Select, SettingToggle, Surface } from "./ui.jsx";
 
 const empty = Object.freeze({});
-const primaryRoles = { default: "system_default", chat: "chat", title: "title_model" };
+const primaryRoles = { default: "system_default", chat: "chat", title: "title_model",
+  image_description: "image_description_model", audio_description: "audio_description_model" };
+const descriptionKinds = { image_description: "image", audio_description: "audio" };
 const agentRoles = { env: "world", preset: "preset", search: "search_agent", fetch: "fetch_agent", plugin: "plugin_agent" };
 const choiceKey = (item) => item ? JSON.stringify([item.provider, item.model]) : "";
-const inheritedModel = (role) => role === "plugin" ? "use_preset_model"
+const inheritedModel = (role) => descriptionKinds[role] ? "media_description_off" : role === "plugin" ? "use_preset_model"
   : role === "chat" || role === "default" ? "system_default" : "use_chat_model";
 const providerName = (provider) => provider.name || provider.url;
 
 function modelChoices(settings) {
   const legacy = settings.environment;
-  const choices = legacy?.model ? [{ provider: "environment", model: legacy.model, name: legacy.model, source: legacy.name }] : [];
+  const choices = legacy?.model ? [{ provider: "environment", model: legacy.model, name: legacy.model,
+    source: legacy.name, protocol: legacy.protocol, modalities: legacy.input_modalities }] : [];
   for (const provider of settings.providers || [])
     for (const model of new Set(provider.models || []))
-      choices.push({ provider: provider.id, model, name: model, source: providerName(provider) });
+      choices.push({ provider: provider.id, model, name: model, source: providerName(provider), protocol: provider.protocol,
+        modalities: provider.model_options?.[model]?.input_modalities });
   return choices;
 }
 
@@ -81,6 +85,7 @@ function ModelAssignment({ role, label, choices, current, t, choose, close, mana
     </button>;
   }
   return <Modal title={label} close={close} className="model-dialog" t={t}>
+    {descriptionKinds[role] && <p className="settings-caption">{t(descriptionKinds[role] + "_description_help")}</p>}
     <label>{t("search_models")}<input ref={search} type="search" value={query}
       onChange={(event) => setQuery(event.target.value)} onKeyDown={navigate} /></label>
     <div className="model-results setting-group" role="group" aria-label={t("available_models")} ref={list} onKeyDown={navigate}>
@@ -118,6 +123,10 @@ function ModelOptionFields({ options, change, t, efforts }) {
     </div>
     <div className="setting-group">
       <SettingToggle label={t("thinking")} checked={Boolean(options.thinking)} onChange={(value) => patch("thinking", value)} />
+      <SettingToggle label={t("describe_images_for_model")} checked={Boolean(options.describe_images)}
+        onChange={(value) => patch("describe_images", value)} />
+      <SettingToggle label={t("describe_audio_for_model")} checked={Boolean(options.describe_audio)}
+        onChange={(value) => patch("describe_audio", value)} />
       <SettingToggle label={t("background_compaction")} checked={options.background_compaction !== false}
         onChange={(value) => patch("background_compaction", value)} />
     </div>
@@ -211,7 +220,7 @@ function ProviderCatalog({ provider, t, saving, setEnabled, edit, searchInput, r
     {filtered.length ? <div className="model-results setting-group" role="group" aria-label={t("available_models")}>
       {filtered.map((item) => <div className="model-catalog-row" key={item.id}>
         <SettingToggle label={item.name || item.id} detail={item.name !== item.id ? item.id : undefined} disabled={saving}
-          checked={saved.has(item.id)} onChange={(enabled) => setEnabled(item.id, enabled)} />
+          checked={saved.has(item.id)} onChange={(enabled) => setEnabled(item.id, enabled, item.input_modalities)} />
         {saved.has(item.id) && <IconButton icon="settings" label={t("model_settings") + " · " + (item.name || item.id)}
           onClick={() => edit(item.id)} disabled={saving} />}
       </div>)}
@@ -233,15 +242,21 @@ export function Models({ settings, t, saving, submit, addProvider }) {
   const provider = draft.providers.find((item) => item.id === providerId) || draft.providers[0];
   const choices = modelChoices({ ...settings, ...draft }).map((item) => ({
     ...item, name: catalogs.get(item.provider)?.get(item.model)?.name || item.name,
+    modalities: catalogs.get(item.provider)?.get(item.model)?.input_modalities ?? item.modalities,
   }));
   const changed = draft.agents !== (settings.agents || empty) || draft.providers !== (settings.providers || draft.providers);
 
-  function assign(role, model) {
+  function assign(role, model, modalities) {
     setDraft((previous) => {
       const agents = { ...previous.agents };
       if (model) agents[role] = model;
       else delete agents[role];
-      return { ...previous, agents };
+      const providers = !model || !Array.isArray(modalities) ? previous.providers : previous.providers.map((item) => {
+        if (item.id !== model.provider) return item;
+        const options = item.model_options || empty;
+        return { ...item, model_options: { ...options, [model.model]: { ...options[model.model], input_modalities: modalities } } };
+      });
+      return { agents, providers };
     });
   }
 
@@ -266,10 +281,10 @@ export function Models({ settings, t, saving, submit, addProvider }) {
           id={valueId} title={value}>{value}</small></span>
         <span className="directional"><Icon name="chevron_right" /></span>
       </button>
-      {current?.options && <details className="settings-disclosure">
+      {current && !descriptionKinds[id] && (current.options || current.provider === "environment") && <details className="settings-disclosure">
         <summary className="settings-row"><span>{t("model_settings")}</span><Icon name="expand_more" /></summary>
         <div className="settings-disclosure-content">
-          <ModelOptionFields t={t} options={current.options} change={(options) => assign(id, { ...current, options })} />
+          <ModelOptionFields t={t} options={current.options || empty} change={(options) => assign(id, { ...current, options })} />
         </div>
       </details>}
     </section>;
@@ -279,6 +294,11 @@ export function Models({ settings, t, saving, submit, addProvider }) {
   const closeOptions = () => setEditing("");
   const storedOptions = provider?.model_options || empty;
   const editingOptions = editing && Object.hasOwn(storedOptions, editing) ? storedOptions[editing] || empty : empty;
+  const kind = descriptionKinds[role];
+  const assignmentChoices = kind ? choices.filter(({ protocol, modalities }) =>
+    (kind !== "audio" || !protocol || ["openai", "gemini"].includes(protocol)) &&
+    (!Array.isArray(modalities) || modalities.some((value) => typeof value === "string" &&
+      (value.toLowerCase() === kind || value.toLowerCase().startsWith(kind + "/"))))) : choices;
   return <form className="settings-form" onSubmit={(event) => {
     event.preventDefault();
     if (changed && !saving) submit(draft);
@@ -295,8 +315,10 @@ export function Models({ settings, t, saving, submit, addProvider }) {
           {draft.providers.map((item) => <option key={item.id} value={item.id}>{providerName(item)}</option>)}
         </Select></label>
         <ProviderCatalog key={provider.id} {...{ provider, t, saving, reportCatalog }} searchInput={catalogInput}
-          setEnabled={(model, enabled) => updateProvider((item) => ({
+          setEnabled={(model, enabled, modalities) => updateProvider((item) => ({
             ...item, models: enabled ? [...new Set([...(item.models || []), model])] : (item.models || []).filter((id) => id !== model),
+            ...(enabled && Array.isArray(modalities) && { model_options: { ...item.model_options,
+              [model]: { ...item.model_options?.[model], input_modalities: modalities } } }),
           }), enabled ? undefined : model)}
           edit={setEditing} />
       </> : <button type="button" className="tonal" onClick={addProvider} disabled={saving}>
@@ -305,15 +327,15 @@ export function Models({ settings, t, saving, submit, addProvider }) {
     </section>
     <SaveBar {...{ t, saving, changed }} />
     {createPortal(<>
-      <Surface>{role && <ModelAssignment role={role} label={t(primaryRoles[role] || agentRoles[role])} t={t}
-        current={draft.agents[role]} choices={withCurrent(choices, draft.agents[role], draft.providers)}
+      <Surface>{role && <ModelAssignment key={role} role={role} label={t(primaryRoles[role] || agentRoles[role])} t={t}
+        current={draft.agents[role]} choices={withCurrent(assignmentChoices, draft.agents[role], draft.providers)}
         close={closeAssignment} manage={() => {
           closeAssignment();
           catalogSection.current.scrollIntoView({ block: "nearest" });
           requestAnimationFrame(() => (catalogInput.current || catalogSection.current)?.focus());
         }} choose={(item) => {
           if (choiceKey(item) !== choiceKey(draft.agents[role]))
-            assign(role, item ? { provider: item.provider, model: item.model } : null);
+            assign(role, item ? { provider: item.provider, model: item.model } : null, item?.modalities);
           closeAssignment();
         }} />}</Surface>
       <Surface>{editing && <ModelOptionsDialog model={editing} initial={editingOptions} t={t}

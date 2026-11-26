@@ -13,10 +13,10 @@ public sealed class AgentLocaleTests
         var locales = Directory.EnumerateDirectories(resources, "values-b+*")
             .Select(path => Path.GetFileName(path)[9..].Replace('+', '-').ToLowerInvariant()).Append("en").ToArray();
         var labels = JsonValues.ParseObject(File.ReadAllText(Path.Combine(root, "src", "MiniRP.Core", "AgentSkillNames.json")));
-        string[] builtIn = ["asset_storage", "base-plugin-development", "base-plugin-docs", "base-plugin-project", "base-preset-docs",
-            "container", "curl", "direct-research", "edit_asset", "ensemble-chats", "ensemble-management", "interactive-ui", "plugin-task",
-            "preset-editing", "project_assets", "read-page", "read-search", "research", "room-loading", "search-workflow", "session-memory",
-            "skill-management", "tabletop", "temporary-task", "view_asset", "web-research", "world-notifications", "world-state"];
+        string[] builtIn = ["assets", "subagent", "plugin-docs", "plugin-dev", "preset-docs",
+            "browser", "browser-fetch-workflow", "browser-search-workflow", "container", "curl", "ffmpeg", "ffprobe", "ensemble-chats", "ensemble-management",
+            "interactive-ui", "subagent-task", "preset-editing", "room-loading", "search", "search-full", "search-workflow",
+            "session-memory", "skill-management", "world-state"];
         CollectionAssert.AreEquivalent(builtIn, labels.Select(item => item.Key).ToArray());
         foreach (var id in builtIn)
         {
@@ -33,7 +33,7 @@ public sealed class AgentLocaleTests
         Assert.AreEqual("编辑预设", AgentLanguage.SkillName("preset-editing", "zh-CN"));
         Assert.AreEqual("Recherche", AgentLanguage.SkillName("research", "fr-CA"));
         Assert.AreEqual("Gerenciamento de habilidades", AgentLanguage.SkillName("skill-management", "pt-PT"));
-        Assert.AreEqual("Edit assets", AgentLanguage.SkillName("edit_asset", "sw-KE"));
+        Assert.AreEqual("Assets", AgentLanguage.SkillName("assets", "sw-KE"));
         Assert.AreEqual("unknown", AgentLanguage.SkillName("unknown", "ar"));
         Assert.IsNull(AgentLanguage.Normalize("en\nextra text"));
     }

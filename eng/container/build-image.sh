@@ -18,9 +18,10 @@ tar -xzf "$archive" -C root
 cp -L /etc/resolv.conf root/etc/resolv.conf
 printf '%s\n' "$base/$series/main" "$base/$series/community" >root/etc/apk/repositories
 chroot root /sbin/apk add --no-cache \
-    apk-tools linux-virt busybox-static bash curl ffmpeg nodejs python3 e2fsprogs \
+    apk-tools linux-virt busybox-static bash curl nodejs python3 e2fsprogs \
     jq ripgrep sqlite py3-pip npm git poppler-utils unzip zstd diffutils
 chroot root /sbin/apk --version
+test ! -e root/usr/bin/ffmpeg && test ! -e root/usr/bin/ffprobe
 sh "$scripts/build-musl.sh" "$temporary/root"
 chroot root /usr/sbin/adduser -D -H -u 1000 -h /workspace -s /bin/bash agent
 rm root/etc/resolv.conf
@@ -49,6 +50,7 @@ rm -f root/bin/busybox.static
 mksquashfs root "$destination/root.squashfs" -noappend -comp xz -b 256K -Xbcj x86 -processors 2 -quiet
 touch "$destination/MICROVM"
 touch "$destination/ROOM_VM"
+touch "$destination/HOST_FFMPEG"
 (
     cd "$destination"
     sha256sum kernel initrd.gz root.squashfs > SHA256SUMS

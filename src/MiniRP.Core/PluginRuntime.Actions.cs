@@ -32,21 +32,29 @@ internal sealed partial class PluginRuntime
                 ?? throw new ArgumentException("Target plugin is unavailable.");
             return InvokeAction(target, target.Bind(url), payload, (JsonObject)environment.DeepClone());
         }
-        if (address.Kind != "events" || address.Package != caller.PackageName ||
-            !caller.Manifest.GetObject("actions").GetArray("events").Any(item => JsonValues.GetText(item) == address.Id))
+        if (!PluginActions.DeclaresEvent(caller.Manifest, address))
             throw new UnauthorizedAccessException("Only a declared event source can publish this event.");
+        if (caller.Assets?.Values.Any(asset => asset.Listenable && PluginActions.Parse(asset.ChangeEvent) == address) == true)
+            throw new UnauthorizedAccessException("Use assets.notifyChanged for an Asset change event.");
         var count = 0;
-        foreach (var target in installed)
+        foreach (var (target, source, handler) in ActionSubscriptions(address))
         {
-            var (source, listener) = target.Manifest.GetObject("actions").GetObject("subscriptions")
-                .FirstOrDefault(subscription => PluginActions.Parse(subscription.Key) == address);
-            if (listener is null) continue;
             var delivered = (JsonObject)payload.DeepClone();
             delivered["url"] = source;
-            if (EnqueueRoute(target, target.Bind(JsonValues.GetText(listener)), delivered, (JsonObject)environment.DeepClone()))
+            if (EnqueueRoute(target, handler, delivered, (JsonObject)environment.DeepClone()))
                 count++;
         }
         return new() { ["accepted"] = true, ["subscribers"] = count };
+    }
+
+    private IEnumerable<(PluginPackage Target, string Source, string Handler)> ActionSubscriptions(PluginActions.Address address)
+    {
+        foreach (var target in Volatile.Read(ref packages))
+        {
+            var (source, listener) = target.Manifest.GetObject("actions").GetObject("subscriptions")
+                .FirstOrDefault(subscription => PluginActions.Parse(subscription.Key) == address);
+            if (listener is not null) yield return (target, source, target.Bind(JsonValues.GetText(listener)));
+        }
     }
 
     private JsonObject InvokeAction(PluginPackage target, string handler, JsonObject payload, JsonObject environment)

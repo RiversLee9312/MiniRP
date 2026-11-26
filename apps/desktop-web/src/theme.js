@@ -43,14 +43,16 @@ function swatchScore(color, count, population) {
   return .24 * saturation + .52 * (1 - Math.abs(lightness - .5)) + .24 * count / population;
 }
 
-export function backgroundAccent(img) {
-  const scale = Math.min(1, 96 / Math.max(img.naturalWidth, img.naturalHeight));
+export function backgroundAccent(media) {
+  const width = media.naturalWidth ?? media.videoWidth;
+  const height = media.naturalHeight ?? media.videoHeight;
+  const scale = Math.min(1, 96 / Math.max(width, height));
   const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
-  canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
   try {
     const context = canvas.getContext("2d", { willReadFrequently: true });
-    context.drawImage(img, 0, 0, canvas.width, canvas.height);
+    context.drawImage(media, 0, 0, canvas.width, canvas.height);
     const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
     const pixels = [];
     for (let index = 0; index < data.length; index += 4)

@@ -26,8 +26,8 @@ internal sealed partial class PluginRuntime
         }
     }
 
-    private static string QualifiedTool(PluginPackage package, string skill, string tool) =>
-        package.BuiltIn && package.Id == "base" && skill == "research" ? tool : "plugin_" + package.Id + "_" + tool;
+    private static string QualifiedTool(PluginPackage package, string tool) =>
+        package.BuiltIn ? tool : "plugin_" + package.Id + "_" + tool;
 
     private static JsonObject ToolPresentationReference(PluginPackage package, string skill, string card, bool plain) =>
         new() { ["package"] = package.PackageName, ["signer"] = package.Signer, ["skill"] = skill, ["card"] = card, ["plain"] = plain };
@@ -54,7 +54,7 @@ internal sealed partial class PluginRuntime
             {
                 if (!skill.GetArray("agents").Any(role => JsonValues.GetText(role) == agent)) continue;
                 var id = skill.GetString("name");
-                var toolDeclaration = skill.GetArray("tools").FirstOrDefault(item => QualifiedTool(package, id, item.GetString("name")) == tool);
+                var toolDeclaration = skill.GetArray("tools").FirstOrDefault(item => item.GetString("name") == BuiltInSkillIds.Tool(tool));
                 if (toolDeclaration is null) continue;
                 var declaration = toolDeclaration.GetObject("presentation");
                 var origin = new JsonObject { ["package"] = package.PackageName, ["signer"] = package.Signer, ["skill"] = id };
@@ -73,11 +73,16 @@ internal sealed partial class PluginRuntime
             item.PackageName == PluginUrls.CanonicalPackage(reference.GetString("package")) && item.Signer == reference.GetString("signer"));
         if (package is null || !Available(package, preset) || agent == "plugin" && !package.BuiltIn) return null;
         var skillId = reference.GetString("skill");
+        if (package.BuiltIn && package.Id == "base")
+        {
+            skillId = skillId is "research" or "search" ? "search-full" : BuiltInSkillIds.Current(skillId);
+            tool = BuiltInSkillIds.Tool(tool);
+        }
         var skill = package.Manifest.GetArray("skills").OfType<JsonObject>().FirstOrDefault(item => item.GetString("name") == skillId);
         if (skill is null || agent.Length > 0 && !skill.GetArray("agents").Any(role => JsonValues.GetText(role) == agent)) return null;
-        var declaration = skill.GetArray("tools").FirstOrDefault(item => QualifiedTool(package, skillId, item.GetString("name")) == tool);
+        var declaration = skill.GetArray("tools").FirstOrDefault(item => QualifiedTool(package, item.GetString("name")) == tool);
         if (declaration is not null) return (package, skill, declaration, package.BuiltIn ? tool : null);
-        var prefix = "plugin_" + package.Id + "_" + skillId;
+        var prefix = QualifiedTool(package, skillId);
         if (tool == prefix + "-state" && skill.GetArray("stateEntries").Count > 0)
             return (package, skill, null, "plugin_state_read");
         if (tool == prefix + "-card" && skill.GetArray("cards").Count > 0 && agent is "chat" or "env" or "preset")
@@ -93,13 +98,14 @@ internal sealed partial class PluginRuntime
             if (ResolveToolTrace(origin, preset, tool, agent) is not { } resolved) return null;
             var (package, skill, declaration, nativeAlias) = resolved;
             var title = declaration is null ? "" : package.Localization?.Text(declaration, "title", locale) ?? declaration.GetString("title");
-            var skillTitle = package.Localization?.Text(skill, "title", locale) ?? skill.GetString("title");
+            var skillTitle = package.BuiltIn && package.Id == "base" && skill.GetString("name") == "search-full"
+                ? AgentLanguage.SkillName(origin.GetString("skill"), locale ?? AgentLanguage.Default)
+                : package.Localization?.Text(skill, "title", locale) ?? skill.GetString("title");
             if (skillTitle.Length == 0 && package.BuiltIn)
             {
                 var id = skill.GetString("name");
-                var key = package.Id == "base" && id is ("view_asset" or "edit_asset" or "research") ? id : package.Id + "-" + id;
-                var candidate = AgentLanguage.SkillName(key, locale ?? AgentLanguage.Default);
-                if (candidate != key) skillTitle = candidate;
+                var candidate = AgentLanguage.SkillName(id, locale ?? AgentLanguage.Default);
+                if (candidate != id) skillTitle = candidate;
             }
             return (title.Length > 0 ? title : null, skillTitle.Length > 0 ? skillTitle : null, nativeAlias);
         }
