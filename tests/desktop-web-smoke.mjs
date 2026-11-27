@@ -427,8 +427,9 @@ try {
   const models = page.getByRole("dialog", { name: "Models", exact: true });
   assert.equal(await models.getByRole("button", { name: "Browser", exact: true }).isVisible(), false);
   const agentModels = models.locator("details").filter({ has: page.getByText("Agent models", { exact: true }) });
+  const agentModelsSummary = agentModels.locator(":scope > summary");
   const corner = await agentModels.evaluate((details) => getComputedStyle(details).borderStartStartRadius);
-  await agentModels.locator("summary").click();
+  await agentModelsSummary.click();
   await models.getByRole("button", { name: "Browser", exact: true }).waitFor();
   assert.ok(parseFloat(corner) >= 16);
   assert.equal(await agentModels.evaluate((details) => getComputedStyle(details.querySelector("summary")).borderStartStartRadius), corner);
@@ -483,7 +484,7 @@ try {
   assert.equal(await modelOptions.getByRole("button", { name: "Save", exact: true }).isEnabled(), false);
   await backgroundLimit.fill("65");
   await modelOptions.getByRole("button", { name: "Save", exact: true }).click();
-  await agentModels.locator("summary").click();
+  await agentModelsSummary.click();
   await models.getByRole("button", { name: "Browser", exact: true }).click();
   const assignment = page.getByRole("dialog", { name: "Browser", exact: true });
   const modelSearch = assignment.getByRole("searchbox", { name: "Search models" });
@@ -518,7 +519,10 @@ try {
   assert.equal(savedProvider.model_options[longModel].background_compact_at_percent, 65);
   assert.deepEqual(savedProvider.model_options[longModel].effort_levels, ["high", "low"]);
   await modelGroup.getByRole("button", { name: "Models", exact: true }).click();
-  await agentModels.locator("summary").click();
+  await agentModelsSummary.click();
+  await models.getByRole("button", { name: "Plugin subagent", exact: true }).click();
+  await page.getByRole("dialog", { name: "Plugin subagent", exact: true })
+    .getByRole("button", { name: "Use preset model", exact: true }).click();
   await models.getByRole("button", { name: "Browser", exact: true }).click();
   await assignment.getByRole("button", { name: new RegExp("^" + longModelName), pressed: true }).waitFor();
   await assignment.getByRole("button", { name: "Use chat model", exact: true }).click();

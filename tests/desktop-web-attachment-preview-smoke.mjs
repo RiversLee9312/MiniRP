@@ -74,7 +74,10 @@ await writeFile(join(conversationPath, chat + ".json"), JSON.stringify({
     { id: "answer", agent: "ChatAgent", content: "\x60\x60\x60\n" + "wide code ".repeat(130) + "\n\x60\x60\x60" }],
 }));
 
-const child = spawn(program, ["--web", "--no-open", workspace], { stdio: ["ignore", "pipe", "pipe"] });
+const child = spawn(program, ["--web", "--no-open", workspace], {
+  env: { ...process.env, MINIRP_CONTAINER_IMAGE: join(workspace, "no-container") },
+  stdio: ["ignore", "pipe", "pipe"],
+});
 const exited = once(child, "exit");
 let browser;
 try {

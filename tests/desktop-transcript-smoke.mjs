@@ -34,7 +34,7 @@ const short = [
   { id: "short-user", kind: "user", content: "First question." },
   { id: "short-answer", content: "First answer.\n\n" + "This paragraph gives the conversation some height.\n\n".repeat(19) },
   { id: "short-tool", tool: "configure_date", reasoning: "A trace within the first turn.\n".repeat(75) },
-  { id: "short-end", kind: "reply_end", first_block: "short-user", reply: "First completed answer." },
+  { id: "short-end", kind: "reply_end", version: "fixture-version", first_block: "short-user", reply: "First completed answer." },
   { id: "short-next", kind: "user", content: "Second question." },
   { id: "short-reply", content: "Second answer." },
 ];
