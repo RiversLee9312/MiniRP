@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import "./TranscriptRuler.css";
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -19,19 +19,26 @@ function rowOffset(element, row, top = element.getBoundingClientRect().top) {
   return row.getBoundingClientRect().top - top + element.scrollTop;
 }
 
-function currentTurn(element, turns, rowFor, range) {
-  if (!turns.length || !range) return 0;
-  if (range - element.scrollTop < 3) return turns.length - 1;
-  const top = element.getBoundingClientRect().top;
+function turnBefore(element, turns, rowFor, top, edge) {
   let low = 0;
   let high = turns.length;
   while (low < high) {
     const index = (low + high) >>> 1;
     const offset = rowOffset(element, rowFor(turns[index]), top);
-    if (offset == null || offset > element.scrollTop + 20) high = index;
+    if (offset != null && offset > edge) high = index;
     else low = index + 1;
   }
   return Math.max(0, low - 1);
+}
+
+function visibleTurns(element, turns, rowFor) {
+  const top = element.getBoundingClientRect().top;
+  let first = turnBefore(element, turns, rowFor, top, element.scrollTop);
+  const last = turnBefore(element, turns, rowFor, top, element.scrollTop + element.clientHeight - 1);
+  // A partially loaded turn is visible only if its continuation is also loaded.
+  if (first < last && !rowFor(turns[first]) &&
+      rowFor(turns[first + 1]) === element.querySelector("[data-transcript-row]")) first++;
+  return [first, last];
 }
 
 function visibleTicks(count, scrollTop, height) {
@@ -55,7 +62,7 @@ function Preview({ turn, t }) {
   </div>;
 }
 
-export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder, loadOlder, t }) {
+export function TranscriptRuler({ scroller, controls, rowPrefix, turns, before, loadingOlder, historyError, loadOlder, t }) {
   const track = useRef(null);
   const viewport = useRef(null);
   const pointer = useRef(null);
@@ -65,8 +72,9 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
   const selected = useRef(null);
   const requestMeasure = useRef(null);
   const turnsRef = useRef(turns);
-  const [position, setPosition] = useState({ visible: false, current: 0, height: 0, railStart: 0, railTop: 0 });
+  const [position, setPosition] = useState({ visible: false, current: 0, first: 0, last: 0, height: 0, railStart: 0, railTop: 0 });
   const [hover, setHover] = useState(null);
+  const [seek, setSeek] = useState(null);
   const rowFor = (turn) => document.getElementById(rowPrefix + turn.id);
 
   function pointerIndex(clientY, draggingOutside = false) {
@@ -94,17 +102,20 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
       frame = 0;
       const currentTurns = turnsRef.current;
       const range = scrollRange(element);
-      const visible = range > 2 && currentTurns.length > 0;
+      const visible = currentTurns.length > 0 && (range > 2 || currentTurns.length > 1);
       const chosen = selected.current;
       const chosenIndex = chosen && Math.abs(element.scrollTop - chosen.offset) < 3
         ? (currentTurns[chosen.index]?.id === chosen.id ? chosen.index : currentTurns.findIndex((turn) => turn.id === chosen.id)) : -1;
       if (chosenIndex < 0) selected.current = null;
-      const current = visible ? (chosenIndex < 0 ? currentTurn(element, currentTurns, rowFor, range) : chosenIndex) : 0;
+      const [first, last] = visible ? visibleTurns(element, currentTurns, rowFor) : [0, 0];
+      const current = chosenIndex >= 0 ? chosenIndex : range > 2 && range - element.scrollTop < 3 ? last : first;
       const height = rail.clientHeight;
       const railStart = rail.offsetTop;
       const railTop = rail.scrollTop;
-      setPosition((last) => last.visible === visible && last.current === current && last.height === height &&
-        last.railStart === railStart && last.railTop === railTop ? last : { visible, current, height, railStart, railTop });
+      setPosition((previous) => previous.visible === visible && previous.current === current &&
+        previous.first === first && previous.last === last && previous.height === height &&
+        previous.railStart === railStart && previous.railTop === railTop ? previous :
+        { visible, current, first, last, height, railStart, railTop });
       setHover(visible && pointer.current?.preview ? pointerIndex(pointer.current.y) : null);
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
@@ -147,13 +158,18 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
     if (position.visible && !pointer.current) revealTurn(position.current);
   }, [position.visible, position.current, position.height, turns.length]);
 
-  function goTo(index) {
+  function goTo(index, start = false) {
     const element = scroller.current;
     const turn = turnsRef.current[index];
     const row = turn && rowFor(turn);
-    if (!element || !row) return;
+    if (!element || !turn) return;
+    if (!row) {
+      if (before) setSeek((pending) => pending?.id === turn.id ? pending : { id: turn.id, start });
+      return;
+    }
+    setSeek(null);
     cancelAnimationFrame(navigationFrame.current);
-    element.scrollTop = rowOffset(element, row) - 14;
+    element.scrollTop = start ? 0 : rowOffset(element, row) - 14;
     const target = { id: turn.id, index, offset: element.scrollTop };
     selected.current = target;
     requestMeasure.current?.();
@@ -161,11 +177,19 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
     // by actual row heights. Refine the landing if the reader hasn't moved.
     navigationFrame.current = requestAnimationFrame(() => {
       if (Math.abs(element.scrollTop - target.offset) > 2 || selected.current !== target) return;
-      element.scrollTop = rowOffset(element, row) - 14;
+      element.scrollTop = start ? 0 : rowOffset(element, row) - 14;
       target.offset = element.scrollTop;
       requestMeasure.current?.();
     });
   }
+
+  useEffect(() => {
+    if (!seek) return;
+    const index = turns.findIndex((turn) => turn.id === seek.id);
+    if (index >= 0 && rowFor(turns[index])) goTo(index, seek.start);
+    else if (index < 0 || !before || historyError) setSeek(null);
+    else if (!loadingOlder) void loadOlder();
+  }, [seek, turns, before, loadingOlder, historyError, loadOlder]);
 
   function clearPreview() {
     pointer.current = null;
@@ -203,23 +227,28 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
     const element = scroller.current;
     const page = element.clientHeight * .9;
     if (event.key === "Escape") {
+      setSeek(null);
       clearPreview();
       return;
     }
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       const offset = event.key === "ArrowUp" ? -1 : 1;
-      const index = clamp((selected.current?.index ?? position.current) + offset, 0, turns.length - 1);
+      const seeking = seek ? turns.findIndex((turn) => turn.id === seek.id) : -1;
+      const index = clamp((seeking >= 0 ? seeking : selected.current?.index ?? position.current) + offset, 0, turns.length - 1);
       goTo(index);
       revealTurn(index);
     } else {
       selected.current = null;
       if (event.key === "Home") {
-        if (element.scrollTop === 0 && hasOlder) void loadOlder?.();
-        element.scrollTop = 0;
-      } else if (event.key === "End") element.scrollTop = scrollRange(element);
-      else if (event.key === "PageUp") element.scrollTop -= page;
-      else if (event.key === "PageDown") element.scrollTop += page;
-      else return;
+        goTo(0, true);
+        revealTurn(0);
+      } else {
+        setSeek(null);
+        if (event.key === "End") element.scrollTop = scrollRange(element);
+        else if (event.key === "PageUp") element.scrollTop -= page;
+        else if (event.key === "PageDown") element.scrollTop += page;
+        else return;
+      }
       requestMeasure.current?.();
     }
     clearPreview();
@@ -234,6 +263,7 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
   return <div className="transcript-ruler" ref={track} hidden={!position.visible} role="scrollbar" tabIndex={0}
     style={{ "--ruler-track-height": `${trackHeight}px` }}
     aria-label={t("transcript_position")} aria-controls={controls} aria-orientation="vertical"
+    aria-busy={seek ? true : undefined}
     aria-valuemin={1} aria-valuemax={Math.max(1, count)} aria-valuenow={current + 1} onKeyDown={navigate}
     data-more-above={position.railTop > 1} data-more-below={trackHeight - position.height - position.railTop > 1}
     onFocus={(event) => { if (event.target === event.currentTarget) revealTurn(current); }}>
@@ -249,7 +279,8 @@ export function TranscriptRuler({ scroller, controls, rowPrefix, turns, hasOlder
         }} onPointerUp={releasePointer} onPointerCancel={releasePointer} onLostPointerCapture={releasePointer}
         onClick={(event) => { if (event.nativeEvent.pointerType === "touch") goTo(pointerIndex(event.clientY)); }}>
         {visibleTicks(count, position.railTop, position.height).map((index) => <span key={turns[index].id}
-          data-turn={turns[index].id} data-current={index === current} data-hover={index === hovered}
+          data-turn={turns[index].id} data-current={index === current}
+          data-active={index >= position.first && index <= position.last} data-hover={index === hovered}
           style={{ "--tick-position": `${tickOffset(index)}px`,
             "--proximity": Math.max(0, 1 - Math.abs(index - (hovered ?? -8)) / 4) }} />)}
       </div>

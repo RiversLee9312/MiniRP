@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Καλώς ήρθατε στο MiniRP</string>
+    <string name="setup_welcome_detail">Συνδέστε μια υπηρεσία ΤΝ και επιλέξτε το μοντέλο που θα χρησιμοποιεί το MiniRP για συνομιλίες και ρύθμιση προεπιλογών.</string>
+    <string name="setup_begin">Έναρξη</string>
+    <string name="setup_download_notice">Το MiniRP είναι δωρεάν εφαρμογή ανοικτού κώδικα χωρίς κερδοσκοπικό σκοπό. Κατεβάστε το από την επίσημη σελίδα εκδόσεων. Αν το βρήκατε αλλού ή πληρώσατε γι’ αυτό, προσέχετε τις απάτες.</string>
+    <string name="setup_official_download">Επίσημη λήψη</string>
+    <string name="setup_connect_provider">Σύνδεση υπηρεσίας ΤΝ</string>
+    <string name="setup_provider_detail">Ο πάροχος εκτελεί το μοντέλο. Επιλέξτε το πρότυπό του για να συμπληρώσετε τα στοιχεία σύνδεσης. Αν χρειάζεται κλειδί API, αποκτήστε το από τον ιστότοπο του παρόχου.</string>
+    <string name="setup_unsure">Δεν ξέρω</string>
+    <string name="setup_choose_model">Επιλογή μοντέλου</string>
+    <string name="setup_model_detail">Επιλέξτε μοντέλο από το %1$s για τις πρώτες συνομιλίες σας.</string>
+    <string name="setup_model_fallback">Ελέγξτε τη διεύθυνση και το κλειδί API και δοκιμάστε ξανά. Αν ο πάροχος δεν εμφανίζει μοντέλα, πληκτρολογήστε το ακριβές αναγνωριστικό από τον ιστότοπό του.</string>
+    <string name="add_model_by_id">Προσθήκη μοντέλου με ID</string>
+    <string name="setup_use_model">Χρήση αυτού του μοντέλου</string>
+    <string name="setup_next">Συνέχεια</string>
+    <string name="setup_effort_title">Πόσο να σκεφτεί το μοντέλο;</string>
+    <string name="setup_effort_detail">Το επίπεδο σκέψης καθορίζει πόσο χρόνο αφιερώνει η ΤΝ πριν απαντήσει. Για σύνθετη ιστορία ή πρόσθετο ξεκινήστε από το υψηλότερο επίπεδο. Για γρήγορη συνομιλία δοκιμάστε χαμηλότερο. Τα υψηλότερα επίπεδα μπορεί να κοστίζουν χρόνο και περισσότερο από το όριο χρήσης σας. Αλλάξτε το στις Ρυθμίσεις → Μοντέλα.</string>
+    <string name="setup_help_title">Βοήθεια για τη ρύθμιση του MiniRP</string>
+    <string name="setup_help_detail">Αντιγράψτε αυτή την προτροπή στο %1$s και ακολουθήστε τα βήματα που θα προτείνει.</string>
+    <string name="setup_assistants_china">DeepSeek ή Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok ή Claude</string>
+    <string name="setup_unknown_region">άγνωστη</string>
+    <string name="setup_copy_prompt">Αντιγραφή προτροπής</string>
+    <string name="setup_help_web">Αναζήτηση και ανάκτηση ιστοσελίδων</string>
+    <string name="setup_help_intro">Χρησιμοποιώ για πρώτη φορά το MiniRP για Android. Απαντήστε στη γλώσσα %1$s. Η περιοχή της συσκευής μου είναι %2$s. Διαβάστε πρώτα τον επίσημο οδηγό στη διεύθυνση %3$s. Πείτε μου αν δεν μπορείτε να τον ανοίξετε.</string>
+</resources>

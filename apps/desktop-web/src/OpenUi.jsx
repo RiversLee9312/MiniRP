@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./ui.jsx";
+import { isRightToLeft } from "./i18n.js";
 
 const savedState = new Map();
 const foldHeight = 360;
@@ -29,11 +30,11 @@ async function previewImage(document, result, request) {
 }
 
 export function OpenUi({ block, scope, identity, locale, dark, theme, t, onAction, preview, onPreview, toolPresentation, onRenderStatus,
-  readOnly = false }) {
+  readOnly = false, eager = false }) {
   const iframe = useRef(null);
   const frameId = useId();
   const [height, setHeight] = useState(48);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(0);
   const [failed, setFailed] = useState(false);
   const [expandedCard, setExpandedCard] = useState(null);
   const presetHome = !preview && block.open_ui_host_action === "preset-home";
@@ -46,12 +47,12 @@ export function OpenUi({ block, scope, identity, locale, dark, theme, t, onActio
   const collapsed = long && !expanded;
   const callbacks = useRef({ onAction, onPreview, onRenderStatus });
   callbacks.current = { onAction, onPreview, onRenderStatus };
-  useEffect(() => {
+  useLayoutEffect(() => {
     function receive(event) {
       if (event.origin !== location.origin || event.source !== iframe.current?.contentWindow || !event.data?.minirp) return;
       const message = event.data.minirp;
       switch (message.type) {
-        case "ready": setReady(true); break;
+        case "ready": setReady((seen) => seen + 1); break;
         case "height": {
           const measured = Math.max(40, Math.min(1800, Number(message.height) || 48));
           if (!preview && measured > foldHeight && document.activeElement === iframe.current)
@@ -85,7 +86,7 @@ export function OpenUi({ block, scope, identity, locale, dark, theme, t, onActio
     if (!ready) return;
     const state = {
       program, expanded, streaming: Boolean(block.streaming), locale,
-      rtl: ["ar", "fa", "he"].includes(locale.split("-")[0]), dark, theme,
+      rtl: isRightToLeft(locale), dark, theme,
       managedState: block.open_ui_state, managedRevision: block.open_ui_revision,
       initialState: savedState.get(identity),
     };
@@ -106,9 +107,9 @@ export function OpenUi({ block, scope, identity, locale, dark, theme, t, onActio
     </div>}
     <div className="open-ui-viewport" data-collapse-preview={collapsed || undefined}>
       <iframe ref={iframe} id={frameId} className="open-ui" src={toolPresentation ? "/openui/tool.html" : preview ? "/openui/preview.html" : "/openui/index.html"}
-        title={title} onLoad={() => setReady(true)} inert={collapsed || readOnly} aria-hidden={collapsed || undefined}
+        title={title} inert={collapsed || readOnly} aria-hidden={collapsed || undefined}
         style={{ "--open-ui-height": `${height}px` }} data-expanded={expanded || undefined}
-        loading={preview ? "eager" : "lazy"} sandbox="allow-scripts allow-same-origin" />
+        loading={preview || eager ? "eager" : "lazy"} sandbox="allow-scripts allow-same-origin" />
     </div>
     {failed && !preview && !toolPresentation && <p className="muted">{t("interactive_reply_unavailable")}</p>}
   </div>;

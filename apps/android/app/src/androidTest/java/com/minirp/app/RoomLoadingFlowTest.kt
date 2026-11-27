@@ -2,6 +2,7 @@ package com.minirp.app
 
 import android.content.ContextWrapper
 import android.graphics.Bitmap
+import android.graphics.Paint
 import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.core.content.res.ResourcesCompat
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
@@ -376,6 +378,10 @@ class RoomLoadingFlowTest {
                     waitFor { !composer.isDisplayed() && bridge.isDisplayed() && !lab.isDisplayed() }
                     compose.onNodeWithContentDescription(compose.activity.getString(R.string.more_options)).performClick()
                     val archiveTitle = compose.onNodeWithText(compose.activity.getString(R.string.ensemble_archived_chats))
+                    val archiveSymbol = Paint().apply {
+                        typeface = ResourcesCompat.getFont(compose.activity, R.font.material_symbols_rounded)
+                    }
+                    assertTrue(archiveSymbol.hasGlyph("archive"))
                     archiveTitle.performClick()
                     waitFor { lab.isDisplayed() }
                     lab.performClick()

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">ยินดีต้อนรับสู่ MiniRP</string>
+    <string name="setup_welcome_detail">เชื่อมต่อบริการ AI แล้วเลือกโมเดลที่ MiniRP จะใช้ในการแชตและตั้งค่าพรีเซ็ต</string>
+    <string name="setup_begin">เริ่มต้น</string>
+    <string name="setup_download_notice">MiniRP เป็นแอปโอเพนซอร์สฟรีที่ไม่แสวงหากำไร ดาวน์โหลดจากหน้าเผยแพร่อย่างเป็นทางการ หากได้มาจากที่อื่นหรือถูกเรียกเก็บเงิน โปรดระวังการหลอกลวง</string>
+    <string name="setup_official_download">ดาวน์โหลดอย่างเป็นทางการ</string>
+    <string name="setup_connect_provider">เชื่อมต่อบริการ AI</string>
+    <string name="setup_provider_detail">ผู้ให้บริการคือบริการที่เรียกใช้โมเดล เลือกเทมเพลตของผู้ให้บริการเพื่อกรอกรายละเอียดการเชื่อมต่อ หากต้องใช้คีย์ API ให้รับจากเว็บไซต์ของผู้ให้บริการ</string>
+    <string name="setup_unsure">ฉันไม่ทราบ</string>
+    <string name="setup_choose_model">เลือกโมเดล</string>
+    <string name="setup_model_detail">เลือกโมเดลจาก %1$s สำหรับการสนทนาครั้งแรก</string>
+    <string name="setup_model_fallback">ตรวจสอบที่อยู่และคีย์ API แล้วลองอีกครั้ง หากผู้ให้บริการไม่แสดงรายชื่อโมเดล ให้กรอกรหัสโมเดลที่ตรงกับบนเว็บไซต์ของผู้ให้บริการ</string>
+    <string name="add_model_by_id">เพิ่มโมเดลด้วยรหัส</string>
+    <string name="setup_use_model">ใช้โมเดลนี้</string>
+    <string name="setup_next">ดำเนินการต่อ</string>
+    <string name="setup_effort_title">ให้โมเดลคิดนานแค่ไหน</string>
+    <string name="setup_effort_detail">ระดับการคิดกำหนดว่า AI จะใช้เวลาคิดก่อนตอบเท่าไร สำหรับเรื่องซับซ้อนหรือปลั๊กอิน ให้เริ่มที่ระดับสูงสุด สำหรับการแชตสั้น ๆ ลองระดับต่ำกว่า ระดับสูงอาจใช้เวลาและโควตามากขึ้น เปลี่ยนได้ใน การตั้งค่า → โมเดล</string>
+    <string name="setup_help_title">ความช่วยเหลือในการตั้งค่า MiniRP</string>
+    <string name="setup_help_detail">คัดลอกพรอมต์นี้ไปยัง %1$s แล้วทำตามขั้นตอนที่แนะนำ</string>
+    <string name="setup_assistants_china">DeepSeek หรือ Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok หรือ Claude</string>
+    <string name="setup_unknown_region">ไม่ทราบ</string>
+    <string name="setup_copy_prompt">คัดลอกพรอมต์</string>
+    <string name="setup_help_web">ค้นหาและดึงหน้าเว็บ</string>
+    <string name="setup_help_intro">ฉันเพิ่งเริ่มใช้ MiniRP สำหรับ Android โปรดตอบเป็นภาษา %1$s ภูมิภาคของอุปกรณ์คือ %2$s โปรดอ่านคู่มือทางการของ MiniRP ที่ %3$s ก่อน และแจ้งฉันหากเปิดไม่ได้</string>
+</resources>

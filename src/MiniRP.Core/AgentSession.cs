@@ -22,7 +22,8 @@ public sealed partial class AgentSession : IDisposable
     public JsonArray History => (JsonArray)history.DeepClone();
     internal bool HasHistory => history.Count > 0;
     internal bool HasAssistantReply => Summary.Length > 0 || history.Any(message =>
-        message.GetString("role") == "assistant" && !string.IsNullOrWhiteSpace(message.GetString("content")));
+        message.GetString("role") == "assistant" && !message.GetBoolean(InterruptedReplyKey) &&
+        !string.IsNullOrWhiteSpace(message.GetString("content")));
     public string Summary
     {
         get; private set;
@@ -73,6 +74,7 @@ public sealed partial class AgentSession : IDisposable
     }
 
     private const string HistoryKey = "_context/history";
+    private const string InterruptedReplyKey = "_harness_interrupted";
     private const string PendingSystemPrefix = "_context/inbox/";
     private const string LocaleKey = "_context/locale";
 
@@ -247,7 +249,7 @@ public sealed partial class AgentSession : IDisposable
         var messageInput = new JsonObject { ["role"] = inputRole, ["content"] = input };
         var budget = new ContextBudget(turnModel.SelectedProvider);
         var instructions = new SessionInstructions(instructionState);
-        var replies = new List<string>();
+        var accepted = new List<JsonObject> { messageInput };
         var interruptions = new List<(JsonObject Input, JsonObject Original)>();
         var notifications = new List<JsonObject>();
         var historyCommitted = false;
@@ -264,8 +266,24 @@ public sealed partial class AgentSession : IDisposable
         void Append(JsonObject message)
         {
             bindings.Assets?.RegisterMessage(message);
-            interruptions.Add((message, (JsonObject)message.DeepClone()));
+            var original = (JsonObject)message.DeepClone();
+            interruptions.Add((message, original));
+            accepted.Add(original);
             working.AddNode(message);
+        }
+        void RememberReply(string text)
+        {
+            if (!string.IsNullOrWhiteSpace(text))
+                accepted.Add(new() { ["role"] = "assistant", ["content"] = text });
+        }
+        void RecordAccepted()
+        {
+            foreach (var item in accepted)
+            {
+                if (item.GetBoolean("_harness_hidden")) continue;
+                var original = ReferenceEquals(item, messageInput) ? historyInput ?? input : null;
+                transcript.Record(item.GetString("role"), MessageAttachments.Text(item, original));
+            }
         }
         bool AppendPendingSystemMessages(bool beforeInput = false)
         {
@@ -294,15 +312,7 @@ public sealed partial class AgentSession : IDisposable
             Summary = summary;
             instructionState = instructions.State;
             watches.Save();
-            if (!privateInput) transcript.Record(inputRole, MessageAttachments.Text(messageInput, historyInput ?? input));
-            foreach (var reply in replies)
-            {
-                transcript.Record("assistant", reply);
-            }
-            foreach (var (_, original) in interruptions)
-            {
-                transcript.Record(original.GetString("role"), MessageAttachments.Text(original));
-            }
+            RecordAccepted();
             foreach (var notification in notifications)
                 transcript.Record("system", notification.GetString("content"));
             if (finishTurn && historySubmission?.Invoke() is { } submission)
@@ -481,8 +491,10 @@ public sealed partial class AgentSession : IDisposable
                 JsonObject? message = null;
                 var generation = Inbox?.BeginGeneration(ct);
                 var partial = new System.Text.StringBuilder();
+                var displayedProse = enabled.IsActive("interactive-ui") ? new System.Text.StringBuilder() : null;
                 var display = new Dictionary<string, System.Text.StringBuilder>(StringComparer.Ordinal);
                 var retrying = false;
+                var cancelled = false;
                 void EmitDisplay(JsonObject item)
                 {
                     var id = item.GetString("block");
@@ -495,10 +507,11 @@ public sealed partial class AgentSession : IDisposable
                     {
                         if (!display.TryGetValue(id, out var text)) display[id] = text = new();
                         text.Append(item.GetString("text"));
+                        if (item.GetString("type") == "content") displayedProse?.Append(item.GetString("text"));
                     }
                     emit(item);
                 }
-                var openUiStream = enabled.IsActive("interactive-ui") ? new OpenUiStream(Name, block, EmitDisplay) : null;
+                var openUiStream = displayedProse is null ? null : new OpenUiStream(Name, block, EmitDisplay);
                 try
                 {
                     message = await Complete(turnModel, messages, enabled, (type, value) =>
@@ -520,13 +533,18 @@ public sealed partial class AgentSession : IDisposable
                             UpdateSessionInfo(tokens);
                         });
                 }
-                catch (OperationCanceledException) when (generation?.IsCancellationRequested == true && !ct.IsCancellationRequested)
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    cancelled = true;
+                    throw;
+                }
+                catch (OperationCanceledException) when (generation?.IsCancellationRequested == true)
                 {
                     if (partial.Length > 0)
                     {
                         var text = partial.ToString();
                         working.AddNode(new JsonObject { ["role"] = "assistant", ["content"] = text });
-                        replies.Add(text);
+                        RememberReply(text);
                     }
                 }
                 catch (ModelEvents.Interrupted error) when (error.ResponseStarted && !replayedResponse)
@@ -553,15 +571,12 @@ public sealed partial class AgentSession : IDisposable
                         AddPublishedAssets(end, partial.ToString());
                         emit(end);
                     }
+                    if (cancelled) RememberReply((displayedProse ?? partial).ToString());
                 }
                 if (message is null) continue;
                 replayedResponse = false;
                 working.AddNode(message);
-                var replyText = message.GetString("content");
-                if (!string.IsNullOrWhiteSpace(replyText))
-                {
-                    replies.Add(replyText);
-                }
+                RememberReply(message.GetString("content"));
                 var calls = message.GetArray("tool_calls");
                 if (checkpointBranch)
                 {
@@ -645,6 +660,23 @@ public sealed partial class AgentSession : IDisposable
                     return message;
                 }
             }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested && !checkpointBranch && !historyCommitted)
+        {
+            // Keep the conversation the user saw. A cancelled tool batch can contain unmatched calls
+            // or refer to staged changes that the agent never committed.
+            var retained = (JsonArray)history.DeepClone();
+            foreach (var item in accepted)
+            {
+                var copy = (JsonObject)item.DeepClone();
+                if (copy.GetString("role") == "assistant") copy[InterruptedReplyKey] = true;
+                retained.AddNode(copy);
+            }
+            Save(retained, Summary, instructionState, Deliveries(), locale);
+            history = retained;
+            historyCommitted = true;
+            RecordAccepted();
+            throw;
         }
         finally
         {

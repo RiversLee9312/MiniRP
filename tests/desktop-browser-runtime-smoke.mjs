@@ -42,14 +42,13 @@ const server = createServer(async (request, response) => {
     }
     const tools = (model.tools || []).map((tool) => tool.function.name);
     const message = model.messages.at(-1);
-    const round = modelRound++;
+    const round = ++modelRound;
     const call = (name, args = {}) => {
       assert.ok(tools.includes(name), `Round ${round} must offer ${name}.`);
       return { tool_calls: [{ index: 0, id: "fixture_" + round, type: "function",
         function: { name, arguments: JSON.stringify(args) } }] };
     };
     const delta = (() => {
-      if (round === 0) return call("activate_skill", { name: "web-research" });
       if (round === 1) return call("open_url", { url: article });
       if (round === 2) return call("real_fetch", { url: article, backend: "local" });
       if (round === 3) return call("browser_navigate", { url: article });

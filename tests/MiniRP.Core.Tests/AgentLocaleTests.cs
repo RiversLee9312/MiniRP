@@ -33,7 +33,7 @@ public sealed class AgentLocaleTests
         Assert.AreEqual("编辑预设", AgentLanguage.SkillName("preset-editing", "zh-CN"));
         Assert.AreEqual("Recherche", AgentLanguage.SkillName("research", "fr-CA"));
         Assert.AreEqual("Gerenciamento de habilidades", AgentLanguage.SkillName("skill-management", "pt-PT"));
-        Assert.AreEqual("Assets", AgentLanguage.SkillName("assets", "sw-KE"));
+        Assert.AreEqual(labels.GetObject("assets").GetString("sw"), AgentLanguage.SkillName("assets", "sw-KE"));
         Assert.AreEqual("unknown", AgentLanguage.SkillName("unknown", "ar"));
         Assert.IsNull(AgentLanguage.Normalize("en\nextra text"));
     }

@@ -10,8 +10,10 @@ import android.os.Build
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.ImageView
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ColorScheme
@@ -28,13 +30,18 @@ import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
@@ -50,6 +57,7 @@ import com.minirp.app.ui.ChatViewModel
 import com.minirp.app.ui.MiniRP
 import com.minirp.app.ui.MiniRPTheme
 import com.minirp.app.ui.PresetAppearance
+import com.minirp.app.ui.accentFromPixels
 import com.minirp.app.ui.backgroundScrim
 import com.minirp.app.ui.decodePresetBackground
 import com.minirp.app.ui.minirpColors
@@ -71,9 +79,10 @@ class PresetBackgroundTest {
     @get:Rule val temporary = TemporaryFolder()
 
     @Before
-    fun showScreenshotActivity() {
-        if (InstrumentationRegistry.getArguments().getString("capturePresetHome") == "true") {
-            compose.activityRule.scenario.onActivity { activity ->
+    fun prepareScreenshotActivity() {
+        compose.activityRule.scenario.onActivity { activity ->
+            if (Build.VERSION.SDK_INT >= 29) activity.window.decorView.isForceDarkAllowed = false
+            if (InstrumentationRegistry.getArguments().getString("capturePresetHome") == "true") {
                 activity.setShowWhenLocked(true)
                 activity.setTurnScreenOn(true)
             }
@@ -81,7 +90,16 @@ class PresetBackgroundTest {
     }
 
     @Test
-    fun homeTitleUsesTheConversationGlassOnlyInItsBanner() {
+    fun presetAccentUsesTheBroadColorFamilyAndIgnoresNeutralNoise() {
+        val ochre = android.graphics.Color.rgb(178, 141, 104)
+        val cyan = android.graphics.Color.CYAN
+        val pixels = IntArray(100) { if (it < 88) ochre else cyan }
+        assertEquals(Color(ochre), accentFromPixels(pixels))
+        assertNull(accentFromPixels(IntArray(100) { if (it == 99) cyan else android.graphics.Color.GRAY }))
+    }
+
+    @Test
+    fun homeTitleUsesOneInkAndACenteredHaloOnMixedWallpaper() {
         val file = File.createTempFile("background-color", ".png", compose.activity.cacheDir)
         try {
             val pixels = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
@@ -90,10 +108,11 @@ class PresetBackgroundTest {
             file.outputStream().use { pixels.compress(Bitmap.CompressFormat.PNG, 100, it) }
             pixels.recycle()
             val media = decodePresetBackground(file, "image/png")
-            assertTrue(media.seedColor.blue > 0.9f && media.seedColor.red < 0.1f)
+            val seed = checkNotNull(media.seedColor)
+            assertTrue(seed.blue > 0.9f && seed.red < 0.1f)
             val dark = mutableStateOf(false)
             val override = mutableStateOf<Color?>(null)
-            val state = mutableStateOf(ChatState(preset = "image", presetName = "Backdrop title", ready = true))
+            val state = mutableStateOf(ChatState(preset = "image", presetName = "LLLL RRRR", ready = true))
             lateinit var theme: ColorScheme
             compose.setContent {
                 MiniRPTheme(darkTheme = dark.value, seedColor = override.value ?: media.seedColor) {
@@ -107,22 +126,49 @@ class PresetBackgroundTest {
             }
             val backdrop = compose.onNodeWithTag("preset-background")
             backdrop.assertIsDisplayed()
-            val banner = compose.onNodeWithTag("preset-home-banner")
-            banner.assertIsDisplayed()
-            assertEquals(backdrop.fetchSemanticsNode().boundsInRoot.width, banner.fetchSemanticsNode().boundsInRoot.width, 0.5f)
-            val title = compose.onNodeWithText("Backdrop title", useUnmergedTree = true)
-            fun titleStyle() = mutableListOf<TextLayoutResult>().also { layouts ->
-                title.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            }.single().layoutInput.style
-            fun backgroundPixel(atEdge: Boolean = false): Color {
+            val heading = compose.onNodeWithTag("preset-home-heading")
+            heading.assertIsDisplayed()
+            val title = compose.onNodeWithText("LLLL RRRR", useUnmergedTree = true)
+            val caption = compose.onNodeWithText(compose.activity.getString(R.string.welcome_to_preset), useUnmergedTree = true)
+            fun textLayout(node: androidx.compose.ui.test.SemanticsNodeInteraction) = mutableListOf<TextLayoutResult>().also { layouts ->
+                node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            }.single().layoutInput
+            fun backgroundPixel(xFraction: Float = .10f): Color {
                 val bitmap = backdrop.captureToImage().toPixelMap()
-                val x = if (atEdge) bitmap.width / 2 - maxOf(bitmap.width, bitmap.height) / 80 else bitmap.width / 10
-                return bitmap[x, bitmap.height / 10]
+                return bitmap[(bitmap.width * xFraction).toInt(), bitmap.height / 10]
             }
-            fun bannerPixel(): Color {
-                val row = banner.fetchSemanticsNode().boundsInRoot.center.y - backdrop.fetchSemanticsNode().boundsInRoot.top
+            fun wallpaperAtTitle(xFraction: Float): Color {
+                val row = heading.fetchSemanticsNode().boundsInRoot.center.y - backdrop.fetchSemanticsNode().boundsInRoot.top
                 val pixels = backdrop.captureToImage().toPixelMap()
-                return pixels[pixels.width / 4, row.toInt()]
+                return pixels[(pixels.width * xFraction).toInt(), row.toInt()]
+            }
+            val composer = compose.onNodeWithTag("composer")
+            val card = compose.onNodeWithTag("composer-card")
+            fun assertWallpaperComposer(): Color {
+                card.assertIsDisplayed()
+                val wallpaperBounds = backdrop.fetchSemanticsNode().boundsInRoot
+                val cardBounds = card.fetchSemanticsNode().boundsInRoot
+                assertTrue(wallpaperBounds.bottom > cardBounds.bottom)
+                val fieldBounds = composer.fetchSemanticsNode().boundsInRoot
+                val modelsBounds = compose.onNodeWithTag("agent-models").fetchSemanticsNode().boundsInRoot
+                val sendBounds = compose.onNodeWithTag("send").fetchSemanticsNode().boundsInRoot
+                assertTrue(fieldBounds.bottom <= modelsBounds.top + 1)
+                assertTrue(fieldBounds.bottom <= sendBounds.top + 1)
+                assertTrue(cardBounds.bottom >= maxOf(modelsBounds.bottom, sendBounds.bottom))
+                val wallpaperPixels = backdrop.captureToImage().toPixelMap()
+                val gutter = ((cardBounds.left - wallpaperBounds.left) / 2).toInt()
+                val above = wallpaperPixels[gutter, (cardBounds.top - wallpaperBounds.top).toInt() - 4]
+                val beside = wallpaperPixels[gutter, (cardBounds.center.y - wallpaperBounds.top).toInt()]
+                assertEquals(above.red, beside.red, .03f)
+                assertEquals(above.green, beside.green, .03f)
+                assertEquals(above.blue, beside.blue, .03f)
+                val inputPixels = card.captureToImage().toPixelMap()
+                val fill = inputPixels[inputPixels.width / 2, maxOf(2, inputPixels.height / 24)]
+                val neutral = compose.runOnIdle { theme.surfaceContainerLow }
+                assertEquals(neutral.red, fill.red, .03f)
+                assertEquals(neutral.green, fill.green, .03f)
+                assertEquals(neutral.blue, fill.blue, .03f)
+                return fill
             }
             fun assertScrimContrast(darkTheme: Boolean) {
                 val colors = compose.runOnIdle { theme }
@@ -136,42 +182,63 @@ class PresetBackgroundTest {
                     }
                 }
             }
-            assertNull(titleStyle().shadow)
+            compose.waitUntil(5_000) {
+                textLayout(title).style.shadow != null && textLayout(caption).style.shadow != null
+            }
+            val lightStyle = textLayout(title).style
+            assertTrue(lightStyle.color == Color.Black || lightStyle.color == Color.White)
+            assertEquals(lightStyle.color, textLayout(caption).style.color)
+            val halo = checkNotNull(lightStyle.shadow)
+            assertEquals(halo, textLayout(caption).style.shadow)
+            assertEquals(androidx.compose.ui.geometry.Offset.Zero, halo.offset)
+            assertTrue(halo.blurRadius >= 23f * compose.activity.resources.displayMetrics.density)
+            assertEquals((if (lightStyle.color == Color.Black) Color.White else Color.Black).copy(alpha = .80f), halo.color)
+            assertEquals(androidx.compose.ui.text.font.FontWeight.Black, lightStyle.fontWeight)
+            assertEquals(androidx.compose.ui.text.font.FontWeight.Black, textLayout(caption).style.fontWeight)
+            assertTrue(textLayout(title).text.spanStyles.isEmpty())
             assertTrue(backgroundPixel().red < 0.04f)
             assertScrimContrast(false)
-            val lightGlass = bannerPixel()
-            if ((compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-                Configuration.UI_MODE_NIGHT_NO) {
-                assertTrue("Expected light glass over the blue backdrop: $lightGlass", lightGlass.red > 0.15f)
-            }
             val fromImage = compose.runOnIdle { theme.primary }
+            val imageSurface = compose.runOnIdle { theme.surface }
             compose.runOnIdle {
                 val baseline = minirpColors(compose.activity, false)
-                assertEquals(baseline.background, theme.background)
-                assertEquals(baseline.surface, theme.surface)
+                assertNotEquals(baseline.surface, theme.surface)
                 override.value = Color.Red
             }
             compose.runOnIdle {
                 assertNotEquals(fromImage, theme.primary)
+                assertNotEquals(imageSurface, theme.surface)
                 dark.value = true
             }
-            assertNull(titleStyle().shadow)
+            assertEquals(lightStyle.color, textLayout(title).style.color)
+            assertEquals(lightStyle.color, textLayout(caption).style.color)
+            assertEquals(halo, textLayout(title).style.shadow)
+            assertEquals(0f, wallpaperAtTitle(.10f).red, .025f)
+            assertEquals(1f, wallpaperAtTitle(.90f).red, .025f)
+            if (InstrumentationRegistry.getArguments().getString("capturePresetHome") == "true") {
+                compose.activity.cacheDir.resolve("preset-home-title-halo.png").outputStream().use {
+                    compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
             assertScrimContrast(true)
-            val darkGlass = bannerPixel()
-            assertTrue("Expected dark glass over the blue backdrop: $darkGlass", darkGlass.blue < 0.85f)
+            val homeComposer = assertWallpaperComposer()
 
             compose.runOnIdle {
                 state.value = state.value.copy(chatId = "chat", appearance = PresetAppearance(blurBackground = false))
             }
-            banner.assertDoesNotExist()
-            val composer = compose.onNodeWithTag("composer")
-            assertTrue(backdrop.fetchSemanticsNode().boundsInRoot.bottom <= composer.fetchSemanticsNode().boundsInRoot.top)
+            heading.assertDoesNotExist()
+            assertEquals(homeComposer, assertWallpaperComposer())
             val darkPixel = backgroundPixel()
             assertTrue(darkPixel.blue < 0.85f)
+            val sharp = backgroundPixel(.47f)
+            compose.runOnIdle { state.value = state.value.copy(appearance = PresetAppearance()) }
+            compose.waitUntil(5_000) {
+                val paneGlass = backgroundPixel()
+                paneGlass.blue < .55f && paneGlass.red > .07f
+            }
+            assertTrue(backgroundPixel(.90f).luminance() < .15f)
             if (Build.VERSION.SDK_INT >= 31) {
-                val sharp = backgroundPixel(atEdge = true)
-                compose.runOnIdle { state.value = state.value.copy(appearance = PresetAppearance()) }
-                assertTrue(backgroundPixel(atEdge = true).red > sharp.red + 0.01f)
+                assertTrue(kotlin.math.abs(backgroundPixel(.47f).red - sharp.red) > 0.01f)
             }
             // Some system dark themes recolor the light test host. Verify the light scrim in a light window.
             if ((compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
@@ -188,10 +255,43 @@ class PresetBackgroundTest {
 
     @Test
     @SdkSuppress(minSdkVersion = 28)
+    fun homeTitleTracksMovingWallpaper() {
+        val file = File.createTempFile("wallpaper-split", ".gif", compose.activity.cacheDir)
+        try {
+            // Alternating solid black and white frames can always use unshadowed ink.
+            val gif = "R0lGODlhEAAQAIEAAAAAAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQASwAAACwAAAAAEAAQAAAIHQABCBxIsKDBgwgTKlzIsKHDhxAjSpxIsaLFgQEBACH5BAFLAAEALAAAAAAQABAAgf///wAAAAAAAAAAAAgdAAEIHEiwoMGDCBMqXMiwocOHECNKnEixosWBAQEAOw=="
+            file.writeBytes(android.util.Base64.decode(gif, android.util.Base64.DEFAULT))
+            val media = decodePresetBackground(file, "image/gif")
+            compose.setContent {
+                MiniRPTheme(darkTheme = true) {
+                    AgentConversation(
+                        ChatState(preset = "image", presetName = "LLLL RRRR", ready = true),
+                        AgentRole.Chat, Modifier.fillMaxSize(), {}, { false }, {}, background = media,
+                    )
+                }
+            }
+            val title = compose.onNodeWithText("LLLL RRRR", useUnmergedTree = true)
+            for (ink in listOf(Color.White, Color.Black, Color.White)) {
+                compose.waitUntil(8_000) {
+                    val layouts = mutableListOf<TextLayoutResult>()
+                    title.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                    val style = layouts.single().layoutInput.style
+                    style.color == ink && style.shadow == null
+                }
+            }
+        } finally { file.delete() }
+    }
+
+    @Test
+    @SdkSuppress(minSdkVersion = 28)
     fun signedPresetAssetPlaysGifAndLoopsVideoFromTheRealHome() {
         val arguments = InstrumentationRegistry.getArguments()
         val fixture = arguments.getString("backgroundFixture")
         assumeTrue("Pass a signed background fixture with -e backgroundFixture", fixture != null)
+        compose.activityRule.scenario.onActivity {
+            it.enableEdgeToEdge()
+            it.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
         val app = compose.activity.application
         val directory = temporary.newFolder()
         val workspace = directory.resolve("workspace").apply { mkdirs() }
@@ -217,7 +317,7 @@ class PresetBackgroundTest {
             val dark = mutableStateOf(false)
             compose.setContent { MiniRP(model, darkTheme = dark.value) }
             val backdrop = compose.onNodeWithTag("preset-background")
-            val banner = compose.onNodeWithTag("preset-home-banner")
+            val heading = compose.onNodeWithTag("preset-home-heading")
             val capturesEnabled = arguments.getString("capturePresetHome") == "true"
             fun capture(name: String) {
                 if (!capturesEnabled) return
@@ -230,7 +330,7 @@ class PresetBackgroundTest {
                 model.markPresetHintSeen(inChat = false)
                 model.markPresetHintSeen(inChat = true)
             }
-            banner.assertIsDisplayed()
+            heading.assertIsDisplayed()
             compose.onNodeWithText(compose.activity.getString(R.string.welcome_to_preset)).assertIsDisplayed()
             compose.waitUntil(10_000) {
                 compose.runOnIdle {
@@ -257,40 +357,80 @@ class PresetBackgroundTest {
                 }
             }
             backdrop.assertIsDisplayed()
-            banner.assertIsDisplayed()
+            heading.assertIsDisplayed()
+            val titleRow = (heading.fetchSemanticsNode().boundsInRoot.center.y -
+                backdrop.fetchSemanticsNode().boundsInRoot.top).toInt()
+            var firstWallpaper: List<Color>? = null
+            compose.waitUntil(10_000) {
+                val pixels = backdrop.captureToImage().toPixelMap()
+                val current = listOf(pixels.width / 20, pixels.width / 8, pixels.width * 7 / 8, pixels.width * 19 / 20)
+                    .map { x -> pixels[x, titleRow] }
+                val first = firstWallpaper
+                if (first == null) {
+                    firstWallpaper = current
+                    false
+                } else {
+                    current.zip(first).any { (now, before) ->
+                        maxOf(kotlin.math.abs(before.red - now.red), kotlin.math.abs(before.green - now.green),
+                            kotlin.math.abs(before.blue - now.blue)) > .006f
+                    }
+                }
+            }
             capture("video-light")
             if (capturesEnabled) {
                 setBackground("still")
                 compose.runOnIdle { model.chooseChat(preset) }
-                compose.waitUntil(15_000) { model.state.value.appearance.backgroundUrl.endsWith("/still") && banner.isDisplayed() }
+                compose.waitUntil(15_000) { model.state.value.appearance.backgroundUrl.endsWith("/still") && heading.isDisplayed() }
                 capture("image-light")
                 setBackground("still", greeting = true)
                 compose.runOnIdle { model.chooseChat(preset) }
-                compose.waitUntil(15_000) { model.state.value.chatGreeting && banner.isDisplayed() }
+                compose.waitUntil(15_000) { model.state.value.chatGreeting && heading.isDisplayed() }
                 compose.runOnIdle { model.createChat(preset) }
-                compose.waitUntil(15_000) { model.state.value.chatId.isNotEmpty() && backdrop.isDisplayed() && !banner.isDisplayed() }
+                compose.waitUntil(15_000) { model.state.value.chatId.isNotEmpty() && backdrop.isDisplayed() && !heading.isDisplayed() }
                 capture("conversation-light")
+                compose.runOnIdle { dark.value = true }
+                capture("conversation-dark")
+                compose.runOnIdle { dark.value = false }
+                val composer = compose.onNodeWithTag("composer")
+                val composerCard = compose.onNodeWithTag("composer-card")
+                val decor = compose.activity.window.decorView
+                val rootBottom = compose.onRoot().fetchSemanticsNode().boundsInRoot.bottom
+                val cardMargin = 8 * compose.activity.resources.displayMetrics.density
+                fun bottomInset() = compose.runOnIdle {
+                    ViewCompat.getRootWindowInsets(decor)!!
+                        .getInsets(WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.ime()).bottom
+                }
+                fun cardFollowsInset() =
+                    kotlin.math.abs(rootBottom - bottomInset() - cardMargin - composerCard.fetchSemanticsNode().boundsInRoot.bottom) <= 2f
+                val navigationInset = bottomInset()
+                compose.waitUntil(5_000) { cardFollowsInset() }
+                composer.performTouchInput { click() }
+                compose.waitUntil(10_000) { bottomInset() > navigationInset && cardFollowsInset() }
+                capture("conversation-keyboard-light")
+                compose.runOnIdle {
+                    WindowInsetsControllerCompat(compose.activity.window, decor).hide(WindowInsetsCompat.Type.ime())
+                }
+                compose.waitUntil(10_000) { bottomInset() == navigationInset && cardFollowsInset() }
                 setBackground("still")
                 compose.runOnIdle { model.chooseChat(preset) }
-                compose.waitUntil(15_000) { model.state.value.chatId.isEmpty() && banner.isDisplayed() }
+                compose.waitUntil(15_000) { model.state.value.chatId.isEmpty() && heading.isDisplayed() }
                 compose.runOnIdle { dark.value = true }
                 capture("image-dark")
                 setBackground("still", "Harbor at Dusk — the Last Ferry Across the Bay", blur = false, greeting = true)
                 compose.runOnIdle { model.chooseChat(preset) }
-                compose.waitUntil(15_000) { !model.state.value.appearance.blurBackground && banner.isDisplayed() }
+                compose.waitUntil(15_000) { !model.state.value.appearance.blurBackground && heading.isDisplayed() }
                 capture("image-blur-off-dark")
                 compose.runOnIdle { model.createChat(preset) }
-                compose.waitUntil(15_000) { model.state.value.chatId.isNotEmpty() && backdrop.isDisplayed() && !banner.isDisplayed() }
+                compose.waitUntil(15_000) { model.state.value.chatId.isNotEmpty() && backdrop.isDisplayed() && !heading.isDisplayed() }
                 capture("conversation-blur-off-dark")
                 setBackground("still", greeting = true)
                 compose.runOnIdle { dark.value = false; model.chooseChat(preset) }
-                val composer = compose.onNodeWithTag("composer")
-                compose.waitUntil(15_000) { model.state.value.chatGreeting && banner.isDisplayed() && !composer.isDisplayed() }
-                assertEquals(backdrop.fetchSemanticsNode().boundsInRoot.width, banner.fetchSemanticsNode().boundsInRoot.width, 0.5f)
+                compose.waitUntil(15_000) { model.state.value.chatGreeting && heading.isDisplayed() && !composer.isDisplayed() }
+                assertEquals(rootBottom, backdrop.fetchSemanticsNode().boundsInRoot.bottom, 0.5f)
                 capture("no-composer-light")
                 setBackground("")
                 compose.runOnIdle { dark.value = false; model.chooseChat(preset) }
-                compose.waitUntil(15_000) { model.state.value.appearance.backgroundUrl.isEmpty() && !banner.isDisplayed() }
+                compose.waitUntil(15_000) { model.state.value.appearance.backgroundUrl.isEmpty() && !backdrop.isDisplayed() }
                 capture("no-background-light")
             }
         } finally { scope.cancel() }

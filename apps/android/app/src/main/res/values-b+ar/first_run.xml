@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">مرحبًا بك في MiniRP</string>
+    <string name="setup_welcome_detail">اربط خدمة ذكاء اصطناعي، ثم اختر النموذج الذي سيستخدمه MiniRP للمحادثات وإعداد الإعدادات المسبقة.</string>
+    <string name="setup_begin">البدء</string>
+    <string name="setup_download_notice">MiniRP تطبيق مجاني ومفتوح المصدر وغير ربحي. نزّله من صفحة الإصدارات الرسمية. إذا حصلت عليه من مصدر آخر أو طُلب منك دفع ثمنه، فاحذر الاحتيال.</string>
+    <string name="setup_official_download">التنزيل الرسمي</string>
+    <string name="setup_connect_provider">ربط خدمة ذكاء اصطناعي</string>
+    <string name="setup_provider_detail">المزوّد هو الخدمة التي تشغّل النموذج. اختر قالبه لملء بيانات الاتصال. إذا كان يتطلب مفتاح API، فاحصل عليه من موقع المزوّد.</string>
+    <string name="setup_unsure">لا أعرف</string>
+    <string name="setup_choose_model">اختيار نموذج</string>
+    <string name="setup_model_detail">اختر نموذجًا من %1$s لاستخدامه في محادثاتك الأولى.</string>
+    <string name="setup_model_fallback">تحقق من عنوان API ومفتاحه، ثم أعد المحاولة. إذا لم يسرد المزوّد النماذج، فأدخل معرّف النموذج كما يرد في موقعه.</string>
+    <string name="add_model_by_id">إضافة نموذج بالمعرّف</string>
+    <string name="setup_use_model">استخدام هذا النموذج</string>
+    <string name="setup_next">متابعة</string>
+    <string name="setup_effort_title">إلى أي حد ينبغي أن يفكّر؟</string>
+    <string name="setup_effort_detail">يحدد مستوى التفكير الوقت الذي يقضيه الذكاء الاصطناعي قبل الإجابة. لقصّة معقّدة أو إضافة، ابدأ بأعلى مستوى. لمحادثة سريعة، جرّب مستوى أقل. قد تطول المستويات الأعلى وتستهلك قدرًا أكبر من حصتك. يمكنك تغييرها في الإعدادات ← النماذج.</string>
+    <string name="setup_help_title">مساعدة في إعداد MiniRP</string>
+    <string name="setup_help_detail">انسخ هذه التعليمات إلى %1$s، ثم اتبع الخطوات التي يقترحها.</string>
+    <string name="setup_assistants_china">DeepSeek أو Qwen</string>
+    <string name="setup_assistants_global">ChatGPT أو Grok أو Claude</string>
+    <string name="setup_unknown_region">غير معروفة</string>
+    <string name="setup_copy_prompt">نسخ التعليمات</string>
+    <string name="setup_help_web">البحث وجلب صفحات الويب</string>
+    <string name="setup_help_intro">أستخدم MiniRP لنظام Android للمرة الأولى. أجبني باللغة %1$s. منطقة جهازي هي %2$s. اقرأ أولًا دليل MiniRP الرسمي على %3$s، وأخبرني إن تعذّر فتحه.</string>
+</resources>

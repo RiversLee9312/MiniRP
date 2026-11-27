@@ -43,12 +43,10 @@ internal val traceHeadingMinHeight = 40.dp
 
 internal data class TraceHeader(
     val id: String,
-    val parent: TraceHeader?,
     val running: Boolean,
     val tools: Int,
     val expanded: Boolean,
-    val agent: AgentRole? = null,
-    val agentName: String? = null,
+    val hasReasoning: Boolean = false,
 )
 
 @Composable
@@ -61,8 +59,7 @@ internal fun TraceHeading(
 ) {
     val label =
         when {
-            header.agentName != null -> header.agentName
-            header.agent != null -> stringResource(header.agent.label)
+            header.hasReasoning && header.tools == 0 -> stringResource(R.string.reasoning)
             header.running -> stringResource(R.string.running)
             header.tools > 0 ->
                 pluralStringResource(R.plurals.trace_actions, header.tools, header.tools)
@@ -77,7 +74,7 @@ internal fun TraceHeading(
     TraceDisclosure(
         label,
         header.expanded,
-        modifier.then(stateModifier).traceQuote(if (header.parent == null) 0 else 1),
+        modifier.then(stateModifier),
         toggle = toggle,
     )
 }

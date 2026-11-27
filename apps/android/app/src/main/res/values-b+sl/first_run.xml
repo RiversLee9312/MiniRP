@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Dobrodošli v MiniRP</string>
+    <string name="setup_welcome_detail">Povežite storitev UI in izberite model, ki ga bo MiniRP uporabljal za klepet in nastavitev prednastavitev.</string>
+    <string name="setup_begin">Začni</string>
+    <string name="setup_download_notice">MiniRP je brezplačna, neprofitna in odprtokodna aplikacija. Prenesite jo z uradne strani z izdajami. Pazite na prevare, če ste jo dobili drugje ali plačali zanjo.</string>
+    <string name="setup_official_download">Uradni prenos</string>
+    <string name="setup_connect_provider">Poveži storitev UI</string>
+    <string name="setup_provider_detail">Ponudnik je storitev, ki izvaja model. Izberite njegovo predlogo in vnesite podatke za povezavo. Če potrebujete ključ API, ga pridobite na spletnem mestu ponudnika.</string>
+    <string name="setup_unsure">Ne vem</string>
+    <string name="setup_choose_model">Izberi model</string>
+    <string name="setup_model_detail">Za prve pogovore izberite model ponudnika %1$s.</string>
+    <string name="setup_model_fallback">Preverite naslov in ključ API ter poskusite znova. Če ponudnik ne prikaže modelov, vnesite natančni ID modela z njegovega spletnega mesta.</string>
+    <string name="add_model_by_id">Dodaj model z ID-jem</string>
+    <string name="setup_use_model">Uporabi ta model</string>
+    <string name="setup_next">Nadaljuj</string>
+    <string name="setup_effort_title">Koliko naj model razmišlja?</string>
+    <string name="setup_effort_detail">Raven razmišljanja določa, koliko časa UI nameni premisleku pred odgovorom. Pri zahtevni zgodbi ali vtičniku začnite z najvišjo ravnjo, za hiter klepet pa poskusite z nižjo. Višja raven lahko zahteva več časa in porabi več kvote. Spremenite jo v Nastavitve → Modeli.</string>
+    <string name="setup_help_title">Pomoč pri nastavitvi MiniRP</string>
+    <string name="setup_help_detail">Kopirajte ta poziv v %1$s in sledite predlaganim korakom.</string>
+    <string name="setup_assistants_china">DeepSeek ali Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok ali Claude</string>
+    <string name="setup_unknown_region">neznano</string>
+    <string name="setup_copy_prompt">Kopiraj poziv</string>
+    <string name="setup_help_web">Iskanje in pridobivanje spletnih strani</string>
+    <string name="setup_help_intro">Prvič uporabljam MiniRP za Android. Odgovorite v jeziku %1$s. Regija moje naprave je %2$s. Najprej preberite uradni vodič za MiniRP na naslovu %3$s. Povejte mi, če ga ne morete odpreti.</string>
+</resources>

@@ -172,6 +172,9 @@ public sealed partial class Engine : IAsyncDisposable
             case "transcript_page":
                 _ = Task.Run(() => TranscriptPage(command));
                 break;
+            case "preset_activity":
+                _ = Task.Run(() => ReadPresetActivity(command));
+                break;
             case "ensemble_archive":
                 _ = Task.Run(() => ReadEnsembleArchive(command));
                 break;
@@ -274,6 +277,7 @@ public sealed partial class Engine : IAsyncDisposable
             if (item.ContainsKey("plugin_agent"))
                 foreach (var key in new[] { "plugin_agent", "plugin_agent_name", "plugin_run" })
                     block[key] = JsonValues.Clone(item[key]);
+            if (item["parent_agent"] is { } parent) block["parent_agent"] = parent.DeepClone();
             if (item["participant"] is { } participant)
             {
                 block["participant"] = participant.DeepClone();
@@ -628,7 +632,7 @@ public sealed partial class Engine : IAsyncDisposable
     {
         var workerRouting = workerTrace is null ? null : Volatile.Read(ref routing);
         Routing Selected() => workerRouting ?? turnRouting;
-        var browser = new BrowserAgent(Port, job =>
+        var browser = new BrowserAgent(Port, (job, parent) =>
         {
             var context = owner is "PresetAgent" or "PluginAgent"
                 ? new JsonObject { ["agent"] = "fetch", ["preset"] = workspace.PresetId }
@@ -639,6 +643,7 @@ public sealed partial class Engine : IAsyncDisposable
                 () => context, (item, info) =>
                 {
                     item["session"] = session;
+                    if ((parent ?? owner) is { } parentAgent) item["parent_agent"] = parentAgent;
                     if (owner is not null)
                     {
                         item["agent"] = owner;
@@ -704,6 +709,7 @@ public sealed partial class Engine : IAsyncDisposable
                 ["selected"] = selected,
                 ["preset"] = Workspace.PresetId,
                 ["config"] = Workspace.Config.DeepClone(),
+                ["draft"] = presetConversation!.Draft?.DeepClone(),
                 ["blocks"] = ProjectPresetTranscript(presetConversation!, history)
             };
             if (history is not null) item["history"] = history;
@@ -916,10 +922,23 @@ public sealed partial class Engine : IAsyncDisposable
                     throw new InvalidOperationException("The conversation has changed.");
                 }
                 var mode = command.GetString("mode", "replay");
-                if (mode is not ("replay" or "edit" or "reply"))
+                var branchAgent = command.GetString("agent", "chat");
+                if (mode is not ("replay" or "edit" or "reply") ||
+                    branchAgent is not ("chat" or "env" or "preset") || mode == "replay" && branchAgent != "chat")
                     throw new ArgumentException("Unknown branch mode.");
+                RequirePreset(command);
+                RequireAgent(command, branchAgent);
+                if (branchAgent == "preset")
+                {
+                    var fork = presetConversation!.Fork(Workspace, command.GetString("block"), mode == "reply", presetTraceGate, token);
+                    (await catalog).Preset(fork.Id, fork.Name);
+                    Emit(new() { ["kind"] = "library_changed", ["presets_changed"] = true });
+                    ShowHome(fork.Id, notify: false);
+                    OpenPresetEditor(command.GetString("request"), created: true, selected: true);
+                    break;
+                }
                 var branch = ConversationVersions.Fork(Workspace, command.GetString("block"),
-                    sessions.Keys.Where(role => role != "preset"), afterReply: mode == "reply", seedDraft: mode == "edit");
+                    sessions.Keys.Where(role => role != "preset"), afterReply: mode == "reply", seedDraft: mode == "edit", agent: branchAgent);
                 await SelectConversation(Workspace.PresetId, branch.Id, token);
                 if (mode == "replay")
                     await RunMessage("chat", branch.Input, false, branch.Attachments, token, openUiAction: branch.OpenUiAction);
@@ -1051,13 +1070,13 @@ public sealed partial class Engine : IAsyncDisposable
         }, preset: Workspace.PresetId, queued: message => PreviewSteer(role, message));
         session.Inbox = turn;
         BeginInteractiveTurn(turn, editorTurn, userInitiated);
-        var turnStart = Workspace.Chat.GetArray("blocks").Count;
+        var turnStart = role == "preset" ? presetConversation!.Blocks.Count : Workspace.Chat.GetArray("blocks").Count;
         string answer;
         var completed = false;
         try
         {
             if (!hiddenInput)
-                RecordInput(role, input, inputRole, attachments, inputRole == "user", openUiAction, consumeDraft: role == "chat");
+                RecordInput(role, input, inputRole, attachments, inputRole == "user", openUiAction, consumeDraft: inputRole == "user");
             if (request.Length > 0)
                 Emit(new() { ["kind"] = "message_accepted", ["request"] = request, ["chat"] = Workspace.ChatId });
             var worldBefore = Workspace.State;
@@ -1094,7 +1113,7 @@ public sealed partial class Engine : IAsyncDisposable
         {
             EndInteractiveTurn(turn, session, interrupted: !completed && !token.IsCancellationRequested);
         }
-        if (role == "chat") RecordReplyEnd(turnStart, answer);
+        RecordReplyEnd(role, turnStart, answer);
     }
 
     private async Task<JsonArray> PrepareAttachments(JsonArray files, JsonObject context, CancellationToken ct)
@@ -1126,11 +1145,20 @@ public sealed partial class Engine : IAsyncDisposable
         }
     }
 
-    private void RecordReplyEnd(int turnStart, string answer)
+    private void RecordReplyEnd(string role, int turnStart, string answer)
     {
-        var blocks = Workspace.Chat.GetArray("blocks");
-        var prose = blocks.Skip(turnStart)
-            .Where(block => block.GetString("agent") == "ChatAgent" && !block.GetBoolean("retrying"))
+        lock (role == "preset" ? presetTraceGate : Workspace.RoomGate)
+        {
+            var blocks = role == "preset" ? presetConversation!.Blocks : Workspace.Chat.GetArray("blocks");
+            if (turnStart < blocks.Count) RecordReplyEnd(role, blocks, turnStart, answer);
+        }
+    }
+
+    private void RecordReplyEnd(string role, JsonArray blocks, int turnStart, string answer)
+    {
+        var owner = role switch { "env" => "EnvAgent", "preset" => "PresetAgent", _ => "ChatAgent" };
+        var prose = blocks.Skip(turnStart).OfType<JsonObject>()
+            .Where(block => block.GetString("agent") == owner && !block.GetBoolean("retrying") && !IsBrowserTrace(block))
             .Select(block => block.GetString("content"))
             .Where(content => !string.IsNullOrWhiteSpace(content))
             .ToArray();
@@ -1144,13 +1172,14 @@ public sealed partial class Engine : IAsyncDisposable
         {
             ["id"] = JsonValues.NewId(),
             ["kind"] = "reply_end",
-            ["agent"] = "chat",
+            ["agent"] = role,
             ["reply"] = visible,
             ["first_block"] = blocks[turnStart].GetString("id"),
             ["message_index"] = Workspace.Chat.GetArray("messages").Count,
-            ["version"] = ConversationVersions.Capture(Workspace, sessions)
+            ["version"] = role == "preset" ? PresetConversation.Capture(Workspace, sessions[role]) :
+                ConversationVersions.Capture(Workspace, sessions)
         };
-        lock (Workspace.RoomGate) blocks.AddNode(end);
+        blocks.AddNode(end);
         Emit((JsonObject)end.DeepClone());
     }
 
@@ -1207,9 +1236,10 @@ public sealed partial class Engine : IAsyncDisposable
         lock (Workspace.RoomGate) Workspace.Chat["blocks"] ??= new JsonArray();
         var messages = Workspace.Chat.GetArray("messages");
         var block = new JsonObject { ["id"] = blockId ?? JsonValues.NewId(), ["kind"] = role, ["agent"] = agent, ["content"] = input };
-        if (agent == "chat" && checkpoint)
+        if (checkpoint)
         {
-            block["version"] = ConversationVersions.Capture(Workspace, sessions);
+            block["version"] = agent == "preset" ? PresetConversation.Capture(Workspace, sessions[agent]) :
+                ConversationVersions.Capture(Workspace, sessions);
             block["message_index"] = messages.Count;
         }
         var message = new JsonObject { ["role"] = role, ["agent"] = agent, ["content"] = input };
@@ -1230,11 +1260,12 @@ public sealed partial class Engine : IAsyncDisposable
             {
                 presetConversation!.Blocks.AddNode(block);
                 presetConversation.Save();
+                if (consumeDraft) presetConversation.ConsumeDraft();
             }
         }
         else
         {
-            if (consumeDraft) Workspace.Chat.Remove("draft");
+            if (consumeDraft && Workspace.Chat["draft"].GetString("agent", "chat") == agent) Workspace.Chat.Remove("draft");
             messages.AddNode(message);
             lock (Workspace.RoomGate) Workspace.Chat.GetArray("blocks").AddNode(block);
             Workspace.Save();

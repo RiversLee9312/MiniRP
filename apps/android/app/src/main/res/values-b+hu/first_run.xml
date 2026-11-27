@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Üdvözli a MiniRP</string>
+    <string name="setup_welcome_detail">Csatlakoztass egy MI-szolgáltatást, majd válaszd ki a MiniRP beszélgetéseihez és a sablonok beállításához használt modellt.</string>
+    <string name="setup_begin">Első lépések</string>
+    <string name="setup_download_notice">A MiniRP ingyenes, nonprofit, nyílt forráskódú alkalmazás. Töltsd le a hivatalos kiadási oldalról. Ha máshonnan szerezted be vagy fizettél érte, vigyázz a csalásokkal.</string>
+    <string name="setup_official_download">Hivatalos letöltés</string>
+    <string name="setup_connect_provider">MI-szolgáltatás csatlakoztatása</string>
+    <string name="setup_provider_detail">A szolgáltató futtatja a modellt. Válaszd ki a sablonját a kapcsolati adatok megadásához. Ha API-kulcsra van szükség, szerezd be a szolgáltató webhelyéről.</string>
+    <string name="setup_unsure">Nem tudom</string>
+    <string name="setup_choose_model">Modell kiválasztása</string>
+    <string name="setup_model_detail">Válassz modellt a(z) %1$s kínálatából az első beszélgetéseidhez.</string>
+    <string name="setup_model_fallback">Ellenőrizd az API címét és kulcsát, majd próbáld újra. Ha a szolgáltató nem listáz modelleket, add meg a webhelyén található pontos modellazonosítót.</string>
+    <string name="add_model_by_id">Modell hozzáadása azonosítóval</string>
+    <string name="setup_use_model">Modell használata</string>
+    <string name="setup_next">Folytatás</string>
+    <string name="setup_effort_title">Mennyit gondolkodjon a modell?</string>
+    <string name="setup_effort_detail">A gondolkodási szint határozza meg, mennyi időt szán az MI a válasz előkészítésére. Összetett történethez vagy bővítményhez kezdd a legmagasabbal. Gyors beszélgetéshez próbálj alacsonyabbat. A magasabb szintek több időt és keretet igényelhetnek. A Beállítások → Modellek alatt bármikor módosíthatod.</string>
+    <string name="setup_help_title">Segítség a MiniRP beállításához</string>
+    <string name="setup_help_detail">Másold ezt a kérést a(z) %1$s felületére, majd kövesd a javasolt lépéseket.</string>
+    <string name="setup_assistants_china">DeepSeek vagy Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok vagy Claude</string>
+    <string name="setup_unknown_region">ismeretlen</string>
+    <string name="setup_copy_prompt">Kérés másolása</string>
+    <string name="setup_help_web">Webes keresés és oldalak lekérése</string>
+    <string name="setup_help_intro">Először használom az androidos MiniRP-t. Válaszolj a következő nyelven: %1$s. A készülékem régiója: %2$s. Először olvasd el a hivatalos MiniRP-útmutatót itt: %3$s. Szólj, ha nem tudod megnyitni.</string>
+</resources>

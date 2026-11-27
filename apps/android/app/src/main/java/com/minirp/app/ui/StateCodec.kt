@@ -151,9 +151,8 @@ internal fun decodeBlock(value: JSONObject) =
         value.optString("arguments"),
         value.optString("result"),
         version = value.optString("version"),
-        attachmentNames = value.attachmentNames(),
+        attachments = value.messageAttachments(),
         system = value.optString("kind", value.optString("role")) == "system",
-        thumbnails = value.thumbnails(),
         openUi = value.optString("open_ui").takeIf(String::isNotBlank),
         replyEnd =
             if (value.optString("kind") == "reply_end")
@@ -172,6 +171,7 @@ internal fun decodeBlock(value: JSONObject) =
         pluginSequence = value.optInt("plugin_sequence"),
         running = value.optString("plugin_status") == "running",
         quotes = value.quoteAttachments(),
+        parentAgent = value.optString("parent_agent"),
     ).withToolTraceMetadata(value)
 
 internal fun decodeEnsembleChat(value: JSONObject): EnsembleChat {
@@ -197,7 +197,8 @@ internal fun JSONObject.branchDraft(): BranchDraft {
     val files = optJSONArray("attachments")?.objects().orEmpty()
         .filter { it.optString("kind") != "quote" && it.optString("id").isNotBlank() }
         .associateBy { "saved-attachment:${it.optString("id")}" }
-    return BranchDraft(optString("text"), files, optJSONObject("open_ui_action"), quoteAttachments())
+    val agent = AgentRole.entries.firstOrNull { it.id == optString("agent") } ?: AgentRole.Chat
+    return BranchDraft(optString("text"), files, optJSONObject("open_ui_action"), quoteAttachments(), agent)
 }
 
 internal fun List<TraceBlock>.withLegacyReplyActions(): List<TraceBlock> {
@@ -236,10 +237,6 @@ internal fun List<TraceBlock>.withLegacyReplyActions(): List<TraceBlock> {
     }
 }
 
-internal fun JSONObject.attachmentNames(): List<String> =
-    optJSONArray("attachments")?.objects().orEmpty()
-        .filter { it.optString("kind") != "quote" }.map { it.optString("name") }
-
 internal fun JSONObject.quoteAttachments(): List<QuoteAttachment> =
     optJSONArray("attachments")?.objects().orEmpty().mapNotNull { item ->
         val text = item.optString("text")
@@ -252,16 +249,17 @@ internal fun JSONObject.quoteAttachments(): List<QuoteAttachment> =
 internal fun QuoteAttachment.toJson(): JSONObject =
     JSONObject().put("id", id).put("kind", "quote").put("text", text)
 
-internal fun JSONObject.thumbnails(): List<AttachmentThumbnail> =
-    optJSONArray("attachments")
-        ?.objects()
-        ?.mapNotNull { attachment ->
+internal fun JSONObject.messageAttachments(): List<MessageAttachment> =
+    optJSONArray("attachments")?.objects().orEmpty()
+        .filter { it.optString("kind") != "quote" }
+        .map { attachment ->
+            val id = attachment.optString("id")
             val url =
                 attachment.optString("thumbnail_url").ifBlank {
                     if (attachment.has("thumbnail"))
                         "minirp://assets/minirp.legacy/attachment-thumbnail?attachment=${attachment.optString("id")}"
                     else ""
                 }
-            url.takeIf(String::isNotBlank)?.let { AttachmentThumbnail(it, attachment) }
+            MessageAttachment(id, attachment.optString("name"), attachment.optString("mime"),
+                url.takeIf(String::isNotBlank)?.let { AttachmentThumbnail(it, attachment) })
         }
-        .orEmpty()

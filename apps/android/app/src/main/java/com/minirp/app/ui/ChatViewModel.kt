@@ -189,7 +189,10 @@ internal constructor(
                                 val blocks = withContext(Dispatchers.Default) {
                                     event.getJSONArray("blocks").objects().map { decodeBlock(it).finishMarkdown() }
                                 }
-                                showHome(event.getString("preset"), event.getJSONObject("config"), blocks, editPreset = true)
+                                showHome(event.getString("preset"), event.getJSONObject("config"), blocks, editPreset = true,
+                                    presetDraft = event.optJSONObject("draft")?.branchDraft())
+                            } else if (state.value.presetEditor == PresetEditorPhase.Opening) {
+                                applyPresetEditorSnapshot(event)
                             }
                         }
                         "loaded" -> {
@@ -222,7 +225,7 @@ internal constructor(
                                     .lastOrNull { it.id == event.optString("block") }
                             val finished =
                                 withContext(Dispatchers.Default) { block?.finishMarkdown() }
-                            receiveTrace(event, finished)
+                            applyTrace(event, finished)
                         }
                         "generating" -> {
                             turnProtection?.turnChanged(
@@ -392,6 +395,7 @@ internal constructor(
                         chatMode = config?.optString("chat_mode", "character") ?: "character",
                         chatGreeting = config.hasChatGreeting(),
                         branchDraft = event.optJSONObject("draft")?.branchDraft(),
+                        presetBranchDraft = it.presetBranchDraft.takeUnless { changedPreset },
                         replyError = null,
                         agenticSearch = config?.optBoolean("agentic_search", true) ?: true,
                     )
@@ -436,7 +440,7 @@ internal constructor(
                     if (conversation.isNotEmpty() &&
                         (it.chatId != event.optString("chat") || it.ensembleChatId != conversation)
                     ) return@update it
-                    val message = event.optString("message")
+                    val message = event.optString("message").ifBlank { getApplication<Application>().getString(R.string.error) }
                     val agent =
                         it.generating
                             ?: AgentRole.entries.find { role ->
@@ -518,9 +522,8 @@ internal constructor(
                                     user = true,
                                     content = event.optString("text"),
                                     version = event.optString("version"),
-                                    attachmentNames = event.attachmentNames(),
+                                    attachments = event.messageAttachments(),
                                     system = event.optString("kind") == "system",
-                                    thumbnails = event.thumbnails(),
                                     quotes = event.quoteAttachments(),
                                 )
                             )
@@ -535,20 +538,13 @@ internal constructor(
             "plugin_agent_status",
             "tool_start",
             "tool_end",
-            "tool_trace_update" -> receiveTrace(event)
+            "tool_trace_update" -> applyTrace(event)
         }
     }
 
     private fun List<TraceBlock>.withMessage(block: TraceBlock): List<TraceBlock> {
         val index = indexOfLast { it.id == block.id }
         return if (index < 0) this + block else toMutableList().apply { set(index, block) }
-    }
-
-    private var presetOpeningTrace: MutableList<JSONObject>? = null
-
-    private fun receiveTrace(event: JSONObject, finished: TraceBlock? = null) {
-        if (event.has("plugin_sequence")) presetOpeningTrace?.add(event)
-        applyTrace(event, finished)
     }
 
     private fun applyTrace(event: JSONObject, finished: TraceBlock? = null) =
@@ -589,6 +585,7 @@ internal constructor(
                         pluginAgentId = event.optString("plugin_agent"),
                         pluginRun = event.optString("plugin_run", event.optString("plugin_agent")),
                         pluginAgentName = event.optString("plugin_agent_name"),
+                        parentAgent = event.optString("parent_agent"),
                     )
             val sequence = event.optInt("plugin_sequence")
             // Refresh events can repeat the sequence of the recorded tool call.
@@ -664,7 +661,7 @@ internal constructor(
 
     private fun TraceBlock.finishMarkdown() =
         if (!user && content.isNotBlank())
-            copy(streaming = false, markdown = parseMarkdown(content) as? MarkdownState.Success)
+            copy(streaming = false, markdown = parseMarkdown(content, flavour = ChatMathFlavour) as? MarkdownState.Success)
         else if (streaming) copy(streaming = false) else this
 
     private fun receiveModels(event: JSONObject) {
@@ -776,7 +773,7 @@ internal constructor(
         }
         mutableState.update { it.copy(submitting = role, replyError = null) }
         try {
-            val draft = current.branchDraft.takeIf { role == AgentRole.Chat }
+            val draft = if (role == AgentRole.Preset) current.presetBranchDraft else current.branchDraft?.takeIf { it.agent == role }
             val imported =
                 attachments.import(
                     documents,
@@ -805,7 +802,9 @@ internal constructor(
                         timeoutMillis = null,
                     )
             val accepted = result.optString("kind") == "message_accepted"
-            if (accepted && draft != null) mutableState.update { it.copy(branchDraft = null) }
+            if (accepted && draft != null) mutableState.update {
+                if (role == AgentRole.Preset) it.copy(presetBranchDraft = null) else it.copy(branchDraft = null)
+            }
             return accepted
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -966,6 +965,7 @@ internal constructor(
         config: JSONObject,
         blocks: List<TraceBlock> = emptyList(),
         editPreset: Boolean = false,
+        presetDraft: BranchDraft? = null,
     ) {
         selectLibraryPreset(preset)
         val changedPreset = preset != state.value.preset
@@ -988,6 +988,7 @@ internal constructor(
                 chatMode = config.optString("chat_mode", "character"),
                 chatGreeting = config.hasChatGreeting(),
                 branchDraft = null,
+                presetBranchDraft = presetDraft,
                 replyError = null,
                 preset = preset,
                 presetSetupPending = config.presetSetupPending(),
@@ -1003,12 +1004,12 @@ internal constructor(
 
     fun openPresetEditor(create: Boolean = false) {
         val current = state.value
-        if (!current.ready || current.busy || current.preparing || (!create && current.presetEditorOpen)) return
+        if (!current.ready || current.busy || current.preparing || current.presetEditor == PresetEditorPhase.Opening ||
+            (!create && current.presetEditorOpen)
+        ) return
         if (!create && current.preset.isBlank()) return
         mutableState.update { it.copy(presetEditor = PresetEditorPhase.Opening) }
         viewModelScope.launch {
-            val trace = mutableListOf<JSONObject>()
-            presetOpeningTrace = trace
             try {
                 val command =
                     if (create)
@@ -1026,56 +1027,47 @@ internal constructor(
                             .put("chat", current.chatId)
                 val locale = getApplication<Application>().resources.configuration.locales[0]
                 val result = engine.await().query(command.put("locale", locale.toLanguageTag()))
-                val preset = result.getString("preset")
-                val config = result.getJSONObject("config")
-                val blocks =
-                    withContext(Dispatchers.Default) {
-                        result.getJSONArray("blocks").objects().map {
-                            decodeBlock(it).finishMarkdown()
-                        }
-                    }
-                if (result.optBoolean("created")) {
-                    showHome(
-                        preset,
-                        config,
-                        blocks,
-                        editPreset = state.value.presetEditor == PresetEditorPhase.Opening,
-                    )
-                } else {
-                    mutableState.update {
-                        if (it.presetEditor != PresetEditorPhase.Opening) return@update it
-                        it.copy(
-                            blocks =
-                                it.blocks.filterNot { block -> block.role == AgentRole.Preset } +
-                                    blocks,
-                            replyError =
-                                it.replyError?.takeUnless { error ->
-                                    error.agent == AgentRole.Preset
-                                },
-                            presetName = config.optString("name", preset),
-                            presetSetupPending = config.presetSetupPending(),
-                            appearance = config.presetAppearance(),
-                            presetEditor = PresetEditorPhase.Open,
-                            agenticSearch = config.optBoolean("agentic_search", true),
-                        )
-                    }
-                }
-                if (state.value.presetEditorOpen) {
-                    trace.forEach { applyTrace(it) }
-                    if (!result.optBoolean("created")) persist()
-                }
+                if (result.optString("kind") != "preset_opened") restorePresetEditorPhase(current.presetEditor)
             } catch (cancelled: CancellationException) {
+                restorePresetEditorPhase(current.presetEditor)
                 throw cancelled
             } catch (error: Exception) {
+                restorePresetEditorPhase(current.presetEditor)
                 report(error)
-            } finally {
-                if (presetOpeningTrace === trace) presetOpeningTrace = null
-                mutableState.update {
-                    if (it.presetEditor == PresetEditorPhase.Opening)
-                        it.copy(presetEditor = current.presetEditor)
-                    else it
-                }
             }
+        }
+    }
+
+    private fun restorePresetEditorPhase(previous: PresetEditorPhase) {
+        mutableState.update {
+            if (it.presetEditor == PresetEditorPhase.Opening) it.copy(presetEditor = previous) else it
+        }
+    }
+
+    private suspend fun applyPresetEditorSnapshot(event: JSONObject) {
+        val preset = event.getString("preset")
+        val config = event.getJSONObject("config")
+        val draft = event.optJSONObject("draft")?.branchDraft()
+        val blocks = withContext(Dispatchers.Default) {
+            event.getJSONArray("blocks").objects().map { decodeBlock(it).finishMarkdown() }
+        }
+        if (event.optBoolean("created")) {
+            showHome(preset, config, blocks, editPreset = state.value.presetEditor == PresetEditorPhase.Opening, presetDraft = draft)
+        } else {
+            mutableState.update {
+                if (it.presetEditor != PresetEditorPhase.Opening) return@update it
+                it.copy(
+                    blocks = it.blocks.filterNot { block -> block.role == AgentRole.Preset } + blocks,
+                    replyError = it.replyError?.takeUnless { error -> error.agent == AgentRole.Preset },
+                    presetName = config.optString("name", preset),
+                    presetSetupPending = config.presetSetupPending(),
+                    appearance = config.presetAppearance(),
+                    presetEditor = PresetEditorPhase.Open,
+                    presetBranchDraft = draft,
+                    agenticSearch = config.optBoolean("agentic_search", true),
+                )
+            }
+            if (state.value.presetEditorOpen) persist()
         }
     }
 
@@ -1309,10 +1301,12 @@ internal constructor(
 
     internal fun pluginFailure(failure: Exception) = report(failure)
 
-    fun branch(id: String, afterReply: Boolean = false) =
+    fun branch(id: String, afterReply: Boolean = false, agent: AgentRole = AgentRole.Chat) =
         command("branch") {
             put("block", id)
             put("chat", state.value.chatId)
+            put("preset", state.value.preset)
+            put("agent", agent.id)
             put("mode", if (afterReply) "reply" else "edit")
         }
 
@@ -1584,7 +1578,7 @@ internal constructor(
     }
 
     private fun report(error: Exception) = mutableState.update {
-        it.copy(error = error.message ?: "Error")
+        it.copy(error = error.message?.takeIf(String::isNotBlank) ?: getApplication<Application>().getString(R.string.error))
     }
 
     override fun onCleared() {

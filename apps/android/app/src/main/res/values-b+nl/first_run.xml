@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Welkom bij MiniRP</string>
+    <string name="setup_welcome_detail">Koppel een AI-dienst en kies het model dat MiniRP voor chats en het instellen van voorinstellingen gebruikt.</string>
+    <string name="setup_begin">Aan de slag</string>
+    <string name="setup_download_notice">MiniRP is een gratis opensourceapp zonder winstoogmerk. Download de app via de officiële releasepagina. Pas op voor oplichting als je hem ergens anders vandaan hebt of ervoor hebt betaald.</string>
+    <string name="setup_official_download">Officiële download</string>
+    <string name="setup_connect_provider">Koppel een AI-dienst</string>
+    <string name="setup_provider_detail">De aanbieder is de dienst die het model uitvoert. Kies het sjabloon om de verbindingsgegevens in te vullen. Heeft de dienst een API-sleutel nodig, haal die dan op bij de aanbieder.</string>
+    <string name="setup_unsure">Ik weet het niet</string>
+    <string name="setup_choose_model">Kies een model</string>
+    <string name="setup_model_detail">Kies een model van %1$s voor je eerste gesprekken.</string>
+    <string name="setup_model_fallback">Controleer het API-adres en de sleutel en probeer het opnieuw. Als de aanbieder geen modellen toont, voer dan de exacte model-ID van zijn website in.</string>
+    <string name="add_model_by_id">Model toevoegen op ID</string>
+    <string name="setup_use_model">Dit model gebruiken</string>
+    <string name="setup_next">Doorgaan</string>
+    <string name="setup_effort_title">Hoeveel moet het model nadenken?</string>
+    <string name="setup_effort_detail">Het denkniveau bepaalt hoeveel tijd de AI aan het antwoord besteedt. Begin voor een ingewikkeld verhaal of een plug-in met het hoogste niveau. Probeer voor een snel gesprek een lager niveau. Een hoog niveau kan meer tijd en quotum kosten. Pas het niveau aan via Instellingen → Modellen.</string>
+    <string name="setup_help_title">Hulp bij het instellen van MiniRP</string>
+    <string name="setup_help_detail">Kopieer deze prompt naar %1$s en volg de stappen die je krijgt.</string>
+    <string name="setup_assistants_china">DeepSeek of Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok of Claude</string>
+    <string name="setup_unknown_region">onbekend</string>
+    <string name="setup_copy_prompt">Prompt kopiëren</string>
+    <string name="setup_help_web">Zoeken en webpagina’s ophalen</string>
+    <string name="setup_help_intro">Ik gebruik MiniRP voor Android voor het eerst. Antwoord in het %1$s. De regio van mijn apparaat is %2$s. Lees eerst de officiële handleiding op %3$s. Laat weten als je die niet kunt openen.</string>
+</resources>

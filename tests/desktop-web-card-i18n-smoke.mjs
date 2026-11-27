@@ -92,7 +92,7 @@ try {
       for (const [data, expected] of cases) {
         const needles = [expected].flat().map(text => text.startsWith("/labels/") ? labels[text.slice(8)] : text);
         assert(needles.every(Boolean), `${card.id} (${locale}) has no translation for an expected label`);
-        await show({ program: card.program, locale, rtl: ["ar", "fa", "he"].includes(locale),
+        await show({ program: card.program, locale, rtl: ["ar", "fa", "he", "ur"].includes(locale),
           managedState: { title, labels, data }, managedRevision: index });
         try {
           await page.waitForFunction(({ title, needles }) => {
@@ -121,7 +121,8 @@ try {
   assert(await page.getByText("Gate closed.").isVisible());
   assert(await page.getByText("Local selection").isVisible());
   assert.deepEqual(mismatches, []);
-  console.log("22 tool cards and 11 additional enum variants × 30 locales, plus interactive locale refresh, passed.");
+  console.log(`${manifest.cards.length} tool cards and ${Object.values(enumFixtures).flat().length} additional enum variants × ` +
+    `${Object.keys(manifest.i18n.locales).length + 1} locales, plus interactive locale refresh, passed.`);
 } finally {
   await browser?.close();
   await new Promise((done) => server.close(done));

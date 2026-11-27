@@ -60,9 +60,14 @@ class NativeCoreTest {
                     } else {
                         val messages = body.getJSONArray("messages")
                         val latest = messages.getJSONObject(messages.length() - 1)
-                        val delta = when (round.getAndIncrement()) {
-                            0 -> tool("activate_skill", JSONObject().put("name", "web-research"))
-                            1 -> tool("open_url", JSONObject().put("url", url))
+                        val delta = when (round.incrementAndGet()) {
+                            1 -> {
+                                val tools = body.getJSONArray("tools")
+                                assertTrue((0 until tools.length()).any { index ->
+                                    tools.getJSONObject(index).getJSONObject("function").getString("name") == "open_url"
+                                })
+                                tool("open_url", JSONObject().put("url", url))
+                            }
                             2 -> tool("real_fetch", JSONObject().put("url", url))
                             3 -> {
                                 val result = JSONObject(latest.getString("content"))

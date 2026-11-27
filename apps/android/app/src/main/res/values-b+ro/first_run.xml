@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Bun venit în MiniRP</string>
+    <string name="setup_welcome_detail">Conectează un serviciu de IA și alege modelul pe care MiniRP îl va folosi pentru conversații și configurarea presetărilor.</string>
+    <string name="setup_begin">Începe</string>
+    <string name="setup_download_notice">MiniRP este o aplicație gratuită, fără scop lucrativ și cu sursă deschisă. Descarc-o de pe pagina oficială de lansări. Dacă ai obținut-o din altă parte sau ai plătit pentru ea, ferește-te de fraude.</string>
+    <string name="setup_official_download">Descărcare oficială</string>
+    <string name="setup_connect_provider">Conectează un serviciu de IA</string>
+    <string name="setup_provider_detail">Furnizorul este serviciul care rulează modelul. Alege șablonul lui pentru a completa datele conexiunii. Dacă este necesară o cheie API, obține-o de pe site-ul furnizorului.</string>
+    <string name="setup_unsure">Nu știu</string>
+    <string name="setup_choose_model">Alege un model</string>
+    <string name="setup_model_detail">Alege un model de la %1$s pentru primele conversații.</string>
+    <string name="setup_model_fallback">Verifică adresa și cheia API, apoi încearcă din nou. Dacă furnizorul nu afișează modelele, introdu ID-ul exact de pe site-ul său.</string>
+    <string name="add_model_by_id">Adaugă un model după ID</string>
+    <string name="setup_use_model">Folosește acest model</string>
+    <string name="setup_next">Continuă</string>
+    <string name="setup_effort_title">Cât ar trebui să raționeze modelul?</string>
+    <string name="setup_effort_detail">Nivelul de raționament stabilește cât timp gândește IA înainte să răspundă. Pentru o poveste complexă sau o extensie, începe cu nivelul cel mai ridicat. Pentru o conversație rapidă, încearcă unul mai scăzut. Nivelurile ridicate pot consuma mai mult timp și mai mult din cotă. Poți schimba nivelul în Setări → Modele.</string>
+    <string name="setup_help_title">Ajutor la configurarea MiniRP</string>
+    <string name="setup_help_detail">Copiază această solicitare în %1$s și urmează pașii indicați.</string>
+    <string name="setup_assistants_china">DeepSeek sau Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok sau Claude</string>
+    <string name="setup_unknown_region">necunoscută</string>
+    <string name="setup_copy_prompt">Copiază solicitarea</string>
+    <string name="setup_help_web">Căutare și preluare de pagini web</string>
+    <string name="setup_help_intro">Folosesc MiniRP pentru Android pentru prima dată. Răspunde-mi în %1$s. Regiunea dispozitivului meu este %2$s. Citește mai întâi ghidul oficial MiniRP de la %3$s. Spune-mi dacă nu îl poți deschide.</string>
+</resources>

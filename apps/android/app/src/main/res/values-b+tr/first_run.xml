@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">MiniRP’ye hoş geldiniz</string>
+    <string name="setup_welcome_detail">Bir yapay zekâ hizmeti bağlayın, ardından MiniRP’nin sohbetlerde ve ön ayarları yapılandırırken kullanacağı modeli seçin.</string>
+    <string name="setup_begin">Başlayın</string>
+    <string name="setup_download_notice">MiniRP ücretsiz, kâr amacı gütmeyen, açık kaynaklı bir uygulamadır. Resmî sürüm sayfasından indirin. Başka bir yerden aldıysanız veya ücret ödediyseniz dolandırıcılığa karşı dikkatli olun.</string>
+    <string name="setup_official_download">Resmî indirme</string>
+    <string name="setup_connect_provider">Yapay zekâ hizmeti bağlayın</string>
+    <string name="setup_provider_detail">Sağlayıcı, modeli çalıştıran hizmettir. Bağlantı bilgilerini doldurmak için sağlayıcının şablonunu seçin. API anahtarı gerekiyorsa sağlayıcının sitesinden alın.</string>
+    <string name="setup_unsure">Bilmiyorum</string>
+    <string name="setup_choose_model">Model seçin</string>
+    <string name="setup_model_detail">İlk sohbetleriniz için %1$s sağlayıcısından bir model seçin.</string>
+    <string name="setup_model_fallback">API adresini ve anahtarını kontrol edip yeniden deneyin. Sağlayıcı modelleri listelemiyorsa web sitesinde yazan model kimliğini aynen girin.</string>
+    <string name="add_model_by_id">Kimlikle model ekleyin</string>
+    <string name="setup_use_model">Bu modeli kullanın</string>
+    <string name="setup_next">Devam edin</string>
+    <string name="setup_effort_title">Model ne kadar düşünmeli?</string>
+    <string name="setup_effort_detail">Düşünme düzeyi yapay zekânın yanıt vermeden önce düşünmeye ayırdığı süreyi belirler. Karmaşık bir hikâye veya eklenti için en yüksek düzeyle başlayın. Hızlı sohbet için daha düşük bir düzey deneyin. Yüksek düzeyler daha uzun sürebilir ve kotanızın daha fazlasını kullanabilir. Ayarlar → Modeller bölümünden değiştirebilirsiniz.</string>
+    <string name="setup_help_title">MiniRP kurulum yardımı</string>
+    <string name="setup_help_detail">Bu istemi %1$s içine kopyalayın ve önerilen adımları uygulayın.</string>
+    <string name="setup_assistants_china">DeepSeek veya Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok veya Claude</string>
+    <string name="setup_unknown_region">bilinmiyor</string>
+    <string name="setup_copy_prompt">İstemi kopyala</string>
+    <string name="setup_help_web">Arama ve web sayfası getirme</string>
+    <string name="setup_help_intro">Android için MiniRP’yi ilk kez kullanıyorum. %1$s dilinde yanıt verin. Cihazımın bölgesi %2$s. Önce %3$s adresindeki resmî MiniRP kılavuzunu okuyun. Açamıyorsanız bana bildirin.</string>
+</resources>

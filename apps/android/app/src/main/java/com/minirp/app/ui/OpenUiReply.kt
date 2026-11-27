@@ -18,7 +18,6 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -241,11 +240,10 @@ private fun OpenUiWebView(
     previewOnly: Boolean = false,
     onMessage: (JSONObject) -> Unit,
 ) {
-    val dark = isSystemInDarkTheme()
+    val dark = miniRPDarkTheme()
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val locale = LocalConfiguration.current.locales[0].toLanguageTag()
-    val colors = MaterialTheme.colorScheme
-    val theme = remember(colors) { colors.openUiTheme() }
+    val theme = MaterialTheme.colorScheme.openUiTheme().toString()
     val payload =
         remember(
             block.openUi,
@@ -260,7 +258,7 @@ private fun OpenUiWebView(
         ) {
             openUiPayload(
                 block.openUi.orEmpty(), block.openUiState?.let(::JSONObject), block.openUiRevision,
-                dark, rtl, locale, theme,
+                dark, rtl, locale, JSONObject(theme),
             )
                 .put("streaming", block.streaming)
                 .put("expanded", expanded)

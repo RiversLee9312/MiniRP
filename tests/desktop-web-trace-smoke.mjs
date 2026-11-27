@@ -107,7 +107,7 @@ try {
   await raw.getByText('"Nearby"', { exact: true }).waitFor();
   if (process.env.MINIRP_TRACE_SCREENSHOT) await page.screenshot({ path: process.env.MINIRP_TRACE_SCREENSHOT });
 
-  const detail = "请保留完整的设定值并验证可选取。".repeat(22) + "完整文本结尾。";
+  const detail = "请保留完整的设定值并验证可选取。\n".repeat(30) + "完整文本结尾。";
   const toolFacts = {
     program: "root = ToolFacts($rows, $status, $note, $more, $less)", title: "配置日期结果",
     state: { locale: "zh-Hans", status: "", note: "", more: "展开", less: "收起", rows: [
@@ -129,6 +129,13 @@ try {
   assert.match(await fact.locator(".tool-fact-preview").textContent(), /…$/);
   await fact.locator("summary").click();
   await entireValue.getByText(detail, { exact: true }).waitFor();
+  assert.equal(await entireValue.evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+    const style = getComputedStyle(node);
+    return node.scrollTop > 0 && node.scrollHeight - node.scrollTop - node.clientHeight < 2 &&
+      style.scrollbarWidth !== "none" && style.overscrollBehaviorY === "contain" &&
+      (!CSS.supports("selector(::-webkit-scrollbar)") || getComputedStyle(node, "::-webkit-scrollbar-button").display === "none");
+  }), true);
   assert.equal(await entireValue.evaluate((node) => {
     const range = document.createRange();
     range.selectNodeContents(node);

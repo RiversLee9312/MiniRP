@@ -5,6 +5,8 @@ import org.json.JSONObject
 
 data class AttachmentThumbnail(val url: String, val attachment: JSONObject)
 
+data class MessageAttachment(val id: String, val name: String, val mime: String, val thumbnail: AttachmentThumbnail?)
+
 data class QuoteAttachment(val id: String, val text: String)
 
 internal const val maxMessageAttachments = 20
@@ -15,6 +17,7 @@ data class BranchDraft(
     val attachments: Map<String, JSONObject>,
     val openUiAction: JSONObject?,
     val quotes: List<QuoteAttachment> = emptyList(),
+    val agent: AgentRole = AgentRole.Chat,
 )
 
 data class ReplyEnd(val text: String, val firstBlock: String)
@@ -33,9 +36,8 @@ data class TraceBlock(
     val running: Boolean = false,
     val streaming: Boolean = false,
     val version: String = "",
-    val attachmentNames: List<String> = emptyList(),
+    val attachments: List<MessageAttachment> = emptyList(),
     val system: Boolean = false,
-    val thumbnails: List<AttachmentThumbnail> = emptyList(),
     val markdown: MarkdownState.Success? = null,
     val openUi: String? = null,
     val replyEnd: ReplyEnd? = null,
@@ -55,7 +57,10 @@ data class TraceBlock(
     val toolTitle: String = "",
     val skillTitle: String = "",
     val quotes: List<QuoteAttachment> = emptyList(),
+    val parentAgent: String = "",
 ) {
+    val attachmentNames: List<String> get() = attachments.map { it.name }
+
     val role: AgentRole
         get() =
             if (agent == "PluginAgent") AgentRole.Preset
@@ -188,6 +193,7 @@ data class ChatState(
     val appearance: PresetAppearance = PresetAppearance(),
     val presetEditor: PresetEditorPhase = PresetEditorPhase.Closed,
     val branchDraft: BranchDraft? = null,
+    val presetBranchDraft: BranchDraft? = null,
     val expandThoughts: Boolean = false,
     val fetchMode: String = "api_then_local",
     val research: ResearchSettings = ResearchSettings(),

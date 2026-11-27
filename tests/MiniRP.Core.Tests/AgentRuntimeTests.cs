@@ -208,6 +208,97 @@ public sealed class AgentRuntimeTests
     }
 
     [TestMethod]
+    [DataRow("chat")]
+    [DataRow("room-preparation")]
+    [DataRow("env")]
+    [DataRow("preset")]
+    [DataRow("search")]
+    [DataRow("fetch")]
+    [DataRow("plugin")]
+    [DataRow("temporary")]
+    [DataRow("title")]
+    [DataRow("plugin-generation")]
+    public async Task CancelledStreamingReplyIsAvailableToTheNextRequest(string role)
+    {
+        const string input = "The first request.";
+        const string partial = "The displayed reply before stopping.";
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        JsonArray? nextPrompt = null;
+        var requests = 0;
+        HostPort? port = null;
+        port = new(request =>
+        {
+            if (request.GetString("kind") != "http_request") return;
+            var first = ++requests == 1;
+            if (!first) nextPrompt = JsonValues.ParseObject(request.GetString("body")).GetArray("messages");
+            var content = first ? partial : "The next reply.";
+            var delta = new JsonObject { ["content"] = content };
+            if (first) delta["reasoning_content"] = "Unfinished reasoning";
+            var response = new JsonObject { ["choices"] = new JsonArray(new JsonObject { ["delta"] = delta }) };
+            port!.Reply(new()
+            {
+                ["id"] = request.GetString("id"), ["data"] = "data: " + JsonValues.Serialize(response) + "\n\n",
+                ["done"] = !first
+            });
+        });
+        var model = new ModelClient(port, () => new("fixture", "Fixture", "openai", "http://fixture.invalid", "", "fixture"));
+        using var session = TestAgentSession.Open(role, ":memory:", model, item =>
+        {
+            if (item.GetString("kind") == "delta" && item.GetString("text") == partial)
+                cancellation.Cancel();
+        });
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
+            session.Run("Instructions.", input, cancellation.Token));
+        var saved = AgentSession.ReadHistory(session.Db);
+        CollectionAssert.AreEqual(new[] { input, partial }, saved.Select(item => item.GetString("content")).ToArray());
+        Assert.IsFalse(session.HasAssistantReply, "An interrupted bootstrap reply must remain eligible for recovery.");
+        Assert.IsFalse(JsonValues.Serialize(saved).Contains("Unfinished reasoning", StringComparison.Ordinal));
+        await session.Run("Instructions.", "Please continue.", CancellationToken.None);
+        Assert.IsNotNull(nextPrompt);
+        CollectionAssert.AreEqual(new[] { input, partial, "Please continue." }, nextPrompt
+            .Where(item => item.GetString("role") is "user" or "assistant").Select(item => item.GetString("content")).ToArray());
+    }
+
+    [TestMethod]
+    public async Task StoppingAfterASteerKeepsTheAcceptedConversationInOrder()
+    {
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var inbox = new TurnInbox("", "chat", _ => "steer-fixture");
+        var requests = 0;
+        HostPort? port = null;
+        port = new(request =>
+        {
+            if (request.GetString("kind") != "http_request") return;
+            var text = ++requests == 1 ? "First reply fragment." : "Second reply fragment.";
+            var response = new JsonObject
+            {
+                ["choices"] = new JsonArray(new JsonObject { ["delta"] = new JsonObject { ["content"] = text } })
+            };
+            port!.Reply(new()
+            {
+                ["id"] = request.GetString("id"), ["data"] = "data: " + JsonValues.Serialize(response) + "\n\n"
+            });
+        });
+        var model = new ModelClient(port, () => new("fixture", "Fixture", "openai", "http://fixture.invalid", "", "fixture"));
+        using var session = TestAgentSession.Open("chat", ":memory:", model, item =>
+        {
+            if (item.GetString("kind") != "delta") return;
+            if (item.GetString("text") == "First reply fragment.")
+                Assert.IsTrue(inbox.TryPost("", "chat", new() { ["text"] = "An accepted steer." }));
+            else
+                cancellation.Cancel();
+        });
+        session.Inbox = inbox;
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
+            session.Run("Instructions.", "Start the reply.", cancellation.Token));
+        session.CompleteInbox();
+        session.Receive("steer-fixture", "An accepted steer.");
+        CollectionAssert.AreEqual(
+            new[] { "Start the reply.", "First reply fragment.", "An accepted steer.", "Second reply fragment." },
+            AgentSession.ReadHistory(session.Db).Select(item => item.GetString("content")).ToArray());
+    }
+
+    [TestMethod]
     public void ClosingASessionInboxRetainsQueuedInputAndRejectsNewInput()
     {
         var model = new ModelClient(new HostPort(_ => { }), () => new("fixture", "Fixture", "openai", "http://fixture.invalid", "", "fixture"));

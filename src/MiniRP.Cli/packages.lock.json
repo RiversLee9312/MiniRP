@@ -13,11 +13,11 @@
           "Newtonsoft.Json": "13.0.3"
         }
       },
-      "Microsoft.ClearScript.V8.Native.linux-x64": {
+      "Microsoft.ClearScript.V8.Native.win-x64": {
         "type": "Direct",
         "requested": "[7.5.1.1, )",
         "resolved": "7.5.1.1",
-        "contentHash": "ZzX0d8KD3h1mkHji3qMZA5gllbArSJErOcgpmOgXp6MNVEcA08TED+InXAS/lnubEs1q0mflnXjHcXIptjDYSA=="
+        "contentHash": "N79bR+RG7FD8wv/tdXZuOLDx3YAQ+mSB5P0gcUNMGEFO4DljRSPlJcEzHLrPvrlPzNnc3aV6Rx2v5V3qordPJg=="
       },
       "ModelContextProtocol": {
         "type": "Direct",
@@ -159,19 +159,6 @@
       },
       "minirp.protocol": {
         "type": "Project"
-      }
-    },
-    "net10.0/linux-x64": {
-      "Microsoft.ClearScript.V8.Native.linux-x64": {
-        "type": "Direct",
-        "requested": "[7.5.1.1, )",
-        "resolved": "7.5.1.1",
-        "contentHash": "ZzX0d8KD3h1mkHji3qMZA5gllbArSJErOcgpmOgXp6MNVEcA08TED+InXAS/lnubEs1q0mflnXjHcXIptjDYSA=="
-      },
-      "Onigwrap": {
-        "type": "Transitive",
-        "resolved": "1.0.11",
-        "contentHash": "5/WAxSYWfiiPzp1X13qqdqjFmYLKDD/U7Vh3WCkKxWG9BjqdrXnQE5fCKCFJX+xWvuYLTxwZIVWBwBWObViE8g=="
       }
     }
   }

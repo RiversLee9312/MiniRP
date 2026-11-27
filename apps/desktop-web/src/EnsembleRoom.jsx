@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { archivedChatPage, send } from "./api.js";
 import { MessageBlock, Transcript } from "./Conversation.jsx";
+import { SubagentActivity, SubagentButton } from "./SubagentActivity.jsx";
+import { subagentSummary, traceHistory, traceRows } from "./subagent-traces.js";
 import { Icon, Modal, Surface } from "./ui.jsx";
 import "./EnsembleRoom.css";
 
@@ -9,12 +11,12 @@ function Avatar({ name }) {
   return <span className="ensemble-avatar" aria-hidden="true">{first || <Icon name="chat_bubble" />}</span>;
 }
 
-export function PrivateMessagesFab({ extended, disabled, buttonRef, open, t }) {
+export function PrivateMessagesFab({ disabled, buttonRef, open, t }) {
   const label = t("ensemble_private_messages");
   return <button className="room-private-fab" type="button" ref={buttonRef} disabled={disabled}
-    data-extended={extended || undefined} title={label} aria-label={label} aria-haspopup="dialog" onClick={open}>
+    aria-haspopup="dialog" onClick={open}>
     <Icon name="chat_bubble" />
-    {extended && <span>{label}</span>}
+    <span>{label}</span>
   </button>;
 }
 
@@ -75,14 +77,15 @@ function ArchivedTranscript({ chat, close, preset, room, locale, t, dark, theme,
   const scope = useMemo(() => ({ preset, room, conversation: chat.id, agent: "chat" }), [preset, room, chat.id]);
   const [page, retry] = useArchivePage(scope, locale);
   const [additional, setAdditional] = useState(null);
-  const history = additional?.initial === page ? additional : { initial: page, before: page?.before, pages: [] };
+  const history = additional?.initial === page ? additional
+    : { initial: page, before: page?.before, pages: [], ruler: page?.ruler };
   function addHistory(_pane, _version, before, older) {
-    if (before === history.before) setAdditional({ initial: page, before: older.before,
+    if (before === history.before) setAdditional({ ...history, before: older.before,
       pages: older.blocks.length ? [older.blocks, ...history.pages] : history.pages });
   }
   return <Modal title={chat.name || t("chat")} back={close} close={close} t={t} wide className="ensemble-archive-transcript">
     {page?.blocks?.length
-      ? <Transcript key={chat.id + ":" + locale} blocks={page.blocks} contextKey={chat.id} history={history}
+      ? <Transcript key={chat.id + ":" + locale} blocks={traceRows(page.blocks, "")} contextKey={chat.id} history={traceHistory(history, "")}
         pane="archive" addHistory={addHistory} onHistoryError={onError} loadPage={archivedChatPage}
         {...{ scope, locale, t, dark, theme }} />
       : <ArchiveStatus {...{ page, retry, t }} empty="ensemble_archive_empty_history" />}
@@ -145,6 +148,7 @@ export function EnsembleTraceDialog({ participant, active, scope, locale, dark, 
   const [blocks, setBlocks] = useState(null);
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [showSubagents, setShowSubagents] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     let timer;
@@ -167,7 +171,10 @@ export function EnsembleTraceDialog({ participant, active, scope, locale, dark, 
       clearTimeout(timer);
     };
   }, [active, locale, participant, preset, retry, room]);
-  return <Modal title={t("ensemble_member_trace")} close={close} t={t} wide className="ensemble-trace-modal">
+  const parentRows = blocks && traceRows(blocks, "");
+  const children = useMemo(() => blocks ? subagentSummary(blocks).count : 0, [blocks]);
+  return <Modal title={t("ensemble_member_trace")} close={close} t={t} wide className="ensemble-trace-modal"
+    actions={blocks && <SubagentButton count={children} hideWhenEmpty t={t} onClick={() => setShowSubagents(true)} />}>
     {error
       ? <div className="ensemble-trace-empty" role="status">
         <p>{t("ensemble_trace_load_failed")}</p>
@@ -175,13 +182,15 @@ export function EnsembleTraceDialog({ participant, active, scope, locale, dark, 
       </div>
       : !blocks ? <p className="ensemble-trace-empty" role="status">{t("running")}</p>
         : blocks.length === 0 ? <p className="ensemble-trace-empty" role="status">{t("ensemble_no_trace")}</p> : null}
-    {blocks?.length > 0 && <div className="ensemble-trace-list">
-      {blocks.map((block, index) => <section key={block.conversation + ":" + block.id}>
-        {block.scene_name && (index === 0 || block.conversation !== blocks[index - 1].conversation) &&
+    {parentRows?.length > 0 && <div className="ensemble-trace-list">
+      {parentRows.map((block, index) => <section key={block.conversation + ":" + block.id}>
+        {block.scene_name && (index === 0 || block.conversation !== parentRows[index - 1].conversation) &&
           <h3 dir="auto" className="ensemble-trace-scene">{block.scene_name}</h3>}
         <MessageBlock block={block} scope={{ ...scope, conversation: block.conversation || scope.conversation }}
           {...{ locale, dark, theme, expanded, t }} nested />
       </section>)}
     </div>}
+    <Surface>{showSubagents && blocks && <SubagentActivity blocks={blocks} close={() => setShowSubagents(false)}
+      {...{ scope, locale, dark, theme, t }} />}</Surface>
   </Modal>;
 }

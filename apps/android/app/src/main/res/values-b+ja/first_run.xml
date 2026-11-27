@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">MiniRP へようこそ</string>
+    <string name="setup_welcome_detail">AI サービスに接続し、MiniRP がチャットとプリセットの設定に使うモデルを選びます。</string>
+    <string name="setup_begin">はじめる</string>
+    <string name="setup_download_notice">MiniRP は非営利の無料オープンソースアプリです。公式リリースページからダウンロードしてください。別の場所で入手したり料金を請求されたりした場合は、詐欺にご注意ください。</string>
+    <string name="setup_official_download">公式ダウンロード</string>
+    <string name="setup_connect_provider">AI サービスに接続</string>
+    <string name="setup_provider_detail">プロバイダーはモデルを実行するサービスです。テンプレートを選んで接続情報を入力します。API キーが必要な場合は、プロバイダーのウェブサイトで取得してください。</string>
+    <string name="setup_unsure">わからない</string>
+    <string name="setup_choose_model">モデルを選択</string>
+    <string name="setup_model_detail">最初の会話に使うモデルを %1$s から選んでください。</string>
+    <string name="setup_model_fallback">API のアドレスとキーを確認して、もう一度お試しください。モデルが一覧にない場合は、プロバイダーのウェブサイトに記載された正確なモデル ID を入力します。</string>
+    <string name="add_model_by_id">ID でモデルを追加</string>
+    <string name="setup_use_model">このモデルを使う</string>
+    <string name="setup_next">続ける</string>
+    <string name="setup_effort_title">どのくらい深く考える？</string>
+    <string name="setup_effort_detail">推論レベルは、AI が回答前にどれだけ時間をかけて考えるかを決めます。複雑な物語やプラグインでは最高レベルから、短いやりとりでは低いレベルから試してください。高いレベルほど時間と利用枠を消費する場合があります。設定 → モデルでいつでも変更できます。</string>
+    <string name="setup_help_title">MiniRP の設定サポート</string>
+    <string name="setup_help_detail">このプロンプトを %1$s にコピーし、表示される手順に従ってください。</string>
+    <string name="setup_assistants_china">DeepSeek または Qwen</string>
+    <string name="setup_assistants_global">ChatGPT、Grok、または Claude</string>
+    <string name="setup_unknown_region">不明</string>
+    <string name="setup_copy_prompt">プロンプトをコピー</string>
+    <string name="setup_help_web">ウェブ検索とページ取得</string>
+    <string name="setup_help_intro">Android 版 MiniRP は初めてです。%1$s で回答してください。端末の地域は %2$s です。まず %3$s にある MiniRP の公式ガイドを読み、開けなければ教えてください。</string>
+</resources>

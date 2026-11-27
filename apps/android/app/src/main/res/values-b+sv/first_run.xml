@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Välkommen till MiniRP</string>
+    <string name="setup_welcome_detail">Anslut en AI-tjänst och välj modellen som MiniRP ska använda för chattar och för att ställa in förinställningar.</string>
+    <string name="setup_begin">Kom igång</string>
+    <string name="setup_download_notice">MiniRP är en kostnadsfri, ideell app med öppen källkod. Hämta den från den officiella sidan för utgåvor. Var uppmärksam på bedrägerier om du fick den någon annanstans eller betalade för den.</string>
+    <string name="setup_official_download">Officiell nedladdning</string>
+    <string name="setup_connect_provider">Anslut en AI-tjänst</string>
+    <string name="setup_provider_detail">Leverantören kör modellen. Välj dess mall för att fylla i anslutningsuppgifterna. Om en API-nyckel krävs kan du hämta den på leverantörens webbplats.</string>
+    <string name="setup_unsure">Jag vet inte</string>
+    <string name="setup_choose_model">Välj en modell</string>
+    <string name="setup_model_detail">Välj en modell från %1$s till dina första samtal.</string>
+    <string name="setup_model_fallback">Kontrollera API-adressen och nyckeln och försök igen. Om leverantören inte listar modeller anger du den exakta modell-ID:n från dess webbplats.</string>
+    <string name="add_model_by_id">Lägg till modell via ID</string>
+    <string name="setup_use_model">Använd den här modellen</string>
+    <string name="setup_next">Fortsätt</string>
+    <string name="setup_effort_title">Hur mycket ska modellen tänka?</string>
+    <string name="setup_effort_detail">Resonemangsnivån avgör hur länge AI:n tänker innan den svarar. Börja på den högsta nivån för en komplex berättelse eller ett tillägg. Prova en lägre nivå för en snabb chatt. Högre nivåer kan ta mer tid och använda mer av din kvot. Du kan byta nivå i Inställningar → Modeller.</string>
+    <string name="setup_help_title">Hjälp att konfigurera MiniRP</string>
+    <string name="setup_help_detail">Kopiera den här uppmaningen till %1$s och följ stegen som föreslås.</string>
+    <string name="setup_assistants_china">DeepSeek eller Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok eller Claude</string>
+    <string name="setup_unknown_region">okänd</string>
+    <string name="setup_copy_prompt">Kopiera uppmaningen</string>
+    <string name="setup_help_web">Webbsökning och hämtning av sidor</string>
+    <string name="setup_help_intro">Jag använder MiniRP för Android för första gången. Svara på %1$s. Enhetens region är %2$s. Läs den officiella MiniRP-guiden på %3$s först. Säg till om guiden inte går att öppna.</string>
+</resources>

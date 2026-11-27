@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { languageName, locales } from "./i18n.js";
 import { send } from "./api.js";
 import { Confirm, Icon, IconButton, Modal, SaveBar, Select, Surface } from "./ui.jsx";
-import { Models } from "./ModelSettings.jsx";
+import { modelMetadata, Models } from "./ModelSettings.jsx";
 import { PluginMarkdown, PluginSetting, settingTitle } from "./WorkspaceTools.jsx";
 
 const protocols = {
@@ -59,10 +59,13 @@ function ProviderEditor({ value, change, templates, t, submit, remove, saving })
       change((current) => {
         if (current.url !== value.url || current.protocol !== value.protocol || current.key !== value.key) return current;
         const options = current.model_options || empty;
-        const inputOptions = Object.fromEntries(items.filter((item) => item.id && Array.isArray(item.input_modalities))
-          .map((item) => [item.id, { ...options[item.id], input_modalities: item.input_modalities }]));
+        const modelOptions = Object.fromEntries(items.filter((item) => item.id).map((item) => {
+          const metadata = modelMetadata(item);
+          if (current.protocol === "ollama" && !metadata.effort_levels.length) delete metadata.effort_levels;
+          return [item.id, { ...options[item.id], ...metadata }];
+        }));
         return { ...current, models: [...new Set([...current.models, ...items.map((item) => item.id).filter(Boolean)])],
-          model_options: { ...options, ...inputOptions } };
+          model_options: { ...options, ...modelOptions } };
       });
     } catch (error) { setFailure(error.message || t("model_fetch_failed")); }
     finally { setFetching(false); }
@@ -159,8 +162,9 @@ function Research({ value, defaults, change, submit, t, saving, changed, backend
 const withoutProvider = (agents, id) =>
   Object.fromEntries(Object.entries(agents).filter(([, model]) => model.provider !== id));
 
-export function Settings({ settings, workspace, preferences, setPreferences, update, locale, t, close, renderPlugins }) {
-  const [route, setRoute] = useState([{ kind: "home", key: "home" }]);
+export function Settings({ settings, workspace, preferences, setPreferences, update, locale, t, close, renderPlugins, initialPage }) {
+  const [route, setRoute] = useState(() => [{ kind: "home", key: "home" },
+    ...(initialPage ? [{ kind: initialPage, key: initialPage }] : [])]);
   const [direction, setDirection] = useState();
   const [plugins, setPlugins] = useState(false);
   const [draftProvider, setDraftProvider] = useState(null);
@@ -178,7 +182,8 @@ export function Settings({ settings, workspace, preferences, setPreferences, upd
   const research = settings.research || empty;
   const backend = research.fetch_backend || settings.default_research?.fetch_backend || "api_then_local";
   const existing = providers.some((item) => item.id === draftProvider?.id);
-  const title = item ? settingTitle(item, locale, t) : t(kind === "provider" ? existing ? "edit_provider" : "add_provider" : "settings");
+  const title = item ? settingTitle(item, locale, t) : t(kind === "provider" ? existing ? "edit_provider" : "add_provider"
+    : kind === "models" || kind === "providers" ? kind : "settings");
   const nodes = kind === "home" ? workspace.pluginSettings.filter((node) => node.plugin === "base") : item?.items;
 
   useLayoutEffect(() => {

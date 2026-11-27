@@ -11,10 +11,15 @@
     "@material/material-color-utilities": "0.4.0",
     "html-to-image": "1.11.13",
     "jsonc-parser": "3.3.1",
+    "katex": "0.16.47",
+    "pdfjs-dist": "6.5.438",
     "react": "19.2.9",
     "react-dom": "19.2.9",
     "react-markdown": "10.1.0",
-    "remark-gfm": "4.0.1"
+    "react-zoom-pan-pinch": "4.4.0",
+    "rehype-katex": "7.0.1",
+    "remark-gfm": "4.0.1",
+    "remark-math-extended": "6.1.1"
   },
   "devDependencies": {
     "fast-xml-parser": "5.3.8",

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Witamy w MiniRP</string>
+    <string name="setup_welcome_detail">Połącz usługę AI i wybierz model, którego MiniRP ma używać do rozmów i ustawiania szablonów.</string>
+    <string name="setup_begin">Rozpocznij</string>
+    <string name="setup_download_notice">MiniRP to darmowa aplikacja o otwartym kodzie źródłowym, tworzona bez zysku. Pobierz ją z oficjalnej strony wydań. Jeśli masz ją z innego źródła lub za nią zapłacono, uważaj na oszustwa.</string>
+    <string name="setup_official_download">Oficjalne pobieranie</string>
+    <string name="setup_connect_provider">Połącz usługę AI</string>
+    <string name="setup_provider_detail">Dostawca to usługa, która uruchamia model. Wybierz jej szablon, aby uzupełnić dane połączenia. Jeśli potrzebny jest klucz API, pobierz go z witryny dostawcy.</string>
+    <string name="setup_unsure">Nie wiem</string>
+    <string name="setup_choose_model">Wybierz model</string>
+    <string name="setup_model_detail">Wybierz model od %1$s do pierwszych rozmów.</string>
+    <string name="setup_model_fallback">Sprawdź adres i klucz API, a potem spróbuj ponownie. Jeśli dostawca nie wyświetla modeli, podaj dokładny identyfikator modelu z jego witryny.</string>
+    <string name="add_model_by_id">Dodaj model według ID</string>
+    <string name="setup_use_model">Użyj tego modelu</string>
+    <string name="setup_next">Kontynuuj</string>
+    <string name="setup_effort_title">Jak długo model ma rozumować?</string>
+    <string name="setup_effort_detail">Poziom rozumowania decyduje, ile czasu AI poświęca przed odpowiedzią. Przy złożonej historii lub wtyczce zacznij od najwyższego poziomu. Gdy chcesz szybko porozmawiać, wypróbuj niższy. Wyższy poziom może potrwać dłużej i zużyć większą część limitu. Zmienisz go w sekcji Ustawienia → Modele.</string>
+    <string name="setup_help_title">Pomoc w konfiguracji MiniRP</string>
+    <string name="setup_help_detail">Skopiuj to polecenie do %1$s, a następnie wykonaj podane kroki.</string>
+    <string name="setup_assistants_china">DeepSeek lub Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok lub Claude</string>
+    <string name="setup_unknown_region">nieznany</string>
+    <string name="setup_copy_prompt">Skopiuj polecenie</string>
+    <string name="setup_help_web">Wyszukiwanie i pobieranie stron WWW</string>
+    <string name="setup_help_intro">Po raz pierwszy korzystam z MiniRP na Androida. Odpowiedz w języku %1$s. Region mojego urządzenia to %2$s. Najpierw przeczytaj oficjalny przewodnik MiniRP pod adresem %3$s. Daj znać, jeśli nie możesz go otworzyć.</string>
+</resources>

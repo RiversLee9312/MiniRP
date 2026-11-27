@@ -63,7 +63,7 @@ function PresentedTool({ active, presentation, blockId, phase, view, t, fallback
   };
   const identity = JSON.stringify([view.scope.preset, view.scope.room, view.scope.conversation, blockId, phase]);
   return <>
-    <OpenUi {...view} block={block} identity={identity} t={t} toolPresentation onRenderStatus={setRendered} />
+    <OpenUi {...view} block={block} identity={identity} t={t} toolPresentation eager={active} onRenderStatus={setRendered} />
     <details className="trace-json-source">
       <summary><Icon name="expand_more" />JSON</summary>
       {fallback}

@@ -54,6 +54,54 @@ public sealed class WorkspaceTransferTests
     }
 
     [TestMethod]
+    public async Task EnsembleEnvCheckpointRestoresSceneMembershipAndIndependentActorMemory()
+    {
+        var ct = TestContext.CancellationToken;
+        var root = Directory.CreateTempSubdirectory("minirp-ensemble-branch-");
+        try
+        {
+            var source = new Workspace(Path.Combine(root.FullName, "source"));
+            source.Select(source.InitialPreset().Id, null);
+            var scene = WorkspaceIds.New();
+            source.Chat["mode"] = "ensemble";
+            source.Chat["ensemble"] = new JsonObject
+            {
+                ["agents"] = new JsonArray(new JsonObject { ["id"] = "guide", ["name"] = "Guide" }),
+                ["chats"] = new JsonArray(new JsonObject { ["id"] = scene, ["name"] = "Original scene",
+                    ["members"] = new JsonObject { ["guide"] = 0 }, ["blocks"] = new JsonArray() })
+            };
+            var actor = SessionFiles.Ensemble(source.ChatRoot, "guide", "chat");
+            using var memory = new MemoryDb(actor);
+            memory.Write("memory", "original");
+            var version = ConversationVersions.Capture(source, new Dictionary<string, AgentSession>());
+            source.Chat.GetArray("blocks").AddNode(new JsonObject
+            {
+                ["id"] = "world-checkpoint", ["agent"] = "env", ["kind"] = "user", ["content"] = "Rename the scene", ["version"] = version
+            });
+            source.Chat.GetObject("ensemble").GetArray("chats")[0]!["name"] = "Updated scene";
+            memory.Write("memory", "updated", 1);
+            source.Save();
+
+            await using var sourcePlugins = Runtime(source);
+            var archive = Path.Combine(root.FullName, "save.zip");
+            await new WorkspaceTransfer(source, sourcePlugins).Export("save", source.PresetId, "", "", archive, ct);
+            var target = new Workspace(Path.Combine(root.FullName, "target"), seedDefaultPreset: false);
+            await using var targetPlugins = Runtime(target);
+            await new WorkspaceTransfer(target, targetPlugins).Import("save", archive, ct);
+            target.Select(source.PresetId, source.ChatId);
+            var fork = ConversationVersions.Fork(target, "world-checkpoint", [], afterReply: false, seedDraft: true, agent: "env");
+            target.Select(source.PresetId, fork.Id);
+            Assert.AreEqual("ensemble", target.Mode);
+            Assert.AreEqual("Original scene", target.Chat.GetObject("ensemble").GetArray("chats").Single().GetString("name"));
+            Assert.AreEqual("env", target.Chat.GetObject("draft").GetString("agent"));
+            using var restored = new MemoryDb(SessionFiles.Ensemble(target.ChatRoot, "guide", "chat"));
+            Assert.AreEqual("original", restored.Get("memory"));
+            Assert.AreEqual("updated", memory.Get("memory"));
+        }
+        finally { root.Delete(recursive: true); }
+    }
+
+    [TestMethod]
     public async Task PresetAndSaveRestoreSignedPluginsAndConversationState()
     {
         var ct = TestContext.CancellationToken;

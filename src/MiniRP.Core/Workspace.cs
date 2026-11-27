@@ -84,8 +84,14 @@ public sealed class Workspace
             {
                 ConversationTitle.ClearLegacyTitle(chat);
                 var display = chat.GetString("name", chat.GetString("title"));
-                if (display.Length == 0) display = chat.GetArray("messages").FirstOrDefault(item => item.GetString("role") == "user").GetString("content");
-                yield return new JsonObject { ["id"] = id, ["name"] = display[..Math.Min(display.Length, 80)], ["updated_at"] = chat.GetString("updated_at", File.GetLastWriteTimeUtc(file).ToString("O")) };
+                if (display.Length == 0)
+                {
+                    var preview = chat.GetArray("messages").FirstOrDefault(item => item.GetString("role") == "user").GetString("content");
+                    var end = Math.Min(preview.Length, 80);
+                    if (end < preview.Length && char.IsHighSurrogate(preview[end - 1])) end--;
+                    display = preview[..end];
+                }
+                yield return new JsonObject { ["id"] = id, ["name"] = display, ["updated_at"] = chat.GetString("updated_at", File.GetLastWriteTimeUtc(file).ToString("O")) };
             }
         }
     }

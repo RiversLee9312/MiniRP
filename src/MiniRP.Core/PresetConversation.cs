@@ -9,15 +9,18 @@ internal sealed class PresetConversation(Workspace workspace)
 
     public string Database => SessionFiles.PresetDatabase(root);
     private string Transcript => Path.Combine(root, "blocks.json");
+    private string DraftPath => Path.Combine(root, "draft.json");
     public JsonArray Blocks { get; private set; } = new();
     public Dictionary<string, JsonObject> WorkerTrace { get; } = new(StringComparer.Ordinal);
     public JsonObject? LegacySession { get; private set; }
+    public JsonObject? Draft { get; private set; }
 
     public void Load(Workspace workspace)
     {
         if (File.Exists(Transcript))
         {
             Blocks = JsonNode.Parse(File.ReadAllText(Transcript)) as JsonArray ?? new();
+            if (File.Exists(DraftPath)) Draft = JsonValues.ParseObject(File.ReadAllText(DraftPath));
             foreach (var block in Blocks.OfType<JsonObject>().Where(block => block.GetString("plugin_status") == "running"))
                 block["plugin_status"] = "interrupted";
             return;
@@ -79,6 +82,59 @@ internal sealed class PresetConversation(Workspace workspace)
     }
 
     public void Save() => AtomicFile.Write(Transcript, JsonValues.Serialize(Blocks));
+
+    public void ConsumeDraft()
+    {
+        if (Draft is null) return;
+        File.Delete(DraftPath);
+        Draft = null;
+    }
+
+    public static string Capture(Workspace workspace, AgentSession session)
+    {
+        var id = JsonValues.NewId();
+        var root = ConversationVersions.VersionRoot(workspace, id);
+        Directory.CreateDirectory(root);
+        ConversationStorage.Capture(session.Db, Path.Combine(root, "preset.sqlite"));
+        ConversationStorage.WriteWorld(Path.Combine(root, "preset.json"), JsonValues.Serialize(workspace.Config));
+        ConversationStorage.MarkCompact(root);
+        return id;
+    }
+
+    public (string Id, string Name) Fork(Workspace workspace, string blockId, bool reply, object traceGate, CancellationToken ct)
+    {
+        string version;
+        JsonArray prefix;
+        JsonObject? draft;
+        lock (traceGate)
+        {
+            var marker = ConversationVersions.Find(Blocks, blockId, reply, "preset");
+            version = marker.Version;
+            prefix = new JsonArray(Blocks.Take(reply ? marker.Position + 1 : marker.Position).Select(JsonValues.Clone).ToArray());
+            draft = reply ? null : ConversationVersions.Draft(Blocks[marker.Position], "preset");
+        }
+        var source = ConversationVersions.VersionRoot(workspace, version);
+        var config = ConversationVersions.Read(Path.Combine(source, "preset.json"));
+        var id = WorkspaceIds.New();
+        var name = config.GetString("name", workspace.PresetId);
+        config["id"] = id;
+        config["parent_preset"] = workspace.PresetId;
+        config["parent_message"] = blockId;
+        config.Remove(PluginRuntime.LegacyOwners);
+        // Installed background packages are signed for the original preset.
+        if (config["appearance"] is JsonObject appearance) appearance.Remove("background_url");
+
+        var target = SessionFiles.PresetDirectory(workspace.Root, id);
+        var database = SessionFiles.PresetDatabase(target);
+        ConversationVersions.Restore(Path.Combine(source, "preset.sqlite"), database);
+        WorkspaceTransfer.CopyPresetSessionResources(workspace, id, prefix, database, ct);
+        AtomicFile.Write(Path.Combine(target, "blocks.json"), JsonValues.Serialize(prefix));
+        if (draft is not null)
+            AtomicFile.Write(Path.Combine(target, "draft.json"), JsonValues.Serialize(draft));
+        ct.ThrowIfCancellationRequested();
+        AtomicFile.Write(Path.Combine(workspace.Root, "presets", id + ".json"), JsonValues.Serialize(config));
+        return (id, name);
+    }
 
     public static bool IsPreset(JsonNode? node) => node.GetString("agent") is "preset" or "PresetAgent" or "PluginAgent";
 }

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Maligayang pagdating sa MiniRP</string>
+    <string name="setup_welcome_detail">Kumonekta sa serbisyo ng AI, pagkatapos ay piliin ang modelong gagamitin ng MiniRP sa mga chat at pag-set up ng mga preset.</string>
+    <string name="setup_begin">Magsimula</string>
+    <string name="setup_download_notice">Libre at open source ang MiniRP, at hindi ito para sa kita. I-download ito sa opisyal na pahina ng mga release. Mag-ingat sa panloloko kung nakuha mo ito sa ibang lugar o nagbayad ka para rito.</string>
+    <string name="setup_official_download">Opisyal na download</string>
+    <string name="setup_connect_provider">Kumonekta sa serbisyo ng AI</string>
+    <string name="setup_provider_detail">Ang provider ang serbisyong nagpapatakbo sa modelo. Piliin ang template nito para ilagay ang mga detalye ng koneksyon. Kung kailangan ng API key, kunin ito sa website ng provider.</string>
+    <string name="setup_unsure">Hindi ko alam</string>
+    <string name="setup_choose_model">Pumili ng modelo</string>
+    <string name="setup_model_detail">Pumili ng modelo mula sa %1$s para sa mga unang pag-uusap mo.</string>
+    <string name="setup_model_fallback">Suriin ang API address at key, pagkatapos ay subukan ulit. Kung walang listahan ng modelo ang provider, ilagay ang eksaktong model ID na nasa website nito.</string>
+    <string name="add_model_by_id">Magdagdag ng modelo gamit ang ID</string>
+    <string name="setup_use_model">Gamitin ang modelong ito</string>
+    <string name="setup_next">Magpatuloy</string>
+    <string name="setup_effort_title">Gaano katagal dapat mag-isip ang modelo?</string>
+    <string name="setup_effort_detail">Itinatakda ng antas ng pag-iisip kung gaano katagal mag-iisip ang AI bago sumagot. Magsimula sa pinakamataas na antas para sa masalimuot na kuwento o plugin. Subukan ang mas mababa para sa mabilis na chat. Maaaring mas matagal at mas malaki ang magamit na quota sa mataas na antas. Baguhin ito sa Mga setting → Mga modelo.</string>
+    <string name="setup_help_title">Tulong sa pag-set up ng MiniRP</string>
+    <string name="setup_help_detail">Kopyahin ang prompt na ito sa %1$s, pagkatapos ay sundin ang mga hakbang na ibibigay nito.</string>
+    <string name="setup_assistants_china">DeepSeek o Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok, o Claude</string>
+    <string name="setup_unknown_region">hindi alam</string>
+    <string name="setup_copy_prompt">Kopyahin ang prompt</string>
+    <string name="setup_help_web">Paghahanap at pagkuha ng mga pahina sa web</string>
+    <string name="setup_help_intro">Una kong beses gamitin ang MiniRP para sa Android. Sumagot sa wikang %1$s. %2$s ang rehiyon ng device ko. Basahin muna ang opisyal na gabay ng MiniRP sa %3$s. Sabihin sa akin kung hindi mo ito mabubuksan.</string>
+</resources>

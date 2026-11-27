@@ -2,8 +2,11 @@ using System.Text.Json.Nodes;
 
 namespace MiniRP.Core;
 
-public sealed class BrowserAgent(HostPort port, Func<string, AgentSession> openSession, Func<string>? prompt = null)
+public sealed class BrowserAgent(HostPort port, Func<string, string?, AgentSession> openSession, Func<string>? prompt = null)
 {
+    public BrowserAgent(HostPort port, Func<string, AgentSession> openSession, Func<string>? prompt = null)
+        : this(port, (job, _) => openSession(job), prompt) { }
+
     private static JsonArray BrowserTools() => new(
         Tools.Define("browser_navigate", "Navigate HTTP(S) page; returns accessibility snapshot with stable element refs.", new()
         {
@@ -160,7 +163,7 @@ public sealed class BrowserAgent(HostPort port, Func<string, AgentSession> openS
         CancellationToken ct, AgentAssets.ResearchScope? research)
     {
         var job = JsonValues.NewId();
-        using var session = openSession(job);
+        using var session = openSession(job, research?.Turn.Agent);
         JsonObject? final = null;
         async Task<JsonNode?> Execute(string tool, JsonObject args, CancellationToken token)
         {

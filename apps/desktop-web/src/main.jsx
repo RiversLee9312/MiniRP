@@ -5,14 +5,17 @@ import { assetUrl, download, request, send, upload } from "./api.js";
 import { resolveLocale, setDocumentLocale, translator } from "./i18n.js";
 import { applyEvents, initial, prependHistory } from "./workspace.js";
 import { Composer, Transcript } from "./Conversation.jsx";
+import { SubagentActivity, SubagentButton } from "./SubagentActivity.jsx";
+import { subagentSummary, traceHistory, traceRows } from "./subagent-traces.js";
 import { EnsembleArchive, EnsembleOverview, EnsembleRoster, EnsembleTraceDialog, OutOfStoryNotice, PrivateMessagesFab, RoomThinking } from "./EnsembleRoom.jsx";
 import { OpenUi } from "./OpenUi.jsx";
-import { ModelPicker } from "./ModelSettings.jsx";
+import { ComposerModelPickers } from "./ModelSettings.jsx";
 import { Settings } from "./Settings.jsx";
 import { Memory, Plugins, pluginAttachmentTypes, pluginAvailableIn } from "./WorkspaceTools.jsx";
 import { Confirm, FileChoice, Icon, IconButton, Modal, Notice, Select, SettingToggle, Surface, TextDialog } from "./ui.jsx";
 import { ActionMenu } from "./ActionMenu.jsx";
 import { RoomLoading } from "./RoomLoading.jsx";
+import { WorkspaceBackdrop, useWallpaperContrast } from "./HomeWallpaper.jsx";
 import { applyAccent, backgroundAccent } from "./theme.js";
 import "./styles.css";
 
@@ -107,13 +110,16 @@ function ArchiveImport({ t, disabled, run, visible = true }) {
 
 function PresetChoices({ workspace, t, open, busy }) {
   return <div className="room-list preset-list">
-    {workspace.presets.map((item) => <button type="button" className="room-select" key={item.id}
-      aria-current={item.id === workspace.preset ? "true" : undefined} disabled={busy}
-      onClick={() => open(item.id)}>
-      <Icon name={item.ensemble ? "auto_awesome" : "chat_bubble"} />
-      <span className="choice-label" dir="auto">{item.name || t("preset")}</span>
-      {item.id === workspace.preset && <Icon name="check" />}
-    </button>)}
+    {workspace.presets.map((item) => {
+      const title = item.name || t("preset");
+      return <button type="button" className="room-select" key={item.id} title={title}
+        aria-current={item.id === workspace.preset ? "true" : undefined} disabled={busy}
+        onClick={() => open(item.id)}>
+        <Icon name={item.ensemble ? "auto_awesome" : "chat_bubble"} />
+        <span className="choice-label" dir="auto">{title}</span>
+        {item.id === workspace.preset && <Icon name="check" />}
+      </button>;
+    })}
   </div>;
 }
 
@@ -139,7 +145,6 @@ function Sidebar({ workspace, t, visible, compact, close, select, createPreset, 
   const [limit, setLimit] = useState(40);
   const [choosing, setChoosing] = useState(false);
   const presetTitle = (workspace.preset && workspace.config.name) || t("choose_preset");
-  const name = (item, key) => item.name || t(key);
   const rooms = useMemo(() => {
     const query = filter.toLocaleLowerCase();
     return query ? workspace.chats.filter((item) => (item.name || t("chat")).toLocaleLowerCase().includes(query)) : workspace.chats;
@@ -161,7 +166,7 @@ function Sidebar({ workspace, t, visible, compact, close, select, createPreset, 
     </header>
     <div className="sidebar-body">
       <div className="row sidebar-heading">
-        <button id="preset-select" type="button" className="preset-select text-button"
+        <button id="preset-select" type="button" className="preset-select text-button" title={choosing ? undefined : presetTitle}
           aria-expanded={choosing} aria-controls="sidebar-preset-choices" disabled={busy}
           onClick={() => setChoosing(!choosing)}>
           <span className="choice-label" dir="auto">{choosing ? t("choose_preset") : presetTitle}</span>
@@ -180,15 +185,17 @@ function Sidebar({ workspace, t, visible, compact, close, select, createPreset, 
           <input placeholder={t("search_chats")} aria-label={t("search_chats")} type="search" value={filter} onChange={(event) => setFilter(event.target.value)} />
         </div>
         <nav className="room-list" aria-label={t("conversations")}>
-          {rooms.slice(0, limit).map((item) => <div key={item.id} className="room-row" data-current={item.id === workspace.chat}>
-            <button className="room-select" type="button" aria-current={item.id === workspace.chat ? "page" : undefined}
-              disabled={busy} onClick={() => roomOp(item)}>
-              <Icon name={item.ensemble ? "auto_awesome" : "chat_bubble"} />
-              <span className="choice-label" dir="auto">{name(item, item.ensemble ? "new_room" : "chat")}</span>
-            </button>
-            <ActionMenu label={t("more_options") + " · " + name(item, "chat")}
-              disabled={busy} groups={roomActions(item)} />
-          </div>)}
+          {rooms.slice(0, limit).map((item) => {
+            const title = item.name || t(item.ensemble ? "new_room" : "chat");
+            return <div key={item.id} className="room-row" data-current={item.id === workspace.chat}>
+              <button className="room-select" type="button" title={title}
+                aria-current={item.id === workspace.chat ? "page" : undefined} disabled={busy} onClick={() => roomOp(item)}>
+                <Icon name={item.ensemble ? "auto_awesome" : "chat_bubble"} />
+                <span className="choice-label" dir="auto">{title}</span>
+              </button>
+              <ActionMenu label={t("more_options") + " · " + title} disabled={busy} groups={roomActions(item)} />
+            </div>;
+          })}
         </nav>
         {rooms.length > limit && <button type="button" className="text-button" onClick={() => setLimit(limit + 40)}>{t("load_more")}</button>}
       </>}
@@ -198,12 +205,16 @@ function Sidebar({ workspace, t, visible, compact, close, select, createPreset, 
   </aside>;
 }
 
-function PresetHome({ name, startLabel, createPreset, openPreset, startConversation, busy, t }) {
+function PresetHome({ name, startLabel, createPreset, openPreset, startConversation, busy, wallpaper, dark, t }) {
+  const heading = useRef(null);
+  const hasHeading = Boolean(name);
+  const caption = t("welcome_to_preset");
+  useWallpaperContrast(heading, wallpaper, dark, caption, name);
   return <section className="preset-home" aria-labelledby="preset-home-title">
     <div className="preset-home-content">
-      {name ? <>
-        <div className="preset-home-heading">
-          <p className="preset-home-caption">{t("welcome_to_preset")}</p>
+      {hasHeading ? <>
+        <div ref={heading} className="preset-home-heading" data-wallpaper={Boolean(wallpaper)}>
+          <p className="preset-home-caption">{caption}</p>
           <h1 id="preset-home-title"><button type="button" className="text-button home-preset-name" title={t("edit_preset")}
             dir="auto" disabled={busy} onClick={openPreset}>{name}</button></h1>
         </div>
@@ -216,16 +227,6 @@ function PresetHome({ name, startLabel, createPreset, openPreset, startConversat
       </>}
     </div>
   </section>;
-}
-
-function WorkspaceBackdrop({ src, blurred, onReady }) {
-  const [video, setVideo] = useState(false);
-  const className = "workspace-background" + (blurred ? " blurred" : "");
-  return video
-    ? <video className={className} aria-hidden="true" src={src} autoPlay muted loop playsInline
-        onLoadedData={(event) => onReady(event.currentTarget)} />
-    : <img className={className} aria-hidden="true" alt="" src={src}
-        onLoad={(event) => onReady(event.currentTarget)} onError={() => setVideo(true)} />;
 }
 
 function WorkspaceInteraction({ item, t, run, theme, dark }) {
@@ -287,6 +288,7 @@ function App() {
   const [compact, setCompact] = useState(compactLayout.matches);
   const [drafts, setDrafts] = useState({});
   const [sending, setSending] = useState(false);
+  const [assigningModel, setAssigningModel] = useState(false);
   const [creatingPreset, setCreatingPreset] = useState(false);
   const [notice, setNotice] = useState("");
   const [link, setLink] = useState("");
@@ -300,6 +302,7 @@ function App() {
   const privateFab = useRef(null);
   const moreButton = useRef(null);
   const workspacePane = useRef(null);
+  const sceneStrip = useRef(null);
   useLayoutEffect(() => {
     const pane = workspacePane.current;
     if (!pane) return;
@@ -339,9 +342,29 @@ function App() {
   const pane = role === "chat" && workspace.ensemble !== null ? "ensemble" : role;
   const ensembleRoom = pane === "ensemble" && Boolean(chat);
   const privateChat = ensembleRoom && Boolean(privateParticipant);
+  useLayoutEffect(() => {
+    const strip = sceneStrip.current;
+    if (!strip) return;
+    const reveal = () => {
+      const selected = strip.querySelector('[aria-pressed="true"]');
+      if (!selected) return;
+      const bounds = strip.getBoundingClientRect();
+      const chip = selected.getBoundingClientRect();
+      const inset = parseFloat(getComputedStyle(strip).paddingInlineStart);
+      if (chip.left < bounds.left + inset) strip.scrollBy(chip.left - bounds.left - inset, 0);
+      else if (chip.right > bounds.right - inset) strip.scrollBy(chip.right - bounds.right + inset, 0);
+    };
+    reveal();
+    const observer = new ResizeObserver(reveal);
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, [ensembleRoom, conversation, privateChat]);
   const systemOnly = privateChat && !privateInStory;
   const privatePerson = privateChat && workspace.participants.find((person) => person.id === privateParticipant);
   const history = workspace.history[pane];
+  const mainBlocks = traceRows(workspace.panes[pane], "");
+  const mainHistory = useMemo(() => traceHistory(history, ""), [history]);
+  const subagents = useMemo(() => subagentSummary(workspace.panes[pane], history), [workspace.panes[pane], history]);
   const scope = useMemo(() => ({ preset, room: role === "preset" ? "" : chat,
     conversation: role === "chat" ? conversation : "", agent: role }), [preset, chat, conversation, role]);
   const context = (extra) => ({ preset, chat, conversation: role === "chat" ? conversation : "", ...extra });
@@ -416,12 +439,16 @@ function App() {
     seenOpened.current = workspace.opened;
   }, [workspace.opened, presetWorking]);
   useEffect(() => {
-    if (!workspace.draft || !chat || workspace.ensemble !== null) return;
-    const key = JSON.stringify(["chat", preset, chat, conversation]);
-    setDrafts((values) => values[key] ? values : {
-      ...values, [key]: { text: workspace.draft.text || "", files: workspace.draft.attachments || [], action: workspace.draft.open_ui_action },
-    });
-  }, [workspace.draft, preset, chat, conversation, workspace.ensemble]);
+    function apply(values, source, agent, room) {
+      if (!source) return values;
+      const key = JSON.stringify([agent, preset, room, ""]);
+      return values[key] ? values : { ...values, [key]: {
+        text: source.text || "", files: source.attachments || [], action: source.open_ui_action,
+      } };
+    }
+    setDrafts((values) => apply(apply(values, workspace.draft, workspace.draft?.agent || "chat", chat),
+      workspace.presetDraft, "preset", ""));
+  }, [workspace.draft, workspace.presetDraft, preset, chat]);
   useEffect(() => {
     if (notice.length === 0) return;
     const timer = setTimeout(() => setNotice(""), 10000);
@@ -466,13 +493,14 @@ function App() {
     });
   }
   const openPreset = () => run(() => send("open_preset", context({ locale })));
-  const branch = useCallback((block, mode) => run(() => send("branch", { preset, chat, block, mode })), [chat, preset, run]);
+  const branch = useCallback((block, mode) => run(() => send("branch", { preset, chat, block, mode, agent: role, locale })),
+    [chat, preset, role, locale, run]);
   const exportType = (type, extra = {}) => run(() => download({
     type, preset, room: chat, chat, conversation: role === "chat" ? conversation : "",
     agent: role, name: workspace.title || config.name || "MiniRP", ...extra,
   }));
-  const runExport = useCallback((runId) => run(() => download({
-    type: "transcript", preset, agent: "plugin", run: runId, name: "MiniRP",
+  const runExport = useCallback((runId, name = "MiniRP") => run(() => download({
+    type: "transcript", preset, agent: "plugin", run: runId, name,
   })), [preset, run]);
   function chooseFiles(files) {
     return run(async () => {
@@ -545,8 +573,9 @@ function App() {
     [action("delete_chat", "delete", () => confirmDelete({ ...item, name: item.name || t("chat") }, "chat"), { danger: true })],
   ];
   const canRename = role === "chat" && Boolean(chat) && !privateChat;
+  const userMessage = (block) => (block.kind || block.role) === "user";
   const canGenerateTitle = canRename && !conversation &&
-    (workspace.panes.chat.some((block) => (block.kind || block.role) === "user") || Boolean(workspace.ensemble));
+    (workspace.panes.chat.some(userMessage) || workspace.history.chat?.ruler?.some(userMessage) || Boolean(workspace.ensemble));
   const rename = () => setDialog({
     type: "text", title: t("rename"), value: title,
     submit: (name) => send(conversation ? "rename_ensemble_chat" : "rename", context({ name })),
@@ -587,7 +616,7 @@ function App() {
     setSidebar(false);
     requestAnimationFrame(() => menuButton.current?.focus({ preventScroll: true }));
   }
-  const emptyAgent = role !== "chat" && !workspace.panes[pane].length;
+  const emptyAgent = role !== "chat" && !mainBlocks.length && !history?.before;
   const loadingPreset = workspace.presets.find((item) => item.id === workspace.roomLoading?.preset);
   const canQuote = canCompose && connected && !systemOnly && !sending && !busy && (ensembleRoom || generating !== role);
   const composer = canCompose && <div className="composer-deck">
@@ -598,18 +627,23 @@ function App() {
         {pluginTypes.map((item) => <option key={item.plugin + "/" + item.id} value={item.plugin + "/" + item.id}>{item.title || item.id}</option>)}
       </Select>
     </label>}
-    <Composer t={t} role={role} draft={draft.text} change={(text) => changeDraft({ ...draft, text })}
+    <Composer t={t} role={role} scope={scope} draft={draft.text} change={(text) => changeDraft({ ...draft, text })}
       attachments={draft.files} addFiles={chooseFiles} removeFile={(id) => changeDraft({ ...draft, files: draft.files.filter((file) => file.id !== id) })}
       generating={!ensembleRoom && generating === role} sending={sending}
       disabled={!connected || sending || (busy && generating !== role)}
       delivery={systemOnly ? "system" : privateChat ? "user" : "both"}
       submit={submit} stop={() => run(() => send("cancel", { agent: role }))}
-      modelPicker={settings && <ModelPicker role={role} settings={settings} t={t} disabled={busy} label={t("select_model")}
-        select={(model) => run(() => {
+      inlineModels={Boolean(background)}
+      modelPicker={settings && <ComposerModelPickers key={role} role={role} settings={settings} t={t} disabled={busy || assigningModel}
+        inline={Boolean(background)} agenticSearch={config.agentic_search !== false}
+        manage={() => setDialog({ type: "settings", page: settings.providers?.length ? "models" : "providers" })}
+        select={(agent, model) => run(async () => {
           const agents = { ...(settings.agents || {}) };
-          if (model) agents[role] = model;
-          else delete agents[role];
-          return saveSettings({ ...settings, agents });
+          if (model) agents[agent] = model;
+          else delete agents[agent];
+          setAssigningModel(true);
+          try { await saveSettings({ ...settings, agents }); }
+          finally { setAssigningModel(false); }
         })} />} />
   </div>;
 
@@ -620,8 +654,10 @@ function App() {
       busy={navigationBusy} setupPending={setupPending}
       startConversation={startConversation}
       roomActions={roomActions} run={run} t={t} />
-    <main ref={workspacePane} className="main" data-background={role === "chat" && Boolean(background)} inert={sidebar && compact}>
-      <header className="toolbar" data-home={home}>
+    <main ref={workspacePane} className="main" data-background={role === "chat" && Boolean(background)}
+      data-home={home} data-background-blur={Boolean(background && config.appearance.background_blur !== false)}
+      inert={sidebar && compact}>
+      <header className="toolbar" data-home={home} data-accent={Boolean(background)}>
         <IconButton icon="menu" className="mobile-only" ref={menuButton} label={t("open_menu")}
           aria-expanded={sidebar} aria-controls="library" disabled={role === "preset" && presetWorking} onClick={() => setSidebar(true)} />
         <div className="toolbar-title">
@@ -637,46 +673,56 @@ function App() {
           </span> : title}</h1>}
         </div>
         <div className="toolbar-actions">
+          {preset && (role === "preset" || chat && (!ensembleRoom || privateChat)) &&
+            <SubagentButton count={subagents.count} t={t}
+              onClick={() => setDialog({ type: "subagents", key: transcriptKey })} />}
           {privateChat && <IconButton icon="visibility" label={t("ensemble_member_trace")}
             onClick={() => setDialog({ type: "ensembleTrace", chat, participant: privateParticipant })} />}
           <IconButton icon="settings" label={t("settings")} disabled={!settings} onClick={() => show("settings")} />
           {preset && <ActionMenu label={t("more_options")} groups={conversationActions} buttonRef={moreButton} />}
         </div>
       </header>
-      {ensembleRoom && conversation && !privateChat && <nav className="ensemble-bar" aria-label={t("conversations")}>
+      {ensembleRoom && conversation && !privateChat && <nav ref={sceneStrip} className="ensemble-bar" aria-label={t("conversations")}>
         {workspace.ensemble.map((room) => <button type="button" className="chip" key={room.id} disabled={busy}
           aria-pressed={conversation === room.id} onClick={() => openScene(room.id)}>
           <bdi className="choice-label">{room.name || t("chat")}</bdi>
         </button>)}
       </nav>}
-      {background && backgroundFrame && <WorkspaceBackdrop key={[preset, background, backgroundFrame, backgroundOwner.generation].join(":")}
-        src={assetUrl(background, { preset }, { mode: "background", inline: "1", frame: backgroundFrame })}
-        blurred={!home && config.appearance.background_blur !== false}
-        onReady={(media) => {
-          if (!explicitAccent) setSampledAccent({ background, preset, frame: backgroundFrame,
-            generation: backgroundOwner.generation, color: backgroundAccent(media) });
-        }} />}
+      {background && backgroundFrame && <>
+        <WorkspaceBackdrop key={[preset, background, backgroundFrame, backgroundOwner.generation].join(":")}
+          src={assetUrl(background, { preset }, { mode: "background", inline: "1", frame: backgroundFrame })}
+          readAnimation={home}
+          onReady={(media) => {
+            if (!explicitAccent) setSampledAccent({ background, preset, frame: backgroundFrame,
+              generation: backgroundOwner.generation, color: backgroundAccent(media) });
+          }} />
+        {!home && config.appearance.background_blur !== false &&
+          <div className="frosted-glass workspace-glass" aria-hidden="true" />}
+      </>}
       <div className="chat-body">
-        {role === "preset" && presetRunning && <p className="preset-working" role="status">{t("running")}</p>}
         {systemOnly && <div className="ensemble-ooc-inset"><OutOfStoryNotice t={t} /></div>}
         {!connected || !workspace.ready ? <p className="empty" role="status">{t(connected ? "running" : "connection_failed")}</p>
           : home ? <PresetHome key={preset} name={preset ? config.name || t("preset") : ""}
             startLabel={requiresStart ? t(roomPreset ? "new_room" : "new_chat") : undefined}
+            wallpaper={background && backgroundFrame ? [background, backgroundFrame, backgroundOwner.generation].join(":") : ""}
+            dark={dark}
             busy={navigationBusy} {...{ t, createPreset, openPreset, startConversation }} />
           : ensembleRoom && !conversation ? <EnsembleOverview scenes={workspace.ensemble} activity={workspace.ensembleActivity}
             open={openScene} disabled={navigationBusy} t={t} />
           : preset && (emptyAgent ? <section className="agent-empty">
             {!presetWorking && <><span className="welcome-emblem"><Icon name={role === "env" ? "auto_awesome" : "edit"} /></span>
               <h2>{t("describe_changes")}</h2></>}
-          </section> : <Transcript key={transcriptKey} blocks={workspace.panes[pane]} contextKey={transcriptKey} history={history} pane={pane}
+          </section> : <Transcript key={transcriptKey} blocks={mainBlocks} contextKey={transcriptKey} history={mainHistory} pane={pane}
             addHistory={addHistory} onHistoryError={onError} quoteReply={canQuote ? quoteReply : undefined} {...{ scope, locale, dark, theme,
             expanded: preferences.thoughts, busy, t, branch, openAction, runExport }} />)}
-        {ensembleRoom && !privateChat ? <footer className="ensemble-footer" data-composer={canCompose}>
-          {connected && conversation && <RoomThinking people={Object.values(workspace.ensembleActivity[conversation] || {})} t={t} />}
-          {composer}
-          <PrivateMessagesFab extended={!canCompose} disabled={!connected || navigationBusy || !workspace.participants.length}
+        {ensembleRoom && !conversation ? <footer className="ensemble-footer">
+          <PrivateMessagesFab disabled={!connected || navigationBusy || !workspace.participants.length}
             open={() => setDialog({ type: "ensembleRoster", chat })} buttonRef={privateFab} t={t} />
-        </footer> : composer && <div className="composer-region">{composer}</div>}
+        </footer> : composer && <div className="composer-region">
+          {ensembleRoom && !privateChat && connected &&
+            <RoomThinking people={Object.values(workspace.ensembleActivity[conversation] || {})} t={t} />}
+          {composer}
+        </div>}
       </div>
     </main>
 
@@ -687,6 +733,9 @@ function App() {
       <a href={link} target="_blank" rel="noreferrer" onClick={() => setLink("")}>{link}</a>
     </Modal>}</Surface>
     <Surface>{dialog && <>
+      {dialog.type === "subagents" && dialog.key === transcriptKey &&
+        <SubagentActivity key={transcriptKey + ":" + locale} blocks={workspace.panes[pane]} close={closeDialog} onExport={runExport}
+          {...{ history, scope, pane, addHistory, locale, dark, theme, t, busy, onError }} />}
       {dialog.type === "ensembleArchive" && dialog.preset === preset && dialog.chat === chat &&
         <EnsembleArchive key={chat} room={chat} {...{ preset, locale, dark, theme, t, onError }}
           close={() => {
@@ -702,8 +751,8 @@ function App() {
         <EnsembleTraceDialog participant={privateParticipant} active={workspace.ensemble.some((scene) =>
           Object.hasOwn(workspace.ensembleActivity[scene.id] || {}, privateParticipant))}
           expanded={preferences.thoughts} close={closeDialog} {...{ scope, locale, dark, theme, t }} />}
-      {dialog?.type === "settings" && settings && <Settings {...{ settings, workspace, preferences, locale, t }}
-        setPreferences={savePreferences} close={closeDialog} update={saveSettings}
+      {dialog?.type === "settings" && settings && <Settings key={dialog.page || "home"} {...{ settings, workspace, preferences, locale, t }}
+        initialPage={dialog.page} setPreferences={savePreferences} close={closeDialog} update={saveSettings}
         renderPlugins={(close) => <Plugins {...{ workspace, locale, t, close }} />} />}
       {dialog?.type === "memory" && <Memory {...{ workspace, role, t, run }} close={closeDialog} />}
       {dialog?.type === "text" && <TextDialog key={dialog.title} {...{ dialog, t, run }}

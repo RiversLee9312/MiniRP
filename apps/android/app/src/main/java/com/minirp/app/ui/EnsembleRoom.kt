@@ -85,13 +85,17 @@ internal fun EnsembleRoom(
                     modifier = Modifier.clickable(role = Role.Button) { openChat(chat.id) },
                 )
             }
+            item { Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.safeDrawing)) }
         }
         if (participants.isNotEmpty()) {
             ExtendedFloatingActionButton(
                 onClick = { choosePrivate = true },
                 icon = { Symbol("reply") },
                 text = { Text(stringResource(R.string.ensemble_private_messages)) },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).testTag("ensemble-private-fab"),
+                modifier = Modifier.align(Alignment.BottomEnd)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+                    .padding(16.dp)
+                    .testTag("ensemble-private-fab"),
             )
         }
     }
@@ -198,6 +202,9 @@ internal fun EnsembleMemberToolbar(
     subtitle: String? = null,
     onTrace: (() -> Unit)? = null,
     onBackground: Boolean = false,
+    onSubagents: (() -> Unit)? = null,
+    subagents: Int = 0,
+    hideSubagentsWhenEmpty: Boolean = false,
 ) {
     TopAppBar(
         colors = chatToolbarColors(onBackground),
@@ -215,6 +222,7 @@ internal fun EnsembleMemberToolbar(
         },
         navigationIcon = { IconButton(onClick = back) { Symbol("arrow_back", stringResource(R.string.back)) } },
         actions = {
+            if (onSubagents != null) SubagentAction(subagents, hideSubagentsWhenEmpty, onSubagents)
             if (onTrace != null) IconButton(onClick = onTrace) {
                 Symbol("visibility", stringResource(R.string.ensemble_member_trace))
             }
@@ -224,6 +232,9 @@ internal fun EnsembleMemberToolbar(
 
 @Composable
 internal fun EnsembleMemberTrace(
+    back: () -> Unit,
+    subtitle: String?,
+    snackbarHost: @Composable () -> Unit,
     load: suspend () -> List<EnsembleTraceScene>,
     activeScene: String?,
     displayAssets: (String) -> DisplayAssets?,
@@ -232,6 +243,7 @@ internal fun EnsembleMemberTrace(
     var failed by remember { mutableStateOf(false) }
     var attempt by remember { mutableIntStateOf(0) }
     var selected by rememberSaveable { mutableStateOf("") }
+    var showSubagents by rememberSaveable { mutableStateOf(false) }
     val newestLoad by rememberUpdatedState(load)
     LaunchedEffect(activeScene, attempt) {
         failed = false
@@ -248,6 +260,14 @@ internal fun EnsembleMemberTrace(
         } while (activeScene != null)
     }
     val snapshot = scenes
+    val scene = snapshot?.firstOrNull { it.id == selected }
+        ?: snapshot?.firstOrNull { it.id == activeScene }
+        ?: snapshot?.lastOrNull()
+    val count = remember(scene) { subagentCount(AgentRole.Chat, scene?.blocks.orEmpty()) }
+    PageScaffold(topBar = {
+        EnsembleMemberToolbar(stringResource(R.string.ensemble_member_trace), back, subtitle = subtitle,
+            onSubagents = { showSubagents = true }, subagents = count, hideSubagentsWhenEmpty = true)
+    }, snackbarHost = snackbarHost) {
     when {
         failed && snapshot == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -256,13 +276,11 @@ internal fun EnsembleMemberTrace(
             }
         }
         snapshot == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        snapshot.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        scene == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(stringResource(R.string.ensemble_no_trace), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         else -> {
-            val scene = snapshot.firstOrNull { it.id == selected }
-                ?: snapshot.firstOrNull { it.id == activeScene }
-                ?: snapshot.last()
+            val mainTrace = remember(scene) { scene.blocks.filter { it.subagentRole == null } }
             Column(Modifier.fillMaxSize()) {
                 if (snapshot.size > 1) {
                     Row(
@@ -283,14 +301,18 @@ internal fun EnsembleMemberTrace(
                 }
                 key(scene.id) {
                     TraceLog(
-                        scene.blocks,
+                        mainTrace,
                         expandThoughts = true,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         displayAssets = displayAssets(scene.id),
-                        standalonePluginTrace = true,
+                        expandActivity = true,
                     )
                 }
             }
+            if (showSubagents) key(scene.id) {
+                AgentPanel(AgentRole.Chat, scene.blocks, displayAssets(scene.id), onClose = { showSubagents = false })
+            }
         }
+    }
     }
 }

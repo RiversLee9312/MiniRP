@@ -488,12 +488,16 @@ public sealed partial class Engine
         private PageSource CreatePageSource()
         {
             Routing Selected() => Volatile.Read(ref engine.routing);
-            var browser = new BrowserAgent(engine.Port, job =>
+            var browser = new BrowserAgent(engine.Port, (job, parent) =>
             {
                 var context = Context("fetch");
                 context["session"] = "fetch-" + job;
                 return engine.agentSessions.Open("fetch", SessionFiles.Fetch(workspace.ChatRoot, job), () => Selected().For("fetch"),
-                    () => context, (item, info) => Record("fetch", item, info, context), canReadChat: CanReadChat);
+                    () => context, (item, info) =>
+                    {
+                        if (parent is not null) item["parent_agent"] = parent;
+                        Record("fetch", item, info, context);
+                    }, canReadChat: CanReadChat);
             }, () => workspace.AgentPrompt("fetch"));
             return new(engine.Port, browser, () => Selected().Settings);
         }

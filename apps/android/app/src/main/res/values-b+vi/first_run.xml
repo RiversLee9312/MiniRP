@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Chào mừng bạn đến với MiniRP</string>
+    <string name="setup_welcome_detail">Kết nối dịch vụ AI, rồi chọn mô hình mà MiniRP sẽ dùng để trò chuyện và thiết lập cấu hình đặt trước.</string>
+    <string name="setup_begin">Bắt đầu</string>
+    <string name="setup_download_notice">MiniRP là ứng dụng miễn phí, phi lợi nhuận và mã nguồn mở. Tải xuống từ trang phát hành chính thức. Hãy cảnh giác với lừa đảo nếu bạn tải từ nơi khác hoặc phải trả phí.</string>
+    <string name="setup_official_download">Bản tải xuống chính thức</string>
+    <string name="setup_connect_provider">Kết nối dịch vụ AI</string>
+    <string name="setup_provider_detail">Nhà cung cấp là dịch vụ chạy mô hình. Chọn mẫu của nhà cung cấp để điền thông tin kết nối. Nếu cần khóa API, hãy lấy khóa trên trang web của họ.</string>
+    <string name="setup_unsure">Tôi không biết</string>
+    <string name="setup_choose_model">Chọn mô hình</string>
+    <string name="setup_model_detail">Chọn một mô hình từ %1$s cho những cuộc trò chuyện đầu tiên.</string>
+    <string name="setup_model_fallback">Kiểm tra địa chỉ và khóa API rồi thử lại. Nếu nhà cung cấp không liệt kê mô hình, hãy nhập đúng mã mô hình trên trang web của họ.</string>
+    <string name="add_model_by_id">Thêm mô hình theo ID</string>
+    <string name="setup_use_model">Dùng mô hình này</string>
+    <string name="setup_next">Tiếp tục</string>
+    <string name="setup_effort_title">Mô hình nên suy nghĩ bao lâu?</string>
+    <string name="setup_effort_detail">Mức suy luận quyết định thời gian AI suy nghĩ trước khi trả lời. Với câu chuyện phức tạp hoặc tiện ích, hãy bắt đầu ở mức cao nhất. Với cuộc trò chuyện ngắn, hãy thử mức thấp hơn. Mức cao có thể cần nhiều thời gian và hạn mức hơn. Bạn có thể đổi trong Cài đặt → Mô hình.</string>
+    <string name="setup_help_title">Trợ giúp thiết lập MiniRP</string>
+    <string name="setup_help_detail">Sao chép lời nhắc này vào %1$s rồi làm theo các bước được đề xuất.</string>
+    <string name="setup_assistants_china">DeepSeek hoặc Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok hoặc Claude</string>
+    <string name="setup_unknown_region">không rõ</string>
+    <string name="setup_copy_prompt">Sao chép lời nhắc</string>
+    <string name="setup_help_web">Tìm kiếm và tải trang web</string>
+    <string name="setup_help_intro">Tôi mới dùng MiniRP trên Android. Hãy trả lời bằng tiếng %1$s. Khu vực trên thiết bị của tôi là %2$s. Trước tiên, hãy đọc hướng dẫn chính thức của MiniRP tại %3$s. Hãy báo nếu bạn không mở được.</string>
+</resources>

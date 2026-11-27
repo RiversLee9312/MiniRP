@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
+import androidx.core.content.FileProvider
 import com.minirp.app.R
 import com.minirp.app.ui.PluginAttachmentType
 import java.io.File
@@ -14,11 +15,21 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-internal data class DraftAttachment(val uri: String, val name: String)
+internal data class DraftAttachment(val uri: String, val name: String, val preview: AttachmentFile?)
+
+internal data class AttachmentFile(val uri: Uri, val name: String, val mime: String) {
+    fun openUri(context: Context): Uri =
+        if (uri.scheme == "file")
+            FileProvider.getUriForFile(context, context.packageName + ".attachments", File(checkNotNull(uri.path)), name)
+        else uri
+}
+
+internal class AttachmentFileProvider : FileProvider()
 
 internal class AttachmentStore(private val context: Context) {
     companion object {
         val documentTypes = arrayOf("audio/*", "application/pdf", "text/*", "application/json", "application/xml")
+        private val storedId = Regex("(?:[0-9a-f]{12}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})", RegexOption.IGNORE_CASE)
     }
 
     private val resolver
@@ -27,6 +38,16 @@ internal class AttachmentStore(private val context: Context) {
     private val directory
         get() = context.filesDir.resolve("workspace/attachments").apply { mkdirs() }
 
+    fun saved(id: String, name: String, mime: String): AttachmentFile? {
+        if (!storedId.matches(id)) return null
+        return AttachmentFile(Uri.fromFile(context.filesDir.resolve("workspace/attachments").resolve(id)), name, mimeType(name, mime))
+    }
+
+    private fun mimeType(name: String, declared: String?): String =
+        declared?.substringBefore(';')?.lowercase()?.takeIf { it.isNotBlank() && it != "application/octet-stream" }
+            ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase())
+            ?: "application/octet-stream"
+
     suspend fun describe(
         values: List<String>,
         retained: Map<String, JSONObject> = emptyMap(),
@@ -34,7 +55,8 @@ internal class AttachmentStore(private val context: Context) {
         withContext(Dispatchers.IO) {
             values.map { value ->
                 retained[value]?.let {
-                    return@map DraftAttachment(value, it.optString("name"))
+                    val name = it.optString("name")
+                    return@map DraftAttachment(value, name, saved(it.optString("id"), name, it.optString("mime")))
                 }
                 val uri = Uri.parse(value)
                 val name = runCatching {
@@ -45,10 +67,8 @@ internal class AttachmentStore(private val context: Context) {
                         }
                 }
                     .getOrNull()
-                DraftAttachment(
-                    value,
-                    name ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Attachment",
-                )
+                val label = name ?: uri.lastPathSegment?.substringAfterLast('/') ?: context.getString(R.string.preview_attachment_label)
+                DraftAttachment(value, label, AttachmentFile(uri, label, mimeType(label, runCatching { resolver.getType(uri) }.getOrNull())))
             }
         }
 
@@ -73,9 +93,7 @@ internal class AttachmentStore(private val context: Context) {
                         continue
                     }
                     val uri = Uri.parse(draft.uri)
-                    val mime = resolver.getType(uri)?.lowercase()?.takeUnless { it == "application/octet-stream" }
-                        ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(draft.name.substringAfterLast('.', "").lowercase())
-                        ?: "application/octet-stream"
+                    val mime = checkNotNull(draft.preview).mime
                     check(
                         pluginType?.mimeTypes?.any {
                                 it == mime ||

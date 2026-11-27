@@ -97,7 +97,8 @@ internal fun ArchivedChatHistory(
                 Text(stringResource(if (failed) R.string.retry else R.string.load_more))
             }
         }
-        TraceLog(page.blocks, expandThoughts = false, modifier = Modifier.weight(1f).fillMaxWidth(),
+        TraceLog(remember(page.blocks) { page.blocks.filter { it.subagentRole == null } },
+            expandThoughts = false, modifier = Modifier.weight(1f).fillMaxWidth(),
             loadThumbnail = loadThumbnail, displayAssets = displayAssets)
     }
 }

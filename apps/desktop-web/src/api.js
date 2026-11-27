@@ -29,6 +29,12 @@ export function archivedChatPage(scope, before, locale, signal) {
   return request("/api/ensemble/archive?" + query, undefined, signal);
 }
 
+export function presetActivityPage(scope, before, locale, signal) {
+  const query = new URLSearchParams({ ...scope, locale });
+  if (before) query.set("before", before);
+  return request("/api/preset/activity?" + query, undefined, signal);
+}
+
 export function upload(path, files) {
   const form = new FormData();
   for (const file of files) form.append("files", file);
@@ -54,6 +60,11 @@ export function assetUrl(url, scope = {}, options = {}) {
   return "/api/asset?" + new URLSearchParams({ url, ...scope, ...options });
 }
 
-export function attachmentUrl(file) {
-  return "/api/attachment/" + encodeURIComponent(file.id) + "?" + new URLSearchParams({ name: file.name });
+export function attachmentUrl(file, inline = false) {
+  const query = new URLSearchParams({ name: file.name });
+  if (inline) {
+    query.set("inline", "1");
+    if (file.mime) query.set("mime", file.mime);
+  }
+  return "/api/attachment/" + encodeURIComponent(file.id) + "?" + query;
 }

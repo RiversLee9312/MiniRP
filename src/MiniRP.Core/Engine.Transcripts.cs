@@ -34,7 +34,7 @@ public sealed partial class Engine
                 var source = presetConversation!.Blocks.OfType<JsonObject>();
                 if (role == "plugin")
                 {
-                    source = source.Where(block => block.GetString("plugin_run", block.GetString("plugin_agent")) == run);
+                    source = source.Where(block => PluginRunId(block) == run);
                     header["run"] = run;
                 }
                 var snapshot = source.Select(block => (JsonObject)block.DeepClone()).ToArray();

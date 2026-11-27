@@ -215,6 +215,9 @@ internal sealed class EnvironmentSettings(string root, DesktopSecretStorage? sec
                 foreach (var pair in modelOptions) target[pair.Key] = JsonValues.Clone(pair.Value);
             if (group.Value?["options"] is JsonObject options)
                 foreach (var pair in options) target[pair.Key] = JsonValues.Clone(pair.Value);
+            if (web && target.GetArray("effort_levels").Select(level => JsonValues.GetText(level)).Where(level => !string.IsNullOrWhiteSpace(level)).ToArray() is { Length: > 0 } levels &&
+                !levels.Contains(target.GetString("reasoning_effort"), StringComparer.Ordinal))
+                target["reasoning_effort"] = HighestEffort(levels);
             if (group.Key == "default" || group.Key == "chat" && routing["default"] is null)
             {
                 command["provider"] = target.DeepClone();
@@ -247,6 +250,13 @@ internal sealed class EnvironmentSettings(string root, DesktopSecretStorage? sec
                 ["key"] = url.Length == 0 && key.Length == 0 ? fallback.GetString("key") : key
             };
         }
+    }
+
+    private static string HighestEffort(string[] levels)
+    {
+        string[] ranks = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+        var ranked = levels.Select(level => (Level: level, Rank: Array.IndexOf(ranks, level.ToLowerInvariant()))).ToArray();
+        return ranked.All(item => item.Rank >= 0) ? ranked.MaxBy(item => item.Rank).Level : levels[^1];
     }
 
     public JsonObject LegacyConfiguration() => new()

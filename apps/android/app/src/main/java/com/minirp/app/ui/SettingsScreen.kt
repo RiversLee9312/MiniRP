@@ -4,6 +4,7 @@ import android.app.NotificationManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.res.Resources
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -37,6 +38,7 @@ import com.minirp.app.core.TurnProtection
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.xmlpull.v1.XmlPullParser
 
 @Composable
 internal fun DeclaredSettingsScreen(
@@ -441,43 +443,21 @@ internal class ActionsRouter(
     }
 }
 
+internal fun appLanguageTags(resources: Resources): List<String> = buildList {
+    resources.getXml(R.xml._generated_res_locale_config).use { config ->
+        while (config.next() != XmlPullParser.END_DOCUMENT) {
+            if (config.eventType == XmlPullParser.START_TAG && config.name == "locale") {
+                config.getAttributeValue("http://schemas.android.com/apk/res/android", "name")?.let(::add)
+            }
+        }
+    }
+}
+
 @Composable
 internal fun LegacyLanguageSheet(close: () -> Unit) {
     FullSheet(stringResource(R.string.language), close) {
-        val tags =
-            listOf(
-                "",
-                "en",
-                "zh-Hans",
-                "zh-Hant",
-                "ja",
-                "ko",
-                "fr",
-                "de",
-                "es",
-                "pt-BR",
-                "it",
-                "ru",
-                "ar",
-                "he",
-                "fa",
-                "hi",
-                "id",
-                "vi",
-                "th",
-                "tr",
-                "pl",
-                "uk",
-                "nl",
-                "sv",
-                "da",
-                "nb",
-                "fi",
-                "cs",
-                "ro",
-                "hu",
-                "el",
-            )
+        val resources = LocalContext.current.resources
+        val tags = remember(resources) { listOf("") + appLanguageTags(resources) }
         LazyColumn {
             items(tags) { tag ->
                 ListItem(

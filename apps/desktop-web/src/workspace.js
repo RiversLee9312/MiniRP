@@ -1,4 +1,4 @@
-import { researchAgentLabel } from "./transcript-turns.js";
+import { subagentKind } from "./subagent-traces.js";
 
 export const initial = {
   ready: false, busy: false, generating: "", preset: "", chat: "", conversation: "",
@@ -25,7 +25,7 @@ function split(blocks) {
 const positions = new WeakMap();
 
 const publicMessage = (block) => ["user", "system", "assistant"].includes(block.kind || block.role) &&
-  !block.tool && !block.compaction && !researchAgentLabel(block.agent);
+  !block.tool && !block.compaction && !subagentKind(block);
 
 function publicMessages(blocks) {
   return blocks.filter(publicMessage).map(withoutTrace);
@@ -66,7 +66,8 @@ function blockPositions(blocks) {
 function snapshotHistory(state, event, panes, reset = false) {
   const historyVersion = state.historyVersion + 1;
   const history = reset ? {} : { ...state.history };
-  for (const pane of panes) history[pane] = { version: historyVersion, before: event.history?.[pane] || null, pages: [] };
+  for (const pane of panes) history[pane] = { version: historyVersion, before: event.history?.[pane] || null,
+    subagents: event.history?._subagents?.[pane] || [], ruler: event.history?._ruler?.[pane], pages: [] };
   return { history, historyVersion };
 }
 
@@ -127,7 +128,7 @@ function updateTrace(state, event, editing) {
     }
     if (event.plugin_sequence && block.plugin_sequence >= event.plugin_sequence) return block;
     const next = { ...block, agent: event.agent ?? block.agent, speaker: event.speaker ?? block.speaker };
-    for (const key of ["plugin_agent", "plugin_run", "plugin_agent_name", "plugin_sequence"])
+    for (const key of ["plugin_agent", "plugin_run", "plugin_agent_name", "plugin_sequence", "parent_agent"])
       if (event[key] !== undefined) next[key] = event[key];
     switch (event.kind) {
       case "user":
@@ -185,19 +186,21 @@ function applyEvent(state, event, editing) {
       return { ...state, chats: state.preset === event.preset ? state.chats : [], preset: event.preset,
         config: event.config, chat: "", title: "", conversation: "", ensemble: null, participants: [],
         privateParticipant: "", privateInStory: true, returnConversation: "", ensembleActivity: {},
-        panes: split(), history: {}, draft: null };
+        panes: split(), history: {}, draft: null, presetDraft: null };
     case "loaded":
       return { ...state, preset: event.preset, config: event.config, chat: event.chat.id, title: event.chat.name,
         conversation: "", ensemble: event.ensemble_chats, participants: event.participants || [],
         privateParticipant: "", privateInStory: event.private_in_story !== false, returnConversation: "",
         ensembleActivity: (event.activity || []).reduce(updateEnsembleActivity, {}),
-        panes: split(event.chat.blocks), ...snapshotHistory(state, event, ["chat", "env", "preset"], true), draft: event.draft || null };
+        panes: split(event.chat.blocks), ...snapshotHistory(state, event, ["chat", "env", "preset"], true),
+        draft: event.draft || null, presetDraft: null };
     case "preset_opened": {
       const selected = event.selected || event.created;
       const current = selected ? { ...state, chat: "", conversation: "", ensemble: null, participants: [], title: "", draft: null,
         privateParticipant: "", privateInStory: true, returnConversation: "", ensembleActivity: {},
         panes: split(), chats: state.preset === event.preset ? state.chats : [] } : state;
       return { ...current, preset: event.preset, config: event.config || state.config, opened: state.opened + 1,
+        presetDraft: event.draft || null,
         panes: { ...current.panes, preset: event.blocks || [] }, ...snapshotHistory(state, event, ["preset"], selected) };
     }
     case "preset_config":

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Ti diamo il benvenuto in MiniRP</string>
+    <string name="setup_welcome_detail">Collega un servizio IA e scegli il modello che MiniRP userà per le chat e per configurare le preimpostazioni.</string>
+    <string name="setup_begin">Inizia</string>
+    <string name="setup_download_notice">MiniRP è un’app gratuita, open source e senza scopo di lucro. Scaricala dalla pagina ufficiale dei rilasci. Se l’hai trovata altrove o hai dovuto pagare, fai attenzione alle truffe.</string>
+    <string name="setup_official_download">Download ufficiale</string>
+    <string name="setup_connect_provider">Collega un servizio IA</string>
+    <string name="setup_provider_detail">Il fornitore è il servizio che esegue il modello. Scegli il suo modello di configurazione per inserire i dati di connessione. Se serve una chiave API, richiedila sul sito del fornitore.</string>
+    <string name="setup_unsure">Non lo so</string>
+    <string name="setup_choose_model">Scegli un modello</string>
+    <string name="setup_model_detail">Scegli un modello di %1$s per le tue prime conversazioni.</string>
+    <string name="setup_model_fallback">Controlla indirizzo e chiave API, poi riprova. Se il fornitore non elenca i modelli, inserisci l’ID esatto indicato sul suo sito.</string>
+    <string name="add_model_by_id">Aggiungi modello per ID</string>
+    <string name="setup_use_model">Usa questo modello</string>
+    <string name="setup_next">Continua</string>
+    <string name="setup_effort_title">Quanto deve ragionare?</string>
+    <string name="setup_effort_detail">Il livello di ragionamento determina il tempo di riflessione dell’IA prima della risposta. Per una storia complessa o un plugin, parti dal livello più alto. Per una chat veloce, prova un livello inferiore. I livelli alti possono richiedere più tempo e quota. Puoi cambiarlo in Impostazioni → Modelli.</string>
+    <string name="setup_help_title">Aiuto per configurare MiniRP</string>
+    <string name="setup_help_detail">Copia queste istruzioni in %1$s, poi segui i passaggi che ti propone.</string>
+    <string name="setup_assistants_china">DeepSeek o Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok o Claude</string>
+    <string name="setup_unknown_region">sconosciuta</string>
+    <string name="setup_copy_prompt">Copia istruzioni</string>
+    <string name="setup_help_web">Ricerca e recupero di pagine web</string>
+    <string name="setup_help_intro">È la prima volta che uso MiniRP per Android. Rispondi in %1$s. L’area geografica del dispositivo è %2$s. Prima leggi la guida ufficiale di MiniRP su %3$s. Avvisami se non riesci ad aprirla.</string>
+</resources>

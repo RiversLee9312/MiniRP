@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Karibu kwenye MiniRP</string>
+    <string name="setup_welcome_detail">Unganisha huduma ya AI, kisha uchague modeli ambayo MiniRP itatumia kwenye mazungumzo na kuweka mipangilio awali.</string>
+    <string name="setup_begin">Anza</string>
+    <string name="setup_download_notice">MiniRP ni programu huria isiyolipiwa na isiyo ya faida. Ipakue kutoka kwenye ukurasa rasmi wa matoleo. Jihadhari na utapeli ikiwa uliipata kwingine au ulilipia.</string>
+    <string name="setup_official_download">Pakua kutoka chanzo rasmi</string>
+    <string name="setup_connect_provider">Unganisha huduma ya AI</string>
+    <string name="setup_provider_detail">Mtoa huduma ndiye anayeendesha modeli. Chagua kiolezo chake ili kujaza maelezo ya muunganisho. Ikiwa ufunguo wa API unahitajika, upate kwenye tovuti ya mtoa huduma.</string>
+    <string name="setup_unsure">Sijui</string>
+    <string name="setup_choose_model">Chagua modeli</string>
+    <string name="setup_model_detail">Chagua modeli kutoka %1$s kwa mazungumzo yako ya kwanza.</string>
+    <string name="setup_model_fallback">Hakiki anwani na ufunguo wa API kisha ujaribu tena. Ikiwa mtoa huduma haorodheshi modeli, weka kitambulisho sahihi cha modeli kilicho kwenye tovuti yake.</string>
+    <string name="add_model_by_id">Ongeza modeli kwa kitambulisho</string>
+    <string name="setup_use_model">Tumia modeli hii</string>
+    <string name="setup_next">Endelea</string>
+    <string name="setup_effort_title">Modeli ifikiri kwa muda gani?</string>
+    <string name="setup_effort_detail">Kiwango cha kufikiri huamua muda ambao AI itatumia kabla ya kujibu. Kwa hadithi changamano au programu-jalizi, anza na kiwango cha juu zaidi. Kwa gumzo la haraka, jaribu kiwango cha chini. Kiwango cha juu kinaweza kutumia muda zaidi na kiasi kikubwa zaidi cha mgao wako. Kiwango kinabadilishwa kwenye Mipangilio → Modeli.</string>
+    <string name="setup_help_title">Msaada wa kusanidi MiniRP</string>
+    <string name="setup_help_detail">Nakili agizo hili kwenye %1$s kisha ufuate hatua itakazopendekeza.</string>
+    <string name="setup_assistants_china">DeepSeek au Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok au Claude</string>
+    <string name="setup_unknown_region">halijulikani</string>
+    <string name="setup_copy_prompt">Nakili agizo</string>
+    <string name="setup_help_web">Kutafuta na kuleta kurasa za wavuti</string>
+    <string name="setup_help_intro">Naanza kutumia MiniRP ya Android. Jibu kwa lugha ya %1$s. Eneo la kifaa changu ni %2$s. Soma mwongozo rasmi wa MiniRP kwenye %3$s kwanza. Niambie ikiwa huwezi kuufungua.</string>
+</resources>

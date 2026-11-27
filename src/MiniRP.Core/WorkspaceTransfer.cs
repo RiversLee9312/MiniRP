@@ -75,7 +75,7 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
             if (kind == "save")
             {
                 foreach (var path in Files(At("preset_sessions", preset), "*"))
-                    if (Path.GetFileName(path) is "agent.sqlite" or "blocks.json") Add(path);
+                    if (Path.GetFileName(path) is "agent.sqlite" or "blocks.json" or "draft.json") Add(path);
                 var overlays = At("plugins", PluginRuntime.WritableAssetArea);
                 if (Directory.Exists(overlays))
                     foreach (var package in Directory.EnumerateDirectories(overlays, "*", SafeFiles))
@@ -233,13 +233,18 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
         }
         foreach (var (path, file) in entries)
         {
-            if (path == $"preset_sessions/{preset}/blocks.json") contents.Collect(ReadJson(file));
+            if (path == $"preset_sessions/{preset}/blocks.json" || path == $"preset_sessions/{preset}/draft.json")
+                contents.Collect(ReadJson(file));
+        }
+        foreach (var (path, file) in entries)
+        {
             if (path.Split('/') is ["versions", var version, "world.json"] && contents.Versions.Contains(version))
                 contents.Research(ReadJson(file));
             if (path.EndsWith(".sqlite", StringComparison.Ordinal) && !path.StartsWith("plugins/", StringComparison.Ordinal))
             {
                 using var db = MemoryDb.ReadOnly(file);
-                if (path == $"preset_sessions/{preset}/agent.sqlite" && db.HasEntriesTable())
+                if ((path == $"preset_sessions/{preset}/agent.sqlite" ||
+                     path.Split('/') is ["versions", var checkpoint, "preset.sqlite"] && contents.Versions.Contains(checkpoint)) && db.HasEntriesTable())
                 {
                     ReadContainerReferences(db, contents);
                     ReadPresetResearchReferences(db, contents);
@@ -348,7 +353,7 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
         return parts[0] switch
         {
             "conversations" => parts.Length >= 3 && parts[1] == preset && RoomFile(parts),
-            "preset_sessions" => parts.Length == 3 && parts[1] == preset && parts[2] is "agent.sqlite" or "blocks.json",
+            "preset_sessions" => parts.Length == 3 && parts[1] == preset && parts[2] is "agent.sqlite" or "blocks.json" or "draft.json",
             "versions" => VersionFile(parts),
             "attachments" => parts.Length == 2 && Id(parts[1]),
             AgentContainer.Storage => parts.Length == 3 && parts[1] == preset && AgentContainer.IsHash(parts[2]),
@@ -370,7 +375,7 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
          parts.Length == 6 && parts[3] == "ensemble" && Id(parts[4]) && Sqlite(parts[5]));
 
     private static bool VersionFile(string[] parts) =>
-        parts.Length == 3 && Id(parts[1]) && (parts[2] == "world.json" || Sqlite(parts[2]));
+        parts.Length == 3 && Id(parts[1]) && (parts[2] is "world.json" or "ensemble.json" or "preset.json" || Sqlite(parts[2]));
 
     private static bool ScopedFile(string[] parts, Contents contents, bool includePreset)
     {
@@ -415,6 +420,35 @@ internal sealed class WorkspaceTransfer(Workspace workspace, PluginRuntime plugi
             ct.ThrowIfCancellationRequested();
             try { contents.Collect(JsonNode.Parse(row["content"])); }
             catch (JsonException) { }
+        }
+    }
+
+    internal static void CopyPresetSessionResources(Workspace workspace, string target, JsonArray blocks, string database, CancellationToken ct)
+    {
+        var contents = new Contents(workspace.PresetId);
+        contents.Collect(blocks);
+        ReadSessionReferences(database, contents, ct);
+        using var stage = new Staging(workspace.Root);
+        foreach (var version in contents.Versions.ToArray())
+        {
+            var source = Path.Combine(ConversationVersions.VersionRoot(workspace, version), "preset.sqlite");
+            if (!File.Exists(source) && !File.Exists(source + ".gz")) continue;
+            var snapshot = Path.Combine(stage.Path, version + ".sqlite");
+            ConversationVersions.Restore(source, snapshot);
+            ReadSessionReferences(snapshot, contents, ct);
+        }
+
+        foreach (var hash in contents.ContainerChunks)
+            CopyBlob(AgentContainer.Blob(workspace.Root, workspace.PresetId, hash), AgentContainer.Blob(workspace.Root, target, hash));
+        foreach (var hash in contents.ResearchBlobs)
+            CopyBlob(ResearchAssets.PathFor(workspace.Root, workspace.PresetId, hash), ResearchAssets.PathFor(workspace.Root, target, hash));
+
+        void CopyBlob(string source, string destination)
+        {
+            ct.ThrowIfCancellationRequested();
+            EnsureUnlinked(source, workspace.Root);
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(source, destination);
         }
     }
 

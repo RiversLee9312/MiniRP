@@ -6,6 +6,7 @@
 .transcript-shell:has(.transcript-ruler:not([hidden])) > .transcript {
   right: var(--ruler-width);
   scrollbar-width: none;
+  scrollbar-gutter: auto;
 }
 
 .transcript-shell:has(.transcript-ruler:not([hidden])) > .transcript::-webkit-scrollbar {
@@ -54,8 +55,6 @@
   block-size: min(100%, var(--ruler-track-height));
   overflow: hidden auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--outline-variant) transparent;
   touch-action: pan-y;
 }
 
@@ -70,18 +69,18 @@
   right: var(--tick-edge-inset);
   inline-size: calc(100% - var(--tick-edge-inset) - 4px);
   inset-block-start: var(--tick-position);
-  max-inline-size: calc(6px + var(--proximity) * (100% - clamp(12px, 1.5vw, 18px)));
+  max-inline-size: min(100%, calc(6px + var(--proximity) * (100% - clamp(12px, 1.5vw, 18px))));
   block-size: 2px;
   transform: translateY(-50%);
   border-radius: 2px;
   background-color: var(--outline);
   opacity: calc(.4 + var(--proximity) * .35);
   pointer-events: none;
-  transition: max-inline-size 130ms ease-out, background-color 130ms ease-out, opacity 130ms ease-out;
+  transition: max-inline-size 180ms ease-in-out, background-color 180ms ease-in-out, opacity 180ms ease-in-out;
 }
 
-.transcript-ruler-ticks span[data-current="true"] {
-  max-inline-size: none;
+.transcript-ruler-ticks span[data-active="true"] {
+  max-inline-size: 100%;
   z-index: 2;
   background-color: var(--primary);
   opacity: 1;
@@ -155,7 +154,7 @@
     background: linear-gradient(transparent, Canvas);
   }
   .transcript-ruler-ticks span { forced-color-adjust: none; background-color: GrayText; opacity: 1; }
-  .transcript-ruler-ticks span[data-current="true"] { background-color: Highlight; }
+  .transcript-ruler-ticks span[data-active="true"] { background-color: Highlight; }
   .transcript-ruler-ticks span[data-hover="true"] { background-color: CanvasText; }
   .transcript-ruler:focus-visible .transcript-ruler-ticks [data-current="true"] { outline-color: Highlight; }
 }

@@ -94,7 +94,7 @@ internal static class WebDesktop
         async Task Transcript(HttpContext context, string operation)
         {
             var command = new JsonObject { ["op"] = operation };
-            foreach (var key in new[] { "agent", "preset", "room", "conversation", "before" })
+            foreach (var key in new[] { "agent", "preset", "room", "conversation", "before", "after", "run" })
                 command[key] = context.Request.Query[key].ToString();
             var locale = context.Request.Query["locale"].ToString();
             if (locale.Length > 128 || locale.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '-'))
@@ -107,6 +107,7 @@ internal static class WebDesktop
             await WriteJson(context, page);
         }
         app.MapGet("/api/transcript", (HttpContext context) => Transcript(context, "transcript_page"));
+        app.MapGet("/api/preset/activity", (HttpContext context) => Transcript(context, "preset_activity"));
         app.MapGet("/api/ensemble/archive", (HttpContext context) => Transcript(context, "ensemble_archive"));
         app.MapGet("/api/settings", (HttpContext context) => WriteJson(context, session.Settings.DesktopForSettings()));
         app.MapPost("/api/settings", async (HttpContext context) =>
@@ -331,15 +332,23 @@ internal static class WebDesktop
             return Results.NotFound().ExecuteAsync(context);
         var name = SafeName(context.Request.Query["name"].ToString(), "attachment");
         var type = ContentType(name);
+        if (type == "application/octet-stream" && context.Request.Query["mime"] is { Count: 1 } hint)
+            type = hint.ToString();
         var path = Path.Combine(session.Root, "attachments", id);
         if (!File.Exists(path)) return Results.NotFound().ExecuteAsync(context);
-        return IsMedia(type) && context.Request.Query["inline"] == "1"
-            ? Results.File(path, type, enableRangeProcessing: true).ExecuteAsync(context)
-            : Results.File(path, "application/octet-stream", name).ExecuteAsync(context);
+        if (context.Request.Query["inline"] == "1")
+        {
+            if (type == "application/pdf" || IsMedia(type))
+                return Results.File(path, type, enableRangeProcessing: true).ExecuteAsync(context);
+            if (type.StartsWith("text/", StringComparison.Ordinal) || type is "application/json" or "application/xml")
+                return Results.File(path, "text/plain; charset=utf-8", enableRangeProcessing: true).ExecuteAsync(context);
+        }
+        return Results.File(path, "application/octet-stream", name).ExecuteAsync(context);
     }
 
-    private static bool IsMedia(string mime) => mime is "image/png" or "image/jpeg" or "image/gif" or "image/webp" or "image/avif" ||
-        mime.StartsWith("audio/", StringComparison.Ordinal) || mime.StartsWith("video/", StringComparison.Ordinal);
+    private static bool IsMedia(string mime) => mime is "image/png" or "image/jpeg" or "image/gif" or "image/webp" or "image/avif" or "image/bmp" or "image/x-icon" or "image/vnd.microsoft.icon" ||
+        (mime.StartsWith("audio/", StringComparison.Ordinal) || mime.StartsWith("video/", StringComparison.Ordinal)) &&
+        mime.AsSpan(mime.IndexOf('/') + 1).IndexOfAnyExcept("abcdefghijklmnopqrstuvwxyz0123456789.+-") < 0;
 
     private static string SafeName(string name, string fallback)
     {

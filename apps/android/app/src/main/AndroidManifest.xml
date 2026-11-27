@@ -17,6 +17,13 @@
         android:theme="@style/Theme.MiniRP"
         android:usesCleartextTraffic="false">
         <activity android:name="com.minirp.app.MainActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <provider
+            android:name="com.minirp.app.data.AttachmentFileProvider"
+            android:authorities="${applicationId}.attachments"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/attachment_paths" />
+        </provider>
         <!-- Keep the launcher component stable for shortcuts pinned before the rename. -->
         <activity-alias
             android:name="com.minichat.app.MainActivity"

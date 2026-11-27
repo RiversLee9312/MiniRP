@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Sveiki atvykę į MiniRP</string>
+    <string name="setup_welcome_detail">Prijunkite DI paslaugą ir pasirinkite modelį, kurį MiniRP naudos pokalbiams ir ruošiniams nustatyti.</string>
+    <string name="setup_begin">Pradėti</string>
+    <string name="setup_download_notice">MiniRP yra nemokama, ne pelno siekianti atvirojo kodo programėlė. Atsisiųskite ją iš oficialaus leidimų puslapio. Jei ją gavote kitur ar už ją mokėjote, saugokitės apgaulės.</string>
+    <string name="setup_official_download">Oficialus atsisiuntimas</string>
+    <string name="setup_connect_provider">Prijungti DI paslaugą</string>
+    <string name="setup_provider_detail">Teikėjas yra paslauga, kuri paleidžia modelį. Pasirinkite jo šabloną, kad įvestumėte ryšio duomenis. Jei reikia API rakto, gaukite jį teikėjo svetainėje.</string>
+    <string name="setup_unsure">Nežinau</string>
+    <string name="setup_choose_model">Pasirinkti modelį</string>
+    <string name="setup_model_detail">Pirmiesiems pokalbiams pasirinkite modelį iš %1$s.</string>
+    <string name="setup_model_fallback">Patikrinkite API adresą bei raktą ir bandykite dar kartą. Jei teikėjas nerodo modelių sąrašo, įveskite tikslų modelio identifikatorių iš jo svetainės.</string>
+    <string name="add_model_by_id">Pridėti modelį pagal ID</string>
+    <string name="setup_use_model">Naudoti šį modelį</string>
+    <string name="setup_next">Tęsti</string>
+    <string name="setup_effort_title">Kiek laiko modeliui skirti apmąstymams?</string>
+    <string name="setup_effort_detail">Samprotavimo lygis lemia, kiek laiko DI apgalvoja atsakymą. Sudėtingai istorijai ar papildiniui rinkitės aukščiausią lygį. Greitam pokalbiui išbandykite žemesnį. Aukštesnis lygis gali užtrukti ilgiau ir išnaudoti daugiau kvotos. Lygį galite keisti skiltyje Nuostatos → Modeliai.</string>
+    <string name="setup_help_title">Pagalba konfigūruojant MiniRP</string>
+    <string name="setup_help_detail">Nukopijuokite užklausą į %1$s ir atlikite siūlomus veiksmus.</string>
+    <string name="setup_assistants_china">DeepSeek arba Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok arba Claude</string>
+    <string name="setup_unknown_region">nežinomas</string>
+    <string name="setup_copy_prompt">Kopijuoti užklausą</string>
+    <string name="setup_help_web">Paieška ir svetainių puslapių gavimas</string>
+    <string name="setup_help_intro">Pirmą kartą naudoju MiniRP sistemoje Android. Atsakykite kalba %1$s. Mano įrenginio regionas – %2$s. Pirmiausia perskaitykite oficialų MiniRP vadovą adresu %3$s. Praneškite, jeigu jo nepavyks atverti.</string>
+</resources>

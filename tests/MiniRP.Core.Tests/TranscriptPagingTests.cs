@@ -58,6 +58,12 @@ public sealed class TranscriptPagingTests
                 Assert.AreEqual("PresetAgent-3", newest[160].GetString("content"));
                 Assert.AreEqual("PresetAgent-82", newest[239].GetString("content"));
                 var before = history.GetString("chat");
+                var ruler = history.GetObject("_ruler").GetArray("chat");
+                Assert.HasCount(125, ruler);
+                Assert.AreEqual("ChatAgent-0", ruler[0].GetString("content"));
+                Assert.AreEqual("ChatAgent-124", ruler[124].GetString("content"));
+                Assert.IsFalse(ruler[80]!.AsObject().ContainsKey("asset_links"));
+                Assert.HasCount(15, history.GetObject("_ruler").GetArray("env"));
 
                 async Task<int> RefreshCards()
                 {
@@ -112,6 +118,7 @@ public sealed class TranscriptPagingTests
                 engine.Dispatch(new() { ["op"] = "_transcript_checkpoint" });
                 var checkpoint = await Event(engine, "transcript_checkpoint");
                 Assert.AreEqual("ChatAgent-205", checkpoint.GetObject("panes").GetArray("chat")[79].GetString("content"));
+                Assert.HasCount(126, checkpoint.GetObject("history").GetObject("_ruler").GetArray("chat"));
                 var repeated = await Page("chat", before, room);
                 CollectionAssert.AreEqual(middle.GetArray("blocks").Select(block => block.GetString("id")).ToArray(),
                     repeated.GetArray("blocks").Select(block => block.GetString("id")).ToArray());
@@ -179,6 +186,9 @@ public sealed class TranscriptPagingTests
             Assert.HasCount(80, bridgeLoaded.GetArray("blocks"));
             Assert.AreEqual("Bridge-15", bridgeLoaded.GetArray("blocks")[0].GetString("content"));
             var before = bridgeLoaded.GetObject("history").GetString("ensemble");
+            var ruler = bridgeLoaded.GetObject("history").GetObject("_ruler").GetArray("ensemble");
+            Assert.HasCount(15, ruler);
+            Assert.AreEqual("Bridge-0", ruler[0].GetString("content"));
 
             async Task<JsonObject> Read(string scene) => await Request(engine, new JsonObject
                 { ["op"] = "transcript_page", ["preset"] = preset, ["room"] = room,

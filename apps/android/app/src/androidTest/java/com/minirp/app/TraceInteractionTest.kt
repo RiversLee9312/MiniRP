@@ -7,17 +7,21 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
@@ -40,13 +44,18 @@ import androidx.compose.ui.test.swipeDown
 import androidx.test.core.app.ApplicationProvider
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.minirp.app.ui.AgentConversation
+import com.minirp.app.ui.AgentPanel
 import com.minirp.app.ui.AgentRole
 import com.minirp.app.ui.ChatState
+import com.minirp.app.ui.MiniRPTheme
 import com.minirp.app.ui.TraceBlock
 import com.minirp.app.ui.TraceLog
 import com.minirp.app.ui.TraceStep
+import com.minirp.app.ui.SubagentAction
+import com.minirp.app.ui.subagentCount
 import com.minirp.app.ui.formatTracePayload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -172,77 +181,121 @@ class TraceInteractionTest {
     }
 
     @Test
-    fun searchTraceRequiresItsOwnExpansionInsideAnExpandedChatTrace() {
+    fun subagentBadgeUsesOnSecondaryAndCapsCountsInBothThemes() {
+        var count by mutableStateOf(0)
+        var dark by mutableStateOf(false)
+        var expectedColor = Color.Unspecified
         compose.setContent {
+            MiniRPTheme(darkTheme = dark, seedColor = Color.Magenta) {
+                val foreground = MaterialTheme.colorScheme.onSecondary
+                SideEffect { expectedColor = foreground }
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                    SubagentAction(count) {}
+                }
+            }
+        }
+        compose.onNodeWithTag("subagents-count", useUnmergedTree = true).assertDoesNotExist()
+        for (darkTheme in listOf(false, true)) {
+            compose.runOnIdle { dark = darkTheme }
+            for ((actual, shown) in listOf(99 to "99", 100 to "99+", 1234 to "99+")) {
+                compose.runOnIdle { count = actual }
+                val layouts = mutableListOf<TextLayoutResult>()
+                val badgeText = hasText(shown) and hasAnyAncestor(hasTestTag("subagents-count"))
+                compose.onNode(badgeText, useUnmergedTree = true).assertIsDisplayed()
+                    .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                val layout = layouts.single()
+                assertEquals(expectedColor, layout.layoutInput.style.color)
+                val lineWidth = layout.getLineRight(0) - layout.getLineLeft(0)
+                assertEquals(shown.length, layout.getLineEnd(0, visibleEnd = true))
+                assertTrue("Badge $shown measures $lineWidth px within ${layout.size}", lineWidth <= layout.size.width + 1f)
+            }
+        }
+    }
+
+    @Test
+    fun searchOwnsItsBrowserAndOnlyTheCurrentParentShowsTheBadge() {
+        val blocks = listOf(
+            TraceBlock("chat", reasoning = "Chat reasoning", content = "Chat reply"),
+            TraceBlock("search", "SearchAgent", reasoning = "Search reasoning"),
+            TraceBlock("fetch", "FetchAgent", content = "Nested browser detail", parentAgent = "SearchAgent"),
+        )
+        val state = ChatState(preset = "fixture", chatId = "room", expandThoughts = true, blocks = blocks)
+        compose.setContent {
+            var open by remember { mutableStateOf(false) }
             MaterialExpressiveTheme {
-                TraceLog(
-                    listOf(
-                        TraceBlock("chat", reasoning = "Chat reasoning"),
-                        TraceBlock("search", "SearchAgent", reasoning = "Search reasoning"),
-                        TraceBlock("fetch", "FetchAgent", content = "Fetch detail"),
-                    ),
-                    expandThoughts = true,
-                )
+                if (open) AgentPanel(AgentRole.Chat, blocks, null, onClose = { open = false })
+                else Column {
+                    SubagentAction(subagentCount(AgentRole.Chat, blocks)) { open = true }
+                    AgentConversation(state, AgentRole.Chat, Modifier.weight(1f), onCancel = {}, onSend = { false }, onModels = {})
+                }
             }
         }
         compose.onNodeWithText("Chat reasoning").assertIsDisplayed()
         compose.onNodeWithText("Search reasoning").assertDoesNotExist()
-        compose.onNodeWithText("Fetch detail").assertDoesNotExist()
-        val search = compose.onNodeWithText(label(R.string.search_agent))
-        search.performClick()
+        compose.onNodeWithText("Nested browser detail").assertDoesNotExist()
+        val badgeText = hasText("1") and hasAnyAncestor(hasTestTag("subagents-count"))
+        compose.onNode(badgeText, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("subagents-action").performClick()
+        compose.onNodeWithTag("plugin-agent:fetch").assertDoesNotExist()
+        compose.onNodeWithTag("plugin-agent:search").performClick()
         compose.onNodeWithText("Search reasoning").assertIsDisplayed()
-        compose.onNodeWithText("Fetch detail").assertIsDisplayed()
-        search.performClick()
-        compose.onNodeWithText("Chat reasoning").assertIsDisplayed()
-        compose.onNodeWithText("Search reasoning").assertDoesNotExist()
+        compose.onNodeWithText("Nested browser detail").assertDoesNotExist()
+        compose.onNode(badgeText, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("subagents-action").performClick()
+        compose.onNodeWithTag("plugin-agent:fetch").performClick()
+        compose.onNodeWithText("Nested browser detail").assertIsDisplayed()
+        compose.onNodeWithTag("subagents-count", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription(label(R.string.back)).performClick()
+        compose.onNodeWithContentDescription(label(R.string.back)).performClick()
+        compose.onNodeWithText("Search reasoning").assertIsDisplayed()
     }
 
     @Test
-    fun presetPluginRunsExpandIndependentlyAndKeepTheirResultsInTheTrace() {
+    fun presetPluginAndBrowserRunsOnlyAppearOnTheirSubagentPages() {
+        val state = ChatState(
+            preset = "fixture",
+            expandThoughts = true,
+            blocks = listOf(
+                TraceBlock("preset-thought", "PresetAgent", reasoning = "Delegating two projects"),
+                TraceBlock("first", "PluginAgent", pluginRun = "first", pluginAgentName = "Writer", pluginStatus = "finished"),
+                TraceBlock("first-tool", "PluginAgent", tool = "write_manifest", pluginRun = "first"),
+                TraceBlock("browser", "PluginAgent", speaker = "BrowserAgent", content = "Browser fetch detail", pluginRun = "first"),
+                TraceBlock("preset-result", "PresetAgent", content = "Both projects are done."),
+                TraceBlock("first-reply", "PluginAgent", content = "Plugin published", pluginRun = "first"),
+            ),
+        )
         compose.setContent {
             MaterialExpressiveTheme {
-                AgentConversation(
-                    ChatState(
-                        preset = "fixture",
-                        expandThoughts = true,
-                        blocks = listOf(
-                            TraceBlock("preset-thought", "PresetAgent", reasoning = "Delegating two projects"),
-                            TraceBlock("first", "PluginAgent", pluginRun = "first", pluginAgentName = "Writer", pluginStatus = "finished"),
-                            TraceBlock("second", "PluginAgent", pluginRun = "second", pluginAgentName = "Reader", pluginStatus = "finished"),
-                            TraceBlock("first-tool", "PluginAgent", tool = "write_manifest", pluginRun = "first"),
-                            TraceBlock("preset-result", "PresetAgent", content = "Both projects are done."),
-                            TraceBlock("second-reply", "PluginAgent", content = "Schema read", pluginRun = "second"),
-                            TraceBlock("first-reply", "PluginAgent", content = "Plugin published", pluginRun = "first"),
-                        ),
-                    ),
-                    AgentRole.Preset,
-                    onCancel = {},
-                    onSend = { false },
-                    onModels = {},
+                AgentPanel(
+                    AgentRole.Preset, state.blocks, null, onClose = {},
+                    conversation = { modifier ->
+                        AgentConversation(state, AgentRole.Preset, modifier, onCancel = {}, onSend = { false }, onModels = {})
+                    },
                 )
             }
         }
         compose.onNodeWithText("Both projects are done.").assertIsDisplayed()
         compose.onNodeWithText("Plugin published").assertDoesNotExist()
-        compose.onNodeWithText("Schema read").assertDoesNotExist()
+        compose.onNodeWithText("Browser fetch detail").assertDoesNotExist()
+        compose.onNodeWithTag("subagents-action").performClick()
+        compose.onNodeWithTag("plugin-agent:fetch").assertDoesNotExist()
         compose.onNodeWithText("Writer").performClick()
-        compose.onAllNodesWithText("Writer").assertCountEquals(1)
         compose.onNodeWithText("write manifest").assertIsDisplayed()
         compose.onNodeWithText("Plugin published").assertIsDisplayed()
-        compose.onNodeWithText("Schema read").assertDoesNotExist()
-        compose.onNodeWithText("Writer").performClick()
-        compose.onNodeWithText("Reader").performClick()
+        compose.onNodeWithText("Browser fetch detail").assertDoesNotExist()
+        compose.onNodeWithTag("subagents-action").performClick()
+        compose.onNodeWithTag("plugin-agent:fetch").performClick()
+        compose.onNodeWithText("Browser fetch detail").assertIsDisplayed()
         compose.onNodeWithText("Plugin published").assertDoesNotExist()
-        compose.onNodeWithText("Schema read").assertIsDisplayed()
     }
 
     @Test
-    fun expandedSearchTracePinsBothHeadersAndKeepsItsReadingPositionWhileStreaming() {
+    fun expandedTraceKeepsItsReadingPositionWhileStreaming() {
         val blocks =
             mutableStateOf(
                 listOf(TraceBlock("chat", reasoning = "Chat reasoning")) +
                     List(110) { index ->
-                        TraceBlock("search-$index", "SearchAgent", reasoning = "Search row $index")
+                        TraceBlock("row-$index", reasoning = "Activity row $index")
                     }
             )
         lateinit var list: LazyListState
@@ -250,10 +303,8 @@ class TraceInteractionTest {
             list = rememberLazyListState(initialFirstVisibleItemIndex = Int.MAX_VALUE)
             MaterialExpressiveTheme { TraceLog(blocks.value, expandThoughts = true, list = list) }
         }
-        compose.onNodeWithText(label(R.string.search_agent)).performClick()
         val root = compose.onNodeWithTag("pinned:activity:chat")
-        val search = compose.onNodeWithTag("pinned:search-activity:search-0")
-        compose.waitUntil(5_000) { root.isDisplayed() && search.isDisplayed() }
+        compose.waitUntil(5_000) { root.isDisplayed() }
         val viewport = compose.onNodeWithTag("transcript")
         assertTrue(
             root.fetchSemanticsNode().boundsInRoot.top <=
@@ -266,7 +317,7 @@ class TraceInteractionTest {
                 durationMillis = 600,
             )
         }
-        compose.waitUntil(5_000) { search.isDisplayed() }
+        compose.waitUntil(5_000) { root.isDisplayed() }
         fun readingAnchor() = compose.runOnIdle {
             assertTrue(list.canScrollForward)
             val first =
@@ -276,13 +327,12 @@ class TraceInteractionTest {
         val anchor = readingAnchor()
         compose.runOnIdle {
             blocks.value +=
-                TraceBlock("streaming", "SearchAgent", reasoning = "More results", streaming = true)
+                TraceBlock("streaming", reasoning = "More results", streaming = true)
         }
         assertEquals(anchor, readingAnchor())
-        search.assertIsDisplayed()
-        search.performClick()
-        search.assertDoesNotExist()
-        compose.onNodeWithText("Chat reasoning").assertIsDisplayed()
+        root.assertIsDisplayed()
+        root.performClick()
+        root.assertDoesNotExist()
         compose.onNodeWithText("More results").assertDoesNotExist()
     }
 
@@ -294,7 +344,7 @@ class TraceInteractionTest {
         val list = LazyListState()
         compose.setContent {
             MaterialExpressiveTheme {
-                TraceLog(blocks, expandThoughts = true, list = list, standalonePluginTrace = true)
+                TraceLog(blocks, expandThoughts = true, list = list, expandActivity = true)
             }
         }
         compose.onNodeWithText("fixture tool").performClick()

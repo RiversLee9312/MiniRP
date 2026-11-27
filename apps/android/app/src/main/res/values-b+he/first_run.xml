@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">ברוכים הבאים ל־MiniRP</string>
+    <string name="setup_welcome_detail">חברו שירות בינה מלאכותית ובחרו את המודל שישמש ב־MiniRP לשיחות ולהגדרת תבניות.</string>
+    <string name="setup_begin">שנתחיל?</string>
+    <string name="setup_download_notice">MiniRP הוא יישום חינמי בקוד פתוח וללא מטרות רווח. הורידו אותו מדף הגרסאות הרשמי. היזהרו מהונאות אם קיבלתם אותו ממקור אחר או אם גבו מכם תשלום.</string>
+    <string name="setup_official_download">הורדה רשמית</string>
+    <string name="setup_connect_provider">חיבור שירות בינה מלאכותית</string>
+    <string name="setup_provider_detail">הספק מפעיל את המודל. בחרו בתבנית שלו כדי למלא את פרטי החיבור. אם נדרש מפתח API, קבלו אותו באתר הספק.</string>
+    <string name="setup_unsure">לא ידוע לי</string>
+    <string name="setup_choose_model">בחירת מודל</string>
+    <string name="setup_model_detail">בחרו מודל מהספק %1$s לשיחות הראשונות.</string>
+    <string name="setup_model_fallback">בדקו את כתובת ה־API ואת המפתח ונסו שוב. אם הספק לא מציג רשימת מודלים, הזינו את מזהה המודל המדויק מהאתר שלו.</string>
+    <string name="add_model_by_id">הוספת מודל לפי מזהה</string>
+    <string name="setup_use_model">שימוש במודל הזה</string>
+    <string name="setup_next">המשך</string>
+    <string name="setup_effort_title">כמה זמן להקדיש לחשיבה?</string>
+    <string name="setup_effort_detail">רמת החשיבה קובעת כמה זמן הבינה המלאכותית מקדישה לחשיבה לפני המענה. לסיפור מורכב או לתוסף כדאי להתחיל ברמה הגבוהה ביותר. לשיחה קצרה, נסו רמה נמוכה יותר. רמות גבוהות עשויות לדרוש יותר זמן ולצרוך יותר מהמכסה. אפשר לשנות את הרמה בהגדרות ← מודלים.</string>
+    <string name="setup_help_title">עזרה בהגדרת MiniRP</string>
+    <string name="setup_help_detail">העתיקו את ההנחיה אל %1$s ופעלו לפי השלבים שיוצעו.</string>
+    <string name="setup_assistants_china">DeepSeek או Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok או Claude</string>
+    <string name="setup_unknown_region">לא ידוע</string>
+    <string name="setup_copy_prompt">העתקת הנחיה</string>
+    <string name="setup_help_web">חיפוש ואחזור דפי אינטרנט</string>
+    <string name="setup_help_intro">אני משתמש ב־MiniRP ל־Android בפעם הראשונה. ענו לי בשפה %1$s. אזור המכשיר שלי הוא %2$s. קראו תחילה את המדריך הרשמי בכתובת %3$s. הודיעו לי אם אי אפשר לפתוח אותו.</string>
+</resources>

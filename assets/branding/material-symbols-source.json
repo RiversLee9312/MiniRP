@@ -1,7 +1,7 @@
 {
   "family": "Material Symbols Rounded",
-  "source": "https://fonts.gstatic.com/l/font?kit=syl0-zNym6YjUruM-QrEh7-nyTnjDwKNJ_190FjpZIvDmUSVOK7BDB_Qb9vUSzq3wzLK-P0J-V_Zs-QtQth3-jOcbTCVpeRL2w5rwZu2rIelXxKRNccDe81u7DANSS1DH1lE6hjYcjkbXcFSQLJL7F4wWJAVsay9kJmM6YXgkdaHRskHGV6iMlm-tNIqW0xko1PjbvOReNWxL_mNTec&skey=70ddea8fe54d532e&v=v386",
-  "version": "v386",
+  "source": "https://fonts.gstatic.com/l/font?kit=syl0-zNym6YjUruM-QrEh7-nyTnjDwKNJ_190FjpZIvDmUSVOK7BDB_Qb9vUSzq3wzLK-P0J-V_Zs-QtQth3-jOcbTCVpeRL2w5rwZu2rIelXxKRNccDe81u7DANSS1DH1lE6hjYcjkbXcFSQLJL7F4wWJAVsay9kJmM6YXgkdaHRskHWV6iMlm-tNIqW0xkozWDWC_NQBPtWNsUGPc&skey=70ddea8fe54d532e&v=v388",
+  "version": "v388",
   "axes": {
     "opsz": 24,
     "FILL": 0,
@@ -10,6 +10,7 @@
   },
   "icons": [
     "add",
+    "archive",
     "arrow_back",
     "arrow_downward",
     "arrow_forward",
@@ -48,9 +49,9 @@
     "visibility",
     "visibility_off"
   ],
-  "sha256": "d53a4c2c033a543cecc81f97259a30dc61e45fd13aa5fe07a718c47417c8f5f2",
+  "sha256": "78b5f0d4cba05c6474205f4f8b51228038a7be2cc6593b1eb25add5a149eddd1",
   "web": {
-    "source": "https://fonts.gstatic.com/l/font?kit=syl7-zNym6YjUruM-QrEh7-nyTnjDwKNJ_190FjpZIvLgyidOK7BDB_Qb9vUdV6_gjDK-P3JuF_Zs-obHph2-jOcZTKPq96mVPKyperTyiiOFnnPQfYNadx5_SMcVjxRCV4GpKC9flRFrzfYXNAw2krq_xfYoqwvXCJhqS6XAN-NTakHnwcmXz6u_cW5wlU&skey=70ddea8fe54d532e&v=v388",
+    "source": "https://fonts.gstatic.com/l/font?kit=syl7-zNym6YjUruM-QrEh7-nyTnjDwKNJ_190FjpZIvLgyidOK7BDB_Qb9vUdV6_gjDK-P3JuF_Zs-obHph2-jOcZTKPq96lVPKyperTyiiOFnnPQfYNad94-iIfVzNQCk5Aq0liFjJ3ADCry6050_6pZK4Xw8qH_ESgFYPpOnEejQptmcTE8q0mFbZwsmVtkHY&skey=70ddea8fe54d532e&v=v388",
     "version": "v388",
     "axes": {
       "opsz": 24,
@@ -63,6 +64,7 @@
     },
     "icons": [
       "add",
+      "archive",
       "arrow_back",
       "arrow_downward",
       "arrow_forward",
@@ -83,6 +85,7 @@
       "expand_more",
       "extension",
       "fork_right",
+      "format_quote",
       "info",
       "language",
       "license",
@@ -100,6 +103,6 @@
       "visibility",
       "visibility_off"
     ],
-    "sha256": "c9f986a1e9503170c1078a07c77c3d697bff31784fb715c7d2faaf13a9c3d63c"
+    "sha256": "1bbe70a548c998e7bf0176e06417efb2a4695dcf69d055870749923493648549"
   }
 }

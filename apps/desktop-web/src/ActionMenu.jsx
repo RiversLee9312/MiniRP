@@ -31,7 +31,7 @@ export function ActionMenu({ label, groups, disabled, buttonRef }) {
     if (!popup.matches(":popover-open")) popup.showPopover();
     positionMenu(trigger.current, popup);
     const available = items();
-    (last ? available.at(-1) : available[0])?.focus({ preventScroll: true });
+    (last ? available.at(-1) : available[0])?.focus();
   }
 
   useEffect(() => {

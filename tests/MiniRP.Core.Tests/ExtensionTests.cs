@@ -553,8 +553,13 @@ public sealed class ExtensionTests
         await Until(engine, "completed", scripts);
         engine.Dispatch(new() { ["op"] = "open_preset", ["preset"] = opened.GetString("preset") });
         var reopened = await Until(engine, "preset_opened", scripts);
-        Assert.AreEqual(1, reopened.GetArray("blocks").Count);
-        Assert.AreEqual("你想创造一个什么样的世界？", reopened.GetArray("blocks")[0].GetString("content"));
+        var blocks = reopened.GetArray("blocks");
+        var reply = blocks.Single(block => block.GetString("kind") != "reply_end");
+        var boundary = blocks.Single(block => block.GetString("kind") == "reply_end");
+        Assert.AreEqual("你想创造一个什么样的世界？", reply.GetString("content"));
+        Assert.AreEqual(reply.GetString("id"), boundary.GetString("first_block"));
+        Assert.AreEqual(reply.GetString("content"), boundary.GetString("reply"));
+        Assert.AreNotEqual("", boundary.GetString("version"));
         Assert.AreEqual("", engine.Workspace.ChatId);
     }
 
@@ -1133,7 +1138,8 @@ public sealed class ExtensionTests
                 item.GetString("session") == "fetch-" + job).ToArray();
             Assert.IsTrue(fetched.Any(item => item.GetString("name") == "capture_page"));
             Assert.IsTrue(fetched.All(item => item.GetString("conversation") == scene &&
-                item.GetString("preset") == preset && item.GetString("participant") == participant));
+                item.GetString("preset") == preset && item.GetString("participant") == participant &&
+                item.GetString("parent_agent") == "SearchAgent"));
             using var database = MemoryDb.ReadOnly(SessionFiles.Fetch(engine.Workspace.ChatRoot, job));
             StringAssert.Contains(database.Get("page/markdown")!, name + " fixture content");
             var snapshot = await Select(scene);
@@ -1141,7 +1147,8 @@ public sealed class ExtensionTests
             engine.Dispatch(new() { ["op"] = "ensemble_member_trace", ["preset"] = preset, ["chat"] = room, ["participant"] = participant });
             var debug = (await Until(engine, "ensemble_member_trace", scripts)).GetArray("blocks");
             Assert.IsTrue(debug.Any(item => item.GetString("tool") == "capture_page" && item.GetString("conversation") == scene &&
-                item.GetString("session") == "fetch-" + job && item.GetString("participant") == participant));
+                item.GetString("session") == "fetch-" + job && item.GetString("participant") == participant &&
+                item.GetString("parent_agent") == "SearchAgent"));
             Assert.IsTrue(debug.All(item => item.GetString("participant") == participant));
         }
     }
@@ -2377,6 +2384,57 @@ public sealed class ExtensionTests
     }
 
     [TestMethod]
+    public async Task ChatCanSearchAndFetchTheReturnedUrlInOneReply()
+    {
+        const string url = "https://fixture.invalid/source";
+        const string query = "fixture chronology";
+        await using var engine = new Engine(NewRoot());
+        using var scripts = new PluginScripts();
+        engine.Dispatch(new() { ["op"] = "configure",
+            ["provider"] = new JsonObject { ["url"] = "http://fixture.invalid/v1", ["model"] = "fixture" },
+            ["settings"] = new JsonObject { ["search_key"] = "fixture", ["search_url"] = "http://research.fixture.invalid",
+                ["fetch_backend"] = "api" } });
+        engine.Dispatch(new() { ["op"] = "message", ["text"] = "Search and read the source." });
+
+        static JsonObject Result(JsonObject request) => JsonValues.ParseObject(JsonValues.ParseObject(request.GetString("body"))
+            .GetArray("messages").Last(item => item.GetString("role") == "tool").GetString("content"));
+        void Respond(JsonObject request, JsonObject payload) => engine.Dispatch(new()
+        {
+            ["op"] = "io_reply", ["id"] = request.GetString("id"), ["done"] = true, ["data"] = JsonValues.Serialize(payload)
+        });
+
+        var chat = await NextModel(engine, scripts);
+        Assert.IsTrue(Offers(chat, "search") && Offers(chat, "open_url"));
+        ReplyTool(engine, chat, "search", new() { ["query"] = query });
+        var research = await NextModel(engine, scripts);
+        Assert.IsTrue(Offers(research, "real_search"));
+        ReplyTool(engine, research, "real_search", new() { ["query"] = query });
+        var search = await NextModel(engine, scripts);
+        Assert.AreEqual("http://research.fixture.invalid/v1/tools/search", search.GetString("url"));
+        Respond(search, new() { ["results"] = new JsonArray(new JsonObject
+            { ["url"] = url, ["title"] = "Fixture", ["snippet"] = "An excerpt." }) });
+        research = await NextModel(engine, scripts);
+        var candidate = Result(research).GetArray("results").Single();
+        ReplyTool(engine, research, "submit_search_results", new() { ["refs"] = new JsonArray(candidate.GetString("ref")) });
+        chat = await NextModel(engine, scripts);
+        var result = Result(chat).GetArray("results").Single();
+        Assert.AreEqual(url, result.GetString("url"));
+        ReplyTool(engine, chat, "open_url", new() { ["url"] = result.GetString("url") });
+        research = await NextModel(engine, scripts);
+        Assert.IsTrue(Offers(research, "real_fetch"));
+        ReplyTool(engine, research, "real_fetch", new() { ["url"] = url });
+        var fetch = await NextModel(engine, scripts);
+        Assert.AreEqual("http://research.fixture.invalid/v1/tools/fetch", fetch.GetString("url"));
+        Assert.AreEqual(url, JsonValues.ParseObject(fetch.GetString("body")).GetString("url"));
+        Respond(fetch, new() { ["title"] = "Fixture", ["content"] = "# Verified conclusion" });
+        research = await NextModel(engine, scripts);
+        ReplyTool(engine, research, "submit_page", new() { ["ref"] = Result(research).GetString("ref") });
+        chat = await NextModel(engine, scripts);
+        StringAssert.Contains(Result(chat).GetString("content"), "Verified conclusion");
+        Reply(engine, chat, "The source was retrieved.");
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ChatOpenUrlReturnsMarkdownAfterFetchAndAfterSearchAgentEdits(bool longPage)
@@ -2394,8 +2452,11 @@ public sealed class ExtensionTests
             ["url"] = "http://fixture.invalid/v1", ["model"] = "fixture"
         }, ["settings"] = new JsonObject { ["search_key"] = "test", ["fetch_backend"] = "api" } });
         engine.Dispatch(new() { ["op"] = "message", ["text"] = "Open the source." });
-        ReplyTool(engine, await NextModel(engine, scripts), "activate_skill", new() { ["name"] = "web-research" });
-        ReplyTool(engine, await NextModel(engine, scripts), "open_url", new() { ["url"] = url });
+        var first = await NextModel(engine, scripts);
+        Assert.IsTrue(Offers(first, "open_url"));
+        Assert.IsTrue(Offers(first, "search"));
+        Assert.IsFalse(Offers(first, "real_fetch"));
+        ReplyTool(engine, first, "open_url", new() { ["url"] = url });
         ReplyTool(engine, await NextModel(engine, scripts), "real_fetch", new() { ["url"] = url });
         var fetch = await NextModel(engine, scripts);
         StringAssert.EndsWith(fetch.GetString("url"), "/v1/tools/fetch");
@@ -2575,8 +2636,10 @@ public sealed class ExtensionTests
         static JsonObject LastResult(JsonObject request) => JsonValues.ParseObject(JsonValues.ParseObject(request.GetString("body"))
             .GetArray("messages").Last(message => message.GetString("role") == "tool").GetString("content"));
 
-        ReplyTool(engine, await NextModel(engine, scripts), "activate_skill", new() { ["name"] = "web-research" });
-        ReplyTool(engine, await NextModel(engine, scripts), "search", new() { ["query"] = "fixture terms" });
+        var first = await NextModel(engine, scripts);
+        Assert.IsTrue(Offers(first, "search"));
+        Assert.IsFalse(Offers(first, "real_search"));
+        ReplyTool(engine, first, "search", new() { ["query"] = "fixture terms" });
         ReplyTool(engine, await NextModel(engine, scripts), "real_search", new() { ["query"] = "fixture terms", ["limit"] = 55 });
         var request = await NextModel(engine, scripts);
         if (configuredSearch)
@@ -3039,8 +3102,9 @@ public sealed class ExtensionTests
         var first = await Until(engine, "http_request");
         var body = first.GetString("body");
         Assert.IsFalse(body.Contains("HIDDEN_WORLD") || body.Contains("HIDDEN_RULE") || body.Contains("current_state") || body.Contains("2001-01-01"));
-        Assert.IsFalse(body.Contains("open_url"), "Web tools only become available after activation.");
-        StringAssert.Contains(body, "search");
+        Assert.IsTrue(Offers(first, "search") && Offers(first, "open_url"));
+        foreach (var tool in new[] { "real_search", "real_fetch", "virtual_search", "cache_search_results", "cache_page" })
+            Assert.IsFalse(Offers(first, tool), tool);
         Assert.IsFalse(body.Contains("search-full", StringComparison.Ordinal));
         engine.Dispatch(new() { ["op"] = "steer", ["chat"] = engine.Workspace.ChatId, ["agent"] = "chat", ["role"] = "system", ["text"] = "New instruction" });
         var second = await Until(engine, "http_request");

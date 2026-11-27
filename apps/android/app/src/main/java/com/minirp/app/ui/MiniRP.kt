@@ -124,6 +124,7 @@ fun MiniRP(model: ChatViewModel, darkTheme: Boolean = isSystemInDarkTheme()) {
         val active = destination?.destination
         val isChat = active?.hasRoute<AppRoute.Chat>() != false
         var panel by rememberSaveable { mutableStateOf("") }
+        var showSubagents by rememberSaveable(state.preset, state.chatId, state.ensembleChatId) { mutableStateOf(false) }
         val isConversation = isChat || active.hasRoute<AppRoute.EnsembleChat>()
         val activePanel = if (state.presetEditorOpen && isConversation) "preset" else panel
         fun closePanel(): Boolean {
@@ -371,6 +372,7 @@ fun MiniRP(model: ChatViewModel, darkTheme: Boolean = isSystemInDarkTheme()) {
                         var archiveOpen by rememberSaveable(state.chatId) { mutableStateOf(false) }
                         val archiveScroll = key(state.chatId) { rememberLazyListState() }
                         PageScaffold(
+                            drawBehindNavigation = true,
                             topBar = {
                                 ChatToolbar(
                                     state,
@@ -389,6 +391,10 @@ fun MiniRP(model: ChatViewModel, darkTheme: Boolean = isSystemInDarkTheme()) {
                                     onPresetHintSeen = chatHint.takeIf { isChat },
                                     onBackground = background != null,
                                     onArchive = ({ archiveOpen = true }).takeIf { state.ensembleChats != null },
+                                    onSubagents = ({ showSubagents = true }).takeIf {
+                                        state.chatId.isNotBlank() && state.ensembleChats == null
+                                    },
+                                    subagents = remember(state.blocks) { subagentCount(AgentRole.Chat, state.blocks) },
                                 )
                             },
                             snackbarHost = { if (activePanel.isBlank()) SnackbarHost(snackbars) },
@@ -409,7 +415,9 @@ fun MiniRP(model: ChatViewModel, darkTheme: Boolean = isSystemInDarkTheme()) {
                             } else if (state.chatId.isBlank() && state.presetSetupPending) {
                                 HomeGreeting(
                                     state.presetName,
-                                    Modifier.fillMaxSize(),
+                                    Modifier.fillMaxSize().windowInsetsPadding(
+                                        WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
+                                    ),
                                     { model.openPresetEditor() },
                                     enabled = state.ready && !state.busy && !state.preparing,
                                 )
@@ -418,12 +426,14 @@ fun MiniRP(model: ChatViewModel, darkTheme: Boolean = isSystemInDarkTheme()) {
                                     (state.chatMode == "ensemble" || state.chatGreeting)
                             ) {
                                 val ensemble = state.chatMode == "ensemble"
-                                PresetHomeBackdrop(background, Modifier.fillMaxSize()) { banner ->
+                                PresetBackdropLayout(background, Modifier.fillMaxSize(), home = true) { contrast ->
                                     Column(
-                                        Modifier.fillMaxSize().padding(
-                                            horizontal = if (banner == null) 24.dp else 0.dp,
-                                            vertical = 24.dp,
-                                        ),
+                                        Modifier.fillMaxSize()
+                                            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+                                            .padding(
+                                                horizontal = if (contrast == null) 24.dp else 0.dp,
+                                                vertical = 24.dp,
+                                            ),
                                         verticalArrangement =
                                             Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
                                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -433,7 +443,7 @@ fun MiniRP(model: ChatViewModel, darkTheme: Boolean = isSystemInDarkTheme()) {
                                             Modifier.fillMaxWidth(),
                                             { model.openPresetEditor() },
                                             enabled = state.ready && !state.busy && !state.preparing,
-                                            glassBanner = banner,
+                                            contrast = contrast,
                                             onHintSeen = homeHint,
                                         )
                                         Button(
@@ -535,11 +545,14 @@ fun MiniRP(model: ChatViewModel, darkTheme: Boolean = isSystemInDarkTheme()) {
                         }
                         val focus = LocalFocusManager.current
                         PageScaffold(
+                            drawBehindNavigation = true,
                             topBar = {
                                 if (privateChat) EnsembleMemberToolbar(
                                     member?.name ?: stringResource(R.string.ensemble_private_messages),
                                     back,
                                     onTrace = { open(AppRoute.EnsembleTrace(room, privateParticipant)) },
+                                    onSubagents = ({ showSubagents = true }).takeIf { selectionLoaded },
+                                    subagents = remember(state.ensembleBlocks) { subagentCount(AgentRole.Chat, state.ensembleBlocks) },
                                     onBackground = background != null,
                                 ) else ChatToolbar(
                                     state,
@@ -609,19 +622,17 @@ fun MiniRP(model: ChatViewModel, darkTheme: Boolean = isSystemInDarkTheme()) {
                         val (room, participant) = entry.toRoute<AppRoute.EnsembleTrace>()
                         val name = state.participants.firstOrNull { it.id == participant }?.name
                         val publicScenes = remember(state.ensembleChats) { state.ensembleChats.orEmpty().map { it.id }.toSet() }
-                        PageScaffold(
-                            topBar = { EnsembleMemberToolbar(stringResource(R.string.ensemble_member_trace), back, subtitle = name) },
-                            snackbarHost = { SnackbarHost(snackbars) },
-                        ) {
-                            if (state.chatId == room) {
-                                EnsembleMemberTrace(
-                                    load = { model.loadEnsembleTrace(room, participant) },
-                                    activeScene = state.ensembleActivity.firstOrNull {
-                                        it.participant == participant && it.conversation in publicScenes
-                                    }?.conversation,
-                                    displayAssets = { scene -> DisplayAssets(model, assetDownloader, state.preset, room, scene) },
-                                )
-                            }
+                        if (state.chatId == room) {
+                            EnsembleMemberTrace(
+                                back = back,
+                                subtitle = name,
+                                snackbarHost = { SnackbarHost(snackbars) },
+                                load = { model.loadEnsembleTrace(room, participant) },
+                                activeScene = state.ensembleActivity.firstOrNull {
+                                    it.participant == participant && it.conversation in publicScenes
+                                }?.conversation,
+                                displayAssets = { scene -> DisplayAssets(model, assetDownloader, state.preset, room, scene) },
+                            )
                         }
                     }
                 }
@@ -690,47 +701,51 @@ fun MiniRP(model: ChatViewModel, darkTheme: Boolean = isSystemInDarkTheme()) {
                             } else model.sendFromPanel(role, draft)
                         },
                         { modelPicker = it },
+                        onBranch = { model.branch(it, agent = role) },
+                        onBranchReply = { model.branch(it, afterReply = true, agent = role) },
                         loadThumbnail = { model.thumbnail(role, it) },
                         displayAssets = assets,
                         openUi = presetActions,
                         onRetryPresetInterview = model::retryPresetInterview,
+                        background = background.takeIf { role == AgentRole.Preset },
                     )
                 }
             }
-            if (role == AgentRole.Preset) {
-                key(session) {
-                    PresetPluginPanel(
-                        state.blocks,
-                        assets,
-                        ::closePanel,
-                        locked = state.presetExitLocked,
-                        canSwitchPreset = !state.presetWorking,
-                        canExportTranscript = state.canExportTranscript,
-                        onExportTranscript = { name, run ->
+            key(role, session) {
+                AgentPanel(
+                    role,
+                    state.blocks,
+                    assets,
+                    ::closePanel,
+                    locked = role == AgentRole.Preset && state.presetExitLocked,
+                    canSwitchPreset = role != AgentRole.Preset || !state.presetWorking,
+                    canExportTranscript = state.canExportTranscript && session.isNotBlank(),
+                    onExportTranscript = { name, run ->
+                        if (role == AgentRole.Preset) {
                             val targetRole = if (run.isEmpty()) AgentRole.Preset else AgentRole.Plugin
                             archives.exportTranscript(name.ifBlank { state.presetName },
                                 TranscriptTarget(state.preset, targetRole, run = run))
-                        },
-                        onSettings = { open(AppRoute.Settings) },
-                        library = { library(it, true) },
-                        snackbarHost = { SnackbarHost(snackbars) },
-                        conversation = conversation,
-                    )
-                }
-            } else {
-                FullSheet(stringResource(role.label), ::closePanel, actions = {
-                    ExportTranscriptButton(
-                        onClick = {
+                        } else {
                             archives.exportTranscript(state.chatName,
                                 TranscriptTarget(state.preset, AgentRole.World, state.chatId))
-                        },
-                        enabled = state.canExportTranscript && state.chatId.isNotBlank(),
-                    )
-                }) {
-                    conversation(Modifier.weight(1f).fillMaxWidth())
-                    SnackbarHost(snackbars)
-                }
+                        }
+                    },
+                    onSettings = { open(AppRoute.Settings) },
+                    library = { library(it, true) },
+                    snackbarHost = { SnackbarHost(snackbars) },
+                    conversation = conversation,
+                )
             }
+        }
+        if (showSubagents && isConversation && activePanel.isBlank()) {
+            val scene = state.ensembleChatId.takeUnless { state.ensembleChats == null }.orEmpty()
+            val assets = remember(model, assetDownloader, state.preset, state.chatId, scene) {
+                DisplayAssets(model, assetDownloader, state.preset, state.chatId, scene)
+            }
+            AgentPanel(
+                AgentRole.Chat, if (scene.isBlank()) state.blocks else state.ensembleBlocks,
+                assets, onClose = { showSubagents = false },
+            )
         }
         modelPicker?.let { role ->
             AssignmentSheet(
@@ -766,6 +781,8 @@ internal fun ChatToolbar(
     onExportTranscript: (() -> Unit)? = null,
     onBackground: Boolean = false,
     onArchive: (() -> Unit)? = null,
+    onSubagents: (() -> Unit)? = null,
+    subagents: Int = 0,
 ) {
     val hasChat = state.chatId.isNotEmpty()
     val motion = MaterialTheme.motionScheme
@@ -799,6 +816,7 @@ internal fun ChatToolbar(
             }
         },
         actions = {
+            if (onSubagents != null) SubagentAction(subagents, onClick = onSubagents)
             IconButton(onClick = onSettings) {
                 Symbol("settings", stringResource(R.string.settings))
             }
@@ -858,13 +876,26 @@ private fun SettingsPage(
 }
 
 @Composable
-private fun PageScaffold(
+internal fun PageScaffold(
     topBar: @Composable () -> Unit,
     snackbarHost: @Composable () -> Unit,
+    drawBehindNavigation: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    Scaffold(topBar = topBar, snackbarHost = snackbarHost) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
+    val insets = ScaffoldDefaults.contentWindowInsets
+    val bottomInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)
+    Scaffold(
+        topBar = topBar,
+        snackbarHost = {
+            Box(if (drawBehindNavigation) Modifier.windowInsetsPadding(bottomInsets) else Modifier) {
+                snackbarHost()
+            }
+        },
+        contentWindowInsets = if (drawBehindNavigation)
+            insets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal) else insets,
+    ) { padding ->
+        val contentInsets = if (drawBehindNavigation) Modifier else Modifier.imePadding()
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).then(contentInsets)) {
             content()
         }
     }

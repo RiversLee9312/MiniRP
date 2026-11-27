@@ -155,7 +155,11 @@ class CoreClient(
                         }
                         else -> {
                             val reply = replies.remove(event.optString("request"))
-                            if (reply != null) reply.complete(event) else mutableEvents.send(event)
+                            // The preset snapshot must reach the same collector before its live deltas.
+                            val presetSnapshot = event.optString("kind") == "preset_opened"
+                            val publish = if (presetSnapshot) reply != null || event.optBoolean("selected") else reply == null
+                            if (publish) mutableEvents.send(event)
+                            reply?.complete(event)
                         }
                     }
                 }

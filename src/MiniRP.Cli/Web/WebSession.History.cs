@@ -33,6 +33,8 @@ internal sealed partial class WebSession
         JsonArray Replace(JsonObject item, params string[] names)
         {
             var updatedHistory = new JsonObject();
+            var subagents = new JsonObject();
+            var rulers = new JsonObject();
             var blocks = new JsonArray();
             foreach (var pane in names)
             {
@@ -41,8 +43,12 @@ internal sealed partial class WebSession
                 source.Clear();
                 foreach (var block in entries) blocks.AddNode(block);
                 updatedHistory[pane] = JsonValues.Clone(history[pane]);
+                if (history["_subagents"]?[pane] is { } summary) subagents[pane] = summary.DeepClone();
+                if (history["_ruler"]?[pane] is { } ruler) rulers[pane] = ruler.DeepClone();
                 replaced.Add(pane);
             }
+            updatedHistory["_subagents"] = subagents;
+            updatedHistory["_ruler"] = rulers;
             item["history"] = updatedHistory;
             return blocks;
         }

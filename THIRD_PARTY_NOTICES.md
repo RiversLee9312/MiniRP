@@ -9,6 +9,7 @@ Dependencies are retained as maintained packages; this list also records directl
 - SharpZipLib 1.4.2: [MIT](https://github.com/icsharpcode/SharpZipLib/blob/v1.4.2/LICENSE.txt). The desktop runtime installer uses its BZip2 decoder and bundles the notice.
 - SQLite native library: [public domain](https://www.sqlite.org/copyright.html); packaged via SQLitePCLRaw.lib.e_sqlite3.
 - AndroidX, Jetpack Compose and Material 3: [Apache-2.0](https://source.android.com/docs/setup/about/licenses).
+- The Android wallpaper material adapts [react-native-blur](https://github.com/nguyenduy1412/react-native-blur/tree/78600442bfac8de63420615cc13fecaf609b1cb0) under MIT. The Android app bundles the notice.
 - MaterialKolor 5.0.1: [MIT](https://github.com/jordond/MaterialKolor/blob/5.0.1/LICENSE), bundled in the Android app with its license. The color engine ports [Material Color Utilities](https://github.com/material-foundation/material-color-utilities/blob/main/LICENSE) under Apache-2.0.
 - ClearScript: [MIT](https://github.com/ClearFoundry/ClearScript/blob/master/License.txt).
 - Javet: [Apache-2.0](https://github.com/caoccao/Javet/blob/main/LICENSE).
@@ -18,6 +19,10 @@ Dependencies are retained as maintained packages; this list also records directl
 - Bouncy Castle C# 2.7.0 and Java 1.87: [license](https://www.bouncycastle.org/licence/). The C# SDK signs detached CMS packages, with verification on desktop and the Android platform host.
 - OkHttp: [Apache-2.0](https://github.com/square/okhttp/blob/master/LICENSE.txt).
 - Multiplatform Markdown Renderer: [Apache-2.0](https://github.com/mikepenz/multiplatform-markdown-renderer/blob/develop/LICENSE).
+- Android chat formulas use the [Compose LaTeX renderer and KaTeX fonts](https://github.com/huarangmeng/latex) under MIT. The Android app bundles both notices.
+- WebUI chat formulas use [KaTeX](https://katex.org/), [rehype-katex](https://github.com/remarkjs/remark-math/tree/main/packages/rehype-katex), and [remark-math-extended](https://github.com/duz52/remark-math-extended) under MIT. Their notices are bundled with the WebUI.
+- WebUI attachment previews use [react-zoom-pan-pinch](https://github.com/BetterTyped/react-zoom-pan-pinch) under MIT and [PDF.js](https://mozilla.github.io/pdf.js/) under Apache-2.0. The WebUI bundles their licenses and the included PDF character map and font notices.
+- Android attachment previews use [Telephoto](https://saket.github.io/telephoto/), [Coil](https://coil-kt.github.io/coil/), and [AndroidX Media3](https://developer.android.com/media/media3), under Apache-2.0.
 - OpenUI and Intelligent UI components: [MIT](https://github.com/thesysdev/openui/blob/main/LICENSE). Bundled for Android and desktop WebUI interactive replies.
 - React: [MIT](https://github.com/facebook/react/blob/main/LICENSE). MapLibre GL JS: [BSD-3-Clause](https://github.com/maplibre/maplibre-gl-js/blob/main/LICENSE.txt). The interactive map shows map provider attribution.
 - Desktop WebUI: [Material Color Utilities (Apache-2.0)](https://github.com/material-foundation/material-color-utilities/blob/main/LICENSE), [react-markdown (MIT)](https://github.com/remarkjs/react-markdown/blob/main/license), [remark-gfm (MIT)](https://github.com/remarkjs/remark-gfm/blob/main/license), and [html-to-image (MIT)](https://github.com/bubkoo/html-to-image/blob/master/LICENSE).

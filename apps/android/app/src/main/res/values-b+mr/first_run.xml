@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">MiniRP मध्ये आपले स्वागत आहे</string>
+    <string name="setup_welcome_detail">AI सेवा जोडा आणि चॅट व प्रीसेट सेटअपसाठी MiniRP वापरेल ते मॉडेल निवडा.</string>
+    <string name="setup_begin">सुरू करा</string>
+    <string name="setup_download_notice">MiniRP हे मोफत, ना-नफा आणि मुक्त स्रोत ॲप आहे. अधिकृत रिलीझ पानावरून ते डाउनलोड करा. ते कुठून दुसरीकडून मिळाले असेल किंवा त्यासाठी पैसे द्यावे लागले असतील, तर फसवणुकीपासून सावध राहा.</string>
+    <string name="setup_official_download">अधिकृत डाउनलोड</string>
+    <string name="setup_connect_provider">AI सेवा जोडा</string>
+    <string name="setup_provider_detail">प्रदाता ही मॉडेल चालवणारी सेवा आहे. जोडणीची माहिती भरण्यासाठी त्याचा नमुना निवडा. API की आवश्यक असल्यास ती प्रदात्याच्या वेबसाइटवरून घ्या.</string>
+    <string name="setup_unsure">मला माहीत नाही</string>
+    <string name="setup_choose_model">मॉडेल निवडा</string>
+    <string name="setup_model_detail">पहिल्या संभाषणांसाठी %1$s मधून मॉडेल निवडा.</string>
+    <string name="setup_model_fallback">API पत्ता आणि की तपासा आणि पुन्हा प्रयत्न करा. प्रदाता मॉडेलची यादी दाखवत नसल्यास त्याच्या साईटवरचा अचूक मॉडेल ID टाका.</string>
+    <string name="add_model_by_id">ID वरून मॉडेल जोडा</string>
+    <string name="setup_use_model">हे मॉडेल वापरा</string>
+    <string name="setup_next">पुढे चला</string>
+    <string name="setup_effort_title">मॉडेलने किती विचार करावा?</string>
+    <string name="setup_effort_detail">विचाराची पातळी उत्तरापूर्वी AI किती वेळ विचार करेल हे ठरवते. गुंतागुंतीच्या कथेसाठी किंवा प्लगइनसाठी सर्वाधिक पातळीपासून सुरू करा. झटपट चॅटसाठी कमी पातळी वापरून पाहा. जास्त पातळीला अधिक वेळ आणि कोटा लागू शकतो. सेटिंग्ज → मॉडेल्स येथे ती बदलता येते.</string>
+    <string name="setup_help_title">MiniRP सेटअपसाठी मदत</string>
+    <string name="setup_help_detail">हा प्रॉम्प्ट %1$s मध्ये कॉपी करा, मग सुचवलेल्या पायऱ्या पूर्ण करा.</string>
+    <string name="setup_assistants_china">DeepSeek किंवा Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok किंवा Claude</string>
+    <string name="setup_unknown_region">अज्ञात</string>
+    <string name="setup_copy_prompt">प्रॉम्प्ट कॉपी करा</string>
+    <string name="setup_help_web">वेब शोध आणि पृष्ठे आणणे</string>
+    <string name="setup_help_intro">मी Android वर प्रथमच MiniRP वापरत आहे. कृपया %1$s भाषेत उत्तर द्या. माझ्या उपकरणाचा प्रदेश %2$s आहे. आधी %3$s वरील अधिकृत MiniRP मार्गदर्शक वाचा. तो उघडता येत नसेल तर सांगा.</string>
+</resources>

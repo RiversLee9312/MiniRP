@@ -4,9 +4,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -15,6 +17,7 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -99,6 +102,8 @@ internal fun Composer(
     systemMessageMode: Boolean? = null,
     filesState: MutableState<ArrayList<String>> = rememberDraftFiles(draft),
     quotesState: MutableState<List<QuoteAttachment>> = rememberDraftQuotes(draft),
+    cardInputInteraction: MutableInteractionSource? = null,
+    wallpaperActions: (@Composable (Modifier) -> Unit)? = null,
 ) {
     var text by textState
     val retained = draft?.attachments.orEmpty()
@@ -138,6 +143,8 @@ internal fun Composer(
         produceState(emptyList<DraftAttachment>(), submittedFiles, retained) {
             value = AttachmentStore(context).describe(submittedFiles, retained)
         }
+    var previewUri by rememberSaveable { mutableStateOf<String?>(null) }
+    drafts.firstOrNull { it.uri == previewUri }?.preview?.let { AttachmentPreviewDialog(it) { previewUri = null } }
     val scope = rememberCoroutineScope()
     fun send(system: Boolean = systemMessageMode == true) {
         if (
@@ -189,40 +196,26 @@ internal fun Composer(
                 )
             }
             items(drafts, key = { it.uri }) { draft ->
-                InputChip(
-                    selected = false,
-                    onClick = { files = ArrayList(files.filterNot { it == draft.uri }) },
+                AttachmentChip(
+                    name = draft.name,
+                    file = draft.preview,
+                    open = { previewUri = draft.uri },
                     enabled = !submitting,
-                    label = {
-                        Text(
-                            draft.name,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        )
-                    },
-                    trailingIcon = {
-                        Symbol(
-                            "close",
-                            stringResource(R.string.remove_attachment, draft.name),
-                            size = 16,
-                        )
-                    },
-                    modifier = Modifier.widthIn(max = 190.dp),
+                    remove = { files = ArrayList(files.filterNot { it == draft.uri }) },
+                    modifier = Modifier.testTag("draft-file"),
                 )
             }
         }
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.Bottom,
-    ) {
+    val inCard = cardInputInteraction != null
+    val addAttachment: @Composable () -> Unit = {
         if (allowAttachments)
             Box {
-                IconButton(
-                    onClick = { mediaMenu = true },
-                    enabled = !busy && !preparing && !submitting && fileLimit > 0,
-                ) {
+                val enabled = !busy && !preparing && !submitting && fileLimit > 0
+                val icon: @Composable () -> Unit = {
                     Symbol("add", stringResource(R.string.add_attachment))
                 }
+                if (inCard) FilledTonalIconButton(onClick = { mediaMenu = true }, enabled = enabled, content = icon)
+                else IconButton(onClick = { mediaMenu = true }, enabled = enabled, content = icon)
                 DropdownMenu(mediaMenu, { mediaMenu = false }) {
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.photos_videos)) },
@@ -255,19 +248,34 @@ internal fun Composer(
                     }
                 }
             }
+    }
+    val field: @Composable (Modifier) -> Unit = { modifier ->
+        val scheme = MaterialTheme.colorScheme
+        val inputColors = if (inCard) OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = Color.Transparent,
+            unfocusedContainerColor = Color.Transparent,
+            focusedBorderColor = Color.Transparent,
+            unfocusedBorderColor = Color.Transparent,
+        ) else OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = scheme.surface,
+            unfocusedContainerColor = scheme.surface,
+        )
         OutlinedTextField(
             value = text,
             onValueChange = { text = it },
             placeholder = { Text(stringResource(if (systemMessageMode == true) R.string.system_message else R.string.input_hint)) },
-            modifier = Modifier.weight(1f).testTag("composer"),
+            modifier = modifier.testTag("composer"),
             shape = MaterialTheme.shapes.extraLarge,
+            colors = inputColors,
+            interactionSource = cardInputInteraction,
             minLines = 1,
             maxLines = 8,
             readOnly = submitting,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
             keyboardActions = KeyboardActions(onSend = { send() }),
         )
-        Spacer(Modifier.width(8.dp))
+    }
+    val sendButton: @Composable () -> Unit = {
         val stopping = steering && text.isBlank()
         val canSend =
             !preparing &&
@@ -279,18 +287,23 @@ internal fun Composer(
                             !steering && hasAttachments))
         val systemLabel = stringResource(R.string.send_as_system)
         val canChooseSystem = systemMessageMode == null && text.isNotBlank() && !hasAttachments
+        val scheme = MaterialTheme.colorScheme
         Box {
             Surface(
-                shape = MaterialTheme.shapes.large,
-                color =
-                    if (canSend) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.surfaceContainerHighest,
-                contentColor =
-                    if (canSend) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                shape = if (inCard) CircleShape else MaterialTheme.shapes.large,
+                color = when {
+                    !canSend -> scheme.surfaceContainerHighest
+                    inCard && stopping -> scheme.error
+                    else -> scheme.primary
+                },
+                contentColor = when {
+                    !canSend -> scheme.onSurfaceVariant
+                    inCard && stopping -> scheme.onError
+                    else -> scheme.onPrimary
+                },
             ) {
                 Box(
-                    Modifier.size(56.dp)
+                    Modifier.size(if (inCard) 48.dp else 56.dp)
                         .testTag("send")
                         .combinedClickable(
                             enabled = canSend,
@@ -338,6 +351,29 @@ internal fun Composer(
                         },
                     )
             }
+        }
+    }
+    if (inCard) {
+        field(Modifier.fillMaxWidth().padding(horizontal = 4.dp))
+        Row(
+            Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            addAttachment()
+            if (wallpaperActions != null) wallpaperActions(Modifier.weight(1f))
+            else Spacer(Modifier.weight(1f))
+            sendButton()
+        }
+    } else {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            addAttachment()
+            field(Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
+            sendButton()
         }
     }
 }

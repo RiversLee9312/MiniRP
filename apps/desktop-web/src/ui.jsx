@@ -48,11 +48,14 @@ export function IconButton({ icon, label, className = "", ...props }) {
 }
 
 export function Select({ children, ...props }) {
+  const customizable = typeof CSS !== "undefined" && CSS.supports("appearance", "base-select");
+  if (!customizable) return <select {...props}>{children}</select>;
+  const options = Children.map(children, (option) => isValidElement(option) && option.type === "option"
+    ? cloneElement(option, {}, <span className="select-label" dir="auto">{option.props.children}</span>)
+    : option);
   return <select {...props}>
     <button type="button"><selectedcontent /></button>
-    {Children.map(children, (option) => isValidElement(option) && option.type === "option"
-      ? cloneElement(option, {}, <span className="select-label" dir="auto">{option.props.children}</span>)
-      : option)}
+    <div className="select-scroll">{options}</div>
   </select>;
 }
 
@@ -84,12 +87,24 @@ export function Notice({ message, close, t }) {
   </div>;
 }
 
-export function Modal({ title, close, back, children, t, wide = false, heading = true, className = "", closeDisabled = false, pageKey, pageDirection }) {
+export function Modal({ title, close, back, children, t, wide = false, heading = true, className = "", closeDisabled = false,
+  pageKey, pageDirection, dismissOnBackdrop = false, actions }) {
   const ref = useRef(null);
   const pickerEscape = useRef(false);
+  const backdropPress = useRef(false);
   const closing = useSurface(ref, true);
+  function onBackdrop(event) {
+    if (event.target !== event.currentTarget) return false;
+    const { left, right, top, bottom } = event.currentTarget.getBoundingClientRect();
+    return event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom;
+  }
   return <dialog ref={ref} className={["modal", wide ? "wide" : "", className].filter(Boolean).join(" ")} aria-label={title}
     inert={closing} aria-hidden={closing || undefined} data-page-direction={pageDirection}
+    onPointerDown={dismissOnBackdrop ? (event) => { backdropPress.current = onBackdrop(event); } : undefined}
+    onClick={dismissOnBackdrop ? (event) => {
+      if (!closeDisabled && backdropPress.current && onBackdrop(event)) close();
+      backdropPress.current = false;
+    } : undefined}
     onKeyDownCapture={(event) => {
       if (event.key !== "Escape" || !event.currentTarget.querySelector(":is(select:open)")) return;
       pickerEscape.current = true;
@@ -104,6 +119,7 @@ export function Modal({ title, close, back, children, t, wide = false, heading =
     {heading && <header className="dialog-header">
       {back && <IconButton className="directional dialog-back" icon="arrow_back" label={t("back")} onClick={back} />}
       <h2>{pageKey ? <span key={pageKey} className="page-motion">{title}</span> : title}</h2>
+      {actions && <div className="dialog-actions">{actions}</div>}
       <IconButton icon="close" label={t("close")} disabled={closeDisabled} onClick={close} />
     </header>}
     <div className="dialog-content">{children}</div>

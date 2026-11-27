@@ -11,7 +11,12 @@ public sealed partial class Engine
     private readonly Dictionary<JsonObject, WebDisplayBlock> webDisplay = new(ReferenceEqualityComparer.Instance);
     private Workspace? transcriptOwner;
 
-    private sealed record TranscriptSource(Workspace Workspace, string Pane, string Conversation, JsonArray Blocks, string Generation, bool MessagesOnly);
+    private sealed record TranscriptSource(Workspace Workspace, string Pane, string Conversation, JsonArray Blocks, string Generation,
+        bool MessagesOnly, string PluginRun = "")
+    {
+        public int SubagentsIndexed { get; set; }
+        public HashSet<string> Subagents { get; } = new(StringComparer.Ordinal);
+    }
     private sealed record WebDisplayBlock(Workspace Workspace, JsonObject Block, string Id, string Conversation);
 
     private bool WebHistory => Volatile.Read(ref routing).Settings.GetBoolean("_web_transcripts");
@@ -138,20 +143,51 @@ public sealed partial class Engine
         var (page, older) = ReadTranscript(source, blocks.Count, preserveRunning);
         foreach (var block in page) result.AddNode(block);
         history[pane] = older;
+        if (history["_subagents"] is not JsonObject summaries) history["_subagents"] = summaries = new();
+        summaries[pane] = IndexSubagents(source);
+        if (history["_ruler"] is not JsonObject rulers) history["_ruler"] = rulers = new();
+        rulers[pane] = TranscriptRulerPrefix(source, older);
+    }
+
+    private static bool InTranscript(TranscriptSource source, JsonObject block) =>
+        (!source.MessagesOnly || EnsembleConversation.IsMessage(block)) &&
+        (source.PluginRun.Length == 0 || PluginRunId(block) == source.PluginRun) &&
+        (source.Pane is not ("chat" or "env") || TranscriptPane(block) == source.Pane);
+
+    private static bool IsBrowserTrace(JsonObject block) =>
+        block.GetString("agent") is "fetch" or "BrowserAgent" or "FetchAgent" ||
+        block.GetString("agent") is "env" or "EnvAgent" or "preset" or "PresetAgent" or "plugin" or "PluginAgent" &&
+        block.GetString("speaker") is "BrowserAgent" or "FetchAgent";
+
+    private static JsonArray IndexSubagents(TranscriptSource source)
+    {
+        if (source.SubagentsIndexed > source.Blocks.Count)
+        {
+            source.SubagentsIndexed = 0;
+            source.Subagents.Clear();
+        }
+        for (; source.SubagentsIndexed < source.Blocks.Count; source.SubagentsIndexed++)
+        {
+            if (source.Blocks[source.SubagentsIndexed] is not JsonObject block || !InTranscript(source, block)) continue;
+            if (PluginRunId(block) is { Length: > 0 } run)
+                source.Subagents.Add("plugin:" + block.GetString("plugin_agent", run));
+            else if (IsBrowserTrace(block))
+                source.Subagents.Add(block.GetString("parent_agent") is "search" or "SearchAgent" ? "search/browser" : "browser");
+            else if (block.GetString("agent") is "search" or "SearchAgent") source.Subagents.Add("search");
+        }
+        return new JsonArray(source.Subagents.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray());
     }
 
     private (JsonObject[] Blocks, string? Before) ReadTranscript(TranscriptSource source, int end, bool preserveRunning = false,
-        string? locale = null)
+        string? locale = null, int start = 0, bool bounded = true)
     {
         var page = new List<JsonObject>(TranscriptPageSize);
         string? older = null;
-        for (var index = end - 1; index >= 0; index--)
+        for (var index = end - 1; index >= start; index--)
         {
-            if (source.Blocks[index] is not JsonObject block ||
-                source.MessagesOnly && !EnsembleConversation.IsMessage(block) ||
-                source.Pane is "chat" or "env" && TranscriptPane(block) != source.Pane)
+            if (source.Blocks[index] is not JsonObject block || !InTranscript(source, block))
                 continue;
-            if (page.Count == TranscriptPageSize)
+            if (bounded && page.Count == TranscriptPageSize)
             {
                 older = source.Generation + ":" + (index + 1).ToString(CultureInfo.InvariantCulture);
                 break;
@@ -263,6 +299,76 @@ public sealed partial class Engine
         events.Enqueue(reply);
     }
 
+    private static string PluginRunId(JsonObject block) => block.GetString("plugin_run", block.GetString("plugin_agent"));
+
+    private void ReadPresetActivity(JsonObject command)
+    {
+        var reply = new JsonObject { ["kind"] = "preset_activity", ["request"] = command.GetString("request") };
+        try
+        {
+            var preset = WorkspaceIds.Require(command.GetString("preset"));
+            var run = command.GetString("run");
+            lock (presetTraceGate)
+            {
+                var workspace = Workspace;
+                if (!WebHistory || workspace.PresetId != preset || presetConversation is not { } owner || owner.PresetId != preset)
+                    throw new InvalidOperationException("The displayed preset has changed.");
+                var blocks = owner.Blocks;
+                if (run.Length == 0)
+                {
+                    var items = blocks.OfType<JsonObject>().GroupBy(PluginRunId)
+                        .Where(group => group.Key.Length != 0)
+                        .Select(group =>
+                        {
+                            var status = group.FirstOrDefault(block => block.GetString("plugin_status").Length > 0);
+                            var worker = group.First();
+                            return new JsonObject
+                            {
+                                ["id"] = group.Key, ["worker"] = worker.GetString("plugin_agent", group.Key),
+                                ["name"] = worker.GetString("plugin_agent_name"), ["status"] = status.GetString("plugin_status")
+                            };
+                        });
+                    reply["items"] = new JsonArray(items.ToArray());
+                }
+                else
+                {
+                    var runBlocks = blocks.OfType<JsonObject>().Where(block => PluginRunId(block) == run).ToArray();
+                    if (runBlocks.Length == 0)
+                        throw new InvalidOperationException("The plugin subagent run is unavailable.");
+                    var generation = "preset-run-" + preset + "-" + run;
+                    var before = command.GetString("before");
+                    var after = command.GetString("after");
+                    var end = blocks.Count;
+                    var start = 0;
+                    int Cursor(string value) =>
+                        value.StartsWith(generation + ":", StringComparison.Ordinal) &&
+                        int.TryParse(value.AsSpan(generation.Length + 1), NumberStyles.None, CultureInfo.InvariantCulture, out var index) &&
+                        index > 0 && index <= blocks.Count
+                            ? index : throw new ArgumentException("The displayed run has changed.");
+                    if (before.Length > 0 && after.Length > 0)
+                        throw new ArgumentException("Choose one end of the displayed run.");
+                    if (before.Length > 0) end = Cursor(before);
+                    if (after.Length > 0 && after != "0") start = Cursor(after);
+                    var status = runBlocks.FirstOrDefault(block => block.GetString("plugin_status").Length > 0);
+                    var source = new TranscriptSource(workspace, "preset", "", blocks, generation, MessagesOnly: false, PluginRun: run);
+                    var (page, older) = ReadTranscript(source, end, preserveRunning: status.GetString("plugin_status") == "running",
+                        locale: command.GetString("locale"), start: start, bounded: after.Length == 0);
+                    reply["blocks"] = new JsonArray(page);
+                    reply["before"] = after.Length > 0 && start > 0 ? after : older;
+                    if (before.Length == 0 && after.Length == 0) reply["ruler"] = TranscriptRulerPrefix(source, older);
+                    reply["has_browser"] = runBlocks.Any(IsBrowserTrace);
+                }
+                if (!ReferenceEquals(workspace, Workspace))
+                    throw new InvalidOperationException("The displayed preset has changed.");
+            }
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            reply["error"] = error.Message;
+        }
+        events.Enqueue(reply);
+    }
+
     private void ReadEnsembleArchive(JsonObject command)
     {
         var reply = new JsonObject { ["kind"] = "ensemble_archive", ["request"] = command.GetString("request") };
@@ -295,6 +401,7 @@ public sealed partial class Engine
                     var (page, older) = ReadTranscript(source, end, locale: command.GetString("locale"));
                     reply["blocks"] = new JsonArray(page);
                     reply["before"] = older;
+                    if (before.Length == 0) reply["ruler"] = TranscriptRulerPrefix(source, older);
                 }
             }
         }

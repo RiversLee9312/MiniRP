@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Добро дошли у MiniRP</string>
+    <string name="setup_welcome_detail">Повежите услугу вештачке интелигенције и изаберите модел који ће MiniRP користити за разговоре и подешавање шаблона.</string>
+    <string name="setup_begin">Почни</string>
+    <string name="setup_download_notice">MiniRP је бесплатна непрофитна апликација отвореног кода. Преузмите је са званичне странице издања. Чувајте се превара ако сте је набавили другде или платили.</string>
+    <string name="setup_official_download">Званично преузимање</string>
+    <string name="setup_connect_provider">Повежи услугу вештачке интелигенције</string>
+    <string name="setup_provider_detail">Добављач је услуга која покреће модел. Изаберите њен шаблон да попуните податке за повезивање. Ако је потребан API кључ, набавите га на сајту добављача.</string>
+    <string name="setup_unsure">Не знам</string>
+    <string name="setup_choose_model">Изабери модел</string>
+    <string name="setup_model_detail">Изаберите модел добављача %1$s за прве разговоре.</string>
+    <string name="setup_model_fallback">Проверите API адресу и кључ и покушајте поново. Ако добављач не приказује моделе, унесите тачан ID модела са његовог сајта.</string>
+    <string name="add_model_by_id">Додај модел по ID-ју</string>
+    <string name="setup_use_model">Користи овај модел</string>
+    <string name="setup_next">Настави</string>
+    <string name="setup_effort_title">Колико модел треба да размишља?</string>
+    <string name="setup_effort_detail">Ниво размишљања одређује колико ће времена вештачка интелигенција посветити задатку пре одговора. За сложену причу или додатак почните највишим нивоом. За брз разговор пробајте нижи. Виши нивои могу трајати дуже и трошити више квоте. Ниво промените у Подешавања → Модели.</string>
+    <string name="setup_help_title">Помоћ при подешавању MiniRP-а</string>
+    <string name="setup_help_detail">Копирајте упит у %1$s и пратите предложене кораке.</string>
+    <string name="setup_assistants_china">DeepSeek или Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok или Claude</string>
+    <string name="setup_unknown_region">непознат</string>
+    <string name="setup_copy_prompt">Копирај упит</string>
+    <string name="setup_help_web">Претрага и преузимање веб-страница</string>
+    <string name="setup_help_intro">Први пут користим MiniRP за Android. Одговорите на језику %1$s. Регион мог уређаја је %2$s. Прво прочитајте званични водич за MiniRP на %3$s. Реците ми ако не можете да га отворите.</string>
+</resources>

@@ -26,6 +26,53 @@ public sealed class ConversationFlowTests
     }
 
     [TestMethod]
+    public async Task PresetReplyCanBeResumedAfterStoppingAndReopeningTheEditor()
+    {
+        const string input = "Develop the next scene.";
+        const string firstReply = "I am preparing the setting.";
+        const string partial = "The scene starts from an empty station.";
+        await using var engine = new Engine(NewRoot());
+        Configure(engine);
+        var savedSubtitle = engine.Workspace.Config.GetString("subtitle");
+        engine.Dispatch(new() { ["op"] = "message", ["agent"] = "preset", ["text"] = input, ["editor_turn"] = true });
+        void Reply(JsonObject request, JsonObject delta, bool done)
+        {
+            var frame = new JsonObject { ["choices"] = new JsonArray(new JsonObject { ["delta"] = delta }) };
+            engine.Dispatch(new() { ["op"] = "io_reply", ["id"] = request.GetString("id"),
+                ["data"] = "data: " + JsonValues.Serialize(frame) + "\n\n", ["done"] = done });
+        }
+        Reply(await Wait(engine, "http_request"), new()
+        {
+            ["content"] = firstReply,
+            ["tool_calls"] = new JsonArray(new JsonObject
+            {
+                ["id"] = "draft-change", ["index"] = 0, ["type"] = "function",
+                ["function"] = new JsonObject { ["name"] = "set_value",
+                    ["arguments"] = """{"path":"subtitle","value":"A staged subtitle"}""" }
+            })
+        }, done: true);
+        Reply(await Wait(engine, "http_request"), new() { ["content"] = partial }, done: false);
+        Assert.AreEqual(partial, (await Wait(engine, "delta")).GetString("text"));
+        engine.Dispatch(new() { ["op"] = "cancel", ["agent"] = "preset" });
+        await Wait(engine, "cancelled");
+        engine.Dispatch(new() { ["op"] = "open_preset" });
+        var reopened = await Wait(engine, "preset_opened");
+        Assert.AreEqual(savedSubtitle, reopened.GetObject("config").GetString("subtitle"));
+        CollectionAssert.AreEqual(new[] { input, firstReply, partial }, reopened.GetArray("blocks")
+            .Select(item => item.GetString("content")).Where(text => text.Length > 0).ToArray());
+
+        var events = await Run(engine, new()
+        {
+            ["op"] = "message", ["agent"] = "preset", ["text"] = "Continue the scene.", ["editor_turn"] = true
+        }, "The station light came on.");
+        var prompt = JsonValues.ParseObject(events.Single(item => item.GetString("kind") == "http_request")
+            .GetString("body")).GetArray("messages");
+        Assert.IsFalse(prompt.Any(item => item.GetString("role") == "tool" || item.GetArray("tool_calls").Count > 0));
+        CollectionAssert.AreEqual(new[] { input, firstReply, partial, "Continue the scene." }, prompt
+            .Where(item => item.GetString("role") is "user" or "assistant").Select(item => item.GetString("content")).ToArray());
+    }
+
+    [TestMethod]
     public async Task BranchRestoresWorldAndAgentSessionsButSharesThePreset()
     {
         using var scripts = new MiniRP.Cli.PluginScripts();
@@ -121,6 +168,72 @@ public sealed class ConversationFlowTests
         var blocks = loaded.GetObject("chat").GetArray("blocks");
         Assert.AreEqual(footer.GetString("id"), blocks.Last().GetString("id"));
         Assert.AreEqual(2, engine.Workspace.Chat.GetArray("messages").Count);
+    }
+
+    [TestMethod]
+    public async Task EnvBranchRestoresTheWorldAndRoutesTheDraftToEnv()
+    {
+        await using var engine = new Engine(NewRoot());
+        Configure(engine);
+        var preset = engine.Workspace.PresetId;
+        await Run(engine, new() { ["op"] = "select_chat", ["preset"] = preset });
+        var original = engine.Workspace.ChatId;
+        var turn = await Run(engine, new() { ["op"] = "message", ["agent"] = "env", ["text"] = "Add a fact" }, "add_fact", "Fact added.");
+        var message = turn.Single(item => item.GetString("kind") == "user").GetString("block");
+        var reply = turn.Single(item => item.GetString("kind") == "reply_end").GetString("id");
+        var edit = (await Run(engine, new() { ["op"] = "branch", ["chat"] = original, ["agent"] = "env",
+            ["block"] = message, ["mode"] = "edit" })).Single(IsLoaded);
+        Assert.AreNotEqual(original, engine.Workspace.ChatId);
+        Assert.AreEqual(preset, engine.Workspace.PresetId);
+        Assert.AreEqual("env", edit.GetObject("draft").GetString("agent"));
+        Assert.AreEqual("Add a fact", edit.GetObject("draft").GetString("text"));
+        Assert.AreEqual(0, engine.Workspace.State.GetArray("canon").Count);
+        await Run(engine, new() { ["op"] = "message", ["agent"] = "env", ["text"] = "Leave the world alone" }, "No changes.");
+        Assert.IsFalse(engine.Workspace.Chat.ContainsKey("draft"));
+        await Run(engine, new() { ["op"] = "select_chat", ["preset"] = preset, ["id"] = original });
+        var after = (await Run(engine, new() { ["op"] = "branch", ["chat"] = original, ["agent"] = "env",
+            ["block"] = reply, ["mode"] = "reply" })).Single(IsLoaded);
+        Assert.IsNull(after["draft"]);
+        Assert.AreEqual("new fact", engine.Workspace.State.GetArray("canon").Single()!.ToString());
+        StringAssert.Contains(await Read(engine, "env", "_context/history"), "Fact added.");
+    }
+
+    [TestMethod]
+    public async Task PresetBranchCreatesAnIndependentPresetAtTheChosenTurn()
+    {
+        await using var engine = new Engine(NewRoot());
+        Configure(engine);
+        var original = engine.Workspace.PresetId;
+        engine.Dispatch(new() { ["op"] = "open_preset" });
+        await Wait(engine, "preset_opened");
+        await Write(engine, "preset", "before", "original memory");
+        var turn = await Run(engine, new() { ["op"] = "message", ["agent"] = "preset", ["text"] = "Set the subtitle" }, "preset_subtitle", "Subtitle set.");
+        var message = turn.Single(item => item.GetString("kind") == "user").GetString("block");
+        var reply = turn.Single(item => item.GetString("kind") == "reply_end").GetString("id");
+        var edit = (await Run(engine, new() { ["op"] = "branch", ["preset"] = original, ["agent"] = "preset",
+            ["block"] = message, ["mode"] = "edit" })).Single(item => item.GetString("kind") == "preset_opened");
+        var editedPreset = edit.GetString("preset");
+        Assert.IsTrue(WorkspaceIds.IsValid(editedPreset));
+        Assert.AreNotEqual(original, editedPreset);
+        Assert.AreEqual("", edit.GetObject("config").GetString("subtitle"));
+        Assert.AreEqual("Set the subtitle", edit.GetObject("draft").GetString("text"));
+        Assert.AreEqual(0, edit.GetArray("blocks").Count);
+        Assert.AreEqual("original memory", await Read(engine, "preset", "before"));
+        await Write(engine, "preset", "before", "branch memory", 1);
+        engine.Dispatch(new() { ["op"] = "open_preset" });
+        var reopened = await Wait(engine, "preset_opened");
+        Assert.AreEqual("Set the subtitle", reopened.GetObject("draft").GetString("text"));
+        engine.Dispatch(new() { ["op"] = "home", ["preset"] = original });
+        await Wait(engine, "home");
+        engine.Dispatch(new() { ["op"] = "open_preset" });
+        await Wait(engine, "preset_opened");
+        Assert.AreEqual("original memory", await Read(engine, "preset", "before"));
+        var after = (await Run(engine, new() { ["op"] = "branch", ["preset"] = original, ["agent"] = "preset",
+            ["block"] = reply, ["mode"] = "reply" })).Single(item => item.GetString("kind") == "preset_opened");
+        Assert.AreNotEqual(editedPreset, after.GetString("preset"));
+        Assert.IsNull(after["draft"]);
+        Assert.AreEqual("A branched subtitle", after.GetObject("config").GetString("subtitle"));
+        Assert.AreEqual(reply, after.GetArray("blocks").Last().GetString("id"));
     }
 
     [TestMethod]
@@ -387,6 +500,7 @@ public sealed class ConversationFlowTests
                         "submit_search_results" => ("submit_search_results", """{"refs":[]}"""),
                         "checkpoint_note" => ("db_write", """{"key":"result","content":"first","expected_revision":0}"""),
                         "add_fact" => ("add_fact", """{"fact":"new fact"}"""),
+                        "preset_subtitle" => ("set_value", """{"path":"subtitle","value":"A branched subtitle"}"""),
                         "virtual_search" => ("virtual_search", "{}"),
                         _ => ("", "")
                     };

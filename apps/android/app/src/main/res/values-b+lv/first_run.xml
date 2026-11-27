@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Laipni lūdzam MiniRP</string>
+    <string name="setup_welcome_detail">Pievienojiet MI pakalpojumu un atlasiet modeli, ko MiniRP izmantos tērzēšanai un priekšiestatījumu iestatīšanai.</string>
+    <string name="setup_begin">Sākt</string>
+    <string name="setup_download_notice">MiniRP ir bezmaksas atvērtā pirmkoda bezpeļņas lietotne. Lejupielādējiet to oficiālajā laidienu lapā. Uzmanieties no krāpšanas, ja to ieguvāt citur vai par to samaksājāt.</string>
+    <string name="setup_official_download">Oficiālā lejupielāde</string>
+    <string name="setup_connect_provider">Pievienot MI pakalpojumu</string>
+    <string name="setup_provider_detail">Pakalpojuma sniedzējs darbina modeli. Izvēlieties tā veidni, lai ievadītu savienojuma datus. Ja vajadzīga API atslēga, iegūstiet to pakalpojuma sniedzēja vietnē.</string>
+    <string name="setup_unsure">Es nezinu</string>
+    <string name="setup_choose_model">Atlasīt modeli</string>
+    <string name="setup_model_detail">Atlasiet modeli no %1$s savām pirmajām sarunām.</string>
+    <string name="setup_model_fallback">Pārbaudiet API adresi un atslēgu un mēģiniet vēlreiz. Ja sniedzējs neparāda modeļus, ievadiet precīzu modeļa ID no tā vietnes.</string>
+    <string name="add_model_by_id">Pievienot modeli pēc ID</string>
+    <string name="setup_use_model">Izmantot šo modeli</string>
+    <string name="setup_next">Turpināt</string>
+    <string name="setup_effort_title">Cik ilgi modelim jādomā?</string>
+    <string name="setup_effort_detail">Spriešanas līmenis nosaka, cik ilgi MI domā pirms atbildes. Sarežģītam stāstam vai spraudnim sāciet ar augstāko līmeni. Ātrai sarunai izmēģiniet zemāku līmeni. Augstāki līmeņi var prasīt vairāk laika un patērēt vairāk kvotas. Mainiet līmeni sadaļā Iestatījumi → Modeļi.</string>
+    <string name="setup_help_title">Palīdzība MiniRP iestatīšanā</string>
+    <string name="setup_help_detail">Kopējiet uzvedni uz %1$s un veiciet ieteiktās darbības.</string>
+    <string name="setup_assistants_china">DeepSeek vai Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok vai Claude</string>
+    <string name="setup_unknown_region">nezināms</string>
+    <string name="setup_copy_prompt">Kopēt uzvedni</string>
+    <string name="setup_help_web">Meklēšana un tīmekļa lapu izgūšana</string>
+    <string name="setup_help_intro">Pirmoreiz izmantoju MiniRP lietotnē Android. Atbildiet valodā %1$s. Manas ierīces reģions ir %2$s. Vispirms izlasiet oficiālo MiniRP ceļvedi adresē %3$s. Paziņojiet, ja to nevarat atvērt.</string>
+</resources>

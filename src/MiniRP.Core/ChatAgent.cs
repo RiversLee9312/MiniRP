@@ -80,6 +80,9 @@ public sealed class ChatAgent(Workspace workspace, AgentSession session, SearchA
                 finishAfterTool, terminalTools);
         }
         prompt = prompt.Replace("{date}", WorldCalendar.Render(WorldCalendar.Today), StringComparison.Ordinal);
+        prompt += "\nUse search when the user asks you to look up information or the answer needs current external facts. " +
+            "Use open_url when the user asks you to read a URL, or when you need the source's actual text to verify a search result. " +
+            "Use the preset's world and conversation for fictional events unless real-world research is relevant.";
         var tools = new JsonArray(
             Tools.Define("search", "Find relevant online sources for a query.", new()
             {
@@ -96,7 +99,7 @@ public sealed class ChatAgent(Workspace workspace, AgentSession session, SearchA
             _ => throw new ArgumentException("Unknown chat tool: " + name)
         };
         var response = await session.RunTurn(prompt, input,
-            [new("search", "Find and read online sources when useful.", tools, Execute)], cancellationToken,
+            [new("search", "Find and read online sources when useful.", tools, Execute, Required: true)], cancellationToken,
             terminalTools: terminalTools, attachments: attachments, inputRole: inputRole, privateInput: privateInput,
             finishAfterTool: finishAfterTool);
         return response.GetString("content");

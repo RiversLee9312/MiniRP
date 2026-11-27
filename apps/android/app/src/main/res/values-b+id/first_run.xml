@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Selamat datang di MiniRP</string>
+    <string name="setup_welcome_detail">Sambungkan layanan AI, lalu pilih model yang akan dipakai MiniRP untuk obrolan dan pengaturan preset.</string>
+    <string name="setup_begin">Mulai</string>
+    <string name="setup_download_notice">MiniRP adalah aplikasi sumber terbuka yang gratis dan nirlaba. Unduh dari halaman rilis resmi. Waspadai penipuan jika mendapatkannya dari tempat lain atau diminta membayar.</string>
+    <string name="setup_official_download">Unduhan resmi</string>
+    <string name="setup_connect_provider">Sambungkan layanan AI</string>
+    <string name="setup_provider_detail">Penyedia adalah layanan yang menjalankan model. Pilih templatnya untuk mengisi rincian koneksi. Jika diperlukan kunci API, dapatkan dari situs web penyedia.</string>
+    <string name="setup_unsure">Saya tidak tahu</string>
+    <string name="setup_choose_model">Pilih model</string>
+    <string name="setup_model_detail">Pilih model dari %1$s untuk percakapan pertama Anda.</string>
+    <string name="setup_model_fallback">Periksa alamat dan kunci API, lalu coba lagi. Jika penyedia tidak menampilkan daftar model, masukkan ID model yang persis sama seperti di situs webnya.</string>
+    <string name="add_model_by_id">Tambahkan model dengan ID</string>
+    <string name="setup_use_model">Gunakan model ini</string>
+    <string name="setup_next">Lanjutkan</string>
+    <string name="setup_effort_title">Berapa lama model perlu berpikir?</string>
+    <string name="setup_effort_detail">Tingkat penalaran menentukan berapa lama AI berpikir sebelum menjawab. Untuk cerita rumit atau plugin, mulai dengan tingkat tertinggi. Untuk obrolan cepat, coba tingkat lebih rendah. Tingkat tinggi dapat membutuhkan lebih banyak waktu dan kuota. Ubah tingkat di Pengaturan → Model.</string>
+    <string name="setup_help_title">Bantuan menyiapkan MiniRP</string>
+    <string name="setup_help_detail">Salin perintah ini ke %1$s, lalu ikuti langkah yang disarankan.</string>
+    <string name="setup_assistants_china">DeepSeek atau Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok, atau Claude</string>
+    <string name="setup_unknown_region">tidak diketahui</string>
+    <string name="setup_copy_prompt">Salin perintah</string>
+    <string name="setup_help_web">Penelusuran dan pengambilan halaman web</string>
+    <string name="setup_help_intro">Saya baru menggunakan MiniRP untuk Android. Jawab dalam bahasa %1$s. Wilayah perangkat saya adalah %2$s. Baca dahulu panduan resmi MiniRP di %3$s. Beri tahu saya jika tidak dapat membukanya.</string>
+</resources>

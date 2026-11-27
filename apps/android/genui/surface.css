@@ -1,3 +1,5 @@
+@import "./desktop-scrollbars.css";
+
 :root {
     font-family: Roboto, system-ui, sans-serif;
 }
@@ -8,6 +10,20 @@
 
 :root[data-host="desktop"] :where(button, input, select, textarea) {
     font-family: inherit;
+}
+
+html[data-host="desktop"] :where(.openui-table-container, .openui-intelligent-markdown-table-scroll, pre) {
+    overscroll-behavior-inline: contain;
+}
+
+html[data-host="desktop"] .openui-select-viewport {
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+}
+@supports selector(::-webkit-scrollbar) {
+    html[data-host="desktop"] .openui-select-viewport { scrollbar-width: auto; }
+    html[data-host="desktop"] .openui-select-viewport::-webkit-scrollbar { display: initial; }
 }
 
 :root[data-host="desktop"] .openui-select-value {
@@ -127,8 +143,8 @@ html:not(.expanded) {
     max-block-size: 16rem;
     overflow: auto;
     overscroll-behavior: contain;
-    scrollbar-width: thin;
 }
+html:not([data-host="desktop"]) .tool-fact-full { scrollbar-width: thin; }
 .tool-fact-details:not([open]) .tool-fact-less,
 .tool-fact-details:not([open]) .tool-fact-full,
 .tool-fact-details[open] .tool-fact-more,

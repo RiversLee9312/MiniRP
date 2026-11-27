@@ -294,6 +294,7 @@ internal fun Context.deviceLocale(): Locale =
 @Composable
 internal fun SetupHelpDialog(close: () -> Unit) {
     var webTools by rememberSaveable { mutableStateOf(false) }
+    var showPrompt by rememberSaveable { mutableStateOf(false) }
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -306,9 +307,10 @@ internal fun SetupHelpDialog(close: () -> Unit) {
     val language = locale.getDisplayName(locale)
     val region = deviceLocale.regionCode().ifBlank { locale.regionCode() }
         .ifBlank { stringResource(R.string.setup_unknown_region) }
+    val promptIntro = stringResource(R.string.setup_help_intro, language, region, MiniRPDocs)
     val prompt = listOf(
         stringResource(R.string.setup_help_harness),
-        stringResource(R.string.setup_help_intro, language, region, MiniRPDocs),
+        promptIntro,
         stringResource(if (webTools) R.string.setup_help_web_prompt else R.string.setup_help_model_prompt),
         stringResource(R.string.setup_help_research),
         stringResource(R.string.setup_help_coaching),
@@ -330,7 +332,10 @@ internal fun SetupHelpDialog(close: () -> Unit) {
                     FilterChip(!webTools, { webTools = false }, { Text(stringResource(R.string.models)) })
                     FilterChip(webTools, { webTools = true }, { Text(stringResource(R.string.setup_help_web)) })
                 }
-                SelectionContainer { Text(prompt) }
+                SelectionContainer { Text(if (showPrompt) prompt else promptIntro) }
+                TextButton(onClick = { showPrompt = !showPrompt }) {
+                    Text(stringResource(if (showPrompt) R.string.collapse else R.string.expand))
+                }
             }
         },
         confirmButton = {

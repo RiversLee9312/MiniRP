@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Et donem la benvinguda a MiniRP</string>
+    <string name="setup_welcome_detail">Connecta un servei d’IA i tria el model que MiniRP farà servir per als xats i per configurar els ajustos predefinits.</string>
+    <string name="setup_begin">Comença</string>
+    <string name="setup_download_notice">MiniRP és una aplicació gratuïta, de codi obert i sense ànim de lucre. Baixa-la des de la pàgina oficial de versions. Si l’has obtinguda en un altre lloc o n’has pagat el preu, vigila amb les estafes.</string>
+    <string name="setup_official_download">Baixada oficial</string>
+    <string name="setup_connect_provider">Connecta un servei d’IA</string>
+    <string name="setup_provider_detail">El proveïdor executa el model. Tria la seva plantilla per emplenar les dades de connexió. Si el servei demana una clau d’API, obtén-la al web del proveïdor.</string>
+    <string name="setup_unsure">No ho sé</string>
+    <string name="setup_choose_model">Tria un model</string>
+    <string name="setup_model_detail">Tria un model de %1$s per a les primeres converses.</string>
+    <string name="setup_model_fallback">Comprova l’adreça i la clau de l’API i torna-ho a provar. Si el proveïdor no mostra models, introdueix l’identificador exacte que figura al seu web.</string>
+    <string name="add_model_by_id">Afegeix un model per ID</string>
+    <string name="setup_use_model">Fes servir aquest model</string>
+    <string name="setup_next">Continua</string>
+    <string name="setup_effort_title">Quant ha de raonar el model?</string>
+    <string name="setup_effort_detail">El nivell determina quant temps dedica la IA a raonar abans de respondre. Per a una història complexa o un complement, comença pel nivell més alt. Per a un xat ràpid, prova’n un de més baix. Els nivells alts poden trigar més i consumir més quota. Pots canviar-ho a Configuració → Models.</string>
+    <string name="setup_help_title">Ajuda per configurar MiniRP</string>
+    <string name="setup_help_detail">Copia aquesta indicació a %1$s i segueix els passos que et proposi.</string>
+    <string name="setup_assistants_china">DeepSeek o Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok o Claude</string>
+    <string name="setup_unknown_region">desconeguda</string>
+    <string name="setup_copy_prompt">Copia la indicació</string>
+    <string name="setup_help_web">Cerca i recuperació de pàgines web</string>
+    <string name="setup_help_intro">Acabo de començar a fer servir MiniRP per a Android. Respon en %1$s. La regió del meu dispositiu és %2$s. Llegeix primer la guia oficial de MiniRP a %3$s. Avisa’m si no la pots obrir.</string>
+</resources>

@@ -12,6 +12,9 @@ public sealed class SearchAgent(Workspace world, Func<AgentSession> getSession, 
     private const string SystemPrompt = """
         You are SearchAgent. Each turn is one search or page request.
         Choose any number of real searches/fetches, including none, or recall completed virtual results/pages.
+        For a request to find real, current sources, use real_search if there are no suitable current results in cache.
+        For a request to read a real URL, use real_fetch if its page is not already available in cache.
+        Do not substitute search snippets for the requested page body.
         Freely mix candidates, precisely edit them, and cache completed work.
         Submit through submit_search_results/submit_page/fail_request; prose is not a submission.
         Refs last one request only. Result count is entirely your decision; legacy limits are advisory.

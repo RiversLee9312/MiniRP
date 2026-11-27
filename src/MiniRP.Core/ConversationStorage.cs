@@ -198,8 +198,8 @@ internal static class ConversationStorage
         void Keep(Stream stream)
         {
             ct.ThrowIfCancellationRequested();
-            if (JsonNode.Parse(stream) is not JsonObject room) throw new InvalidDataException("Invalid room record.");
-            foreach (var block in room.GetArray("blocks"))
+            var document = JsonNode.Parse(stream);
+            foreach (var block in document is JsonArray blocks ? blocks : document.GetArray("blocks"))
                 unused.Remove(block.GetString("version"));
         }
         void KeepFile(string file)
@@ -210,6 +210,8 @@ internal static class ConversationStorage
         foreach (var preset in Directories(root, "conversations"))
             foreach (var file in Directory.EnumerateFiles(preset, "*.json", Safe))
                 KeepFile(file);
+        foreach (var preset in Directories(root, "preset_sessions"))
+            if (Path.Combine(preset, "blocks.json") is var transcript && File.Exists(transcript)) KeepFile(transcript);
         var trash = Path.Combine(root, "trash");
         if (Directory.Exists(trash))
         {
@@ -220,13 +222,15 @@ internal static class ConversationStorage
                 var rooms = Path.Combine(folder, "conversations");
                 if (Directory.Exists(rooms))
                     foreach (var file in Directory.EnumerateFiles(rooms, "*.json", Safe)) KeepFile(file);
+                var transcript = Path.Combine(folder, "preset-session", "blocks.json");
+                if (File.Exists(transcript)) KeepFile(transcript);
             }
             foreach (var file in Directory.EnumerateFiles(trash, "*.zip", Safe).Where(file => VersionName(file[..^4])))
             {
                 using var archive = ZipFile.OpenRead(file);
                 foreach (var entry in archive.Entries.Where(entry => entry.Name.EndsWith(".json", StringComparison.Ordinal) &&
                     entry.Name != "preset.json" && (entry.Name == entry.FullName ||
-                    entry.FullName == "conversations/" + entry.Name)))
+                    entry.FullName == "conversations/" + entry.Name || entry.FullName == "preset-session/blocks.json")))
                 {
                     using var input = entry.Open();
                     Keep(input);

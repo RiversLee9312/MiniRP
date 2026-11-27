@@ -215,7 +215,7 @@ class PlatformToolFlowTest {
                     waitFor { !presetLibrary.isDisplayed() }
                     assertTrue(model.state.value.presetEditorOpen)
                 }
-                val activity = compose.onNodeWithTag("plugin-agent-activity")
+                val activity = compose.onNodeWithTag("subagents-action")
                 activity.assertDoesNotExist()
                 val pluginModels = compose.onNodeWithTag("agent-model:plugin")
                 pluginModels.assertTextContains("Parent model").performClick()
@@ -224,7 +224,7 @@ class PlatformToolFlowTest {
                 pluginModels.assertTextContains("Worker model")
                 send(SetupRequest, inPresetEditor = true)
                 waitFor { activity.isDisplayed() }
-                activity.assertTextContains(label(R.string.running)).performClick()
+                activity.performClick()
                 val running = model.state.value.blocks.single { it.pluginStatus == "running" }
                 assertTrue(running.pluginAgentId.isNotBlank())
                 val workerRow = compose.onNodeWithTag("plugin-agent:${running.pluginAgentId}")

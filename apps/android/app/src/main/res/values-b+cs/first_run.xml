@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Vítejte v MiniRP</string>
+    <string name="setup_welcome_detail">Připojte službu AI a vyberte model, který bude MiniRP používat pro konverzace a nastavení předvoleb.</string>
+    <string name="setup_begin">Začít</string>
+    <string name="setup_download_notice">MiniRP je bezplatná nezisková aplikace s otevřeným zdrojovým kódem. Stáhněte ji z oficiální stránky vydání. Pokud jste ji získali jinde nebo za ni zaplatili, dejte si pozor na podvody.</string>
+    <string name="setup_official_download">Oficiální stažení</string>
+    <string name="setup_connect_provider">Připojit službu AI</string>
+    <string name="setup_provider_detail">Poskytovatel je služba, která spouští model. Vyberte její šablonu pro vyplnění údajů o připojení. Pokud je vyžadován klíč API, získejte jej na webu poskytovatele.</string>
+    <string name="setup_unsure">Nevím</string>
+    <string name="setup_choose_model">Vybrat model</string>
+    <string name="setup_model_detail">Pro první konverzace vyberte model od %1$s.</string>
+    <string name="setup_model_fallback">Zkontrolujte adresu a klíč API a zkuste to znovu. Pokud poskytovatel modely nevypisuje, zadejte přesné ID modelu z jeho webu.</string>
+    <string name="add_model_by_id">Přidat model podle ID</string>
+    <string name="setup_use_model">Použít tento model</string>
+    <string name="setup_next">Pokračovat</string>
+    <string name="setup_effort_title">Jak dlouho má model přemýšlet?</string>
+    <string name="setup_effort_detail">Úroveň přemýšlení určuje, kolik času AI věnuje řešení před odpovědí. Pro složitý příběh nebo doplněk začněte na nejvyšší úrovni. Pro rychlý chat zkuste nižší. Vyšší úrovně mohou zabrat více času a vyčerpat více kvóty. Úroveň lze změnit v Nastavení → Modely.</string>
+    <string name="setup_help_title">Pomoc s nastavením MiniRP</string>
+    <string name="setup_help_detail">Zkopírujte tuto výzvu do %1$s a postupujte podle navržených kroků.</string>
+    <string name="setup_assistants_china">DeepSeek nebo Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok nebo Claude</string>
+    <string name="setup_unknown_region">neznámá</string>
+    <string name="setup_copy_prompt">Zkopírovat výzvu</string>
+    <string name="setup_help_web">Vyhledávání a načítání webových stránek</string>
+    <string name="setup_help_intro">S MiniRP pro Android teprve začínám. Odpovězte v jazyce %1$s. Oblast mého zařízení je %2$s. Nejdříve si přečtěte oficiální návod MiniRP na %3$s. Dejte mi vědět, pokud ho nelze otevřít.</string>
+</resources>

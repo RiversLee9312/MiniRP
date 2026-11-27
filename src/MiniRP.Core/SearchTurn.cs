@@ -35,6 +35,7 @@ internal sealed class SearchTurn
         get; private set;
     }
     public ResearchAssets Assets { get; }
+    internal string Agent => session.Name;
     public bool Changed => Assets.Changed || changed;
     private bool changed;
 

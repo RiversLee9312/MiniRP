@@ -3,18 +3,21 @@ package com.minirp.app.ui
 import android.content.ClipData
 import android.widget.Toast
 import androidx.annotation.StringRes
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.mapSaver
@@ -23,7 +26,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
@@ -50,6 +52,8 @@ import com.mikepenz.markdown.model.State
 import com.mikepenz.markdown.model.rememberMarkdownState
 import com.mikepenz.markdown.model.rememberStreamingMarkdownState
 import com.minirp.app.R
+import com.minirp.app.data.AttachmentFile
+import com.minirp.app.data.AttachmentStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.conflate
@@ -85,7 +89,7 @@ internal fun AgentConversation(
         if (state.ready) {
             HomeGreeting(
                 "",
-                modifier,
+                modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)),
                 onCreatePreset,
                 enabled = !state.busy && !state.preparing,
             )
@@ -97,10 +101,10 @@ internal fun AgentConversation(
     val blocks =
         remember(state.blocks, agent) {
             state.blocks.filter {
-                it.role == agent || agent == AgentRole.Chat && it.isSearchTrace
+                it.role == agent && it.subagentRole == null
             }
         }
-    val draft = state.branchDraft.takeIf { agent == AgentRole.Chat }
+    val draft = if (agent == AgentRole.Preset) state.presetBranchDraft else state.branchDraft?.takeIf { it.agent == agent }
     val draftText = rememberSaveable { mutableStateOf(draft?.text.orEmpty()) }
     val draftFiles = rememberDraftFiles(draft)
     val draftQuotes = rememberDraftQuotes(draft)
@@ -119,120 +123,163 @@ internal fun AgentConversation(
             blocks.none { it.running || it.streaming } -> R.string.running
         else -> null
     }
-    Column(modifier) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (home) {
-                PresetHomeBackdrop(background, Modifier.matchParentSize()) { banner ->
+    val wallpaperCard = background != null
+    PresetBackdropLayout(background, modifier, home = home, blur = state.appearance.blurBackground) { contrast ->
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                if (home) {
                     HomeGreeting(
                         state.presetName,
                         Modifier.fillMaxSize(),
                         onOpenPreset,
                         enabled = state.ready && !state.busy && !state.preparing,
-                        glassBanner = banner,
+                        contrast = contrast,
                         onHintSeen = onPresetHintSeen,
                     )
+                } else {
+                    TraceLog(
+                        blocks,
+                        state.expandThoughts,
+                        Modifier.fillMaxSize(),
+                        onBranch = onBranch.takeUnless { state.busy || state.preparing },
+                        onBranchReply = onBranchReply.takeUnless { state.busy || state.preparing },
+                        status = transcriptStatus,
+                        replyError = state.replyError?.takeIf { it.agent == agent }?.message,
+                        onRetry = onRetryPresetInterview.takeIf {
+                            agent == AgentRole.Preset && state.presetSetupPending && !state.presetWorking &&
+                                state.replyError?.presetInterview == true
+                        },
+                        loadThumbnail = loadThumbnail,
+                        openUi = openUi,
+                        displayAssets = displayAssets,
+                        onQuote = addQuote,
+                    )
                 }
-            } else {
-                PresetBackdrop(
-                    background, conversation = true, blur = state.appearance.blurBackground,
-                    modifier = Modifier.matchParentSize(),
-                )
-                TraceLog(
-                    blocks,
-                    state.expandThoughts,
-                    Modifier.fillMaxSize(),
-                    onBranch = onBranch.takeUnless { state.busy || state.preparing },
-                    onBranchReply = onBranchReply.takeUnless { state.busy || state.preparing },
-                    status = transcriptStatus,
-                    replyError = state.replyError?.takeIf { it.agent == agent }?.message,
-                    onRetry = onRetryPresetInterview.takeIf {
-                        agent == AgentRole.Preset && state.presetSetupPending && !state.presetWorking &&
-                            state.replyError?.presetInterview == true
-                    },
-                    loadThumbnail = loadThumbnail,
-                    openUi = openUi,
-                    displayAssets = displayAssets,
-                    onQuote = addQuote,
-                )
             }
-        }
-        val coloredComposer = agent == AgentRole.Chat && background != null
-        val scheme = MaterialTheme.colorScheme
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = if (coloredComposer) scheme.secondaryContainer else Color.Transparent,
-            contentColor = if (coloredComposer) scheme.onSecondaryContainer else LocalContentColor.current,
-        ) {
-            Column {
-                if (home && sending)
-                    ConversationStatus(R.string.sending, Modifier.padding(horizontal = 16.dp))
-                composerStatus?.invoke()
-                Composer(
-                    state.busy,
-                    state.preparing,
-                    onCancel,
-                    onSend,
-                    steering = state.generating == agent,
-                    allowAttachments = systemMessageMode != true,
-                    pluginTypes =
-                        state.installedPlugins
-                            .filter { it.availableIn(state.preset) }
-                            .flatMap { it.attachments },
-                    draft = draft,
-                    textState = draftText,
-                    documentTypes = if (agent == AgentRole.Preset) arrayOf("*/*")
-                        else com.minirp.app.data.AttachmentStore.documentTypes,
-                    systemMessageMode = systemMessageMode,
-                    filesState = draftFiles,
-                    quotesState = draftQuotes,
-                )
-                val presetModels = agent == AgentRole.Preset
-                val modelsLayout =
-                    if (presetModels) Modifier else Modifier.horizontalScroll(rememberScrollState())
-                Row(
-                    Modifier.fillMaxWidth()
-                        .testTag("agent-models")
-                        .then(modelsLayout)
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    val roles =
-                        when {
-                            presetModels -> listOf(agent, AgentRole.Plugin)
-                            agent == AgentRole.Chat && state.agenticSearch -> listOf(agent, AgentRole.Search)
-                            else -> listOf(agent)
+            val scheme = MaterialTheme.colorScheme
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = if (!wallpaperCard && agent == AgentRole.Chat) scheme.surfaceContainer else Color.Transparent,
+                contentColor = scheme.onSurface,
+            ) {
+                Column(Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))) {
+                    if (home && sending)
+                        ConversationStatus(R.string.sending, Modifier.padding(horizontal = 16.dp))
+                    composerStatus?.invoke()
+                    ComposerCard(wallpaperCard) { fieldInteraction ->
+                        Column {
+                            Composer(
+                                state.busy,
+                                state.preparing,
+                                onCancel,
+                                onSend,
+                                steering = state.generating == agent,
+                                allowAttachments = systemMessageMode != true,
+                                pluginTypes =
+                                    state.installedPlugins
+                                        .filter { it.availableIn(state.preset) }
+                                        .flatMap { it.attachments },
+                                draft = draft,
+                                textState = draftText,
+                                documentTypes = if (agent == AgentRole.Preset) arrayOf("*/*")
+                                    else com.minirp.app.data.AttachmentStore.documentTypes,
+                                systemMessageMode = systemMessageMode,
+                                filesState = draftFiles,
+                                quotesState = draftQuotes,
+                                cardInputInteraction = fieldInteraction,
+                                wallpaperActions = if (fieldInteraction == null) null else { actionsModifier ->
+                                    AgentModelPickers(state, agent, onModels, actionsModifier, besideActions = true)
+                                },
+                            )
+                            if (fieldInteraction == null) {
+                                AgentModelPickers(state, agent, onModels,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+                            }
                         }
-                    roles.forEach { role ->
-                        val label = stringResource(role.label)
-                        val name =
-                            state.assigned(role)?.choice?.name ?: stringResource(R.string.select_model)
-                        AssistChip(
-                            onClick = { onModels(role) },
-                            enabled = !state.preparing,
-                            label = {
-                                if (presetModels) {
-                                    Column(Modifier.padding(vertical = 4.dp)) {
-                                        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(
-                                            name,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                } else {
-                                    Text("$label · $name", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            },
-                            trailingIcon = { Symbol("expand_more", size = 16) },
-                            modifier = (if (presetModels) Modifier.weight(1f) else Modifier.widthIn(max = 290.dp))
-                                .testTag("agent-model:${role.id}"),
-                        )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AgentModelPickers(
+    state: ChatState,
+    agent: AgentRole,
+    onModels: (AgentRole) -> Unit,
+    modifier: Modifier,
+    besideActions: Boolean = false,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val presetModels = agent == AgentRole.Preset
+    val modelsLayout =
+        if (presetModels && !besideActions) Modifier else Modifier.horizontalScroll(rememberScrollState())
+    Row(
+        modifier.testTag("agent-models").then(modelsLayout),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        val roles =
+            when {
+                presetModels -> listOf(agent, AgentRole.Plugin)
+                agent == AgentRole.Chat && state.agenticSearch -> listOf(agent, AgentRole.Search)
+                else -> listOf(agent)
+            }
+        roles.forEach { role ->
+            val label = stringResource(role.label)
+            val name =
+                state.assigned(role)?.choice?.name ?: stringResource(R.string.select_model)
+            AssistChip(
+                onClick = { onModels(role) },
+                enabled = !state.preparing,
+                border = AssistChipDefaults.assistChipBorder(
+                    enabled = !state.preparing,
+                    borderColor = scheme.outline,
+                ),
+                label = {
+                    if (presetModels) {
+                        Column(Modifier.padding(vertical = 4.dp)) {
+                            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                name,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = scheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else {
+                        Text("$label · $name", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                },
+                trailingIcon = { Symbol("expand_more", size = 16) },
+                modifier = (if (presetModels && !besideActions) Modifier.weight(1f)
+                    else Modifier.widthIn(max = if (besideActions) 164.dp else 290.dp)).testTag("agent-model:${role.id}"),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ComposerCard(
+    wallpaper: Boolean,
+    content: @Composable (MutableInteractionSource?) -> Unit,
+) {
+    if (!wallpaper) {
+        content(null)
+        return
+    }
+    val scheme = MaterialTheme.colorScheme
+    val field = remember { MutableInteractionSource() }
+    val focused by field.collectIsFocusedAsState()
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).testTag("composer-card"),
+        shape = MaterialTheme.shapes.extraLarge,
+        color = scheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, if (focused) scheme.primary else scheme.outline),
+        contentColor = scheme.onSurface,
+    ) {
+        content(field)
     }
 }
 
@@ -242,25 +289,24 @@ internal fun HomeGreeting(
     modifier: Modifier,
     onPresetAction: (() -> Unit)?,
     enabled: Boolean,
-    glassBanner: Modifier? = null,
+    contrast: HomeWallpaperContrast? = null,
     onHintSeen: (() -> Unit)? = null,
 ) {
     val hasPreset = presetName.isNotBlank()
-    val bannerLayout = if (glassBanner != null) Modifier.fillMaxWidth()
-        .then(glassBanner).padding(horizontal = 16.dp, vertical = 12.dp) else Modifier
-    val sideInset = if (glassBanner == null) 24.dp else 0.dp
-    Box(modifier.padding(horizontal = sideInset), contentAlignment = Alignment.Center) {
-        Column(bannerLayout, horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
+    Box(modifier.padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
+        Column(Modifier.testTag("preset-home-heading"), horizontalAlignment = Alignment.CenterHorizontally) {
+            HomeWallpaperText(
                 stringResource(
                     if (hasPreset) R.string.welcome_to_preset else R.string.no_presets_yet
                 ),
-                style = MaterialTheme.typography.headlineSmall,
-                textAlign = TextAlign.Center,
+                contrast = contrast,
+                style = MaterialTheme.typography.headlineSmall.copy(textAlign = TextAlign.Center),
             )
             PresetEntryHint(stringResource(R.string.preset_home_hint), onHintSeen) {
-                Text(
+                HomeWallpaperText(
                     if (hasPreset) presetName else stringResource(R.string.create_preset),
+                    contrast = contrast,
+                    name = true,
                     modifier =
                         Modifier.semantics { heading() }
                             .then(
@@ -279,9 +325,9 @@ internal fun HomeGreeting(
                                         .heightIn(min = 48.dp)
                                         .wrapContentHeight(Alignment.CenterVertically)
                             ),
-                    style = MaterialTheme.typography.headlineMedium,
-                    textDecoration = TextDecoration.Underline,
-                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        textAlign = TextAlign.Center, textDecoration = TextDecoration.Underline,
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -313,7 +359,6 @@ private sealed interface TimelineItem {
     data class ActivityStep(
         val step: TraceBlock,
         val group: TraceHeader,
-        val child: TraceHeader?,
     ) : TimelineItem {
         override val id: String
             get() = "activity-step:${step.id}"
@@ -365,85 +410,29 @@ private fun timeline(
     streamed: Map<String, MarkdownParts>,
     defaultExpanded: Boolean,
     expansion: Map<String, Boolean>,
-    standalonePluginTrace: Boolean,
+    expandActivity: Boolean,
 ): List<TimelineItem> = buildList {
     val activity = mutableListOf<TraceBlock>()
-    val pluginRuns = if (standalonePluginTrace) emptyMap()
-        else blocks.filter { it.pluginRun.isNotBlank() }.groupBy { it.pluginRun }
-    val seenRuns = mutableSetOf<String>()
     fun flush() {
         if (activity.isEmpty()) return
         val id = "activity:${activity.first().id}"
+        val hasReasoning = activity.any { it.reasoning.isNotBlank() }
         val group =
             TraceHeader(
                 id = id,
-                parent = null,
                 running = activity.any { it.running || it.streaming },
-                tools = activity.sumOf { step ->
-                    val run = pluginRuns[step.pluginRun]
-                    if (run == null) (if (step.tool.isNotBlank()) 1 else 0)
-                    else run.count { it.tool.isNotBlank() }
-                },
-                expanded =
-                    expansion[id]
-                        ?: (standalonePluginTrace || defaultExpanded && activity.any { step ->
-                            step.reasoning.isNotBlank() ||
-                                pluginRuns[step.pluginRun]?.any { it.reasoning.isNotBlank() } == true
-                        }),
+                tools = activity.count { it.tool.isNotBlank() },
+                expanded = expansion[id] ?: (expandActivity || defaultExpanded && hasReasoning),
+                hasReasoning = hasReasoning,
             )
         add(TimelineItem.ActivityHeader(group))
-        if (group.expanded) {
-            fun addChild(steps: List<TraceBlock>, id: String, agent: AgentRole? = null, name: String? = null) {
-                val status = steps.firstOrNull { it.pluginStatus.isNotBlank() }?.pluginStatus
-                val header = TraceHeader(
-                    id = id,
-                    parent = group,
-                    running = status?.let { it == "running" } ?: steps.any { it.running || it.streaming },
-                    tools = steps.count { it.tool.isNotBlank() },
-                    expanded = expansion[id] == true,
-                    agent = agent,
-                    agentName = name,
-                )
-                add(TimelineItem.ActivityHeader(header))
-                if (header.expanded) steps.filter { it.hasTraceContent }.forEach {
-                    add(TimelineItem.ActivityStep(it, group, header))
-                }
-            }
-            var start = 0
-            while (start < activity.size) {
-                val step = activity[start]
-                val run = pluginRuns[step.pluginRun]
-                if (run != null) {
-                    addChild(run, "plugin-activity:${step.pluginRun}", agent = AgentRole.Plugin,
-                        name = step.pluginAgentName.takeIf(String::isNotBlank))
-                    start++
-                } else if (step.isSearchTrace) {
-                    var end = start + 1
-                    while (end < activity.size && activity[end].isSearchTrace) end++
-                    val steps = activity.subList(start, end)
-                    val agent = if (steps.any { it.role == AgentRole.Search }) AgentRole.Search else AgentRole.Browser
-                    addChild(steps, "search-activity:${step.id}", agent = agent)
-                    start = end
-                } else {
-                    add(TimelineItem.ActivityStep(step, group, null))
-                    start++
-                }
-            }
-        }
+        if (group.expanded) activity.forEach { add(TimelineItem.ActivityStep(it, group)) }
         activity.clear()
     }
     blocks.forEach { block ->
         block.replyEnd?.let {
             flush()
             add(TimelineItem.ReplyActions(block, it.text))
-            return@forEach
-        }
-        if (block.pluginRun in pluginRuns) {
-            if (seenRuns.add(block.pluginRun)) activity += block
-            return@forEach
-        }
-        if (block.isSearchTrace) {
-            if (block.hasTraceContent) activity += block
             return@forEach
         }
         if (block.compaction || block.tool.isNotBlank() || block.reasoning.isNotBlank()) activity += block
@@ -491,7 +480,7 @@ internal fun TraceLog(
     openUi: OpenUiInteractions? = null,
     displayAssets: DisplayAssets? = null,
     onBranchReply: ((String) -> Unit)? = null,
-    standalonePluginTrace: Boolean = false,
+    expandActivity: Boolean = false,
     onQuote: ((String) -> Unit)? = null,
     onRetry: (() -> Unit)? = null,
 ) {
@@ -519,8 +508,8 @@ internal fun TraceLog(
         }
     val expanded = expansion.toMap()
     val entries =
-        remember(blocks, streamed, expandThoughts, expanded, standalonePluginTrace) {
-            timeline(blocks, streamed, expandThoughts, expanded, standalonePluginTrace)
+        remember(blocks, streamed, expandThoughts, expanded, expandActivity) {
+            timeline(blocks, streamed, expandThoughts, expanded, expandActivity)
         }
     // Keep the visible row anchored at its top as it grows. Pin to the end only
     // when the reader was already there before the content changed.
@@ -556,14 +545,8 @@ internal fun TraceLog(
         buildMap {
             entries.forEachIndexed { index, entry ->
                 when (entry) {
-                    is TimelineItem.ActivityHeader -> {
-                        put(entry.id, index)
-                        entry.header.parent?.let { put(it.id, index) }
-                    }
-                    is TimelineItem.ActivityStep -> {
-                        put(entry.group.id, index)
-                        entry.child?.let { put(it.id, index) }
-                    }
+                    is TimelineItem.ActivityHeader -> put(entry.id, index)
+                    is TimelineItem.ActivityStep -> put(entry.group.id, index)
                     else -> Unit
                 }
             }
@@ -584,25 +567,16 @@ internal fun TraceLog(
                 val top = visible.firstOrNull { it.offset + it.size > edge }
                     ?: return@derivedStateOf emptyList()
                 val entry = itemsByKey[top.key]
-                val groups = when (entry) {
-                    is TimelineItem.ActivityStep -> listOfNotNull(entry.group, entry.child)
-                    is TimelineItem.ActivityHeader ->
-                        buildList {
-                            entry.header.parent?.let(::add)
-                            if (
-                                entry.header.expanded &&
-                                    top.offset < edge + (entry.header.parent?.let { headingHeights[it.id] ?: headingHeight } ?: 0)
-                            )
-                                add(entry.header)
-                        }
-                    else -> emptyList()
+                val group = when (entry) {
+                    is TimelineItem.ActivityStep -> entry.group
+                    is TimelineItem.ActivityHeader -> entry.header.takeIf { it.expanded && top.offset < edge }
+                    else -> null
                 }
-                val stackHeight = groups.sumOf { headingHeights[it.id] ?: headingHeight }
+                val stackHeight = group?.let { headingHeights[it.id] ?: headingHeight } ?: 0
                 val toolRow = visible.firstOrNull { it.offset + it.size > edge + stackHeight }
                 val tool = toolRow?.let { row ->
                     (itemsByKey[row.key] as? TimelineItem.ActivityStep)?.takeIf {
-                        expanded[it.id] == true && it.group.id == groups.firstOrNull()?.id &&
-                            it.child?.id == groups.getOrNull(1)?.id && row.offset < edge + stackHeight
+                        expanded[it.id] == true && it.group.id == group?.id && row.offset < edge + stackHeight
                     }
                 }
                 buildList {
@@ -618,7 +592,7 @@ internal fun TraceLog(
                         }
                         anchor += height
                     }
-                    groups.forEach { pin(TimelineItem.ActivityHeader(it), groupEnds.getValue(it.id)) }
+                    if (group != null) pin(TimelineItem.ActivityHeader(group), groupEnds.getValue(group.id))
                     if (toolRow != null && tool != null) pin(tool, toolRow.index)
                 }
             }
@@ -627,7 +601,7 @@ internal fun TraceLog(
     fun toggleTrace(header: TraceHeader, pinnedHeader: Boolean = false) {
         if (pinnedHeader && list.canScrollForward) {
             val remaining =
-                timeline(blocks, streamed, expandThoughts, expanded + (header.id to false), standalonePluginTrace)
+                timeline(blocks, streamed, expandThoughts, expanded + (header.id to false), expandActivity)
             val index = remaining.indexOfFirst { it.id == header.id }
             if (index >= 0) list.requestScrollToItem((index - 1).coerceAtLeast(0))
         }
@@ -648,109 +622,81 @@ internal fun TraceLog(
     val openUiPages = remember(openUi) { OpenUiPageCache() }
     DisposableEffect(openUiPages) { onDispose(openUiPages::close) }
     Box(modifier) {
-        LazyColumn(
-            Modifier.fillMaxSize().testTag("transcript"),
-            state = list,
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.Bottom,
-        ) {
-            items(entries, key = { it.id }, contentType = { it.type }) { item ->
-                val spacing =
-                    if (
-                        item is TimelineItem.ActivityHeader ||
-                            item is TimelineItem.ActivityStep ||
-                            item is TimelineItem.Speaker ||
-                            item is TimelineItem.Paragraph && !item.last
-                    )
-                        0.dp
-                    else 10.dp
-                Box(Modifier.fillMaxWidth().padding(bottom = spacing)) {
-                    when (item) {
-                        is TimelineItem.ActivityHeader ->
-                            TraceHeading(
-                                item.header,
-                                obscured = pinned.any { it.item.id == item.id },
-                                modifier = measureHeading(item.id),
-                            ) {
-                                toggleTrace(item.header)
-                            }
-                        is TimelineItem.ActivityStep -> {
-                            val depth = if (item.child == null) 1 else 2
-                            val nestedCard = item.child != null && !item.step.openUi.isNullOrBlank()
-                            if (!nestedCard || item.step.reasoning.isNotBlank() || item.step.content.isNotBlank() ||
-                                item.step.toolArgumentsUi != null || item.step.toolResultUi != null)
-                                TraceStep(
+        // Share a selection across prose rows while retaining the lazy timeline and its stable keys.
+        ReplySelection(onQuote) {
+            LazyColumn(
+                Modifier.fillMaxSize().testTag("transcript"),
+                state = list,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.Bottom,
+            ) {
+                items(entries, key = { it.id }, contentType = { it.type }) { item ->
+                    val spacing = when (item) {
+                        is TimelineItem.ActivityHeader, is TimelineItem.ActivityStep, is TimelineItem.Speaker -> 0.dp
+                        is TimelineItem.Paragraph -> if (item.last) 10.dp else 0.dp
+                        else -> 10.dp
+                    }
+                    val textBlock = when (item) {
+                        is TimelineItem.Message -> item.block.takeUnless { it.user }
+                        is TimelineItem.Paragraph -> item.block
+                        else -> null
+                    }
+                    val row: @Composable () -> Unit = {
+                        Box(Modifier.fillMaxWidth().padding(bottom = spacing)) {
+                            when (item) {
+                                is TimelineItem.ActivityHeader -> TraceHeading(
+                                    item.header,
+                                    obscured = pinned.any { it.item.id == item.id },
+                                    modifier = measureHeading(item.id),
+                                ) { toggleTrace(item.header) }
+                                is TimelineItem.ActivityStep -> TraceStep(
                                     item.step,
-                                    depth,
+                                    quoteDepth = 1,
                                     details = expanded[item.id] == true,
                                     toggleDetails = { toggleStep(item) },
                                     openUiPages = openUiPages,
                                     obscureHeading = pinnedTool?.item?.id == item.id,
                                     headingModifier = measureHeading(item.id),
                                 )
-                            if (nestedCard) {
-                                Box(Modifier.traceQuote(depth)) { OpenUiReply(item.step, openUi, openUiPages, displayAssets) }
+                                is TimelineItem.InteractiveReply -> OpenUiReply(item.block, openUi, openUiPages, displayAssets)
+                                is TimelineItem.Speaker -> Text(
+                                    item.block.speaker,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(bottom = 4.dp),
+                                )
+                                is TimelineItem.ReplyActions -> ReplyActions(
+                                    item.text,
+                                    item.block.id,
+                                    item.block.version.isNotBlank(),
+                                    onBranchReply,
+                                )
+                                is TimelineItem.Message -> if (item.block.user) {
+                                    UserMessage(item.block, onBranch, loadThumbnail)
+                                } else {
+                                    Text(item.block.content, style = MaterialTheme.typography.bodyMedium)
+                                }
+                                is TimelineItem.Paragraph -> ReplyParagraph(item, displayAssets)
                             }
                         }
-                        is TimelineItem.InteractiveReply ->
-                            OpenUiReply(item.block, openUi, openUiPages, displayAssets)
-                        is TimelineItem.Speaker ->
-                            Text(
-                                item.block.speaker,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(bottom = 4.dp),
-                            )
-                        is TimelineItem.ReplyActions ->
-                            ReplyActions(
-                                item.text,
-                                item.block.id,
-                                item.block.version.isNotBlank(),
-                                onBranchReply,
-                            )
-                        is TimelineItem.Message ->
-                            if (item.block.user) UserMessage(item.block, onBranch, loadThumbnail)
-                            else
-                                ReplySelection(onQuote.takeUnless { item.block.system }) {
-                                    Text(
-                                        item.block.content,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                    )
-                                }
-                        is TimelineItem.Paragraph ->
-                            ReplySelection(onQuote.takeUnless { item.block.user || item.block.system }) {
-                                val external = LocalUriHandler.current
-                                val links = remember(external, displayAssets, item.block.id) {
-                                    object : UriHandler {
-                                        override fun openUri(uri: String) {
-                                            if (isDisplayAssetUrl(uri)) displayAssets?.download(item.block.id, uri)
-                                            else external.openUri(uri)
-                                        }
-                                    }
-                                }
-                                CompositionLocalProvider(LocalUriHandler provides links) {
-                                    Markdown(
-                                        item.document,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        animations = stillMarkdown,
-                                        components = chatMarkdownComponents,
-                                        success = { state, components, _ ->
-                                            MarkdownElement(item.node, components, state.content)
-                                        },
-                                    )
-                                }
-                            }
+                    }
+                    when {
+                        textBlock == null -> DisableSelection(content = row)
+                        textBlock.user || textBlock.system -> ReplySelection(null, content = row)
+                        else -> row()
                     }
                 }
-            }
-            item(key = "latest-edge", contentType = "status") {
-                Box(Modifier.fillMaxWidth().heightIn(min = 1.dp)) {
-                    if (replyError != null) {
-                        Column(Modifier.padding(vertical = 8.dp)) {
-                            Text(replyError, color = MaterialTheme.colorScheme.error)
-                            if (onRetry != null) TextButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
+                item(key = "latest-edge", contentType = "status") {
+                    DisableSelection {
+                        Box(Modifier.fillMaxWidth().heightIn(min = 1.dp)) {
+                            if (replyError != null) {
+                                Column(Modifier.padding(vertical = 8.dp)) {
+                                    Text(replyError, color = MaterialTheme.colorScheme.error)
+                                    if (onRetry != null) TextButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
+                                }
+                            } else if (status != null) ConversationStatus(status)
                         }
-                    } else if (status != null) ConversationStatus(status)
+                    }
                 }
             }
         }
@@ -774,7 +720,7 @@ internal fun TraceLog(
                                         item.step,
                                         expanded = true,
                                         modifier = Modifier.testTag("pinned:${item.id}")
-                                            .traceQuote(if (item.child == null) 1 else 2),
+                                            .traceQuote(1),
                                         toggle = { toggleStep(item) },
                                     )
                                     else -> Unit
@@ -798,6 +744,31 @@ internal fun TraceLog(
             ) {
                 Symbol("arrow_downward", stringResource(R.string.latest_message))
             }
+    }
+}
+
+@Composable
+private fun ReplyParagraph(item: TimelineItem.Paragraph, displayAssets: DisplayAssets?) {
+    val external = LocalUriHandler.current
+    val links = remember(external, displayAssets, item.block.id) {
+        object : UriHandler {
+            override fun openUri(uri: String) {
+                if (isDisplayAssetUrl(uri)) displayAssets?.download(item.block.id, uri)
+                else external.openUri(uri)
+            }
+        }
+    }
+    CompositionLocalProvider(LocalUriHandler provides links) {
+        Markdown(
+            item.document,
+            modifier = Modifier.fillMaxWidth(),
+            typography = chatMarkdownTypography(),
+            animations = stillMarkdown,
+            annotator = chatMathAnnotator,
+            inlineContent = chatMathInlineContent(item.document.content, item.node),
+            components = replyMarkdownComponents,
+            success = { state, components, _ -> MarkdownElement(item.node, components, state.content) },
+        )
     }
 }
 
@@ -848,7 +819,7 @@ private data class MarkdownParts(val document: State.Success, val nodes: List<AS
 
 @Composable
 private fun rememberStreamingParagraphs(text: String): MarkdownParts? {
-    val stream = rememberStreamingMarkdownState()
+    val stream = rememberStreamingMarkdownState(flavour = ChatMathFlavour)
     val source by rememberUpdatedState(text)
     var parts by remember { mutableStateOf<MarkdownParts?>(null) }
     LaunchedEffect(stream) {
@@ -881,6 +852,10 @@ private fun UserMessage(
     branch: ((String) -> Unit)?,
     loadThumbnail: (suspend (AttachmentThumbnail) -> ByteArray)?,
 ) {
+    val context = LocalContext.current
+    val store = remember(context) { AttachmentStore(context) }
+    var preview by remember(block.id) { mutableStateOf<AttachmentFile?>(null) }
+    preview?.let { AttachmentPreviewDialog(it) { preview = null } }
     var menu by remember { mutableStateOf(false) }
     val branchLabel = stringResource(R.string.branch_edit_message)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -907,59 +882,15 @@ private fun UserMessage(
                     block.quotes.forEach { quote ->
                         key(quote.id) { QuoteAttachmentCard(quote) }
                     }
-                    if (loadThumbnail != null)
-                        block.thumbnails.forEach { thumbnail ->
-                            val image by
-                                produceState<android.graphics.Bitmap?>(null, thumbnail) {
-                                    value =
-                                        try {
-                                            val data = loadThumbnail(thumbnail)
-                                            withContext(Dispatchers.Default) {
-                                                val bounds =
-                                                    android.graphics.BitmapFactory.Options().apply {
-                                                        inJustDecodeBounds = true
-                                                    }
-                                                android.graphics.BitmapFactory.decodeByteArray(
-                                                    data,
-                                                    0,
-                                                    data.size,
-                                                    bounds,
-                                                )
-                                                if (
-                                                    bounds.outWidth !in 1..1280 ||
-                                                        bounds.outHeight !in 1..1280
-                                                )
-                                                    null
-                                                else
-                                                    android.graphics.BitmapFactory.decodeByteArray(
-                                                        data,
-                                                        0,
-                                                        data.size,
-                                                    )
-                                            }
-                                        } catch (cancelled: CancellationException) {
-                                            throw cancelled
-                                        } catch (_: Exception) {
-                                            null
-                                        }
-                                }
-                            Box(
-                                Modifier.size(width = 180.dp, height = 120.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                image?.let {
-                                    Image(it.asImageBitmap(), null, Modifier.fillMaxSize())
-                                }
+                    block.attachments.forEach { attachment ->
+                        key(attachment.id) {
+                            val file = remember(store, attachment.id, attachment.name, attachment.mime) {
+                                store.saved(attachment.id, attachment.name, attachment.mime)
                             }
+                            val thumbnail = rememberAttachmentThumbnail(attachment.thumbnail, loadThumbnail)
+                            AttachmentChip(attachment.name, file, { preview = file }, preview = thumbnail,
+                                modifier = Modifier.padding(bottom = 5.dp))
                         }
-                    block.attachmentNames.forEach { name ->
-                        Text(
-                            name,
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
                     }
                     if (block.content.isNotBlank()) Text(block.content)
                 }
@@ -977,12 +908,6 @@ private fun UserMessage(
         }
     }
 }
-
-private val TraceBlock.hasTraceContent: Boolean
-    get() = compaction || tool.isNotBlank() || reasoning.isNotBlank() || content.isNotBlank() || !openUi.isNullOrBlank()
-
-private val TraceBlock.isSearchTrace: Boolean
-    get() = role == AgentRole.Search || role == AgentRole.Browser
 
 @Composable
 internal fun MessageMarkdown(text: String, streaming: Boolean = false) {

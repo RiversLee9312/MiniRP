@@ -1,5 +1,8 @@
 package com.minirp.app
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.text.contextmenu.data.TextContextMenuItem
 import androidx.compose.foundation.text.contextmenu.data.TextContextMenuSession
 import androidx.compose.foundation.text.contextmenu.provider.LocalTextContextMenuToolbarProvider
@@ -10,6 +13,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.LocalClipboard
@@ -25,6 +31,7 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import com.mikepenz.markdown.model.State
 import com.mikepenz.markdown.model.parseMarkdown
@@ -35,6 +42,7 @@ import com.minirp.app.ui.ChatState
 import com.minirp.app.ui.ComposerSubmission
 import com.minirp.app.ui.QuoteAttachment
 import com.minirp.app.ui.TraceBlock
+import com.minirp.app.ui.TraceLog
 import com.minirp.app.ui.branchDraft
 import com.minirp.app.ui.decodeBlock
 import com.minirp.app.ui.toJson
@@ -140,6 +148,117 @@ class ReplyQuoteTest {
             assertEquals("selected", message.quotes.single().text)
         }
         quote.assertDoesNotExist()
+    }
+
+    @Test
+    fun longPressAndDragSelectsAcrossMarkdownRowsAndToolActivity() {
+        fun reply(id: String, source: String) = TraceBlock(id, content = source, markdown = parseMarkdown(source) as State.Success)
+        val blocks = listOf(
+            reply("start", "First **segment**.\n\nSecond paragraph.\n\n```\nval n = 1\n```"),
+            TraceBlock("tool", tool = "fixture_tool", result = "Tool result"),
+            reply("end", "Final **segment**."),
+        )
+        val toolbar = TestSelectionToolbar()
+        var copied: String? = null
+        var quoted: String? = null
+        compose.setContent {
+            val clipboard = LocalClipboard.current
+            val testClipboard = remember(clipboard) {
+                object : Clipboard by clipboard {
+                    override suspend fun setClipEntry(clipEntry: ClipEntry?) {
+                        copied = clipEntry?.clipData?.getItemAt(0)?.text?.toString()
+                    }
+                }
+            }
+            MaterialExpressiveTheme {
+                CompositionLocalProvider(
+                    LocalClipboard provides testClipboard,
+                    LocalTextContextMenuToolbarProvider provides toolbar,
+                ) {
+                    TraceLog(blocks, expandThoughts = false, onQuote = { quoted = it })
+                }
+            }
+        }
+
+        val transcript = compose.onNodeWithTag("transcript")
+        val origin = transcript.fetchSemanticsNode().positionInRoot
+        fun position(text: String, end: Boolean): Offset {
+            val node = compose.onNodeWithText(text, useUnmergedTree = true)
+            val layouts = mutableListOf<TextLayoutResult>()
+            node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { assertTrue(it(layouts)) }
+            val box = layouts.single().getBoundingBox(if (end) text.lastIndex else 0)
+            val point = if (end) Offset(box.right + 2, box.center.y) else box.center
+            return node.fetchSemanticsNode().positionInRoot - origin + point
+        }
+        val start = position("First segment.", end = false)
+        val end = position("Final segment.", end = true)
+        fun selectAcrossRows(menuItem: Int) {
+            transcript.performTouchInput {
+                down(start)
+                advanceEventTime(1_000)
+                repeat(12) { step -> moveTo(lerp(start, end, (step + 1) / 12f)) }
+                up()
+            }
+            val label = InstrumentationRegistry.getInstrumentation().targetContext.getString(menuItem)
+            compose.waitUntil(5_000) { toolbar.open }
+            compose.runOnIdle { toolbar.choose(label) }
+            compose.waitUntil(5_000) { !toolbar.open }
+        }
+        val expected = listOf("First segment.", "Second paragraph.", "val n = 1", "Final segment.")
+        selectAcrossRows(android.R.string.copy)
+        compose.runOnIdle { assertEquals(expected, copied?.lineSequence()?.filter(String::isNotBlank)?.toList()) }
+        selectAcrossRows(R.string.quote_reply)
+        compose.runOnIdle { assertEquals(expected, quoted?.lineSequence()?.filter(String::isNotBlank)?.toList()) }
+    }
+
+    @Test
+    fun draggingAnActiveSelectionScrollsToMoreOfTheReply() {
+        val source = (1..50).joinToString("\n\n") { "Paragraph ${it.toString().padStart(2, '0')}." }
+        val reply = TraceBlock("long-reply", content = source, markdown = parseMarkdown(source) as State.Success)
+        val list = LazyListState()
+        val toolbar = TestSelectionToolbar()
+        var quoted: String? = null
+        compose.setContent {
+            MaterialExpressiveTheme {
+                CompositionLocalProvider(LocalTextContextMenuToolbarProvider provides toolbar) {
+                    Box(Modifier.height(240.dp)) {
+                        TraceLog(listOf(reply), expandThoughts = false, list = list, onQuote = { quoted = it })
+                    }
+                }
+            }
+        }
+
+        val transcript = compose.onNodeWithTag("transcript")
+        val viewport = transcript.fetchSemanticsNode()
+        val lastVisibleAtStart = compose.runOnIdle { list.layoutInfo.visibleItemsInfo.last().index }
+        val first = compose.onNodeWithText("Paragraph 01.", useUnmergedTree = true)
+        val text = mutableListOf<TextLayoutResult>()
+        first.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { assertTrue(it(text)) }
+        val start = first.fetchSemanticsNode().positionInRoot - viewport.positionInRoot + text.single().getBoundingBox(0).center
+        val belowEdge = Offset(start.x, viewport.size.height + 72f)
+        transcript.performTouchInput {
+            down(start)
+            advanceEventTime(1_000)
+            repeat(12) { step -> moveTo(lerp(start, belowEdge, (step + 1) / 12f)) }
+        }
+        try {
+            repeat(12) { step ->
+                transcript.performTouchInput { moveTo(belowEdge + Offset(step + 1f, 0f)) }
+                compose.waitForIdle()
+            }
+            compose.runOnIdle { assertTrue(list.layoutInfo.visibleItemsInfo.last().index > lastVisibleAtStart + 1) }
+        } finally {
+            transcript.performTouchInput { up() }
+        }
+        val quote = InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.quote_reply)
+        compose.waitUntil(5_000) { toolbar.open }
+        compose.runOnIdle { toolbar.choose(quote) }
+        compose.runOnIdle {
+            val lines = checkNotNull(quoted).lines()
+            assertEquals("Paragraph 01.", lines.first())
+            val newlyVisible = (lastVisibleAtStart + 2).toString().padStart(2, '0')
+            assertTrue("Paragraph $newlyVisible." in lines)
+        }
     }
 
     private class TestSelectionToolbar : TextContextMenuProvider {

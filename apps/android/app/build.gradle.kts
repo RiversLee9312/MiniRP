@@ -129,8 +129,8 @@ android {
         applicationId = "com.minichat.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 23
-        versionName = "1.3.4"
+        versionCode = 24
+        versionName = "1.3.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" } }
@@ -225,9 +225,14 @@ dependencies {
     implementation("androidx.webkit:webkit:1.15.0")
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
     implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.43.0")
+    implementation("io.github.huarangmeng:latex-renderer:1.6.3")
+    implementation("io.github.huarangmeng:latex-fonts-katex:1.6.3")
     implementation("androidx.paging:paging-compose:3.5.3")
     implementation("androidx.media3:media3-transformer:1.11.1")
-    implementation("androidx.palette:palette:1.0.0")
+    implementation("androidx.media3:media3-exoplayer:1.11.1")
+    implementation("androidx.media3:media3-ui:1.11.1")
+    implementation("androidx.media3:media3-ui-compose:1.11.1")
+    implementation("me.saket.telephoto:zoomable-image-coil3:0.19.0")
     implementation("com.materialkolor:material-kolor:5.0.1")
     implementation("androidx.navigation:navigation-compose:2.10.1")
     implementation("androidx.concurrent:concurrent-futures:1.2.0")

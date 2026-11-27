@@ -156,7 +156,38 @@ try {
   await command({op:"select_chat",preset,id:another});
   await otherRoom;
   assert.equal((await read(initial.history.chat)).status,400);
-  console.log("Packaged WebUI history: bounded initial panes, ordered pages, scoped authorization, old Asset, immutable old cursor, SSE replay checkpoint, and room-switch invalidation verified.");
+
+  const activityPreset = randomUUID();
+  const run = randomUUID().replaceAll("-", "").slice(0, 12);
+  const worker = randomUUID().replaceAll("-", "").slice(0, 12);
+  const legacyWorker = randomUUID();
+  const activityDirectory = join(workspace, "preset_sessions", activityPreset);
+  await mkdir(activityDirectory, { recursive: true });
+  await writeFile(join(workspace, "presets", activityPreset + ".json"), JSON.stringify({ id: activityPreset, name: "Activity fixture" }));
+  await writeFile(join(activityDirectory, "blocks.json"), JSON.stringify([
+    { id: run, agent: "PluginAgent", plugin_agent: worker, plugin_run: run, plugin_status: "finished" },
+    { id: run + "-reply", agent: "PluginAgent", plugin_agent: worker, plugin_run: run, content: "Completed run output." },
+    { id: legacyWorker, agent: "PluginAgent", plugin_agent: legacyWorker, content: "Legacy run output." },
+  ]));
+  const selected = findEvents(batch => batch.find(item => item.kind === "home" && item.preset === activityPreset));
+  await command({ op: "home", preset: activityPreset });
+  await selected;
+  const opened = findEvents(batch => batch.find(item => item.kind === "preset_opened" && item.preset === activityPreset));
+  await command({ op: "open_preset", preset: activityPreset });
+  await opened;
+  const activity = (parameters = {}) => fetch(origin + "/api/preset/activity?" + new URLSearchParams({ preset: activityPreset, ...parameters }),
+    { headers: { cookie } });
+  const list = await activity();
+  assert.equal(list.status, 200);
+  assert.deepEqual((await list.json()).items.map(item => item.id), [run, legacyWorker]);
+  for (const [id, content] of [[run, "Completed run output."], [legacyWorker, "Legacy run output."]]) {
+    const detail = await activity({ run: id });
+    assert.equal(detail.status, 200);
+    assert.deepEqual((await detail.json()).blocks.filter(block => block.content).map(block => block.content), [content]);
+  }
+  assert.equal((await activity({ run: "unlisted-run" })).status, 400);
+  assert.equal((await activity({ run, preset })).status, 400);
+  console.log("Packaged WebUI history: pagination, scoped authorization, SSE replay, and plugin run lookup verified.");
 } finally {
   if (child && child.exitCode===null) { child.kill(); await closed; }
   const path = await realpath(workspace);

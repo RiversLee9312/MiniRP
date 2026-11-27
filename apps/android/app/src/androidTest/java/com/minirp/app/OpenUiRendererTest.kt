@@ -13,10 +13,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.LocalClipboard
@@ -35,6 +38,8 @@ import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import com.minirp.app.ui.OpenUiInteractions
 import com.minirp.app.ui.AssetDownloader
+import com.minirp.app.ui.MiniRPTheme
+import com.minirp.app.ui.openUiTheme
 import com.minirp.app.ui.DisplayAssets
 import com.minirp.app.ui.TraceBlock
 import com.minirp.app.ui.TraceLog
@@ -57,6 +62,35 @@ import org.junit.Test
 
 class OpenUiRendererTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun openCardFollowsPresetPaletteAndThemeWithoutReloading() {
+        val seed = mutableStateOf(Color(0xFFB93554))
+        val dark = mutableStateOf(false)
+        val expectedFocus = AtomicReference<String>()
+        compose.setContent {
+            MiniRPTheme(darkTheme = dark.value, seedColor = seed.value) {
+                val color = MaterialTheme.colorScheme.openUiTheme().getString("intelligentFocus")
+                SideEffect { expectedFocus.set(color) }
+                TraceLog(listOf(TraceBlock("palette-card", openUi = "root = Text(\"Palette fixture\")")), false)
+            }
+        }
+        val focus = """getComputedStyle(document.querySelector("[data-openui-intelligent-mode]")).getPropertyValue("--openui-intelligent-focus").trim()"""
+        compose.waitUntil(15_000) { textContains("Palette fixture", cardId = "palette-card") }
+        assertEquals(JSONObject.quote(expectedFocus.get()), js(focus, cardId = "palette-card"))
+        val original = expectedFocus.get()
+        js("window.paletteFixture = true", cardId = "palette-card")
+        compose.runOnIdle { seed.value = Color(0xFF148347) }
+        compose.waitUntil(10_000) {
+            expectedFocus.get() != original && js(focus, cardId = "palette-card") == JSONObject.quote(expectedFocus.get())
+        }
+        compose.runOnIdle { dark.value = true }
+        compose.waitUntil(10_000) {
+            js("document.documentElement.style.colorScheme", cardId = "palette-card") == "\"dark\"" &&
+                js(focus, cardId = "palette-card") == JSONObject.quote(expectedFocus.get())
+        }
+        assertEquals("true", js("window.paletteFixture", cardId = "palette-card"))
+    }
 
     @Test
     fun toolTraceUsesTheReadOnlySurfaceAndFallsBackForUnsupportedComponents() {

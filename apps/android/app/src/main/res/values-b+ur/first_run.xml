@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">MiniRP میں خوش آمدید</string>
+    <string name="setup_welcome_detail">کوئی AI سروس منسلک کریں، پھر چیٹس اور پیش سیٹ کی تشکیل کے لیے MiniRP کا ماڈل منتخب کریں۔</string>
+    <string name="setup_begin">شروع کریں</string>
+    <string name="setup_download_notice">MiniRP ایک مفت، غیر منافع بخش اور اوپن سورس ایپ ہے۔ اسے جاری کردہ نسخوں کے سرکاری صفحے سے ڈاؤن لوڈ کریں۔ اگر یہ کہیں اور سے ملی یا اس کے پیسے لیے گئے تو دھوکے سے خبردار رہیں۔</string>
+    <string name="setup_official_download">سرکاری ڈاؤن لوڈ</string>
+    <string name="setup_connect_provider">AI سروس منسلک کریں</string>
+    <string name="setup_provider_detail">فراہم کنندہ وہ سروس ہے جو ماڈل چلاتی ہے۔ رابطے کی تفصیلات بھرنے کے لیے اس کا سانچہ چنیں۔ اگر API کلید درکار ہے تو اسے فراہم کنندہ کی ویب سائٹ سے حاصل کریں۔</string>
+    <string name="setup_unsure">مجھے معلوم نہیں</string>
+    <string name="setup_choose_model">ماڈل منتخب کریں</string>
+    <string name="setup_model_detail">اپنی ابتدائی گفتگوؤں کے لیے %1$s سے ماڈل منتخب کریں۔</string>
+    <string name="setup_model_fallback">API کا پتہ اور کلید چیک کر کے دوبارہ کوشش کریں۔ اگر فراہم کنندہ ماڈلوں کی فہرست نہیں دکھاتا تو اس کی ویب سائٹ سے درست ماڈل ID درج کریں۔</string>
+    <string name="add_model_by_id">ID سے ماڈل شامل کریں</string>
+    <string name="setup_use_model">یہ ماڈل استعمال کریں</string>
+    <string name="setup_next">جاری رکھیں</string>
+    <string name="setup_effort_title">ماڈل کتنا سوچے؟</string>
+    <string name="setup_effort_detail">سوچ کی سطح طے کرتی ہے کہ AI جواب سے پہلے کتنا وقت دے۔ پیچیدہ کہانی یا پلگ اِن کے لیے سب سے اونچی سطح سے شروع کریں۔ فوری چیٹ کے لیے کم سطح آزمائیں۔ اونچی سطح پر زیادہ وقت اور کوٹا لگ سکتا ہے۔ آپ اسے ترتیبات ← ماڈلز میں بدل سکتے ہیں۔</string>
+    <string name="setup_help_title">MiniRP ترتیب دینے میں مدد</string>
+    <string name="setup_help_detail">یہ پرامپٹ %1$s میں کاپی کریں، پھر بتائے گئے مراحل پر عمل کریں۔</string>
+    <string name="setup_assistants_china">DeepSeek یا Qwen</string>
+    <string name="setup_assistants_global">ChatGPT، Grok یا Claude</string>
+    <string name="setup_unknown_region">نامعلوم</string>
+    <string name="setup_copy_prompt">پرامپٹ کاپی کریں</string>
+    <string name="setup_help_web">ویب تلاش اور صفحات حاصل کرنا</string>
+    <string name="setup_help_intro">میں Android پر MiniRP پہلی بار استعمال کر رہا ہوں۔ براہ کرم %1$s میں جواب دیں۔ میرے آلے کا خطہ %2$s ہے۔ پہلے %3$s پر MiniRP کی سرکاری رہنمائی پڑھیں۔ اگر صفحہ نہ کھلے تو مجھے بتائیں۔</string>
+</resources>

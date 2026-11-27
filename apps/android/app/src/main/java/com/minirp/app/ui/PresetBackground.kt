@@ -4,11 +4,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.ColorSpace
 import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.graphics.Movie
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.graphics.SurfaceTexture
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.Drawable
@@ -22,7 +21,6 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -33,35 +31,23 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
-import androidx.palette.graphics.Palette
 import java.io.File
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -74,7 +60,7 @@ data class PresetAppearance(
     val themeColor: Int? = null,
 )
 
-internal data class PresetBackground(val file: File, val mime: String, val poster: Bitmap, val seedColor: Color)
+internal data class PresetBackground(val file: File, val mime: String, val poster: Bitmap, val seedColor: Color?)
 
 @Composable
 internal fun rememberPresetBackground(model: ChatViewModel, state: ChatState): PresetBackground? {
@@ -115,10 +101,56 @@ internal fun rememberPresetBackground(model: ChatViewModel, state: ChatState): P
 
 internal fun decodePresetBackground(file: File, mime: String): PresetBackground {
     val poster = checkNotNull(if (mime.startsWith("video/")) videoPoster(file) else imagePoster(file))
-    val palette = Palette.from(poster).maximumColorCount(16).generate()
-    val seed = Color((palette.vibrantSwatch ?: palette.dominantSwatch)?.rgb
-        ?: poster.getPixel(poster.width / 2, poster.height / 2))
-    return PresetBackground(file, mime, poster, seed)
+    val scale = minOf(1f, 96f / maxOf(poster.width, poster.height))
+    val sample = Bitmap.createScaledBitmap(
+        poster, (poster.width * scale).roundToInt().coerceAtLeast(1),
+        (poster.height * scale).roundToInt().coerceAtLeast(1), true,
+    )
+    val pixels = IntArray(sample.width * sample.height)
+    sample.getPixels(pixels, 0, sample.width, 0, 0, sample.width, sample.height)
+    if (sample !== poster) sample.recycle()
+    return PresetBackground(file, mime, poster, accentFromPixels(pixels))
+}
+
+private const val hueBins = 24
+
+internal fun accentFromPixels(pixels: IntArray): Color? {
+    val bins = Array(hueBins) { FloatArray(4) }
+    var visible = 0f
+    for (pixel in pixels) {
+        val alpha = (pixel ushr 24) / 255f
+        visible += alpha
+        val red = pixel ushr 16 and 255
+        val green = pixel ushr 8 and 255
+        val blue = pixel and 255
+        val high = maxOf(red, green, blue)
+        val range = high - minOf(red, green, blue)
+        if (range < 12 || alpha == 0f) continue
+        val hue = when (high) {
+            red -> (green - blue).toFloat() / range
+            green -> 2f + (blue - red).toFloat() / range
+            else -> 4f + (red - green).toFloat() / range
+        }
+        val bin = bins[((hue * hueBins / 6).roundToInt() + hueBins) % hueBins]
+        val weight = alpha * minOf(1f, range / 48f)
+        bin[0] += weight
+        bin[1] += red * weight
+        bin[2] += green * weight
+        bin[3] += blue * weight
+    }
+    var best = 0
+    var score = 0f
+    for (index in bins.indices) {
+        if (bins[index][0] == 0f) continue
+        val support = bins[index][0] * 2 + bins[(index + hueBins - 1) % hueBins][0] + bins[(index + 1) % hueBins][0]
+        if (support > score) {
+            best = index
+            score = support
+        }
+    }
+    val (weight, red, green, blue) = bins[best]
+    if (score < visible * .08f || weight == 0f) return null
+    return Color((red / weight).roundToInt(), (green / weight).roundToInt(), (blue / weight).roundToInt())
 }
 
 private const val MAX_POSTER_EDGE = 1600
@@ -126,6 +158,7 @@ private const val MAX_POSTER_EDGE = 1600
 private fun imagePoster(file: File): Bitmap? {
     if (Build.VERSION.SDK_INT >= 28) return ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
         decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
         val scale = maxOf(info.size.width, info.size.height).toFloat() / MAX_POSTER_EDGE
         if (scale > 1) decoder.setTargetSize(
             (info.size.width / scale).toInt().coerceAtLeast(1), (info.size.height / scale).toInt().coerceAtLeast(1),
@@ -151,8 +184,7 @@ private fun videoPoster(file: File): Bitmap? {
     } finally { video.release() }
 }
 
-private val conversationBlur = 20.dp
-private const val minimumScrimOpacity = 0.87f
+private const val minimumScrimOpacity = 0.64f
 private const val minimumTextContrast = 4.5f
 
 internal fun backgroundScrim(colors: ColorScheme, dark: Boolean): Color {
@@ -169,7 +201,8 @@ internal fun backgroundScrim(colors: ColorScheme, dark: Boolean): Color {
     val neutral = if (dark) Color.Black else Color.White
     // Use the image color that gives the least contrast with the theme's text.
     val worstCaseImage = if (dark) Color.White else Color.Black
-    val base = if (hasContrast(colors.surface)) colors.surface else neutral
+    val surfaceTint = lerp(neutral, colors.surface, 0.2f)
+    val base = if (hasContrast(surfaceTint)) surfaceTint else neutral
     if (hasContrast(base.copy(alpha = minimumScrimOpacity).compositeOver(worstCaseImage))) {
         return base.copy(alpha = minimumScrimOpacity)
     }
@@ -185,24 +218,17 @@ internal fun backgroundScrim(colors: ColorScheme, dark: Boolean): Color {
 }
 
 @Composable
-internal fun PresetHomeBackdrop(
+internal fun PresetBackdropLayout(
     background: PresetBackground?,
     modifier: Modifier,
-    content: @Composable (Modifier?) -> Unit,
+    home: Boolean,
+    blur: Boolean = true,
+    content: @Composable (HomeWallpaperContrast?) -> Unit,
 ) {
     Box(modifier) {
-        if (background == null) {
-            content(null)
-        } else {
-            var origin by remember { mutableStateOf(Offset.Zero) }
-            var banner by remember { mutableStateOf<Rect?>(null) }
-            PresetBackdrop(
-                background, conversation = false, blur = false,
-                modifier = Modifier.matchParentSize().onGloballyPositioned { origin = it.positionInRoot() },
-                glassBounds = { banner?.translate(-origin) },
-            )
-            content(Modifier.testTag("preset-home-banner").onGloballyPositioned { banner = it.boundsInRoot() })
-        }
+        val contrast = if (background != null && home) remember(background) { HomeWallpaperContrast() } else null
+        PresetBackdrop(background, conversation = !home, blur = blur, modifier = Modifier.matchParentSize(), contrast = contrast)
+        content(contrast)
     }
 }
 
@@ -212,21 +238,29 @@ internal fun PresetBackdrop(
     conversation: Boolean,
     blur: Boolean,
     modifier: Modifier,
-    glassBounds: (() -> Rect?)? = null,
+    contrast: HomeWallpaperContrast? = null,
 ) {
     if (background == null) return
-    val dark = LocalMiniRPDarkTheme.current
     val colors = MaterialTheme.colorScheme
-    val tint = remember(colors, dark) { backgroundScrim(colors, dark) }
-    val radius = if (conversation && blur) conversationBlur else 0.dp
+    val dark = miniRPDarkTheme()
     val running = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(Lifecycle.State.RESUMED)
-    val glass = if (glassBounds != null) backdropGlass(glassBounds, tint) else Modifier
-    Box(modifier.clipToBounds().testTag("preset-background").then(glass)) {
+    val treatment = when {
+        contrast != null -> sampleHomeWallpaper(background, contrast, colors.surface, running)
+        conversation && blur -> backdropGlass(background, dark, running)
+        conversation -> {
+            val tint = backgroundScrim(colors, dark)
+            Modifier.drawWithContent {
+                drawContent()
+                drawRect(tint)
+            }
+        }
+        else -> Modifier
+    }
+    Box(modifier.clipToBounds().testTag("preset-background").then(treatment)) {
         Image(
             remember(background) { background.poster.asImageBitmap() }, null,
-            Modifier.matchParentSize().blur(radius), contentScale = ContentScale.Crop,
+            Modifier.matchParentSize(), contentScale = ContentScale.Crop,
         )
-        val pixels = with(LocalDensity.current) { radius.toPx() }
         when {
             background.mime.startsWith("video/") ->
                 AndroidView(
@@ -234,48 +268,17 @@ internal fun PresetBackdrop(
                     modifier = Modifier.matchParentSize(),
                     onReset = null,
                     onRelease = VideoBackground::release,
-                    update = { it.update(background.file, running, pixels) },
+                    update = { it.update(background.file, running) },
                 )
-            background.mime == "image/gif" -> GifBackground(background.file, running, pixels, Modifier.matchParentSize())
-        }
-        if (conversation) Box(Modifier.matchParentSize().background(tint))
-    }
-}
-
-@Composable
-private fun backdropGlass(bounds: () -> Rect?, tint: Color): Modifier {
-    val source = rememberGraphicsLayer()
-    val glass = rememberGraphicsLayer()
-    val blur = with(LocalDensity.current) { conversationBlur.toPx() }
-    val effect = remember(blur) { BlurEffect(blur, blur, TileMode.Clamp) }
-    return Modifier.drawWithContent {
-        val area = bounds()
-        if (area == null) {
-            drawContent()
-            return@drawWithContent
-        }
-        // Reuse the rendered media frame so the banner stays aligned with moving backgrounds.
-        source.record { this@drawWithContent.drawContent() }
-        drawLayer(source)
-        glass.renderEffect = effect
-        glass.record { drawLayer(source) }
-        clipRect(area.left, area.top, area.right, area.bottom) {
-            drawLayer(glass)
-            drawRect(tint)
+            background.mime == "image/gif" -> GifBackground(background.file, running, Modifier.matchParentSize())
         }
     }
 }
 
-private fun View.backgroundBlur(radius: Float) {
-    if (Build.VERSION.SDK_INT >= 31) setRenderEffect(
-        if (radius > 0f) RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP) else null,
-    )
-}
-
 @Composable
-private fun GifBackground(file: File, running: Boolean, radius: Float, modifier: Modifier) {
+private fun GifBackground(file: File, running: Boolean, modifier: Modifier) {
     if (Build.VERSION.SDK_INT < 28) {
-        LegacyGifBackground(file, running, radius, modifier)
+        LegacyGifBackground(file, running, modifier)
         return
     }
     var image by remember(file) { mutableStateOf<Drawable?>(null) }
@@ -304,20 +307,18 @@ private fun GifBackground(file: File, running: Boolean, radius: Float, modifier:
                     android.graphics.drawable.AnimatedImageDrawable.REPEAT_INFINITE
             }
             (image as? Animatable)?.let { if (running) it.start() else it.stop() }
-            view.backgroundBlur(radius)
         },
     )
 }
 
 @Suppress("DEPRECATION")
 @Composable
-private fun LegacyGifBackground(file: File, running: Boolean, radius: Float, modifier: Modifier) {
+private fun LegacyGifBackground(file: File, running: Boolean, modifier: Modifier) {
     var movie by remember(file) { mutableStateOf<Movie?>(null) }
     LaunchedEffect(file) { movie = withContext(Dispatchers.IO) { Movie.decodeFile(file.path) } }
     AndroidView(factory = ::MovieBackground, modifier = modifier) {
         it.movie = movie
         it.running = running
-        it.backgroundBlur(radius)
         it.invalidate()
     }
 }
@@ -356,9 +357,8 @@ private class VideoBackground(context: Context) : FrameLayout(context), TextureV
 
     init { addView(texture, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)) }
 
-    fun update(source: File, play: Boolean, radius: Float) {
+    fun update(source: File, play: Boolean) {
         running = play
-        backgroundBlur(radius)
         if (file != source) {
             file = source
             release()

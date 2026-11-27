@@ -106,52 +106,30 @@
 }
 
 .ensemble-footer {
-  display: grid;
-  grid-template: "activity activity activity" ". input fab"
-    / minmax(0, 1fr) minmax(0, var(--measure)) auto;
-  align-items: end;
-  column-gap: clamp(8px, 1.9vw, 21px);
+  display: flex;
+  justify-content: flex-end;
   padding: 0 clamp(12px, 2.3vw, 28px) max(clamp(12px, 2.5vh, 24px), env(safe-area-inset-bottom));
 }
 
-.ensemble-footer[data-composer="true"] {
-  grid-template-columns: minmax(0, 1fr) minmax(0, var(--measure)) minmax(52px, 1fr);
-}
-
-.ensemble-footer .composer-deck {
-  grid-area: input;
-  inline-size: 100%;
-  min-inline-size: 0;
-  padding: 0;
-}
-
 .room-private-fab {
-  grid-area: fab;
-  justify-self: end;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
-  inline-size: 52px;
+  max-inline-size: min(210px, 85vw);
   min-block-size: 52px;
-  padding: 0;
+  padding: 8px 16px;
   border: 0;
   border-radius: 17px;
   background: var(--primary-container);
   color: var(--on-primary-container);
+  font-size: var(--label);
+  font-weight: 650;
   box-shadow: var(--shadow-2);
   transition: background-color var(--effect), box-shadow var(--effect), transform var(--effect-fast);
 }
 
-.room-private-fab[data-extended="true"] {
-  inline-size: auto;
-  max-inline-size: min(210px, 85vw);
-  padding: 8px 16px;
-  font-size: var(--label);
-  font-weight: 650;
-}
-
-.room-private-fab[data-extended="true"] span:not(.symbol) {
+.room-private-fab span:not(.symbol) {
   overflow-wrap: anywhere;
   text-align: start;
 }
@@ -177,7 +155,6 @@
 }
 
 .room-thinking {
-  grid-area: activity;
   min-inline-size: 0;
   color: var(--variant);
   font-size: var(--label-small);
@@ -223,6 +200,9 @@
 }
 
 .ensemble-archive-transcript > .dialog-content {
+  margin: 0;
+  overflow: hidden;
+  scrollbar-gutter: auto;
   block-size: min(64dvh, 620px);
   grid-template-rows: minmax(0, 1fr);
   padding-inline: 0;
@@ -281,12 +261,6 @@
 
 .ensemble-trace-list .message {
   max-inline-size: 100%;
-}
-
-@media (width < 560px) {
-  .ensemble-footer[data-composer="true"] {
-    grid-template: "activity activity" "input fab" / minmax(0, 1fr) 52px;
-  }
 }
 
 @media (forced-colors: active) {

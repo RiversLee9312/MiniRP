@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Tervetuloa MiniRP:hen</string>
+    <string name="setup_welcome_detail">Yhdistä tekoälypalvelu ja valitse malli, jota MiniRP käyttää keskusteluissa ja esiasetusten määrittämisessä.</string>
+    <string name="setup_begin">Aloita</string>
+    <string name="setup_download_notice">MiniRP on maksuton, voittoa tavoittelematon avoimen lähdekoodin sovellus. Lataa se viralliselta julkaisusivulta. Varo huijauksia, jos sait sen muualta tai maksoit siitä.</string>
+    <string name="setup_official_download">Virallinen lataus</string>
+    <string name="setup_connect_provider">Yhdistä tekoälypalvelu</string>
+    <string name="setup_provider_detail">Palveluntarjoaja suorittaa mallin. Valitse sen mallipohja yhteystietojen täyttämistä varten. Jos palvelu vaatii API-avaimen, hanki se palveluntarjoajan sivustolta.</string>
+    <string name="setup_unsure">En tiedä</string>
+    <string name="setup_choose_model">Valitse malli</string>
+    <string name="setup_model_detail">Valitse palvelun %1$s malli ensimmäisiin keskusteluihisi.</string>
+    <string name="setup_model_fallback">Tarkista API-osoite ja avain, ja yritä uudelleen. Jos palveluntarjoaja ei näytä malliluetteloa, kirjoita sen sivustolla oleva tarkka mallitunnus.</string>
+    <string name="add_model_by_id">Lisää malli tunnuksella</string>
+    <string name="setup_use_model">Käytä tätä mallia</string>
+    <string name="setup_next">Jatka</string>
+    <string name="setup_effort_title">Kuinka paljon mallin pitäisi pohtia?</string>
+    <string name="setup_effort_detail">Päättelytaso määrittää, kuinka kauan tekoäly pohtii ennen vastausta. Kokeile monimutkaiseen tarinaan tai lisäosaan ensin korkeinta tasoa ja nopeaan keskusteluun alempaa tasoa. Korkea taso voi viedä enemmän aikaa ja käyttökiintiötä. Vaihda tasoa kohdassa Asetukset → Mallit.</string>
+    <string name="setup_help_title">Apua MiniRP:n käyttöönottoon</string>
+    <string name="setup_help_detail">Kopioi tämä kehote palveluun %1$s ja noudata sen ehdottamia ohjeita.</string>
+    <string name="setup_assistants_china">DeepSeek tai Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok tai Claude</string>
+    <string name="setup_unknown_region">tuntematon</string>
+    <string name="setup_copy_prompt">Kopioi kehote</string>
+    <string name="setup_help_web">Verkkohaku ja sivujen nouto</string>
+    <string name="setup_help_intro">Käytän MiniRP:tä Androidilla ensimmäistä kertaa. Vastaa kielellä %1$s. Laitteeni alue on %2$s. Lue ensin virallinen MiniRP-opas osoitteessa %3$s. Kerro, jos sitä ei voi avata.</string>
+</resources>

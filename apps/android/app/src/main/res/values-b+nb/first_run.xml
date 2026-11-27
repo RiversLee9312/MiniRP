@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_welcome">Velkommen til MiniRP</string>
+    <string name="setup_welcome_detail">Koble til en KI-tjeneste og velg modellen MiniRP skal bruke i samtaler og når du setter opp forhåndsinnstillinger.</string>
+    <string name="setup_begin">Kom i gang</string>
+    <string name="setup_download_notice">MiniRP er en gratis ideell app med åpen kildekode. Last den ned fra den offisielle utgivelsessiden. Vær oppmerksom på svindel hvis du skaffet den et annet sted eller betalte for den.</string>
+    <string name="setup_official_download">Offisiell nedlasting</string>
+    <string name="setup_connect_provider">Koble til en KI-tjeneste</string>
+    <string name="setup_provider_detail">Leverandøren kjører modellen. Velg leverandørens mal for å fylle inn tilkoblingsinformasjonen. Hvis tjenesten krever en API-nøkkel, får du den på leverandørens nettsted.</string>
+    <string name="setup_unsure">Jeg vet ikke</string>
+    <string name="setup_choose_model">Velg en modell</string>
+    <string name="setup_model_detail">Velg en modell fra %1$s til de første samtalene dine.</string>
+    <string name="setup_model_fallback">Sjekk API-adressen og nøkkelen, og prøv på nytt. Hvis leverandøren ikke viser en modelliste, skriv inn den nøyaktige modell-ID-en fra nettstedet.</string>
+    <string name="add_model_by_id">Legg til modell med ID</string>
+    <string name="setup_use_model">Bruk denne modellen</string>
+    <string name="setup_next">Fortsett</string>
+    <string name="setup_effort_title">Hvor mye skal modellen tenke?</string>
+    <string name="setup_effort_detail">Tenkingsnivået bestemmer hvor lenge KI-en tenker før den svarer. Begynn på høyeste nivå for innviklede historier eller programtillegg. Prøv et lavere nivå for en rask samtale. Høye nivåer kan ta lengre tid og bruke mer av kvoten. Du kan endre nivået under Innstillinger → Modeller.</string>
+    <string name="setup_help_title">Hjelp med å sette opp MiniRP</string>
+    <string name="setup_help_detail">Kopier denne ledeteksten til %1$s og følg trinnene som foreslås.</string>
+    <string name="setup_assistants_china">DeepSeek eller Qwen</string>
+    <string name="setup_assistants_global">ChatGPT, Grok eller Claude</string>
+    <string name="setup_unknown_region">ukjent</string>
+    <string name="setup_copy_prompt">Kopier ledetekst</string>
+    <string name="setup_help_web">Nettsøk og henting av nettsider</string>
+    <string name="setup_help_intro">Jeg er ny med MiniRP for Android. Svar på %1$s. Enhetsregionen min er %2$s. Les først den offisielle MiniRP-veiledningen på %3$s. Si fra hvis du ikke får åpnet den.</string>
+</resources>

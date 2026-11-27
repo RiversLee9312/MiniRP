@@ -22,7 +22,7 @@ export const ToolFacts = defineComponent({
     props: z.object({
         rows: z.array(row).max(18), status: z.string(), note: z.string(), more: z.string(), less: z.string(),
     }),
-    component: ({ props: { rows, status, note, more, less } }) => h("section", { className: "tool-facts" },
+    component: ({ props: { rows = [], status, note, more, less } }) => h("section", { className: "tool-facts" },
         status && h("p", { className: "tool-facts-status", dir: "auto" }, status),
         rows.length > 0 && h("dl", { className: "tool-facts-list" }, rows.map(({ label, value, mono }, index) =>
             h("div", { key: index, className: "tool-fact-row" }, h("dt", { dir: "auto" }, label),
